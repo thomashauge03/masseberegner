@@ -187,24 +187,42 @@ må du kontrollere mot befaring.
 
 ## Eksport
 
-* **Stikningsdata (CSV)** – profilnummer, nord, øst, veghøyde og vegkanter. Kan leses
-  inn i maskinstyring.
-* **Masseoppsett per profil (CSV)** – areal og volum for hvert profil.
-* **GeoJSON** – senterlinje, fotavtrykk og fjellobservasjoner.
-* **Rapport** – utskriftsklar HTML som kan lagres som PDF fra nettleseren.
+| Format | Til hva |
+|---|---|
+| **KOF** | Stikningsdata til totalstasjon og maskinstyring |
+| **LandXML** | Linjeføring med kurveelementer og lengdeprofil – leses av de fleste maskinstyringer |
+| **SOSI** | Kartdata til kommune og Kartverket |
+| **DXF** | Tegning til AutoCAD og liknende |
+| **CSV** | Stikningsdata og masseoppsett per profil, til regneark |
+| **GeoJSON** | Senterlinje, fotavtrykk og fjellobservasjoner |
+
+Formatene er skrevet etter spesifikasjonene, men er **ikke prøvd mot hvert enkelt
+mottakersystem**. Ta en prøveimport av én fil før dere baserer en jobb på dem.
+
+**Rapport** gir en utskriftsklar side med lengdeprofilen, et utvalg tverrsnitt og
+full stikningstabell med koordinater og høyder for senterlinje og begge vegkanter.
+Profilene tegnes på nytt i lys palett for papir. Lagres som PDF fra nettleseren.
 
 ## Test
+
+To testsett, som dekker hver sin del:
 
 ```bash
 node test/selftest.js
 ```
 
-124 kontroller: koordinatregning mot kjente referanser, linjeføring mot geometri
-regnet for hånd, lengdeprofil mot parabelformlene, masseberegning mot et tverrsnitt
-regnet ut for hånd med sju siffer, veiklassene mot tallene i normalen, innlesing av
-høydetabeller, eget tverrfall per profil, avkortet beregningsbredde, grensene mot
-terrenget, massebalansen mot bokføringsreglene, pakkingen av terrengfliser, og
-terrengmodellen mot Kartverket.
+154 kontroller uten nettleser: koordinatregning mot kjente referanser, linjeføring
+mot geometri regnet for hånd, lengdeprofil mot parabelformlene, masseberegning mot
+et tverrsnitt regnet ut for hånd med sju siffer, veiklassene mot tallene i normalen,
+kurvereglene, innlesing av høydetabeller, eget tverrfall per profil, avkortet
+beregningsbredde, grensene mot terrenget, massebalansen mot bokføringsreglene,
+avlesning av PDF, pakkingen av terrengfliser, og terrengmodellen mot Kartverket.
+
+Åpne programmet med **`?test=1`** bakerst i adressen for den andre halvparten:
+134 kontroller av selve grensesnittet – lagring, tegning av linje, alle
+profilverktøyene, høydetabellen, alle ni veiklassene, tverrprofilet, grensene,
+eksportene, rapporten og panelene. Den lager sitt eget prosjekt og rydder opp
+etter seg, så den er trygg å kjøre på en maskin med ekte prosjekter.
 
 ```bash
 node test/demo-ydestad.js
@@ -230,7 +248,10 @@ public/js/terreng.js     terrengmodell i nettleseren, bilineær interpolasjon
 public/js/masser.js      tverrprofil og volumberegning
 public/js/veiklasser.js  veiklassene fra landbruksveinormalen
 public/js/lager.js       prosjektlager i nettleseren, import og eksport
+public/js/eksport.js     KOF, LandXML, SOSI og DXF
+public/js/pdfimport.js   avlesning av tegnede kurver i en PDF
 public/js/farger.js      tegnefargene, hentet fra CSS-variablene
+public/js/nettlesertest.js  gjennomgang av grensesnittet (?test=1)
 public/js/ui-*.js        kart, lengdeprofil, tverrprofil, rapport
 public/bilde/hm-logo.png HM-logoen (samme fil som i de andre appene)
 public/demo/             demoprosjekt som blir lagt inn første gangen
