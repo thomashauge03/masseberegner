@@ -218,7 +218,10 @@ const App = {
     this.P.vip = foreslaProfil(this.terrengProfil.s, this.terrengProfil.z, {
       vipAvstand, maksStigning: maksBrukt, k: isFinite(k) ? k : 1,
       // krappe kurver har strengere stigningskrav
-      maksStigningVed: s => maksStigningFraRadius(this.P.mal, this.linje.radiusVed(s)),
+      maksStigningFor: (sA, sB, g) => this.tillattStigning(sA, sB, g),
+      // hold profilen innenfor det som lar seg bygge
+      maksOverTerreng: this.P.mal.maksFyllingshoyde > 0 ? this.P.mal.maksFyllingshoyde : null,
+      maksUnderTerreng: this.P.mal.maksSkjaeringsdybde > 0 ? this.P.mal.maksSkjaeringsdybde : null,
       // høyder brukeren har bestemt blir liggende
       laste: this.lasteHoyder()
     });
@@ -276,6 +279,26 @@ const App = {
     this.visLinjetabell();
     this.visHoydetabell();
     this.status(`Beregnet ${this.resultat.profiler.length} profiler på ${tid.toFixed(0)} ms`);
+  },
+
+  /**
+   * Største stigning veiklassen tillater pa strekket mellom to profilnummer.
+   *
+   * Den krappeste kurven pa strekket bestemmer, sa radien males flere steder
+   * og ikke bare i endene - ellers ville en kurve midt pa strekket blitt
+   * oversett. Fortegnet pa stigningen avgjør om det er lassretningen eller
+   * returretningen som gjelder.
+   */
+  tillattStigning(sA, sB, stigning) {
+    const mal = this.P.mal;
+    if (!this.linje) return 1;
+    let minste = Infinity;
+    const steg = Math.max(1, Math.abs(sB - sA) / 8);
+    for (let s = Math.min(sA, sB); s <= Math.max(sA, sB) + 1e-9; s += steg) {
+      const g = maksStigningFraRadius(mal, this.linje.radiusVed(s), stigning, mal.lassretning);
+      if (g < minste) minste = g;
+    }
+    return isFinite(minste) ? minste : 1;
   },
 
   /** Rask beregning brukt av optimaliseringen. */
@@ -361,19 +384,39 @@ const App = {
     }
     const maksTillatt = this.P.mal.stigningIKurve.reduce((a, r) => Math.max(a, r[1], r[2]), 0);
 
+    const mal = this.P.mal;
     const kostnad = liste => {
       const r = this.beregnRaskt(liste);
       const s = r.sum, b = r.balanse;
       // Kostnadsbilde: sprengning er dyrest, sa graving, sa transport inn/ut
       let k = s.skjaeringLosmasse * 1 + s.skjaeringFjell * 3 + s.fylling * 0.5
         + Math.abs(b.balanse) * 1.6;
+
+      /* Kravene fra veiklassen og grensene for hva som lar seg bygge legges
+         inn som svaert dyre brudd. Uten dette ville optimaliseringen valgt
+         den løsningen som er billigst pa papiret - gjerne en 20 % bakke i en
+         30-meterskurve, eller en fylling som stikker 40 m ut. */
       const vp = new Vertikalprofil(liste);
       for (const pr of r.profiler) {
-        const g = Math.abs(vp.stigning(pr.s));
-        if (g > maksTillatt) k += (g - maksTillatt) * 100000;
+        const g = vp.stigning(pr.s);
+        const tillatt = maksStigningFraRadius(mal, pr.radius, g, mal.lassretning);
+        if (Math.abs(g) > tillatt) k += (Math.abs(g) - tillatt) * 400000;
+
+        if (mal.maksFyllingshoyde > 0 && pr.maksFylling > mal.maksFyllingshoyde) {
+          k += (pr.maksFylling - mal.maksFyllingshoyde) * 3000;
+        }
+        if (mal.maksSkjaeringsdybde > 0 && pr.maksSkjaering > mal.maksSkjaeringsdybde) {
+          k += (pr.maksSkjaering - mal.maksSkjaeringsdybde) * 3000;
+        }
+        if (mal.maksUtslag > 0) {
+          const utslag = Math.max(-pr.fotVenstre, pr.fotHoyre) - pr.halvbredde;
+          if (utslag > mal.maksUtslag) k += (utslag - mal.maksUtslag) * 2000;
+        }
+        if (pr.advarsel) k += 50000;             // skraningen fant ikke terrenget
       }
       return k;
     };
+    void maksTillatt;
 
     this.framdrift(true, 'Optimaliserer lengdeprofilen…', 0);
     await pause();
@@ -468,6 +511,9 @@ const App = {
     sett('m_lassretning', String(m.lassretning || -1));
     this.visVeiklasse();
     this.visKravtabell();
+    sett('m_maksFyllingshoyde', m.maksFyllingshoyde);
+    sett('m_maksSkjaeringsdybde', m.maksSkjaeringsdybde);
+    sett('m_maksUtslag', m.maksUtslag);
     sett('m_profilAvstand', this.P.profilAvstand);
     sett('m_maksSokebredde', m.maksSokebredde);
     document.getElementById('m_bakkekorreksjon').checked = !!this.P.bakkekorreksjon;
@@ -500,6 +546,9 @@ const App = {
     m.renskUtenfor = tall('m_renskUtenfor');
     m.utvidelseOvergang = tall('m_utvidelseOvergang');
     m.maksSokebredde = tall('m_maksSokebredde');
+    m.maksFyllingshoyde = tall('m_maksFyllingshoyde');
+    m.maksSkjaeringsdybde = tall('m_maksSkjaeringsdybde');
+    m.maksUtslag = tall('m_maksUtslag');
     m.lassretning = parseInt(document.getElementById('m_lassretning').value, 10) || -1;
     this.P.profilAvstand = Math.max(1, tall('m_profilAvstand'));
     this.P.bakkekorreksjon = document.getElementById('m_bakkekorreksjon').checked;
@@ -1015,6 +1064,39 @@ const App = {
     id('knappEksportGeojson').onclick = () => Rapport.eksportGeojson();
     id('knappKontroller').onclick = () => this.kontrollerHoyder();
 
+    /* Stor visning. Panelene tegner seg sjøl pa nytt via ResizeObserver,
+       men Leaflet ma fa beskjed eksplisitt. */
+    const rute = document.querySelector('.rute');
+    const settStor = navn => {
+      const alt = ['kart', 'profil', 'tverr'];
+      const alleredePa = rute.classList.contains('stor-' + navn);
+      alt.forEach(n => rute.classList.remove('stor-' + n));
+      if (!alleredePa) rute.classList.add('stor-' + navn);
+      document.querySelectorAll('.utvidknapp').forEach(b => {
+        b.classList.toggle('aktiv', !alleredePa && b.dataset.utvid === navn);
+        b.textContent = (!alleredePa && b.dataset.utvid === navn) ? '⤡' : '⤢';
+      });
+      setTimeout(() => {
+        if (Kart.kart) Kart.kart.invalidateSize();
+        Lengdeprofil.tegn(); Tverrprofil.tegn();
+      }, 60);
+    };
+    document.querySelectorAll('.utvidknapp').forEach(b => {
+      b.onclick = () => settStor(b.dataset.utvid);
+    });
+    id('knappSidepanel').onclick = () => {
+      rute.classList.toggle('uten-side');
+      setTimeout(() => {
+        if (Kart.kart) Kart.kart.invalidateSize();
+        Lengdeprofil.tegn(); Tverrprofil.tegn();
+      }, 60);
+    };
+    this._nullstillVisning = () => {
+      ['kart', 'profil', 'tverr'].forEach(n => rute.classList.remove('stor-' + n));
+      document.querySelectorAll('.utvidknapp').forEach(b => { b.classList.remove('aktiv'); b.textContent = '⤢'; });
+      setTimeout(() => { if (Kart.kart) Kart.kart.invalidateSize(); Lengdeprofil.tegn(); Tverrprofil.tegn(); }, 60);
+    };
+
     document.querySelectorAll('.fane').forEach(f => {
       f.onclick = () => {
         document.querySelectorAll('.fane').forEach(x => x.classList.remove('aktiv'));
@@ -1026,7 +1108,7 @@ const App = {
 
     document.addEventListener('keydown', e => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
-      if (e.key === 'Escape') Kart.settModus('rediger');
+      if (e.key === 'Escape') { Kart.settModus('rediger'); if (this._nullstillVisning) this._nullstillVisning(); }
       if (e.key === 'ArrowRight') Tverrprofil.flytt(1);
       if (e.key === 'ArrowLeft') Tverrprofil.flytt(-1);
       if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); this.lagre(); }

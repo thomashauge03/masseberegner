@@ -159,6 +159,58 @@ console.log('\n3b. Innlagte høyder');
   ]);
   sjekk('uten vertikalkurve treffes punktet eksakt', utenKurve.hoyde(100), 105, 1e-12);
 
+  /* Kravet er strengere i lassretningen enn i returretningen, og hvilket som
+     gjelder avhenger av fortegnet. Forslaget ma hente kravet pa nytt for hvert
+     strekk, ellers blir det lagt 20 % der bare 17 % er lov. */
+  const bakke = [], bakkeZ = [];
+  for (let s = 0; s <= 400; s += 5) { bakke.push(s); bakkeZ.push(100 + s * 0.30); }
+  const retningsprofil = foreslaProfil(bakke, bakkeZ, {
+    vipAvstand: 40, k: 0,
+    // 12 % nar det bærer oppover, 20 % nar det bærer nedover
+    maksStigningFor: (a, b, g) => (g > 0 ? 0.12 : 0.20)
+  });
+  const vpRetning = new Vertikalprofil(retningsprofil);
+  let verstOpp = 0;
+  for (let s = 0; s < 400; s += 5) verstOpp = Math.max(verstOpp, vpRetning.stigning(s));
+  paastand('forslaget holder det strenge kravet i stigende retning', verstOpp <= 0.1201);
+
+  /* Grensene mot terrenget skal hindre at profilen legger seg høyt over
+     bakken og gir fyllinger som stikker langt ut til sidene. */
+  const lagDal = (djup, sigma) => {
+    const s = [], z = [];
+    for (let i = 0; i <= 400; i += 5) { s.push(i); z.push(100 - djup * Math.exp(-Math.pow((i - 200) / sigma, 2))); }
+    return { s, z };
+  };
+  const verst = (vip, z) => {
+    let f = 0, sk = 0;
+    for (const v of vip) { const t = z[Math.round(v.s / 5)]; f = Math.max(f, v.z - t); sk = Math.max(sk, t - v.z); }
+    return { fylling: f, skjaering: sk };
+  };
+
+  // Slak dal: her lar bade stigningskravet og grensen seg oppfylle
+  const slak = lagDal(6, 40);
+  const slakVip = foreslaProfil(slak.s, slak.z, {
+    vipAvstand: 40, maksStigning: 0.2, k: 0, maksOverTerreng: 3, maksUnderTerreng: 5
+  });
+  const slakVerst = verst(slakVip, slak.z);
+  paastand('i slakt lende holdes grensen mot terrenget', slakVerst.fylling <= 3.05 && slakVerst.skjaering <= 5.05);
+  paastand('og stigningskravet holdes samtidig', new Vertikalprofil(slakVip).maksStigning(1) <= 0.2001);
+
+  /* Trang kløft: her star kravene mot hverandre. Veien kan ikke følge bunnen
+     uten a bryte stigningskravet, sa kløften ma brues. Grensen kan da ikke
+     oppfylles, men den skal likevel dra fyllingen ned - og resten fanges av
+     merknadene. */
+  const kloft = lagDal(25, 22);
+  const utenGrense = verst(foreslaProfil(kloft.s, kloft.z, { vipAvstand: 40, maksStigning: 0.2, k: 0 }), kloft.z);
+  const medGrense = verst(foreslaProfil(kloft.s, kloft.z, {
+    vipAvstand: 40, maksStigning: 0.2, k: 0, maksOverTerreng: 3, maksUnderTerreng: 5
+  }), kloft.z);
+  paastand('i trang kløft drar grensen fyllingen ned', medGrense.fylling < utenGrense.fylling - 1);
+  paastand('men stigningskravet slipper ikke taket',
+    new Vertikalprofil(foreslaProfil(kloft.s, kloft.z, {
+      vipAvstand: 40, maksStigning: 0.2, k: 0, maksOverTerreng: 3, maksUnderTerreng: 5
+    })).maksStigning(1) <= 0.2001);
+
   // Uten laste punkt skal profilen fortsatt legge seg pa terrenget
   const utenLas = new Vertikalprofil(foreslaProfil(st, zt, { vipAvstand: 40, maksStigning: 0.2, k: 1 }));
   paastand('uten låsing følger profilen terrenget', Math.abs(utenLas.hoyde(150) - (100 + 150 * 0.08)) < 3);

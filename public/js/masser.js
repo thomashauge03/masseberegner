@@ -57,7 +57,15 @@ const StandardMal = {
   minVertikalHoybrekk: 100,
   ensidigUnderRadius: 60,
   ensidigMaks: 0.05,
-  ekstraBredde: { fyllingshoyde: 2.0, stigning: 0.14, tillegg: 0.5 }
+  ekstraBredde: { fyllingshoyde: 2.0, stigning: 0.14, tillegg: 0.5 },
+
+  /* Grenser for hva som lar seg bygge. En fylling som stikker titalls meter
+     ut til siden er ikke masser man kjører - da flyttes veien, eller det
+     bygges mur. Uten disse grensene ville optimaliseringen gjerne lagt
+     profilen der volumet ser billig ut pa papiret. 0 slar grensen av. */
+  maksFyllingshoyde: 4.0,
+  maksSkjaeringsdybde: 8.0,
+  maksUtslag: 15.0          // vannrett fra vegkant til fyllingsfot/skjæringstopp
 };
 
 const StandardFaktorer = {
@@ -581,6 +589,27 @@ function beregnMasser(o) {
     }
     if (!isFinite(pr.terrengSenter)) {
       merknader.push({ s: pr.s, type: 'data', tekst: 'Mangler terrengdata' });
+    }
+    if (mal.maksFyllingshoyde > 0 && pr.maksFylling > mal.maksFyllingshoyde) {
+      merknader.push({
+        s: pr.s, type: 'fylling',
+        tekst: `Fyllingshøyde ${pr.maksFylling.toFixed(1)} m over grensen på ${mal.maksFyllingshoyde} m`
+      });
+    }
+    if (mal.maksSkjaeringsdybde > 0 && pr.maksSkjaering > mal.maksSkjaeringsdybde) {
+      merknader.push({
+        s: pr.s, type: 'skjaering',
+        tekst: `Skjæringsdybde ${pr.maksSkjaering.toFixed(1)} m over grensen på ${mal.maksSkjaeringsdybde} m`
+      });
+    }
+    if (mal.maksUtslag > 0) {
+      const utslag = Math.max(-pr.fotVenstre, pr.fotHoyre) - pr.halvbredde;
+      if (utslag > mal.maksUtslag) {
+        merknader.push({
+          s: pr.s, type: 'utslag',
+          tekst: `Skråningen stikker ${utslag.toFixed(1)} m ut fra vegkant, grensen er ${mal.maksUtslag} m`
+        });
+      }
     }
   }
 

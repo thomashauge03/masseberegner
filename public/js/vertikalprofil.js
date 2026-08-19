@@ -108,6 +108,11 @@ class Vertikalprofil {
  *
  * @param {function} [opsjoner.maksStigningVed] (profilnummer) => tillatt stigning.
  *        Brukes til a ta hensyn til at krappe kurver har strengere krav.
+ * @param {function} [opsjoner.maksStigningFor] (sFra, sTil, stigning) => tillatt.
+ *        Foretrekkes framfor maksStigningVed, fordi kravet ogsa avhenger av
+ *        hvilken vei det bærer: i lassretningen er det strengere enn i
+ *        returretningen. Da ma fortegnet pa stigningen vaere kjent, og det er
+ *        det først nar strekket regnes.
  * @param {Array<{s,z,k}>} [opsjoner.laste] Høyder som er bestemt pa forhand.
  *        Disse blir liggende nøyaktig der de star; resten av profilen legger
  *        seg etter dem.
@@ -116,8 +121,15 @@ function foreslaProfil(stasjoner, terrengZ, opsjoner = {}) {
   const vipAvstand = opsjoner.vipAvstand || 40;
   const maksStigning = opsjoner.maksStigning || 0.20;
   const maksVed = opsjoner.maksStigningVed || (() => maksStigning);
+  const maksFor = opsjoner.maksStigningFor
+    || ((sA, sB) => Math.min(maksVed(sA), maksVed(sB)));
   const kVerdi = opsjoner.k == null ? 1.0 : opsjoner.k;
   const laste = (opsjoner.laste || []).slice().sort((a, b) => a.s - b.s);
+  // Hvor langt fra terrenget veien far ligge. Uten dette kan profilen legge
+  // seg høyt over bakken i en dal og gi en fylling som stikker titalls meter
+  // ut til sidene - masser som i praksis aldri ville blitt bygd.
+  const maksOver = opsjoner.maksOverTerreng;
+  const maksUnder = opsjoner.maksUnderTerreng;
   const n = stasjoner.length;
   if (n < 2) return [];
 
@@ -153,16 +165,40 @@ function foreslaProfil(stasjoner, terrengZ, opsjoner = {}) {
   // 4) Tving stigningen under makskravet.
   //    Hvert brudd rettes ved a flytte begge endene like mye, sa formen holdes.
   //    Laste punkt star i ro, sa naboen ma ta hele rettingen alene.
+  const terrengVed = s => {
+    if (s <= stasjoner[0]) return glattet[0];
+    if (s >= stasjoner[n - 1]) return glattet[n - 1];
+    let lo = 0, hi = n - 1;
+    while (hi - lo > 1) { const m = (lo + hi) >> 1; if (stasjoner[m] < s) lo = m; else hi = m; }
+    const f = (s - stasjoner[lo]) / (stasjoner[hi] - stasjoner[lo] || 1);
+    return glattet[lo] + f * (glattet[hi] - glattet[lo]);
+  };
+
   const ønsket = vip.map(v => v.z);
   for (let runde = 0; runde < 2000; runde++) {
     let verstBrudd = 0;
+
+    /* Hold profilen innenfor det som lar seg bygge. Bade dette og
+       stigningskravet er konvekse krav, sa det gar an a veksle mellom dem
+       til begge er oppfylt. */
+    if (maksOver != null || maksUnder != null) {
+      for (const v of vip) {
+        if (v.laast) continue;
+        const t = terrengVed(v.s);
+        if (!isFinite(t)) continue;
+        if (maksOver != null && v.z - t > maksOver) { v.z = t + maksOver; verstBrudd = Math.max(verstBrudd, 1); }
+        if (maksUnder != null && t - v.z > maksUnder) { v.z = t - maksUnder; verstBrudd = Math.max(verstBrudd, 1); }
+      }
+    }
+
     for (let i = 0; i < vip.length - 1; i++) {
       const dl = vip[i + 1].s - vip[i].s;
       if (dl < 1e-6) continue;
       const a = vip[i], b = vip[i + 1];
       if (a.laast && b.laast) continue;          // dette strekket er bestemt
-      const grense = Math.min(maksVed(a.s), maksVed(b.s));
       const dz = b.z - a.z;
+      // Kravet avhenger av fortegnet, sa det ma hentes pa nytt hver runde
+      const grense = maksFor(a.s, b.s, dz / dl);
       const brudd = Math.abs(dz / dl) - grense;
       if (brudd <= 1e-6) continue;
       verstBrudd = Math.max(verstBrudd, brudd);
@@ -177,7 +213,9 @@ function foreslaProfil(stasjoner, terrengZ, opsjoner = {}) {
   // 5) Uten laste punkt kan hele profilen løftes eller senkes tilbake pa
   //    terrenget. Et konstant skift endrer ingen stigninger, sa makskravet
   //    holdes fortsatt. Med laste punkt er profilen allerede forankret.
-  if (!laste.length) {
+  //    Grensene mot terrenget er allerede tatt hensyn til over, sa et skift
+  //    her ville bare brutt dem igjen.
+  if (!laste.length && maksOver == null && maksUnder == null) {
     let skift = 0;
     for (let i = 0; i < vip.length; i++) skift += ønsket[i] - vip[i].z;
     skift /= vip.length;

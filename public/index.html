@@ -26,6 +26,7 @@
     <button id="knappLagre" class="knapp primaer">Lagre</button>
     <button id="knappRapport" class="knapp">Rapport</button>
   </div>
+  <button id="knappSidepanel" class="knapp" title="Vis eller skjul sidepanelet">◧</button>
   <div class="status" id="statuslinje">Klar</div>
 </header>
 
@@ -35,6 +36,7 @@
   <section class="panel kartpanel">
     <div class="panelhode">
       <span>Kart</span>
+      <button class="utvidknapp" data-utvid="kart" title="Stor visning (skjuler de andre)">⤢</button>
       <div class="verktoy">
         <button id="verktoyTegn" class="verktoyknapp" title="Klikk i kartet for å legge inn knekkpunkt. Dobbeltklikk for å avslutte.">✏️ Tegn senterlinje</button>
         <button id="verktoyFlytt" class="verktoyknapp aktiv" title="Flytt og rediger punkt">✥ Rediger</button>
@@ -61,6 +63,7 @@
   <section class="panel profilpanel">
     <div class="panelhode">
       <span>Lengdeprofil</span>
+      <button class="utvidknapp" data-utvid="profil" title="Stor visning (skjuler de andre)">⤢</button>
       <div class="verktoy">
         <button id="knappForeslaProfil" class="verktoyknapp">Foreslå profil</button>
         <button id="knappBalanser" class="verktoyknapp" title="Flytt profilen opp/ned slik at skjæring og fylling går i balanse">Massebalanse</button>
@@ -77,6 +80,7 @@
   <section class="panel tverrpanel">
     <div class="panelhode">
       <span>Tverrprofil</span>
+      <button class="utvidknapp" data-utvid="tverr" title="Stor visning (skjuler de andre)">⤢</button>
       <div class="verktoy">
         <button id="tverrForrige" class="verktoyknapp">◀</button>
         <input type="range" id="tverrSkyver" min="0" max="100" value="0" class="skyver">
@@ -192,6 +196,15 @@
         <thead><tr><th>Radius</th><th>Min. bredde</th><th>Med lass</th><th>Uten lass</th></tr></thead>
         <tbody></tbody>
       </table>
+
+      <h3>Grenser for hva som bygges</h3>
+      <p class="notis">Hindrer at «Foreslå profil» og «Optimaliser» legger veien der volumet
+        ser billig ut på papiret, men fyllingen i praksis stikker titalls meter ut. 0 slår grensen av.
+        Der terrenget gjør det umulig å holde både stigningskravet og grensen – for eksempel over
+        en trang kløft – blir profilen dratt så nær som mulig, og resten kommer som merknad.</p>
+      <div class="felt"><label>Største fyllingshøyde</label><input type="number" id="m_maksFyllingshoyde" step="0.5" value="4"><span>m</span></div>
+      <div class="felt"><label>Største skjæringsdybde</label><input type="number" id="m_maksSkjaeringsdybde" step="0.5" value="8"><span>m</span></div>
+      <div class="felt"><label>Største utslag fra vegkant</label><input type="number" id="m_maksUtslag" step="1" value="15"><span>m</span></div>
 
       <h3>Beregning</h3>
       <div class="felt"><label>Profilavstand</label><input type="number" id="m_profilAvstand" step="1" value="5"><span>m</span></div>

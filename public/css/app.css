@@ -183,6 +183,29 @@ body {
 .tverrpanel { grid-area: tverr; }
 .sidepanel { grid-area: side; display: flex; flex-direction: column; }
 
+/* Stor visning: ett panel tar hele arbeidsflaten, de andre trekker seg unna.
+   Grensesnittet er ellers tett, og noen ganger trengs hele skjermen til
+   kartet - eller til lengdeprofilen nar høyder skal settes presist. */
+.rute.stor-kart { grid-template-rows: 1fr; grid-template-areas: "kart side"; }
+.rute.stor-profil { grid-template-rows: 1fr; grid-template-areas: "profil side"; }
+.rute.stor-tverr { grid-template-rows: 1fr; grid-template-areas: "tverr side"; }
+.rute.stor-kart .profilpanel, .rute.stor-kart .tverrpanel,
+.rute.stor-profil .kartpanel, .rute.stor-profil .tverrpanel,
+.rute.stor-tverr .kartpanel, .rute.stor-tverr .profilpanel { display: none; }
+.rute.uten-side { grid-template-columns: 1fr; }
+.rute.uten-side .sidepanel { display: none; }
+.rute.uten-side { grid-template-areas: "kart" "profil" "tverr"; }
+.rute.uten-side.stor-kart { grid-template-areas: "kart"; }
+.rute.uten-side.stor-profil { grid-template-areas: "profil"; }
+.rute.uten-side.stor-tverr { grid-template-areas: "tverr"; }
+
+.utvidknapp {
+  background: none; border: none; color: var(--blekk-svak); cursor: pointer;
+  font-size: 14px; line-height: 1; padding: 2px 5px; margin-left: -4px;
+}
+.utvidknapp:hover { color: var(--hm-raud); }
+.utvidknapp.aktiv { color: var(--hm-raud); }
+
 .panel { background: var(--flate); position: relative; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .panelhode {
   display: flex; align-items: center; gap: 10px;
@@ -238,7 +261,13 @@ body {
 }
 
 /* ── lerret ────────────────────────────────────────────── */
-#lengdeprofil, #tverrprofil { flex: 1; width: 100%; display: block; cursor: crosshair; }
+/* min-height/min-width 0 er nødvendig: et lerret har sin egen iboende
+   størrelse fra width/height-attributtene, og uten dette klarer ikke
+   flex-boksen a krympe det igjen etter at panelet har vaert stort. */
+#lengdeprofil, #tverrprofil {
+  flex: 1 1 0; width: 100%; min-width: 0; min-height: 0;
+  display: block; cursor: crosshair;
+}
 .skyver { width: 220px; accent-color: var(--hm-raud); }
 
 /* ── sidepanel ─────────────────────────────────────────── */
