@@ -462,8 +462,16 @@ const App = {
       /* Grovere enn den endelige beregningen. Optimaliseringen sammenligner
          alternativer mot hverandre, og da holder det at feilen er den samme
          i alle - den forsvinner i sammenligningen. Den endelige beregningen
-         kjøres uansett med full oppløsning etterpa. */
-      profilAvstand: Math.max(this.P.profilAvstand, 15),
+         kjøres uansett med full oppløsning etterpa.
+
+         Profilavstanden vokser med lengden, sa antall profiler holder seg
+         under ca. 250 uansett hvor lang veien er. Uten det var arbeidet
+         kvadratisk i lengden: hvert knekkpunkt prøves atte ganger, og hver
+         prøve regnet hele veien om igjen. Prøvd pa 1, 3 og 5 km mot fasit i
+         full oppløsning: forskjellen mellom 15, 25 og 40 m er 0-5 % og gar
+         begge veier - det er støy i et humpete søkelandskap, ikke en
+         systematisk forverring. Under 3 km endrer dette ingenting. */
+      profilAvstand: Math.max(this.P.profilAvstand, 15, (linje || this.linje).lengde / 250),
       integrasjonssteg: 0.5,
       raskt: true,
       bakkefaktor: this.bakkefaktor()

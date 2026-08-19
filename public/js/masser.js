@@ -794,9 +794,11 @@ function beregnMasser(o) {
 
   /* Over denne grensen slippes tegningsgeometrien, og det ene snittet som
      skal vises regnes om igjen ved behov. Uten det sprakk minnet ved rundt
-     20 000 profiler - en 21 km lang veg med profil hver meter. */
+     20 000 profiler - en 21 km lang veg med profil hver meter.
+     Optimaliseringen tegner aldri noe, sa den slipper den alltid: den kaller
+     hit tusenvis av ganger, og det den vil vite er bare tallene. */
   const GEOMETRIGRENSE = 800;
-  const utenGeometri = stasjoner.length > GEOMETRIGRENSE;
+  const utenGeometri = o.raskt || stasjoner.length > GEOMETRIGRENSE;
 
   const ettProfil = (s, utvidelse, medGeometri) => beregnTverrprofil({
     linje, terreng: o.terreng, mal, fjell: o.fjell,
