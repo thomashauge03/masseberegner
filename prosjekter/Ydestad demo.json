@@ -1,0 +1,175 @@
+{
+ "navn": "Ydestad demo",
+ "ip": [
+  {
+   "lat": 58.29580363,
+   "lon": 7.20887216,
+   "r": 0
+  },
+  {
+   "lat": 58.29587,
+   "lon": 7.21040443,
+   "r": 60
+  },
+  {
+   "lat": 58.29602612,
+   "lon": 7.21193218,
+   "r": 60
+  },
+  {
+   "lat": 58.29577587,
+   "lon": 7.2133098,
+   "r": 30
+  },
+  {
+   "lat": 58.29597447,
+   "lon": 7.21466479,
+   "r": 60
+  },
+  {
+   "lat": 58.29608328,
+   "lon": 7.21602431,
+   "r": 0
+  }
+ ],
+ "vip": [
+  {
+   "s": 0,
+   "z": 269.851,
+   "k": 1
+  },
+  {
+   "s": 40,
+   "z": 270.822,
+   "k": 1
+  },
+  {
+   "s": 80,
+   "z": 273.049,
+   "k": 1
+  },
+  {
+   "s": 120,
+   "z": 271.133,
+   "k": 1
+  },
+  {
+   "s": 160,
+   "z": 265.196,
+   "k": 1
+  },
+  {
+   "s": 200,
+   "z": 259.981,
+   "k": 1
+  },
+  {
+   "s": 240,
+   "z": 254.044,
+   "k": 1
+  },
+  {
+   "s": 280,
+   "z": 252.961,
+   "k": 1
+  },
+  {
+   "s": 320,
+   "z": 255.572,
+   "k": 1
+  },
+  {
+   "s": 360,
+   "z": 260.775,
+   "k": 1
+  },
+  {
+   "s": 400,
+   "z": 265.619,
+   "k": 1
+  },
+  {
+   "s": 428,
+   "z": 267.593,
+   "k": 1
+  }
+ ],
+ "standardRadius": 30,
+ "mal": {
+  "vegbredde": 4.5,
+  "tverrfall": 0.06,
+  "tverrfallType": "tak",
+  "tverrfallRetning": 1,
+  "slitelagTykkelse": 0.1,
+  "slitelagBredde": 4,
+  "baerelagTykkelse": 0.6,
+  "grofteDybde": 0.8,
+  "grofteBunn": 0.5,
+  "grofteInnerHelning": 1,
+  "skjaeringLosmasse": 1.5,
+  "skjaeringFjell": 0.2,
+  "fylling": 1.5,
+  "renskDybde": 0.2,
+  "renskUtenfor": 1,
+  "maksSokebredde": 45,
+  "breddeutvidelse": [
+   [
+    10,
+    1.5
+   ],
+   [
+    15,
+    1
+   ],
+   [
+    20,
+    0.7
+   ],
+   [
+    30,
+    0.25
+   ],
+   [
+    40,
+    0.1
+   ],
+   [
+    60,
+    0
+   ]
+  ],
+  "utvidelseOvergang": 15,
+  "maksStigning": [
+   [
+    10,
+    0.12
+   ],
+   [
+    30,
+    0.17
+   ],
+   [
+    60,
+    0.2
+   ],
+   [
+    1000000000,
+    0.2
+   ]
+  ]
+ },
+ "faktorer": {
+  "sprengningsfaktor": 1.5,
+  "fjellIFylling": 1.3,
+  "losmasseIFylling": 0.95,
+  "brukbarLosmasse": 0.5
+ },
+ "fjell": {
+  "standarddybde": 0.5,
+  "rekkevidde": 60,
+  "strekninger": [],
+  "punkter": []
+ },
+ "profilAvstand": 5,
+ "bakkekorreksjon": true
+}

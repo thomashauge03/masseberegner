@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="nb">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Massekalk – masseberegning med terrengdata fra Kartverket</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<header class="topp">
+  <div class="merke">Massekalk</div>
+  <input id="prosjektnavn" class="navnefelt" value="Nytt prosjekt" spellcheck="false">
+  <div class="knapperad">
+    <button id="knappNy" class="knapp">Ny</button>
+    <button id="knappApne" class="knapp">Åpne</button>
+    <button id="knappLagre" class="knapp primaer">Lagre</button>
+    <button id="knappRapport" class="knapp">Rapport</button>
+  </div>
+  <div class="status" id="statuslinje">Klar</div>
+</header>
+
+<main class="rute">
+
+  <!-- ---------------- Kart ---------------- -->
+  <section class="panel kartpanel">
+    <div class="panelhode">
+      <span>Kart</span>
+      <div class="verktoy">
+        <button id="verktoyTegn" class="verktoyknapp" title="Klikk i kartet for å legge inn knekkpunkt. Dobbeltklikk for å avslutte.">✏️ Tegn senterlinje</button>
+        <button id="verktoyFlytt" class="verktoyknapp aktiv" title="Flytt og rediger punkt">✥ Rediger</button>
+        <button id="verktoySondering" class="verktoyknapp" title="Registrer observert dybde til fjell">⛏ Fjellpunkt</button>
+        <button id="knappAngre" class="verktoyknapp" title="Angre siste punkt">↶</button>
+        <select id="bakgrunnskart" class="minivalg">
+          <option value="topo">Topografisk</option>
+          <option value="toporaster">Turkart (raster)</option>
+          <option value="topograatone">Gråtone</option>
+        </select>
+        <label class="avkryss"><input type="checkbox" id="visSkygge" checked> Terrengskygge</label>
+        <label class="avkryss"><input type="checkbox" id="visLosmasse"> Løsmasser (NGU)</label>
+      </div>
+    </div>
+    <div id="kart"></div>
+    <div class="kartsok">
+      <input id="sokefelt" placeholder="Søk sted eller adresse…" spellcheck="false">
+      <div id="sokeliste" class="sokeliste skjult"></div>
+    </div>
+    <div id="kartinfo" class="kartinfo"></div>
+  </section>
+
+  <!-- ---------------- Lengdeprofil ---------------- -->
+  <section class="panel profilpanel">
+    <div class="panelhode">
+      <span>Lengdeprofil</span>
+      <div class="verktoy">
+        <button id="knappForeslaProfil" class="verktoyknapp">Foreslå profil</button>
+        <button id="knappBalanser" class="verktoyknapp" title="Flytt profilen opp/ned slik at skjæring og fylling går i balanse">Massebalanse</button>
+        <button id="knappOptimaliser" class="verktoyknapp" title="Finjuster hvert knekkpunkt for minst mulig masseflytting">Optimaliser</button>
+        <label class="minitall">VIP-avstand <input type="number" id="vipAvstand" value="40" min="10" max="200" step="5"></label>
+        <label class="minitall">K <input type="number" id="kVerdi" value="1" min="0" max="20" step="0.5"></label>
+        <span class="hjelpetekst">Dra i knekkpunktene · dobbeltklikk for å legge til/fjerne</span>
+      </div>
+    </div>
+    <canvas id="lengdeprofil"></canvas>
+  </section>
+
+  <!-- ---------------- Tverrprofil ---------------- -->
+  <section class="panel tverrpanel">
+    <div class="panelhode">
+      <span>Tverrprofil</span>
+      <div class="verktoy">
+        <button id="tverrForrige" class="verktoyknapp">◀</button>
+        <input type="range" id="tverrSkyver" min="0" max="100" value="0" class="skyver">
+        <button id="tverrNeste" class="verktoyknapp">▶</button>
+        <span id="tverrEtikett" class="etikett">–</span>
+      </div>
+    </div>
+    <canvas id="tverrprofil"></canvas>
+  </section>
+
+  <!-- ---------------- Sidepanel ---------------- -->
+  <aside class="panel sidepanel">
+    <div class="faner">
+      <button class="fane aktiv" data-fane="masser">Masser</button>
+      <button class="fane" data-fane="mal">Vegmal</button>
+      <button class="fane" data-fane="grunn">Grunnforhold</button>
+      <button class="fane" data-fane="linje">Linje</button>
+    </div>
+
+    <!-- Masser -->
+    <div class="faneinnhold aktiv" id="fane-masser">
+      <div id="massesammendrag" class="tomtekst">Tegn en senterlinje i kartet for å komme i gang.</div>
+    </div>
+
+    <!-- Vegmal -->
+    <div class="faneinnhold" id="fane-mal">
+      <h3>Vegkropp</h3>
+      <div class="felt"><label>Vegbredde inkl. skulder</label><input type="number" id="m_vegbredde" step="0.1" value="4.5"><span>m</span></div>
+      <div class="felt"><label>Tverrfall (kuv)</label><input type="number" id="m_tverrfall" step="0.5" value="6"><span>%</span></div>
+      <div class="felt"><label>Tverrfallstype</label>
+        <select id="m_tverrfallType"><option value="tak">Tosidig (takfall)</option><option value="ensidig">Ensidig</option></select><span></span></div>
+      <div class="felt"><label>Slitelag, tykkelse</label><input type="number" id="m_slitelagTykkelse" step="0.01" value="0.10"><span>m</span></div>
+      <div class="felt"><label>Slitelag, bredde</label><input type="number" id="m_slitelagBredde" step="0.1" value="4.0"><span>m</span></div>
+      <div class="felt"><label>Bærelag, tykkelse</label><input type="number" id="m_baerelagTykkelse" step="0.05" value="0.60"><span>m</span></div>
+
+      <h3>Grøft</h3>
+      <div class="felt"><label>Grøftedybde under vegkant</label><input type="number" id="m_grofteDybde" step="0.05" value="0.80"><span>m</span></div>
+      <div class="felt"><label>Grøftebunn, bredde</label><input type="number" id="m_grofteBunn" step="0.05" value="0.50"><span>m</span></div>
+      <div class="felt"><label>Indre grøfteskråning</label><input type="number" id="m_grofteInnerHelning" step="0.1" value="1.0"><span>1:x</span></div>
+
+      <h3>Skråninger</h3>
+      <div class="felt"><label>Skjæring i løsmasse</label><input type="number" id="m_skjaeringLosmasse" step="0.1" value="1.5"><span>1:x</span></div>
+      <div class="felt"><label>Skjæring i fjell</label><input type="number" id="m_skjaeringFjell" step="0.05" value="0.2"><span>1:x</span></div>
+      <div class="felt"><label>Fyllingsskråning</label><input type="number" id="m_fylling" step="0.1" value="1.5"><span>1:x</span></div>
+
+      <h3>Rensk og utvidelse</h3>
+      <div class="felt"><label>Renskedybde (avdekking)</label><input type="number" id="m_renskDybde" step="0.05" value="0.20"><span>m</span></div>
+      <div class="felt"><label>Rensk utenfor skråning</label><input type="number" id="m_renskUtenfor" step="0.1" value="1.0"><span>m</span></div>
+      <div class="felt"><label>Overgang breddeutvidelse</label><input type="number" id="m_utvidelseOvergang" step="1" value="15"><span>m</span></div>
+      <div class="felt"><label>Breddeutvidelse i kurver</label>
+        <input type="text" id="m_breddeutvidelse" value="10:1.5, 15:1.0, 20:0.7, 30:0.25, 40:0.10, 60:0"><span>R:m</span></div>
+      <div class="felt"><label>Maks stigning etter radius</label>
+        <input type="text" id="m_maksStigning" value="10:12, 30:17, 60:20"><span>R:%</span></div>
+
+      <h3>Beregning</h3>
+      <div class="felt"><label>Profilavstand</label><input type="number" id="m_profilAvstand" step="1" value="5"><span>m</span></div>
+      <div class="felt"><label>Søkebredde tverrprofil</label><input type="number" id="m_maksSokebredde" step="5" value="45"><span>m</span></div>
+      <div class="felt avkryssfelt"><label><input type="checkbox" id="m_bakkekorreksjon" checked> Korriger UTM-lengder til virkelig bakkelengde</label></div>
+
+      <h3>Omregningsfaktorer</h3>
+      <div class="felt"><label>Sprengningsfaktor (fast → løs)</label><input type="number" id="f_sprengningsfaktor" step="0.05" value="1.50"><span></span></div>
+      <div class="felt"><label>Fjell → ferdig fylling</label><input type="number" id="f_fjellIFylling" step="0.05" value="1.30"><span></span></div>
+      <div class="felt"><label>Løsmasse → ferdig fylling</label><input type="number" id="f_losmasseIFylling" step="0.05" value="0.95"><span></span></div>
+      <div class="felt"><label>Brukbar andel løsmasse</label><input type="number" id="f_brukbarLosmasse" step="0.05" value="0.50"><span></span></div>
+
+      <button id="knappNullstillMal" class="knapp bred">Tilbakestill til standard</button>
+    </div>
+
+    <!-- Grunnforhold -->
+    <div class="faneinnhold" id="fane-grunn">
+      <p class="notis">Dybden til fjell avgjør hvor mye som må sprenges. Legg inn det du vet – observasjoner i kartet overstyrer standardverdien i nærheten.</p>
+      <div class="felt"><label>Standard dybde til fjell</label><input type="number" id="g_standarddybde" step="0.1" value="0.5"><span>m</span></div>
+      <div class="felt"><label>Rekkevidde for observasjon</label><input type="number" id="g_rekkevidde" step="10" value="60"><span>m</span></div>
+      <h3>Strekninger med kjent dybde</h3>
+      <table class="minitabell" id="strekningTabell">
+        <thead><tr><th>Fra</th><th>Til</th><th>Dybde</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <button id="knappNyStrekning" class="knapp bred">+ Legg til strekning</button>
+      <h3>Observasjoner i kartet</h3>
+      <div id="sonderingListe" class="listeboks"><span class="tomtekst">Ingen registrert. Velg «Fjellpunkt» og klikk i kartet.</span></div>
+    </div>
+
+    <!-- Linje -->
+    <div class="faneinnhold" id="fane-linje">
+      <p class="notis">Knekkpunkt for senterlinjen. Radius 0 gir skarp knekk.</p>
+      <table class="minitabell" id="ipTabell">
+        <thead><tr><th>#</th><th>Nord</th><th>Øst</th><th>Radius</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div id="linjeinfo" class="listeboks"></div>
+      <h3>Import / eksport</h3>
+      <div class="knappekolonne">
+        <button id="knappEksportStikning" class="knapp bred">Stikningsdata senterlinje (CSV)</button>
+        <button id="knappEksportMasser" class="knapp bred">Masseoppsett per profil (CSV)</button>
+        <button id="knappEksportGeojson" class="knapp bred">Linje og fotavtrykk (GeoJSON)</button>
+        <button id="knappKontroller" class="knapp bred">Kontroller høyder mot Kartverket</button>
+      </div>
+      <div id="kontrollsvar" class="listeboks"></div>
+    </div>
+  </aside>
+
+</main>
+
+<div id="dialog" class="dialog skjult">
+  <div class="dialogboks">
+    <div class="dialoghode"><span id="dialogtittel">Åpne prosjekt</span><button id="dialogLukk" class="knapp">Lukk</button></div>
+    <div id="dialoginnhold"></div>
+  </div>
+</div>
+
+<div id="framdrift" class="framdrift skjult"><div class="framdriftboks"><div id="framdriftTekst">Laster…</div><div class="stolpe"><div id="framdriftStolpe"></div></div></div></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="js/geo.js"></script>
+<script src="js/linjeforing.js"></script>
+<script src="js/vertikalprofil.js"></script>
+<script src="js/terreng.js"></script>
+<script src="js/masser.js"></script>
+<script src="js/ui-kart.js"></script>
+<script src="js/ui-lengdeprofil.js"></script>
+<script src="js/ui-tverrprofil.js"></script>
+<script src="js/ui-rapport.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

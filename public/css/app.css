@@ -1,0 +1,199 @@
+:root {
+  --bg: #12161c;
+  --bg2: #1a2029;
+  --bg3: #222a35;
+  --linje: #303a48;
+  --tekst: #e6ecf3;
+  --tekst2: #97a5b6;
+  --aksent: #4ea3ff;
+  --skjaering: #e8973a;
+  --fylling: #4fb477;
+  --fjell: #b06bd6;
+  --varsel: #e2544a;
+  --skrift: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--tekst);
+  font-family: var(--skrift);
+  font-size: 13px;
+  overflow: hidden;
+}
+
+/* ---------- topplinje ---------- */
+.topp {
+  height: 46px;
+  display: flex; align-items: center; gap: 12px;
+  padding: 0 14px;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--linje);
+}
+.merke { font-weight: 700; font-size: 15px; letter-spacing: .3px; color: var(--aksent); }
+.navnefelt {
+  background: var(--bg3); border: 1px solid var(--linje); color: var(--tekst);
+  padding: 5px 10px; border-radius: 5px; width: 260px; font-size: 13px;
+}
+.knapperad { display: flex; gap: 6px; }
+.status { margin-left: auto; color: var(--tekst2); font-size: 12px; }
+
+.knapp {
+  background: var(--bg3); color: var(--tekst); border: 1px solid var(--linje);
+  padding: 5px 11px; border-radius: 5px; cursor: pointer; font-size: 12px; font-family: var(--skrift);
+}
+.knapp:hover { background: #2b3542; }
+.knapp.primaer { background: var(--aksent); border-color: var(--aksent); color: #08121e; font-weight: 600; }
+.knapp.primaer:hover { background: #6fb5ff; }
+.knapp.bred { width: 100%; margin-top: 6px; }
+.knappekolonne { display: flex; flex-direction: column; }
+
+/* ---------- rutenett ---------- */
+.rute {
+  display: grid;
+  height: calc(100vh - 46px);
+  grid-template-columns: 1fr 390px;
+  grid-template-rows: 1fr 250px 230px;
+  grid-template-areas: "kart side" "profil side" "tverr side";
+  gap: 1px;
+  background: var(--linje);
+}
+.kartpanel { grid-area: kart; }
+.profilpanel { grid-area: profil; }
+.tverrpanel { grid-area: tverr; }
+.sidepanel { grid-area: side; display: flex; flex-direction: column; }
+
+.panel { background: var(--bg); position: relative; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.panelhode {
+  display: flex; align-items: center; gap: 10px;
+  padding: 5px 10px; background: var(--bg2); border-bottom: 1px solid var(--linje);
+  font-size: 11px; text-transform: uppercase; letter-spacing: .7px; color: var(--tekst2);
+  flex-wrap: wrap;
+}
+.verktoy { display: flex; align-items: center; gap: 5px; margin-left: auto; text-transform: none; letter-spacing: 0; flex-wrap: wrap; }
+.verktoyknapp {
+  background: var(--bg3); color: var(--tekst); border: 1px solid var(--linje);
+  padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 11.5px; font-family: var(--skrift);
+}
+.verktoyknapp:hover { background: #2b3542; }
+.verktoyknapp.aktiv { background: var(--aksent); border-color: var(--aksent); color: #08121e; font-weight: 600; }
+.minivalg, .minitall input {
+  background: var(--bg3); color: var(--tekst); border: 1px solid var(--linje);
+  border-radius: 4px; padding: 3px 5px; font-size: 11.5px; font-family: var(--skrift);
+}
+.minitall { display: inline-flex; align-items: center; gap: 4px; color: var(--tekst2); }
+.minitall input { width: 52px; }
+.avkryss { display: inline-flex; align-items: center; gap: 4px; color: var(--tekst2); cursor: pointer; }
+.hjelpetekst { color: var(--tekst2); font-size: 11px; font-style: italic; }
+.etikett { color: var(--tekst); font-variant-numeric: tabular-nums; min-width: 190px; }
+
+/* ---------- kart ---------- */
+#kart { flex: 1; background: #0d1116; }
+.leaflet-container { background: #0d1116; font-family: var(--skrift); }
+.kartsok { position: absolute; top: 42px; left: 12px; z-index: 500; width: 260px; }
+.kartsok input {
+  width: 100%; background: rgba(26,32,41,.96); border: 1px solid var(--linje);
+  color: var(--tekst); padding: 6px 10px; border-radius: 5px; font-size: 12px;
+}
+.sokeliste { background: rgba(26,32,41,.98); border: 1px solid var(--linje); border-radius: 5px; margin-top: 3px; max-height: 220px; overflow: auto; }
+.sokeliste div { padding: 6px 10px; cursor: pointer; border-bottom: 1px solid var(--linje); font-size: 12px; }
+.sokeliste div:hover { background: var(--bg3); }
+.sokeliste small { color: var(--tekst2); display: block; }
+.kartinfo {
+  position: absolute; bottom: 8px; left: 12px; z-index: 500;
+  background: rgba(18,22,28,.88); border: 1px solid var(--linje); border-radius: 5px;
+  padding: 4px 9px; font-size: 11.5px; color: var(--tekst2); font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+/* ---------- lerret ---------- */
+#lengdeprofil, #tverrprofil { flex: 1; width: 100%; display: block; cursor: crosshair; }
+.skyver { width: 220px; accent-color: var(--aksent); }
+
+/* ---------- sidepanel ---------- */
+.faner { display: flex; background: var(--bg2); border-bottom: 1px solid var(--linje); }
+.fane {
+  flex: 1; background: none; border: none; border-bottom: 2px solid transparent;
+  color: var(--tekst2); padding: 9px 4px; cursor: pointer; font-size: 12px; font-family: var(--skrift);
+}
+.fane:hover { color: var(--tekst); }
+.fane.aktiv { color: var(--aksent); border-bottom-color: var(--aksent); font-weight: 600; }
+.faneinnhold { display: none; padding: 12px; overflow-y: auto; flex: 1; }
+.faneinnhold.aktiv { display: block; }
+.faneinnhold h3 {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .7px;
+  color: var(--tekst2); margin: 16px 0 7px; border-bottom: 1px solid var(--linje); padding-bottom: 4px;
+}
+.faneinnhold h3:first-child { margin-top: 0; }
+.notis { color: var(--tekst2); font-size: 12px; line-height: 1.5; margin: 0 0 10px; }
+.tomtekst { color: var(--tekst2); font-style: italic; }
+
+.felt { display: grid; grid-template-columns: 1fr 78px 34px; align-items: center; gap: 6px; margin-bottom: 5px; }
+.felt label { color: var(--tekst2); font-size: 12px; }
+.felt input, .felt select {
+  background: var(--bg3); border: 1px solid var(--linje); color: var(--tekst);
+  padding: 4px 6px; border-radius: 4px; font-size: 12px; width: 100%; font-family: var(--skrift);
+}
+.felt input[type=text] { grid-column: 2 / 4; }
+.felt span { color: var(--tekst2); font-size: 11px; }
+.felt.avkryssfelt { grid-template-columns: 1fr; }
+.felt.avkryssfelt label { display: flex; gap: 6px; align-items: center; cursor: pointer; }
+
+.minitabell { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+.minitabell th { text-align: left; color: var(--tekst2); font-weight: 500; padding: 3px 4px; border-bottom: 1px solid var(--linje); font-size: 11px; }
+.minitabell td { padding: 2px 4px; border-bottom: 1px solid #262f3b; }
+.minitabell input { background: var(--bg3); border: 1px solid var(--linje); color: var(--tekst); width: 100%; padding: 2px 4px; border-radius: 3px; font-size: 12px; font-family: var(--skrift); }
+.minitabell button { background: none; border: none; color: var(--varsel); cursor: pointer; font-size: 14px; padding: 0 3px; }
+.listeboks { margin-top: 8px; font-size: 12px; color: var(--tekst2); line-height: 1.6; }
+.listeboks .rad { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; border-bottom: 1px solid #262f3b; }
+.listeboks .rad button { background: none; border: none; color: var(--varsel); cursor: pointer; }
+
+/* ---------- massesammendrag ---------- */
+.sumkort { background: var(--bg2); border: 1px solid var(--linje); border-radius: 7px; padding: 10px 12px; margin-bottom: 10px; }
+.sumkort h4 { margin: 0 0 8px; font-size: 12px; color: var(--tekst2); text-transform: uppercase; letter-spacing: .6px; font-weight: 600; }
+.sumrad { display: flex; justify-content: space-between; align-items: baseline; padding: 3px 0; font-variant-numeric: tabular-nums; }
+.sumrad .verdi { font-weight: 600; font-size: 14px; }
+.sumrad.stor .verdi { font-size: 19px; }
+.sumrad small { color: var(--tekst2); font-weight: 400; font-size: 11px; margin-left: 4px; }
+.strek { border-top: 1px solid var(--linje); margin: 7px 0; }
+.merke-skjaering { color: var(--skjaering); }
+.merke-fylling { color: var(--fylling); }
+.merke-fjell { color: var(--fjell); }
+.merke-varsel { color: var(--varsel); }
+.varselboks { background: rgba(226,84,74,.12); border: 1px solid rgba(226,84,74,.4); border-radius: 6px; padding: 8px 10px; margin-bottom: 10px; font-size: 12px; line-height: 1.5; max-height: 160px; overflow: auto; }
+.varselboks div { padding: 1px 0; }
+
+/* ---------- dialog / framdrift ---------- */
+.dialog, .framdrift {
+  position: fixed; inset: 0; background: rgba(8,11,15,.72);
+  display: flex; align-items: center; justify-content: center; z-index: 4000;
+}
+.skjult { display: none !important; }
+.dialogboks { background: var(--bg2); border: 1px solid var(--linje); border-radius: 9px; width: 520px; max-height: 74vh; overflow: auto; }
+.dialoghode { display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; border-bottom: 1px solid var(--linje); font-weight: 600; }
+#dialoginnhold { padding: 12px 14px; }
+#dialoginnhold .rad { display: flex; justify-content: space-between; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--linje); }
+#dialoginnhold .rad:hover { background: var(--bg3); }
+#dialoginnhold .rad span { cursor: pointer; flex: 1; }
+.framdriftboks { background: var(--bg2); border: 1px solid var(--linje); border-radius: 9px; padding: 18px 22px; width: 340px; text-align: center; }
+.stolpe { height: 6px; background: var(--bg3); border-radius: 3px; margin-top: 12px; overflow: hidden; }
+#framdriftStolpe { height: 100%; width: 0%; background: var(--aksent); transition: width .15s; }
+
+/* Leaflet-markører */
+.ip-markor {
+  width: 13px; height: 13px; background: var(--aksent); border: 2px solid #fff;
+  border-radius: 50%; box-shadow: 0 0 5px rgba(0,0,0,.6);
+}
+.fjell-markor {
+  width: 11px; height: 11px; background: var(--fjell); border: 2px solid #fff;
+  border-radius: 2px; box-shadow: 0 0 5px rgba(0,0,0,.6);
+}
+.stasjon-markor { width: 11px; height: 11px; background: #fff; border: 2px solid var(--aksent); border-radius: 50%; }
+.leaflet-popup-content-wrapper { background: var(--bg2); color: var(--tekst); border-radius: 6px; }
+.leaflet-popup-tip { background: var(--bg2); }
+.leaflet-popup-content { margin: 10px 12px; font-size: 12px; }
+.leaflet-popup-content input { background: var(--bg3); border: 1px solid var(--linje); color: var(--tekst); border-radius: 4px; padding: 3px 5px; width: 70px; }
+.leaflet-popup-content button { margin-top: 6px; }
+.leaflet-bar a { background: var(--bg2); color: var(--tekst); border-color: var(--linje); }
+.leaflet-bar a:hover { background: var(--bg3); }

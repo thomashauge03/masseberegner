@@ -1,0 +1,11 @@
+{
+  "name": "massekalk",
+  "version": "1.0.0",
+  "description": "Masseberegning for veg- og anleggsprosjekt med terrengdata fra Kartverket (DTM1)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test/selftest.js"
+  },
+  "private": true
+}
