@@ -11,7 +11,6 @@ const App = {
   fjellmodell: null,
   resultat: null,
   tverrStasjon: 0,
-  profilManuelt: false,
   _tidsavbrudd: null,
   _terrengnokkel: '',
 
@@ -142,7 +141,6 @@ const App = {
     this._ipForFlytting = null;
     this.skogdekke = null;
     this._dom = null;
-    this.profilManuelt = false;
     Rapport.visSammendrag(null);
     Tverrprofil.vis(null);
     Kart.lag.venstreFot.setLatLngs([]);
@@ -260,7 +258,6 @@ const App = {
       // høyder brukeren har bestemt blir liggende
       laste: this.lasteHoyder()
     });
-    this.profilManuelt = false;
   },
 
   /* ---------------- hovedløkke ---------------- */
@@ -491,7 +488,6 @@ const App = {
   linjeEndret() { this.planlegg(120); },
   grunnEndret() { Kart.tegn(); this.visSonderinger(); this.planlegg(60); },
   profilEndret(underDrag) {
-    this.profilManuelt = true;
     this.vprofil = new Vertikalprofil(this.P.vip);
     Lengdeprofil.tegn();
     if (!underDrag) this.planlegg(30);
@@ -1240,7 +1236,6 @@ const App = {
     const beholdt = rader.filter(r => r.s <= L + 0.5);
     // Innlimte høyder er punkt veien skal gjennom, sa de far ingen vertikalkurve
     this.P.vip = beholdt.map(r => ({ s: +Math.min(r.s, L).toFixed(2), z: r.z, k: 0, laast: true }));
-    this.profilManuelt = true;
     this.beregn();
     this.visHoydetabell();
     felt.value = '';

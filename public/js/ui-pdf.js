@@ -197,7 +197,6 @@ const PdfUI = {
       return;
     }
     this.app.P.vip = innafor.map(p => ({ s: +Math.min(p.s, L).toFixed(2), z: p.z, k: 0, laast: true }));
-    this.app.profilManuelt = true;
     this.app.beregn();
     this.app.visHoydetabell();
     document.getElementById('pdfdialog').classList.add('skjult');
