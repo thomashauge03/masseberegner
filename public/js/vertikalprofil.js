@@ -165,23 +165,61 @@ function foreslaProfil(stasjoner, terrengZ, opsjoner = {}) {
   // 4) Tving stigningen under makskravet.
   //    Hvert brudd rettes ved a flytte begge endene like mye, sa formen holdes.
   //    Laste punkt star i ro, sa naboen ma ta hele rettingen alene.
-  const terrengVed = s => {
-    if (s <= stasjoner[0]) return glattet[0];
-    if (s >= stasjoner[n - 1]) return glattet[n - 1];
+  const terrengVed = lagTerrengoppslag(stasjoner, glattet);
+
+  const ønsket = vip.map(v => v.z);
+  rettProfil(vip, { maksStigningFor: maksFor, maksOverTerreng: maksOver, maksUnderTerreng: maksUnder, terrengVed });
+
+  // 5) Uten laste punkt kan hele profilen løftes eller senkes tilbake pa
+  //    terrenget. Et konstant skift endrer ingen stigninger, sa makskravet
+  //    holdes fortsatt. Med laste punkt er profilen allerede forankret.
+  //    Grensene mot terrenget er allerede tatt hensyn til over, sa et skift
+  //    her ville bare brutt dem igjen.
+  if (!laste.length && maksOver == null && maksUnder == null) {
+    let skift = 0;
+    for (let i = 0; i < vip.length; i++) skift += ønsket[i] - vip[i].z;
+    skift /= vip.length;
+    for (const v of vip) v.z += skift;
+  }
+
+  return vip;
+}
+
+function lagTerrengoppslag(stasjoner, hoyder) {
+  const n = stasjoner.length;
+  return s => {
+    if (!n) return NaN;
+    if (s <= stasjoner[0]) return hoyder[0];
+    if (s >= stasjoner[n - 1]) return hoyder[n - 1];
     let lo = 0, hi = n - 1;
     while (hi - lo > 1) { const m = (lo + hi) >> 1; if (stasjoner[m] < s) lo = m; else hi = m; }
     const f = (s - stasjoner[lo]) / (stasjoner[hi] - stasjoner[lo] || 1);
-    return glattet[lo] + f * (glattet[hi] - glattet[lo]);
+    return hoyder[lo] + f * (hoyder[hi] - hoyder[lo]);
   };
+}
 
-  const ønsket = vip.map(v => v.z);
+/**
+ * Retter en profil slik at den holder stigningskravet og ikke legger seg
+ * lenger fra terrenget enn tillatt.
+ *
+ * Laste høyder star i ro - de er punkt brukeren har bestemt, og et strekk
+ * mellom to laste punkt kan derfor ikke rettes i det hele tatt.
+ *
+ * Bade stigningskravet og avstanden til terrenget er konvekse krav, sa det
+ * gar an a veksle mellom dem til begge er oppfylt. Star de mot hverandre -
+ * som over en trang kløft - ender det i et kompromiss i stedet for a løpe
+ * løpsk, og resten fanges opp av merknadene.
+ */
+function rettProfil(vip, opsjoner = {}) {
+  const maksFor = opsjoner.maksStigningFor || (() => 1);
+  const maksOver = opsjoner.maksOverTerreng;
+  const maksUnder = opsjoner.maksUnderTerreng;
+  const terrengVed = opsjoner.terrengVed;
+
   for (let runde = 0; runde < 2000; runde++) {
     let verstBrudd = 0;
 
-    /* Hold profilen innenfor det som lar seg bygge. Bade dette og
-       stigningskravet er konvekse krav, sa det gar an a veksle mellom dem
-       til begge er oppfylt. */
-    if (maksOver != null || maksUnder != null) {
+    if (terrengVed && (maksOver != null || maksUnder != null)) {
       for (const v of vip) {
         if (v.laast) continue;
         const t = terrengVed(v.s);
@@ -209,19 +247,6 @@ function foreslaProfil(stasjoner, terrengZ, opsjoner = {}) {
     }
     if (verstBrudd < 1e-5) break;
   }
-
-  // 5) Uten laste punkt kan hele profilen løftes eller senkes tilbake pa
-  //    terrenget. Et konstant skift endrer ingen stigninger, sa makskravet
-  //    holdes fortsatt. Med laste punkt er profilen allerede forankret.
-  //    Grensene mot terrenget er allerede tatt hensyn til over, sa et skift
-  //    her ville bare brutt dem igjen.
-  if (!laste.length && maksOver == null && maksUnder == null) {
-    let skift = 0;
-    for (let i = 0; i < vip.length; i++) skift += ønsket[i] - vip[i].z;
-    skift /= vip.length;
-    for (const v of vip) v.z += skift;
-  }
-
   return vip;
 }
 
@@ -277,4 +302,6 @@ function naermesteIndeks(arr, v) {
   return (Math.abs(arr[lo] - v) <= Math.abs(arr[hi] - v)) ? lo : hi;
 }
 
-if (typeof module !== 'undefined') module.exports = { Vertikalprofil, foreslaProfil, lesHoydetabell };
+if (typeof module !== 'undefined') {
+  module.exports = { Vertikalprofil, foreslaProfil, rettProfil, lagTerrengoppslag, lesHoydetabell };
+}

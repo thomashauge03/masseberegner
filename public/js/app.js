@@ -373,8 +373,13 @@ const App = {
       linje: linje || this.linje, profil: vp, terreng: this.terreng,
       mal: this.P.mal, fjell: this.fjellmodell, faktorer: this.P.faktorer,
       tverrfallOverstyring: this.P.tverrfall,
-      profilAvstand: Math.max(this.P.profilAvstand, 10),
-      integrasjonssteg: 0.25,
+      /* Grovere enn den endelige beregningen. Optimaliseringen sammenligner
+         alternativer mot hverandre, og da holder det at feilen er den samme
+         i alle - den forsvinner i sammenligningen. Den endelige beregningen
+         kjøres uansett med full oppløsning etterpa. */
+      profilAvstand: Math.max(this.P.profilAvstand, 15),
+      integrasjonssteg: 0.5,
+      raskt: true,
       bakkefaktor: this.bakkefaktor()
     });
   },
@@ -401,6 +406,86 @@ const App = {
     this.vprofil = new Vertikalprofil(this.P.vip);
     Lengdeprofil.tegn();
     if (!underDrag) this.planlegg(30);
+  },
+
+  /* ---------------- retting ---------------- */
+
+  /** Teller brudd pa kravene, sa man ser hva en retting faktisk gjorde. */
+  tellBrudd(vp) {
+    if (!vp || !this.linje || !this.terrengProfil) return null;
+    const mal = this.P.mal;
+    let stigning = 0, fylling = 0, skjaering = 0, verstStigning = 0;
+    const slutt = this.linje.lengde;
+    for (let s = 0; s <= slutt; s += Math.max(1, this.P.profilAvstand)) {
+      const g = vp.stigning(s);
+      const tillatt = maksStigningFraRadius(mal, this.linje.radiusVed(s), g, mal.lassretning);
+      if (Math.abs(g) > tillatt + 1e-4) stigning++;
+      verstStigning = Math.max(verstStigning, Math.abs(g));
+      const t = this.terrengHoyde(s);
+      if (!isFinite(t)) continue;
+      if (mal.maksFyllingshoyde > 0 && vp.hoyde(s) - t > mal.maksFyllingshoyde) fylling++;
+      if (mal.maksSkjaeringsdybde > 0 && t - vp.hoyde(s) > mal.maksSkjaeringsdybde) skjaering++;
+    }
+    return { stigning, fylling, skjaering, verstStigning, totalt: stigning + fylling + skjaering };
+  },
+
+  /**
+   * Retter opp et prosjekt som bryter kravene, og leter samtidig etter den
+   * billigste løsningen.
+   *
+   * "Foreslå profil" lager en helt ny linje fra terrenget. Pa et prosjekt som
+   * alt er tegnet ferdig er det for grovt - der vil man beholde linjen, fa
+   * bort bruddene, og sa fa ned sprengningen og fyllingen sa langt det gar.
+   *
+   * Rettingen kommer først. Optimaliseringen leter lokalt, og fra en profil
+   * som bryter kravene med 8 % ville den brukt kreftene pa a klatre ut av
+   * bruddene i stedet for a finne noe billigere.
+   */
+  async rettOpp() {
+    if (!this.vprofil || this.P.vip.length < 2 || !this.terrengProfil || !this.resultat) {
+      this.status('Ingen profil å rette ennå.');
+      return;
+    }
+    if (this.P.vip.every(v => v.laast)) {
+      this.status('Alle høyder er låst – lås opp noen for at profilen skal kunne rettes.');
+      return;
+    }
+
+    const bruddFor = this.tellBrudd(this.vprofil);
+    const volumFor = {
+      fjell: this.resultat.sum.skjaeringFjell,
+      skjaering: this.resultat.sum.skjaering,
+      fylling: this.resultat.sum.fylling
+    };
+
+    this.framdrift(true, 'Retter profilen…', 0.15);
+    await pause();
+
+    const mal = this.P.mal;
+    rettProfil(this.P.vip, {
+      maksStigningFor: (sA, sB, g) => this.tillattStigning(sA, sB, g),
+      maksOverTerreng: mal.maksFyllingshoyde > 0 ? mal.maksFyllingshoyde : null,
+      maksUnderTerreng: mal.maksSkjaeringsdybde > 0 ? mal.maksSkjaeringsdybde : null,
+      terrengVed: lagTerrengoppslag(this.terrengProfil.s, this.terrengProfil.z)
+    });
+    this.profilManuelt = true;
+    this.beregn();
+
+    // Sa jakten pa minst mulig sprengning og fylling
+    await this.optimaliser(true);
+
+    const bruddEtter = this.tellBrudd(this.vprofil);
+    const igjen = bruddEtter ? bruddEtter.totalt : 0;
+    const spart = volumFor.fjell - this.resultat.sum.skjaeringFjell;
+    const spartFylling = volumFor.fylling - this.resultat.sum.fylling;
+    const tall = v => Math.round(Math.abs(v)).toLocaleString('nb-NO');
+
+    const deler = [];
+    if (bruddFor.totalt > igjen) deler.push(`rettet ${bruddFor.totalt - igjen} brudd`);
+    if (Math.abs(spart) > 5) deler.push(`sprengning ${spart > 0 ? '−' : '+'}${tall(spart)} m³`);
+    if (Math.abs(spartFylling) > 5) deler.push(`fylling ${spartFylling > 0 ? '−' : '+'}${tall(spartFylling)} m³`);
+    if (igjen > 0) deler.push(`${igjen} brudd står igjen – terrenget tillater ikke både stigningskrav og fyllingsgrense, se merknadene`);
+    this.status(deler.length ? 'Rettet opp: ' + deler.join(' · ') : 'Fant ingenting å rette.');
   },
 
   /* ---------------- optimalisering ---------------- */
@@ -439,12 +524,12 @@ const App = {
     this.beregn();
   },
 
-  async optimaliser() {
+  async optimaliser(stille) {
     if (!this.terreng || !this.linje) return;
     const V = this.P.vip;
     if (V.length < 2) return;
     if (V.every(v => v.laast)) {
-      this.status('Alle høyder er låst – lås opp noen for å kunne optimalisere');
+      if (!stille) this.status('Alle høyder er låst – lås opp noen for å kunne optimalisere');
       return;
     }
     const maksTillatt = this.P.mal.stigningIKurve.reduce((a, r) => Math.max(a, r[1], r[2]), 0);
@@ -453,18 +538,49 @@ const App = {
     const kostnad = (liste, linje) => {
       const r = this.beregnRaskt(liste, linje);
       const s = r.sum, b = r.balanse;
-      // Kostnadsbilde: sprengning er dyrest, sa graving, sa transport inn/ut
-      let k = s.skjaeringLosmasse * 1 + s.skjaeringFjell * 3 + s.fylling * 0.5
-        + Math.abs(b.balanse) * 1.6;
+      const vpKost = new Vertikalprofil(liste);
+
+      /* Kostnadsbilde, i den rekkefølgen det gjør vondt:
+           sprengning        dyrest, og den man helst vil unnga
+           graving i løsmasse
+           transport inn eller ut av anlegget nar massene ikke gar opp
+           inngrep i terrenget - renskevolumet er tykkelsen ganger
+             fotavtrykket, sa det er et direkte mal pa hvor bredt man river
+             opp lia. Uten dette leddet ville en løsning som sparer noen
+             kubikk, men brer seg dobbelt sa langt utover, kommet best ut.
+           fylling           billigst, sa lenge massene finnes */
+      let k = s.skjaeringFjell * 3
+        + s.skjaeringLosmasse * 1
+        + Math.abs(b.balanse) * 1.6
+        + s.rensk * 2
+        + s.fylling * 0.5;
+
+      /* Følg terrenget. Dette er arealet mellom veglinjen og bakken i
+         lengdeprofilen - jo mindre, jo tettere ligger veien pa terrenget.
+         Volumleddene over drar i samme retning, men de kan gi like svar for
+         en veg som ligger rolig oppa bakken og en som svinger over og under
+         den. Dette leddet skiller dem, og det er den rolige man vil ha. */
+      if (this.terrengProfil) {
+        const tp = this.terrengProfil;
+        // hvert femte punkt holder til a male et areal
+        const hopp = Math.max(1, Math.round(5 / Math.max(0.5, tp.s[1] - tp.s[0])));
+        let avvik = 0;
+        for (let i = hopp; i < tp.s.length; i += hopp) {
+          if (!isFinite(tp.z[i]) || !isFinite(tp.z[i - hopp])) continue;
+          const dA = Math.abs(vpKost.hoyde(tp.s[i - hopp]) - tp.z[i - hopp]);
+          const dB = Math.abs(vpKost.hoyde(tp.s[i]) - tp.z[i]);
+          avvik += (dA + dB) / 2 * (tp.s[i] - tp.s[i - hopp]);
+        }
+        k += avvik * 30;
+      }
 
       /* Kravene fra veiklassen og grensene for hva som lar seg bygge legges
          inn som svaert dyre brudd. Uten dette ville optimaliseringen valgt
          den løsningen som er billigst pa papiret - gjerne en 20 % bakke i en
          30-meterskurve, eller en fylling som stikker 40 m ut. */
-      const vp = new Vertikalprofil(liste);
       for (const m of r.merknader) if (m.type === 'kurvatur') k += 200000;
       for (const pr of r.profiler) {
-        const g = vp.stigning(pr.s);
+        const g = vpKost.stigning(pr.s);
         const tillatt = maksStigningFraRadius(mal, pr.radius, g, mal.lassretning);
         if (Math.abs(g) > tillatt) k += (Math.abs(g) - tillatt) * 400000;
 
@@ -1119,6 +1235,7 @@ const App = {
       this.lagProfilforslag();
       this.beregn();
     };
+    id('knappRettOpp').onclick = () => this.rettOpp();
     id('knappBalanser').onclick = () => this.balanser();
     id('knappOptimaliser').onclick = () => this.optimaliser();
     id('kVerdi').onchange = e => {
@@ -1247,6 +1364,22 @@ function lesPar(tekst, skala) {
   return par.length ? par.sort((a, b) => a[0] - b[0]) : null;
 }
 function escapeAttr(s) { return String(s).replace(/"/g, '&quot;'); }
-function pause() { return new Promise(r => setTimeout(r, 0)); }
+/**
+ * Slipper til tegningen mellom tunge runder.
+ *
+ * setTimeout ville vaert det opplagte, men nettleseren struper den til ett
+ * sekund i faner som ligger i bakgrunnen. Bytter man fane midt i en
+ * optimalisering, ville de femti smapausene blitt til nesten et minutt med
+ * venting. En melding til seg selv over en MessageChannel blir ikke strupet.
+ */
+const _pausekanal = typeof MessageChannel !== 'undefined' ? new MessageChannel() : null;
+const _pausekø = [];
+if (_pausekanal) {
+  _pausekanal.port1.onmessage = () => { const f = _pausekø.shift(); if (f) f(); };
+}
+function pause() {
+  if (!_pausekanal) return new Promise(r => setTimeout(r, 0));
+  return new Promise(r => { _pausekø.push(r); _pausekanal.port2.postMessage(0); });
+}
 
 window.addEventListener('DOMContentLoaded', () => App.start());

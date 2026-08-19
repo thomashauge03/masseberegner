@@ -279,10 +279,17 @@ function beregnTverrprofil(o) {
       knekk.push({ t: t1, z: zGroft });
       knekk.push({ t: t2, z: zGroft });
 
+      /* Marsjer utover til skraningen møter terrenget.
+         Naer fjelloverflaten ma stegene vaere sma, for der bytter skraningen
+         helning og en bom pa steget slar rett inn i høyden. Godt over fjellet
+         er helningen konstant, og da koster sma steg bare tid - en skraning
+         som gar 40 m ut ville blitt 800 terrengoppslag. Selve treffpunktet
+         finnes med halvering til slutt, sa det blir like nøyaktig uansett. */
       let t = t2, z = zGroft;
-      const steg = 0.05;
       let truffet = false;
       while (t < mal.maksSokebredde) {
+        const naerFjell = Math.abs(z - fjellflate(side * t)) < 1.0;
+        const steg = naerFjell ? 0.05 : 0.4;
         const iFjell = z < fjellflate(side * t) - 1e-9;
         const m = iFjell ? mal.skjaeringFjell : mal.skjaeringLosmasse;
         const nyZ = z + steg / Math.max(0.02, m);
@@ -290,12 +297,14 @@ function beregnTverrprofil(o) {
         const tZ = terr(side * nyT);
         if (!isFinite(tZ)) { t = nyT; z = nyZ; break; }
         if (nyZ >= tZ) {
-          // finn skjæringspunktet mellom skraning og terreng
-          const f0 = z - terr(side * t);
-          const f1 = nyZ - tZ;
-          const u = (f1 - f0) !== 0 ? -f0 / (f1 - f0) : 1;
-          t = t + steg * Math.max(0, Math.min(1, u));
-          z = terr(side * t);
+          // halver oss inn pa punktet der skraningen krysser terrenget
+          let lo = t, hi = nyT, zLo = z;
+          for (let b = 0; b < 12; b++) {
+            const midt = (lo + hi) / 2;
+            const zMidt = zLo + (midt - lo) / Math.max(0.02, m);
+            if (zMidt >= terr(side * midt)) hi = midt; else { lo = midt; zLo = zMidt; }
+          }
+          t = hi; z = terr(side * t);
           truffet = true;
           break;
         }
@@ -310,20 +319,26 @@ function beregnTverrprofil(o) {
       type = 'fylling';
       knekk.push({ t: hb, z: planumKant });
       knekk.push({ t: hb, z: zKant });          // materialskillet mot overbygningen
+      /* Fyllingsskraningen har fast helning hele veien - her er det ingen
+         fjellovergang a treffe. Da kan stegene vaere store, og treffpunktet
+         finnes med halvering. */
       let t = hb, z = zKant;
-      const steg = 0.05;
+      const fallPerM = 1 / Math.max(0.02, mal.fylling);
+      const skraning = tt => zKant - (tt - hb) * fallPerM;
+      const steg = 0.4;
       let truffet = false;
       while (t < mal.maksSokebredde) {
         const nyT = t + steg;
-        const nyZ = zKant - (nyT - hb) / Math.max(0.02, mal.fylling);
+        const nyZ = skraning(nyT);
         const tZ = terr(side * nyT);
         if (!isFinite(tZ)) { t = nyT; z = nyZ; break; }
         if (nyZ <= tZ) {
-          const f0 = z - terr(side * t);
-          const f1 = nyZ - tZ;
-          const u = (f1 - f0) !== 0 ? -f0 / (f1 - f0) : 1;
-          t = t + steg * Math.max(0, Math.min(1, u));
-          z = terr(side * t);
+          let lo = t, hi = nyT;
+          for (let b = 0; b < 12; b++) {
+            const midt = (lo + hi) / 2;
+            if (skraning(midt) <= terr(side * midt)) hi = midt; else lo = midt;
+          }
+          t = hi; z = terr(side * t);
           truffet = true;
           break;
         }
@@ -519,7 +534,7 @@ function beregnMasser(o) {
   /* Normalen krever 0,5 m ekstra bredde der veien ligger pa høy fylling
      eller er bratt. Fyllingshøyden er ikke kjent før profilene er regnet,
      sa de stedene far et nytt gjennomløp med den økte bredden. */
-  const ekstra = mal.ekstraBredde;
+  const ekstra = o.raskt ? null : mal.ekstraBredde;
   if (ekstra && ekstra.tillegg) {
     const paslag = profiler.map(p => {
       const brattNok = ekstra.stigning != null && Math.abs(profil.stigning(p.s)) > ekstra.stigning;
