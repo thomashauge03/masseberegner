@@ -1,215 +1,426 @@
+/* ═══════════════════════════════════════════════════════════
+   Massekalk – Hauge Maskin
+
+   Same merkefargar og former som utleie-appen og adminbordet:
+   #d81e28, ingen runde hjørne, 2 px kantar og harde offset-skuggar
+   som speglar 3D-ekstruderinga i logoen.
+
+   Skilnaden er brukssituasjonen. Dette er eit kart- og profilverktøy
+   som står ope i timevis medan ein les tal og dreg i linjer. Difor er
+   mørk flate standard: kartet og profilane er lyse flater med tynne
+   strekar, og ein lys bakgrunn rundt dei gjer at auget mistar dei.
+   Lys modus finst likevel, for den som køyrer med sollys inn.
+   ═══════════════════════════════════════════════════════════ */
+
 :root {
-  --bg: #12161c;
-  --bg2: #1a2029;
-  --bg3: #222a35;
-  --linje: #303a48;
-  --tekst: #e6ecf3;
-  --tekst2: #97a5b6;
-  --aksent: #4ea3ff;
-  --skjaering: #e8973a;
-  --fylling: #4fb477;
-  --fjell: #b06bd6;
-  --varsel: #e2544a;
-  --skrift: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  /* ── Merkefargar ──────────────────────────────────────── */
+  --hm-raud: #d81e28;
+  --hm-raud-hover: #b8151f;
+  --hm-raud-blekk: #a8151d;   /* raud tekst på kvitt – når 4.5:1 */
+  --hm-svart: #0b0b0c;
+  --hm-sot: #17181a;
+
+  /* ── Nøytralar ────────────────────────────────────────── */
+  --hm-100: #f4f4f5;
+  --hm-200: #e4e4e7;
+  --hm-300: #d0d0d5;
+  --hm-500: #71717a;
+  --hm-700: #3f3f46;
+  --hm-gron: #15803d;
+  --hm-gul: #b45309;
+
+  /* ── Flater og blekk: mørk som standard ───────────────── */
+  --flate: #0b0b0c;
+  --flate-2: #131315;
+  --flate-opp: #17181a;
+  --blekk: #fafafa;
+  --blekk-svak: #a1a1aa;
+  --kant: #2a2b2e;
+  --kant-sterk: #3f3f46;
+  --raud: #ef2b36;            /* lysare raud som held kontrast på svart */
+
+  /* ── Fargar i profilteikningane ───────────────────────────
+     Tre kulørar er nok: raudt for det som skal gravast bort,
+     grønt for det som skal fyllast, og kvitt for vegen som skal
+     byggjast. Fjellet er ein del av skjeringa, ikkje ein fjerde
+     ting, og blir difor skravur oppå skjeringsfargen. */
+  --data-terreng: #8e8e97;
+  --data-rensk: rgba(142, 142, 151, 0.55);
+  --data-veg: #fafafa;
+  --data-planum: #ef8a90;
+  --data-skjaering: #ef2b36;
+  --data-skjaering-flate: rgba(216, 30, 40, 0.30);
+  --data-fylling: #34a05a;
+  --data-fylling-flate: rgba(52, 160, 90, 0.30);
+  --data-fjell: rgba(255, 120, 128, 0.85);
+  --data-baerelag: rgba(160, 163, 170, 0.75);
+  --data-slitelag: rgba(63, 63, 70, 0.95);
+  --data-rutenett: #232326;
+  --data-akse: #3f3f46;
+
+  --skrift: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --skrift-tittel: 'Barlow Condensed', var(--skrift);
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --flate: #ffffff;
+    --flate-2: #f4f4f5;
+    --flate-opp: #ffffff;
+    --blekk: #0b0b0c;
+    --blekk-svak: #52525b;
+    --kant: #e4e4e7;
+    --kant-sterk: #0b0b0c;
+    --raud: #a8151d;
+
+    --data-terreng: #3f3f46;
+    --data-rensk: rgba(63, 63, 70, 0.45);
+    --data-veg: #0b0b0c;
+    --data-planum: #a8151d;
+    --data-skjaering: #d81e28;
+    --data-skjaering-flate: rgba(216, 30, 40, 0.22);
+    --data-fylling: #15803d;
+    --data-fylling-flate: rgba(21, 128, 61, 0.22);
+    --data-fjell: rgba(168, 21, 29, 0.8);
+    --data-baerelag: rgba(113, 113, 122, 0.55);
+    --data-slitelag: rgba(63, 63, 70, 0.85);
+    --data-rutenett: #e4e4e7;
+    --data-akse: #d0d0d5;
+  }
 }
 
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
 body {
-  background: var(--bg);
-  color: var(--tekst);
+  background: var(--flate);
+  color: var(--blekk);
   font-family: var(--skrift);
   font-size: 13px;
   overflow: hidden;
+  -webkit-font-smoothing: antialiased;
 }
 
-/* ---------- topplinje ---------- */
+/* Fokus skal alltid vere synleg, aldri fjerna. */
+:where(a, button, input, textarea, select, [tabindex]):focus-visible {
+  outline: 3px solid var(--hm-raud);
+  outline-offset: 2px;
+}
+
+/* ── Overskrifter: kondenserte og feite, som logoen ─────── */
+.hm-display {
+  font-family: var(--skrift-tittel);
+  font-weight: 700;
+  letter-spacing: .02em;
+  text-transform: uppercase;
+  line-height: 1.05;
+}
+
+/* Skrå raud strek – ekkoet av kursiven i logoen. Berre pynt. */
+.hm-skrastrek {
+  display: inline-block;
+  width: 26px; height: 5px;
+  background: var(--hm-raud);
+  transform: skewX(-18deg);
+}
+
+/* ── topplinje ─────────────────────────────────────────── */
 .topp {
-  height: 46px;
-  display: flex; align-items: center; gap: 12px;
+  height: 52px;
+  display: flex; align-items: center; gap: 14px;
   padding: 0 14px;
-  background: var(--bg2);
-  border-bottom: 1px solid var(--linje);
+  background: var(--hm-svart);
+  border-bottom: 3px solid var(--hm-raud);
+  color: #fafafa;
 }
-.merke { font-weight: 700; font-size: 15px; letter-spacing: .3px; color: var(--aksent); }
-.navnefelt {
-  background: var(--bg3); border: 1px solid var(--linje); color: var(--tekst);
-  padding: 5px 10px; border-radius: 5px; width: 260px; font-size: 13px;
-}
-.knapperad { display: flex; gap: 6px; }
-.status { margin-left: auto; color: var(--tekst2); font-size: 12px; }
+.merke { display: flex; align-items: center; gap: 10px; }
+.merke img { height: 26px; width: auto; display: block; }
+.merke .navn { font-family: var(--skrift-tittel); font-weight: 700; font-size: 19px; letter-spacing: .04em; text-transform: uppercase; }
 
-.knapp {
-  background: var(--bg3); color: var(--tekst); border: 1px solid var(--linje);
-  padding: 5px 11px; border-radius: 5px; cursor: pointer; font-size: 12px; font-family: var(--skrift);
+.navnefelt {
+  background: #17181a; border: 2px solid #3f3f46; color: #fafafa;
+  padding: 6px 10px; width: 250px; font-size: 13px; font-family: var(--skrift);
 }
-.knapp:hover { background: #2b3542; }
-.knapp.primaer { background: var(--aksent); border-color: var(--aksent); color: #08121e; font-weight: 600; }
-.knapp.primaer:hover { background: #6fb5ff; }
+.navnefelt:hover { border-color: var(--hm-raud); }
+.knapperad { display: flex; gap: 6px; }
+.status {
+  margin-left: auto; color: #a1a1aa; font-size: 12px;
+  max-width: 40vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* ── knappar ───────────────────────────────────────────── */
+.knapp {
+  background: var(--flate-opp); color: var(--blekk);
+  border: 2px solid var(--kant-sterk);
+  padding: 5px 12px; cursor: pointer; font-size: 12px;
+  font-family: var(--skrift); font-weight: 600;
+  transition: transform 150ms cubic-bezier(.2,0,0,1), box-shadow 150ms cubic-bezier(.2,0,0,1), background-color 150ms ease-out;
+}
+.topp .knapp { background: #17181a; color: #fafafa; border-color: #3f3f46; }
+.knapp:hover { background: var(--kant); }
+.topp .knapp:hover { background: #24252a; border-color: #52525b; }
+.knapp.primaer {
+  background: var(--hm-raud); border-color: var(--hm-raud); color: #fff;
+  box-shadow: 3px 3px 0 0 var(--kant-sterk);
+}
+.topp .knapp.primaer { box-shadow: 3px 3px 0 0 #000; }
+.knapp.primaer:hover { background: var(--hm-raud-hover); border-color: var(--hm-raud-hover); }
+.knapp.primaer:active { transform: translate(3px, 3px); box-shadow: 0 0 0 0 var(--kant-sterk); }
 .knapp.bred { width: 100%; margin-top: 6px; }
 .knappekolonne { display: flex; flex-direction: column; }
 
-/* ---------- rutenett ---------- */
+/* ── rutenett ──────────────────────────────────────────── */
 .rute {
   display: grid;
-  height: calc(100vh - 46px);
-  grid-template-columns: 1fr 390px;
+  height: calc(100vh - 52px);
+  grid-template-columns: 1fr 400px;
   grid-template-rows: 1fr 250px 230px;
   grid-template-areas: "kart side" "profil side" "tverr side";
-  gap: 1px;
-  background: var(--linje);
+  gap: 2px;
+  background: var(--kant);
 }
 .kartpanel { grid-area: kart; }
 .profilpanel { grid-area: profil; }
 .tverrpanel { grid-area: tverr; }
 .sidepanel { grid-area: side; display: flex; flex-direction: column; }
 
-.panel { background: var(--bg); position: relative; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.panel { background: var(--flate); position: relative; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .panelhode {
   display: flex; align-items: center; gap: 10px;
-  padding: 5px 10px; background: var(--bg2); border-bottom: 1px solid var(--linje);
-  font-size: 11px; text-transform: uppercase; letter-spacing: .7px; color: var(--tekst2);
+  padding: 6px 10px; background: var(--flate-2);
+  border-bottom: 2px solid var(--kant);
+  font-family: var(--skrift-tittel); font-weight: 700; font-size: 13px;
+  text-transform: uppercase; letter-spacing: .06em; color: var(--blekk);
   flex-wrap: wrap;
 }
-.verktoy { display: flex; align-items: center; gap: 5px; margin-left: auto; text-transform: none; letter-spacing: 0; flex-wrap: wrap; }
+.verktoy {
+  display: flex; align-items: center; gap: 5px; margin-left: auto;
+  font-family: var(--skrift); font-weight: 400; text-transform: none; letter-spacing: 0; flex-wrap: wrap;
+}
 .verktoyknapp {
-  background: var(--bg3); color: var(--tekst); border: 1px solid var(--linje);
-  padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 11.5px; font-family: var(--skrift);
+  background: var(--flate-opp); color: var(--blekk); border: 2px solid var(--kant);
+  padding: 3px 8px; cursor: pointer; font-size: 11.5px; font-family: var(--skrift); font-weight: 500;
 }
-.verktoyknapp:hover { background: #2b3542; }
-.verktoyknapp.aktiv { background: var(--aksent); border-color: var(--aksent); color: #08121e; font-weight: 600; }
+.verktoyknapp:hover { background: var(--kant); border-color: var(--kant-sterk); }
+.verktoyknapp.aktiv { background: var(--hm-raud); border-color: var(--hm-raud); color: #fff; font-weight: 700; }
 .minivalg, .minitall input {
-  background: var(--bg3); color: var(--tekst); border: 1px solid var(--linje);
-  border-radius: 4px; padding: 3px 5px; font-size: 11.5px; font-family: var(--skrift);
+  background: var(--flate-opp); color: var(--blekk); border: 2px solid var(--kant);
+  padding: 2px 5px; font-size: 11.5px; font-family: var(--skrift);
 }
-.minitall { display: inline-flex; align-items: center; gap: 4px; color: var(--tekst2); }
+.minitall { display: inline-flex; align-items: center; gap: 4px; color: var(--blekk-svak); }
 .minitall input { width: 52px; }
-.avkryss { display: inline-flex; align-items: center; gap: 4px; color: var(--tekst2); cursor: pointer; }
-.hjelpetekst { color: var(--tekst2); font-size: 11px; font-style: italic; }
-.etikett { color: var(--tekst); font-variant-numeric: tabular-nums; min-width: 190px; }
+.avkryss { display: inline-flex; align-items: center; gap: 4px; color: var(--blekk-svak); cursor: pointer; }
+.avkryss input, .felt input[type=checkbox] { accent-color: var(--hm-raud); }
+.hjelpetekst { color: var(--blekk-svak); font-size: 11px; }
+.etikett { color: var(--blekk); font-variant-numeric: tabular-nums; min-width: 190px; }
 
-/* ---------- kart ---------- */
-#kart { flex: 1; background: #0d1116; }
-.leaflet-container { background: #0d1116; font-family: var(--skrift); }
-.kartsok { position: absolute; top: 42px; left: 12px; z-index: 500; width: 260px; }
+/* ── kart ──────────────────────────────────────────────── */
+#kart { flex: 1; background: var(--flate-2); }
+.leaflet-container { background: var(--flate-2); font-family: var(--skrift); }
+.kartsok { position: absolute; top: 46px; left: 12px; z-index: 500; width: 268px; }
 .kartsok input {
-  width: 100%; background: rgba(26,32,41,.96); border: 1px solid var(--linje);
-  color: var(--tekst); padding: 6px 10px; border-radius: 5px; font-size: 12px;
+  width: 100%; background: var(--flate-opp); border: 2px solid var(--kant-sterk);
+  color: var(--blekk); padding: 7px 10px; font-size: 12px; font-family: var(--skrift);
+  box-shadow: 3px 3px 0 0 rgba(0,0,0,.35);
 }
-.sokeliste { background: rgba(26,32,41,.98); border: 1px solid var(--linje); border-radius: 5px; margin-top: 3px; max-height: 220px; overflow: auto; }
-.sokeliste div { padding: 6px 10px; cursor: pointer; border-bottom: 1px solid var(--linje); font-size: 12px; }
-.sokeliste div:hover { background: var(--bg3); }
-.sokeliste small { color: var(--tekst2); display: block; }
+.sokeliste {
+  background: var(--flate-opp); border: 2px solid var(--kant-sterk); margin-top: 3px;
+  max-height: 230px; overflow: auto; box-shadow: 3px 3px 0 0 rgba(0,0,0,.35);
+}
+.sokeliste div { padding: 6px 10px; cursor: pointer; border-bottom: 1px solid var(--kant); font-size: 12px; }
+.sokeliste div:hover { background: var(--hm-raud); color: #fff; }
+.sokeliste div:hover small { color: rgba(255,255,255,.8); }
+.sokeliste small { color: var(--blekk-svak); display: block; }
 .kartinfo {
-  position: absolute; bottom: 8px; left: 12px; z-index: 500;
-  background: rgba(18,22,28,.88); border: 1px solid var(--linje); border-radius: 5px;
-  padding: 4px 9px; font-size: 11.5px; color: var(--tekst2); font-variant-numeric: tabular-nums;
-  pointer-events: none;
+  position: absolute; bottom: 10px; left: 12px; z-index: 500;
+  background: var(--flate-opp); border: 2px solid var(--kant);
+  padding: 4px 9px; font-size: 11.5px; color: var(--blekk-svak);
+  font-variant-numeric: tabular-nums; pointer-events: none;
 }
 
-/* ---------- lerret ---------- */
+/* ── lerret ────────────────────────────────────────────── */
 #lengdeprofil, #tverrprofil { flex: 1; width: 100%; display: block; cursor: crosshair; }
-.skyver { width: 220px; accent-color: var(--aksent); }
+.skyver { width: 220px; accent-color: var(--hm-raud); }
 
-/* ---------- sidepanel ---------- */
-.faner { display: flex; background: var(--bg2); border-bottom: 1px solid var(--linje); }
+/* ── sidepanel ─────────────────────────────────────────── */
+.faner { display: flex; background: var(--flate-2); border-bottom: 2px solid var(--kant); }
 .fane {
-  flex: 1; background: none; border: none; border-bottom: 2px solid transparent;
-  color: var(--tekst2); padding: 9px 4px; cursor: pointer; font-size: 12px; font-family: var(--skrift);
+  flex: 1; background: none; border: none; border-bottom: 3px solid transparent;
+  color: var(--blekk-svak); padding: 10px 4px; cursor: pointer;
+  font-family: var(--skrift-tittel); font-weight: 700; font-size: 13px;
+  text-transform: uppercase; letter-spacing: .05em;
 }
-.fane:hover { color: var(--tekst); }
-.fane.aktiv { color: var(--aksent); border-bottom-color: var(--aksent); font-weight: 600; }
+.fane:hover { color: var(--blekk); }
+.fane.aktiv { color: var(--blekk); border-bottom-color: var(--hm-raud); }
 .faneinnhold { display: none; padding: 12px; overflow-y: auto; flex: 1; }
 .faneinnhold.aktiv { display: block; }
 .faneinnhold h3 {
-  font-size: 11px; text-transform: uppercase; letter-spacing: .7px;
-  color: var(--tekst2); margin: 16px 0 7px; border-bottom: 1px solid var(--linje); padding-bottom: 4px;
+  font-family: var(--skrift-tittel); font-size: 13px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .05em;
+  color: var(--blekk); margin: 18px 0 8px;
+  border-bottom: 2px solid var(--kant); padding-bottom: 4px;
 }
 .faneinnhold h3:first-child { margin-top: 0; }
-.notis { color: var(--tekst2); font-size: 12px; line-height: 1.5; margin: 0 0 10px; }
-.tomtekst { color: var(--tekst2); font-style: italic; }
+.notis { color: var(--blekk-svak); font-size: 12px; line-height: 1.5; margin: 0 0 10px; }
+.tomtekst { color: var(--blekk-svak); }
 
 .felt { display: grid; grid-template-columns: 1fr 78px 34px; align-items: center; gap: 6px; margin-bottom: 5px; }
-.felt label { color: var(--tekst2); font-size: 12px; }
+.felt label { color: var(--blekk-svak); font-size: 12px; }
 .felt input, .felt select {
-  background: var(--bg3); border: 1px solid var(--linje); color: var(--tekst);
-  padding: 4px 6px; border-radius: 4px; font-size: 12px; width: 100%; font-family: var(--skrift);
+  background: var(--flate-opp); border: 2px solid var(--kant); color: var(--blekk);
+  padding: 4px 6px; font-size: 12px; width: 100%; font-family: var(--skrift);
 }
+.felt input:focus, .felt select:focus, .minitall input:focus { border-color: var(--hm-raud); }
 .felt input[type=text] { grid-column: 2 / 4; }
-.felt span { color: var(--tekst2); font-size: 11px; }
+.felt span { color: var(--blekk-svak); font-size: 11px; }
 .felt.avkryssfelt { grid-template-columns: 1fr; }
 .felt.avkryssfelt label { display: flex; gap: 6px; align-items: center; cursor: pointer; }
 
 .minitabell { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
-.minitabell th { text-align: left; color: var(--tekst2); font-weight: 500; padding: 3px 4px; border-bottom: 1px solid var(--linje); font-size: 11px; }
-.minitabell td { padding: 2px 4px; border-bottom: 1px solid #262f3b; }
-.minitabell input { background: var(--bg3); border: 1px solid var(--linje); color: var(--tekst); width: 100%; padding: 2px 4px; border-radius: 3px; font-size: 12px; font-family: var(--skrift); }
-.minitabell button { background: none; border: none; color: var(--varsel); cursor: pointer; font-size: 14px; padding: 0 3px; }
+.minitabell th {
+  text-align: left; color: var(--blekk-svak); font-weight: 700; padding: 4px;
+  border-bottom: 2px solid var(--kant); font-size: 11px;
+  font-family: var(--skrift-tittel); text-transform: uppercase; letter-spacing: .05em;
+}
+.minitabell td { padding: 2px 4px; border-bottom: 1px solid var(--kant); }
+.minitabell input {
+  background: var(--flate-opp); border: 2px solid var(--kant); color: var(--blekk);
+  width: 100%; padding: 2px 4px; font-size: 12px; font-family: var(--skrift);
+}
+.minitabell button { background: none; border: none; color: var(--raud); cursor: pointer; font-size: 15px; padding: 0 3px; font-weight: 700; }
+.listeboks { margin-top: 8px; font-size: 12px; color: var(--blekk-svak); line-height: 1.6; }
+.listeboks .rad { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0; border-bottom: 1px solid var(--kant); }
+.listeboks .rad button { background: none; border: none; color: var(--raud); cursor: pointer; font-weight: 700; }
+
+/* ── høgdetabell ───────────────────────────────────────── */
+/* ── veiklasse ─────────────────────────────────────────── */
+.klasseboks {
+  background: var(--flate-2); border: 2px solid var(--kant); border-left: 5px solid var(--hm-raud);
+  padding: 8px 10px; margin-bottom: 10px; font-size: 12px; line-height: 1.5; color: var(--blekk-svak);
+}
+.klasseboks p { margin: 0 0 6px; }
+.klasseboks p:last-child { margin-bottom: 0; }
+.klasseboks .kilde { font-size: 11px; font-style: italic; }
+.klassetall { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 6px; }
+.klassetall b { color: var(--blekk); font-variant-numeric: tabular-nums; }
+.kravtabell td { text-align: right; }
+.kravtabell td:first-child { text-align: left; }
+
+/* ── punkthøyder i tverrprofilet ───────────────────────── */
+.punkthoyder { display: inline-flex; align-items: center; gap: 6px; }
+.punkthoyder label { display: inline-flex; align-items: center; gap: 3px; color: var(--blekk-svak); font-size: 11px; }
+.punkthoyder input {
+  width: 74px; background: var(--flate-opp); border: 2px solid var(--kant); color: var(--blekk);
+  padding: 2px 4px; font-size: 11.5px; font-family: var(--skrift); font-variant-numeric: tabular-nums;
+}
+.punkthoyder input:focus { border-color: var(--hm-raud); }
+.punkthoyder input.overstyrt { border-color: var(--hm-raud); color: var(--raud); font-weight: 700; }
+
 .hoydeverktoy { flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 8px; }
 .limfelt {
-  width: 100%; background: var(--bg3); border: 1px solid var(--linje); color: var(--tekst);
-  border-radius: 4px; padding: 6px 8px; font-family: ui-monospace, Consolas, monospace;
+  width: 100%; background: var(--flate-opp); border: 2px solid var(--kant); color: var(--blekk);
+  padding: 6px 8px; font-family: ui-monospace, Consolas, monospace;
   font-size: 11.5px; resize: vertical; margin-bottom: 6px;
 }
-.hoydetabell { font-variant-numeric: tabular-nums; }
-.hoydetabell td:nth-child(3), .hoydetabell td:nth-child(4) { color: var(--tekst2); text-align: right; }
-.hoydetabell tr.laast td:nth-child(2) input { border-color: var(--aksent); color: var(--aksent); font-weight: 600; }
+.limfelt:focus { border-color: var(--hm-raud); }
+.hoydetabell td:nth-child(3), .hoydetabell td:nth-child(4) { text-align: right; color: var(--blekk-svak); }
+.hoydetabell tr.laast td:nth-child(2) input { border-color: var(--hm-raud); color: var(--raud); font-weight: 700; }
 .hoydetabell input[type=checkbox] { width: auto; }
-.hoydetabell .diff-skjaering { color: var(--skjaering); }
-.hoydetabell .diff-fylling { color: var(--fylling); }
-.tabellramme { max-height: 320px; overflow-y: auto; }
+.hoydetabell .diff-skjaering { color: var(--data-skjaering); }
+.hoydetabell .diff-fylling { color: var(--data-fylling); }
 
-.listeboks { margin-top: 8px; font-size: 12px; color: var(--tekst2); line-height: 1.6; }
-.listeboks .rad { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; border-bottom: 1px solid #262f3b; }
-.listeboks .rad button { background: none; border: none; color: var(--varsel); cursor: pointer; }
-
-/* ---------- massesammendrag ---------- */
-.sumkort { background: var(--bg2); border: 1px solid var(--linje); border-radius: 7px; padding: 10px 12px; margin-bottom: 10px; }
-.sumkort h4 { margin: 0 0 8px; font-size: 12px; color: var(--tekst2); text-transform: uppercase; letter-spacing: .6px; font-weight: 600; }
+/* ── massesamandrag ────────────────────────────────────── */
+.sumkort { background: var(--flate-2); border: 2px solid var(--kant); padding: 10px 12px; margin-bottom: 10px; }
+.sumkort h4 {
+  margin: 0 0 8px; font-family: var(--skrift-tittel); font-size: 13px; color: var(--blekk);
+  text-transform: uppercase; letter-spacing: .05em; font-weight: 700;
+  display: flex; align-items: center; gap: 8px;
+}
+.sumkort h4::after { content: ''; flex: 1; height: 2px; background: var(--kant); }
 .sumrad { display: flex; justify-content: space-between; align-items: baseline; padding: 3px 0; font-variant-numeric: tabular-nums; }
-.sumrad .verdi { font-weight: 600; font-size: 14px; }
-.sumrad.stor .verdi { font-size: 19px; }
-.sumrad small { color: var(--tekst2); font-weight: 400; font-size: 11px; margin-left: 4px; }
-.strek { border-top: 1px solid var(--linje); margin: 7px 0; }
-.merke-skjaering { color: var(--skjaering); }
-.merke-fylling { color: var(--fylling); }
-.merke-fjell { color: var(--fjell); }
-.merke-varsel { color: var(--varsel); }
-.varselboks { background: rgba(226,84,74,.12); border: 1px solid rgba(226,84,74,.4); border-radius: 6px; padding: 8px 10px; margin-bottom: 10px; font-size: 12px; line-height: 1.5; max-height: 160px; overflow: auto; }
-.varselboks div { padding: 1px 0; }
+.sumrad > span:first-child { color: var(--blekk-svak); }
+.sumrad .verdi { font-weight: 700; font-size: 14px; color: var(--blekk); }
+.sumrad.stor .verdi { font-size: 20px; font-family: var(--skrift-tittel); letter-spacing: .01em; }
+.sumrad small { color: var(--blekk-svak); font-weight: 400; font-size: 11px; margin-left: 4px; }
+.strek { border-top: 2px solid var(--kant); margin: 8px 0; }
+.merke-skjaering { color: var(--data-skjaering); }
+.merke-fylling { color: var(--data-fylling); }
+.merke-fjell { color: var(--data-fjell); }
+.merke-varsel { color: var(--raud); }
 
-/* ---------- dialog / framdrift ---------- */
+.varselboks {
+  background: var(--flate-2); border: 2px solid var(--hm-raud); border-left-width: 5px;
+  padding: 8px 10px; margin-bottom: 10px; font-size: 12px; line-height: 1.5;
+  max-height: 170px; overflow: auto;
+}
+.varselboks div { padding: 1px 0; color: var(--blekk-svak); }
+.varselboks b { color: var(--blekk); }
+
+/* Sperreband – same motiv som anleggsvarsel i dei andre appane. */
+.hm-varselstriper {
+  height: 6px;
+  background-image: repeating-linear-gradient(-45deg, var(--hm-svart) 0 10px, var(--hm-raud) 10px 20px);
+}
+
+/* ── dialog og framdrift ───────────────────────────────── */
 .dialog, .framdrift {
-  position: fixed; inset: 0; background: rgba(8,11,15,.72);
+  position: fixed; inset: 0; background: rgba(11,11,12,.78);
   display: flex; align-items: center; justify-content: center; z-index: 4000;
 }
 .skjult { display: none !important; }
-.dialogboks { background: var(--bg2); border: 1px solid var(--linje); border-radius: 9px; width: 520px; max-height: 74vh; overflow: auto; }
-.dialoghode { display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; border-bottom: 1px solid var(--linje); font-weight: 600; }
+.dialogboks {
+  background: var(--flate-opp); border: 2px solid var(--kant-sterk);
+  width: 560px; max-height: 76vh; overflow: auto; box-shadow: 6px 6px 0 0 rgba(0,0,0,.5);
+}
+.dialoghode {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 14px; border-bottom: 2px solid var(--kant);
+  font-family: var(--skrift-tittel); font-weight: 700; font-size: 16px;
+  text-transform: uppercase; letter-spacing: .05em;
+}
 #dialoginnhold { padding: 12px 14px; }
-#dialoginnhold .rad { display: flex; justify-content: space-between; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--linje); }
-#dialoginnhold .rad:hover { background: var(--bg3); }
+#dialoginnhold .rad { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--kant); }
+#dialoginnhold .rad:hover { background: var(--flate-2); }
 #dialoginnhold .rad span { cursor: pointer; flex: 1; }
 #dialoginnhold .rad .knapp { margin-left: 6px; }
-.dialogverktoy { display: flex; gap: 8px; padding-bottom: 10px; border-bottom: 1px solid var(--linje); margin-bottom: 4px; }
-.framdriftboks { background: var(--bg2); border: 1px solid var(--linje); border-radius: 9px; padding: 18px 22px; width: 340px; text-align: center; }
-.stolpe { height: 6px; background: var(--bg3); border-radius: 3px; margin-top: 12px; overflow: hidden; }
-#framdriftStolpe { height: 100%; width: 0%; background: var(--aksent); transition: width .15s; }
+.dialogverktoy { display: flex; gap: 8px; padding-bottom: 10px; border-bottom: 2px solid var(--kant); margin-bottom: 4px; }
 
-/* Leaflet-markører */
+.framdriftboks {
+  background: var(--flate-opp); border: 2px solid var(--kant-sterk);
+  padding: 18px 22px; width: 360px; text-align: center; box-shadow: 6px 6px 0 0 rgba(0,0,0,.5);
+}
+#framdriftTekst { font-family: var(--skrift-tittel); text-transform: uppercase; letter-spacing: .05em; font-weight: 700; font-size: 15px; }
+.stolpe { height: 8px; background: var(--kant); margin-top: 12px; overflow: hidden; }
+#framdriftStolpe { height: 100%; width: 0%; background: var(--hm-raud); transition: width .15s; }
+
+/* ── markørar i kartet ─────────────────────────────────── */
 .ip-markor {
-  width: 13px; height: 13px; background: var(--aksent); border: 2px solid #fff;
-  border-radius: 50%; box-shadow: 0 0 5px rgba(0,0,0,.6);
+  width: 13px; height: 13px; background: var(--hm-raud); border: 2px solid #fff;
+  box-shadow: 0 0 4px rgba(0,0,0,.7);
 }
 .fjell-markor {
-  width: 11px; height: 11px; background: var(--fjell); border: 2px solid #fff;
-  border-radius: 2px; box-shadow: 0 0 5px rgba(0,0,0,.6);
+  width: 11px; height: 11px; background: #fafafa; border: 2px solid var(--hm-raud);
+  box-shadow: 0 0 4px rgba(0,0,0,.7);
 }
-.stasjon-markor { width: 11px; height: 11px; background: #fff; border: 2px solid var(--aksent); border-radius: 50%; }
-.leaflet-popup-content-wrapper { background: var(--bg2); color: var(--tekst); border-radius: 6px; }
-.leaflet-popup-tip { background: var(--bg2); }
+.stasjon-markor { width: 11px; height: 11px; background: #fff; border: 2px solid var(--hm-raud); border-radius: 50%; }
+.stasjonstall {
+  font-family: var(--skrift-tittel); font-weight: 700; font-size: 12px; color: #fff;
+  background: var(--hm-svart); padding: 0 4px; white-space: nowrap;
+  transform: translate(7px, -8px); border-left: 2px solid var(--hm-raud);
+}
+.leaflet-popup-content-wrapper { background: var(--flate-opp); color: var(--blekk); border: 2px solid var(--kant-sterk); border-radius: 0; }
+.leaflet-popup-tip { background: var(--flate-opp); }
 .leaflet-popup-content { margin: 10px 12px; font-size: 12px; }
-.leaflet-popup-content input { background: var(--bg3); border: 1px solid var(--linje); color: var(--tekst); border-radius: 4px; padding: 3px 5px; width: 70px; }
+.leaflet-popup-content input {
+  background: var(--flate); border: 2px solid var(--kant); color: var(--blekk); padding: 3px 5px; width: 70px;
+}
 .leaflet-popup-content button { margin-top: 6px; }
-.leaflet-bar a { background: var(--bg2); color: var(--tekst); border-color: var(--linje); }
-.leaflet-bar a:hover { background: var(--bg3); }
+.leaflet-bar a { background: var(--flate-opp); color: var(--blekk); border-color: var(--kant); }
+.leaflet-bar a:hover { background: var(--kant); }
+.leaflet-control-attribution { background: rgba(11,11,12,.7) !important; color: #a1a1aa !important; }
+.leaflet-control-attribution a { color: var(--raud) !important; }
+
+/* Rørsle er aldri nødvendig for å forstå grensesnittet. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+  .knapp.primaer:active { transform: none; }
+}

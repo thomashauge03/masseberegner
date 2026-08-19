@@ -137,6 +137,12 @@ class Linjeforing {
     return (!el || el.type === 'linje') ? Infinity : el.r;
   }
 
+  /** Kurven som dekker profilnummeret, eller null pa rettstrekk. */
+  kurveVed(s) {
+    for (const k of this.kurver) if (s >= k.sBC - 1e-9 && s <= k.sEC + 1e-9) return k;
+    return null;
+  }
+
   /** Nærmeste profilnummer til et vilkarlig punkt (brukt til klikk i kartet). */
   projiser(x, y) {
     let best = { s: 0, avstand: Infinity, side: 1 };

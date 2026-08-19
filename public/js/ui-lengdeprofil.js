@@ -112,17 +112,18 @@ const Lengdeprofil = {
     c.setTransform(dpr, 0, 0, dpr, 0, 0);
     const B = l.clientWidth, H = l.clientHeight, m = this.marg;
     c.clearRect(0, 0, B, H);
-    c.fillStyle = '#12161c'; c.fillRect(0, 0, B, H);
+    c.fillStyle = Farger.flate; c.fillRect(0, 0, B, H);
+    this.farge = Farger.veg;
 
     const o = this.omrade();
     if (!app.linje || app.linje.lengde <= 0) {
-      c.fillStyle = '#97a5b6'; c.font = '13px system-ui'; c.textAlign = 'center';
+      c.fillStyle = Farger.blekkSvak; c.font = '13px system-ui'; c.textAlign = 'center';
       c.fillText('Tegn en senterlinje i kartet – så kommer lengdeprofilen her.', B / 2, H / 2);
       return;
     }
 
     /* --- rutenett --- */
-    c.strokeStyle = '#232c38'; c.fillStyle = '#6d7d90'; c.font = '10px system-ui'; c.lineWidth = 1;
+    c.strokeStyle = Farger.rutenett; c.fillStyle = Farger.blekkSvak; c.font = '10px system-ui'; c.lineWidth = 1;
     const zSteg = velgSteg(o.zMax - o.zMin, 6);
     c.textAlign = 'right'; c.textBaseline = 'middle';
     for (let z = Math.ceil(o.zMin / zSteg) * zSteg; z <= o.zMax; z += zSteg) {
@@ -173,14 +174,14 @@ const Lengdeprofil = {
       c.closePath();
       c.clip();
       // over veglinjen = skjæring
-      c.fillStyle = 'rgba(232,151,58,.30)';
+      c.fillStyle = Farger.skjaeringFlate;
       c.beginPath();
       for (let i = 0; i < tp.s.length; i++) { const p = this.tilSkjerm(tp.s[i], prosjektert(tp.s[i])); i ? c.lineTo(p.x, p.y) : c.moveTo(p.x, p.y); }
       c.lineTo(this.tilSkjerm(o.sMax, o.zMax).x, this.tilSkjerm(o.sMax, o.zMax).y);
       c.lineTo(this.tilSkjerm(0, o.zMax).x, this.tilSkjerm(0, o.zMax).y);
       c.closePath(); c.fill();
       // under veglinjen = fylling
-      c.fillStyle = 'rgba(79,180,119,.32)';
+      c.fillStyle = Farger.fyllingFlate;
       c.beginPath();
       for (let i = 0; i < tp.s.length; i++) { const p = this.tilSkjerm(tp.s[i], prosjektert(tp.s[i])); i ? c.lineTo(p.x, p.y) : c.moveTo(p.x, p.y); }
       c.lineTo(this.tilSkjerm(o.sMax, o.zMin).x, this.tilSkjerm(o.sMax, o.zMin).y);
@@ -192,7 +193,7 @@ const Lengdeprofil = {
 
     /* --- fjelloverflate --- */
     if (tp && app.fjellmodell) {
-      c.strokeStyle = 'rgba(176,107,214,.75)'; c.lineWidth = 1; c.setLineDash([5, 4]);
+      c.strokeStyle = Farger.fjell; c.lineWidth = 1; c.setLineDash([5, 4]);
       c.beginPath();
       for (let i = 0; i < tp.s.length; i++) {
         const pkt = app.linje.punktVed(tp.s[i]);
@@ -205,7 +206,7 @@ const Lengdeprofil = {
 
     /* --- terrenglinje --- */
     if (tp) {
-      c.strokeStyle = '#c3ccd8'; c.lineWidth = 1.6; c.beginPath();
+      c.strokeStyle = Farger.terreng; c.lineWidth = 1.6; c.beginPath();
       for (let i = 0; i < tp.s.length; i++) {
         const p = this.tilSkjerm(tp.s[i], tp.z[i]);
         i ? c.lineTo(p.x, p.y) : c.moveTo(p.x, p.y);
@@ -215,28 +216,39 @@ const Lengdeprofil = {
 
     /* --- prosjektert veglinje --- */
     if (app.vprofil && app.P.vip.length > 1) {
-      c.strokeStyle = '#4ea3ff'; c.lineWidth = 2.2; c.beginPath();
-      const n = 400;
-      for (let i = 0; i <= n; i++) {
-        const s = o.sMin + (o.sMax - o.sMin) * i / n;
-        const p = this.tilSkjerm(s, app.vprofil.hoyde(s));
-        i ? c.lineTo(p.x, p.y) : c.moveTo(p.x, p.y);
-      }
-      c.stroke();
+      /* Veglinjen far mørkt omriss under den lyse streken, sa den ikke
+         glir sammen med terrenglinjen der de ligger tett. */
+      const tegnLinje = () => {
+        c.beginPath();
+        const n = 400;
+        for (let i = 0; i <= n; i++) {
+          const s = o.sMin + (o.sMax - o.sMin) * i / n;
+          const p = this.tilSkjerm(s, app.vprofil.hoyde(s));
+          i ? c.lineTo(p.x, p.y) : c.moveTo(p.x, p.y);
+        }
+        c.stroke();
+      };
+      c.strokeStyle = Farger.flate; c.lineWidth = 5; tegnLinje();
+      c.strokeStyle = Farger.veg; c.lineWidth = 2.4; tegnLinje();
 
       // stigning i prosent pa hvert rettstrekk
-      c.fillStyle = '#9fc8ee'; c.font = '10px system-ui'; c.textAlign = 'center'; c.textBaseline = 'bottom';
+      c.font = '10px system-ui'; c.textAlign = 'center'; c.textBaseline = 'middle';
       for (let i = 0; i < app.P.vip.length - 1; i++) {
         const a = app.P.vip[i], b = app.P.vip[i + 1];
         const dl = b.s - a.s;
         if (dl < 12) continue;
         const g = (b.z - a.z) / dl * 100;
         const midt = this.tilSkjerm((a.s + b.s) / 2, (a.z + b.z) / 2);
-        c.fillText(g.toFixed(1) + ' %', midt.x, midt.y - 4);
+        const tekst = g.toFixed(1) + ' %';
+        const br = c.measureText(tekst).width;
+        c.fillStyle = Farger.flate;
+        c.fillRect(midt.x - br / 2 - 3, midt.y - 17, br + 6, 12);
+        c.fillStyle = Farger.blekkSvak;
+        c.fillText(tekst, midt.x, midt.y - 11);
       }
 
       // vertikalkurver - merket med korte streker nede ved aksen
-      c.strokeStyle = 'rgba(78,163,255,.6)'; c.lineWidth = 1;
+      c.strokeStyle = Farger.veg; c.lineWidth = 1;
       for (const k of app.vprofil.kurver) {
         for (const s of [k.sBVC, k.sEVC]) {
           const p = this.tilSkjerm(s, 0);
@@ -249,22 +261,20 @@ const Lengdeprofil = {
       // knekkpunkt - laste høyder som firkant, frie som sirkel
       app.P.vip.forEach((v, i) => {
         const p = this.tilSkjerm(v.s, v.z);
-        c.strokeStyle = '#0b1017'; c.lineWidth = 1.5;
-        if (v.laast) {
-          c.fillStyle = i === this.dragIndeks ? '#fff' : 'var(--laast)';
-          c.fillStyle = '#f5f5f5';
-          c.beginPath(); c.rect(p.x - 4, p.y - 4, 8, 8); c.fill(); c.stroke();
-        } else {
-          c.fillStyle = i === this.dragIndeks ? '#fff' : this.farge;
-          c.beginPath(); c.arc(p.x, p.y, 4.5, 0, 7); c.fill(); c.stroke();
-        }
+        c.strokeStyle = Farger.flate; c.lineWidth = 2;
+        // Låste høyder er brukeren sine egne tall og skal skille seg ut
+        c.fillStyle = i === this.dragIndeks ? Farger.blekk : (v.laast ? Farger.skjaering : Farger.veg);
+        c.beginPath();
+        if (v.laast) c.rect(p.x - 4.5, p.y - 4.5, 9, 9);
+        else c.arc(p.x, p.y, 4.5, 0, 7);
+        c.fill(); c.stroke();
       });
     }
 
     /* --- valgt tverrprofil --- */
     if (app.tverrStasjon != null) {
       const p = this.tilSkjerm(app.tverrStasjon, 0);
-      c.strokeStyle = 'rgba(255,255,255,.65)'; c.lineWidth = 1; c.setLineDash([4, 4]);
+      c.strokeStyle = Farger.blekkSvak; c.lineWidth = 1; c.setLineDash([4, 4]);
       c.beginPath(); c.moveTo(p.x, m.o); c.lineTo(p.x, H - m.u); c.stroke(); c.setLineDash([]);
     }
 
@@ -274,14 +284,16 @@ const Lengdeprofil = {
       const zt = interp(tp.s, tp.z, s);
       const zv = prosjektert(s);
       const p = this.tilSkjerm(s, zt);
-      c.fillStyle = '#fff'; c.beginPath(); c.arc(p.x, p.y, 3, 0, 7); c.fill();
-      c.fillStyle = 'rgba(18,22,28,.92)'; c.strokeStyle = '#303a48';
-      const tekst = `prof ${s.toFixed(1)}   terr ${zt.toFixed(2)}   veg ${zv.toFixed(2)}   ${(zt - zv) >= 0 ? 'skjæring' : 'fylling'} ${Math.abs(zt - zv).toFixed(2)} m`;
+      const skjaerer = (zt - zv) >= 0;
+      c.fillStyle = Farger.blekk; c.beginPath(); c.arc(p.x, p.y, 3, 0, 7); c.fill();
+      c.fillStyle = Farger.flate; c.strokeStyle = Farger.akse;
+      const tekst = `prof ${s.toFixed(1)}   terr ${zt.toFixed(2)}   veg ${zv.toFixed(2)}   ${skjaerer ? 'skjæring' : 'fylling'} ${Math.abs(zt - zv).toFixed(2)} m`;
       c.font = '11px system-ui'; c.textAlign = 'left'; c.textBaseline = 'top';
       const bredde = c.measureText(tekst).width + 12;
       const bx = Math.min(B - bredde - 4, Math.max(m.v, p.x + 8));
       c.fillRect(bx, m.o + 2, bredde, 18); c.strokeRect(bx, m.o + 2, bredde, 18);
-      c.fillStyle = '#e6ecf3'; c.fillText(tekst, bx + 6, m.o + 6);
+      c.fillStyle = skjaerer ? Farger.skjaering : Farger.fylling;
+      c.fillText(tekst, bx + 6, m.o + 6);
     }
   }
 };

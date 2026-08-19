@@ -31,10 +31,13 @@ const Kart = {
       attribution: '© NGU'
     });
 
-    this.lag.linje = L.polyline([], { color: '#4ea3ff', weight: 3.5 }).addTo(kart);
-    this.lag.hjelpelinje = L.polyline([], { color: '#4ea3ff', weight: 1, dashArray: '4 4', opacity: .55 }).addTo(kart);
-    this.lag.venstreFot = L.polyline([], { color: '#e8973a', weight: 1.6, opacity: .9 }).addTo(kart);
-    this.lag.hoyreFot = L.polyline([], { color: '#e8973a', weight: 1.6, opacity: .9 }).addTo(kart);
+    /* Senterlinjen far svart omriss under den lyse streken. Uten det
+       forsvinner den i lyse partier av kartet. */
+    this.lag.linjeSkygge = L.polyline([], { color: '#0b0b0c', weight: 6, opacity: .55 }).addTo(kart);
+    this.lag.linje = L.polyline([], { color: Farger.veg, weight: 3 }).addTo(kart);
+    this.lag.hjelpelinje = L.polyline([], { color: Farger.veg, weight: 1, dashArray: '4 4', opacity: .5 }).addTo(kart);
+    this.lag.venstreFot = L.polyline([], { color: Farger.skjaering, weight: 1.8, opacity: .95 }).addTo(kart);
+    this.lag.hoyreFot = L.polyline([], { color: Farger.skjaering, weight: 1.8, opacity: .95 }).addTo(kart);
     this.lag.vegkant = L.layerGroup().addTo(kart);
     this.lag.stasjoner = L.layerGroup().addTo(kart);
     this.lag.markorPos = L.layerGroup().addTo(kart);
@@ -196,7 +199,7 @@ const Kart = {
     const app = this.app, P = app.P;
     this.lag.hjelpelinje.setLatLngs(P.ip.map(p => [p.lat, p.lon]));
     const linje = app.byggLinje();
-    if (!linje || linje.lengde <= 0) { this.lag.linje.setLatLngs([]); return; }
+    if (!linje || linje.lengde <= 0) { this.lag.linje.setLatLngs([]); this.lag.linjeSkygge.setLatLngs([]); return; }
     const punkter = [];
     const steg = Math.max(0.5, linje.lengde / 600);
     for (let s = 0; s <= linje.lengde; s += steg) {
@@ -207,6 +210,7 @@ const Kart = {
     const sl = linje.punktVed(linje.lengde);
     punkter.push([Geo.fraUtm(sl.x, sl.y, app.sone).lat, Geo.fraUtm(sl.x, sl.y, app.sone).lon]);
     this.lag.linje.setLatLngs(punkter);
+    this.lag.linjeSkygge.setLatLngs(punkter);
   },
 
   /** Tegner fotavtrykket (skjæringstopp / fyllingsfot) etter en beregning. */
@@ -224,8 +228,8 @@ const Kart = {
     this.lag.venstreFot.setLatLngs(v);
     this.lag.hoyreFot.setLatLngs(h);
     this.lag.vegkant.clearLayers();
-    L.polyline(vk1, { color: '#8fd0ff', weight: 1.2, opacity: .8 }).addTo(this.lag.vegkant);
-    L.polyline(vk2, { color: '#8fd0ff', weight: 1.2, opacity: .8 }).addTo(this.lag.vegkant);
+    L.polyline(vk1, { color: Farger.veg, weight: 1.2, opacity: .7 }).addTo(this.lag.vegkant);
+    L.polyline(vk2, { color: Farger.veg, weight: 1.2, opacity: .7 }).addTo(this.lag.vegkant);
 
     this.lag.stasjoner.clearLayers();
     const merkeavstand = res.lengdeKart > 1200 ? 100 : 50;
@@ -233,7 +237,7 @@ const Kart = {
       const p = app.linje.punktVed(Math.min(s, res.lengdeKart));
       const ll = Geo.fraUtm(p.x, p.y, app.sone);
       L.marker([ll.lat, ll.lon], {
-        icon: L.divIcon({ className: '', html: `<div style="color:#cfe6ff;font-size:10px;text-shadow:0 0 3px #000;white-space:nowrap;transform:translate(6px,-7px)">${Math.round(s)}</div>`, iconSize: [0, 0] }),
+        icon: L.divIcon({ className: '', html: `<div class="stasjonstall">${Math.round(s)}</div>`, iconSize: [0, 0] }),
         interactive: false
       }).addTo(this.lag.stasjoner);
     }

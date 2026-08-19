@@ -3,14 +3,22 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Massekalk – masseberegning med terrengdata fra Kartverket</title>
+<title>Massekalk – Hauge Maskin</title>
+<link rel="icon" href="bilde/hm-logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&display=swap">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
 
 <header class="topp">
-  <div class="merke">Massekalk</div>
+  <div class="merke">
+    <img src="bilde/hm-logo.png" alt="Hauge Maskin">
+    <span class="navn">Massekalk</span>
+    <span class="hm-skrastrek" aria-hidden="true"></span>
+  </div>
   <input id="prosjektnavn" class="navnefelt" value="Nytt prosjekt" spellcheck="false">
   <div class="knapperad">
     <button id="knappNy" class="knapp">Ny</button>
@@ -73,6 +81,12 @@
         <button id="tverrForrige" class="verktoyknapp">◀</button>
         <input type="range" id="tverrSkyver" min="0" max="100" value="0" class="skyver">
         <button id="tverrNeste" class="verktoyknapp">▶</button>
+        <span class="punkthoyder">
+          <label>VK <input type="number" id="tp_venstre" step="0.01" title="Høyde på venstre vegkant"></label>
+          <label>SL <input type="number" id="tp_senter" step="0.01" title="Høyde i senterlinjen"></label>
+          <label>HK <input type="number" id="tp_hoyre" step="0.01" title="Høyde på høyre vegkant"></label>
+          <button id="tp_nullstill" class="verktoyknapp" title="Tilbake til tverrfallet i vegmalen">↺</button>
+        </span>
         <span id="tverrEtikett" class="etikett">–</span>
       </div>
     </div>
@@ -129,9 +143,14 @@
 
     <!-- Vegmal -->
     <div class="faneinnhold" id="fane-mal">
+      <h3>Veiklasse</h3>
+      <div class="felt"><label>Hurtigvalg</label>
+        <select id="m_veiklasse" style="grid-column: 2 / 4"></select></div>
+      <div id="veiklasseinfo" class="klasseboks"></div>
+
       <h3>Vegkropp</h3>
       <div class="felt"><label>Vegbredde inkl. skulder</label><input type="number" id="m_vegbredde" step="0.1" value="4.5"><span>m</span></div>
-      <div class="felt"><label>Tverrfall (kuv)</label><input type="number" id="m_tverrfall" step="0.5" value="6"><span>%</span></div>
+      <div class="felt"><label>Tverrfall (kuv)</label><input type="number" id="m_tverrfall" step="0.5" value="5"><span>%</span></div>
       <div class="felt"><label>Tverrfallstype</label>
         <select id="m_tverrfallType"><option value="tak">Tosidig (takfall)</option><option value="ensidig">Ensidig</option></select><span></span></div>
       <div class="felt"><label>Slitelag, tykkelse</label><input type="number" id="m_slitelagTykkelse" step="0.01" value="0.10"><span>m</span></div>
@@ -139,8 +158,8 @@
       <div class="felt"><label>Bærelag, tykkelse</label><input type="number" id="m_baerelagTykkelse" step="0.05" value="0.60"><span>m</span></div>
 
       <h3>Grøft</h3>
-      <div class="felt"><label>Grøftedybde under vegkant</label><input type="number" id="m_grofteDybde" step="0.05" value="0.80"><span>m</span></div>
-      <div class="felt"><label>Grøftebunn, bredde</label><input type="number" id="m_grofteBunn" step="0.05" value="0.50"><span>m</span></div>
+      <div class="felt"><label>Grøftedybde under planum</label><input type="number" id="m_grofteDybdePlanum" step="0.05" value="0.20"><span>m</span></div>
+      <div class="felt"><label>Grøftebunn, bredde</label><input type="number" id="m_grofteBunn" step="0.05" value="0.30"><span>m</span></div>
       <div class="felt"><label>Indre grøfteskråning</label><input type="number" id="m_grofteInnerHelning" step="0.1" value="1.0"><span>1:x</span></div>
 
       <h3>Skråninger</h3>
@@ -152,10 +171,19 @@
       <div class="felt"><label>Renskedybde (avdekking)</label><input type="number" id="m_renskDybde" step="0.05" value="0.20"><span>m</span></div>
       <div class="felt"><label>Rensk utenfor skråning</label><input type="number" id="m_renskUtenfor" step="0.1" value="1.0"><span>m</span></div>
       <div class="felt"><label>Overgang breddeutvidelse</label><input type="number" id="m_utvidelseOvergang" step="1" value="15"><span>m</span></div>
-      <div class="felt"><label>Breddeutvidelse i kurver</label>
-        <input type="text" id="m_breddeutvidelse" value="10:1.5, 15:1.0, 20:0.7, 30:0.25, 40:0.10, 60:0"><span>R:m</span></div>
-      <div class="felt"><label>Maks stigning etter radius</label>
-        <input type="text" id="m_maksStigning" value="10:12, 30:17, 60:20"><span>R:%</span></div>
+
+      <h3>Krav fra veiklassen</h3>
+      <p class="notis">Minste totale veibredde i kurver, og største stigning med og uten lass.
+        Verdiene kommer fra veiklassen, men kan overstyres.</p>
+      <div class="felt"><label>Lassretning</label>
+        <select id="m_lassretning">
+          <option value="-1">Lasset kjører mot profil 0</option>
+          <option value="1">Lasset kjører mot enden</option>
+        </select><span></span></div>
+      <table class="minitabell kravtabell" id="kravTabell">
+        <thead><tr><th>Radius</th><th>Min. bredde</th><th>Med lass</th><th>Uten lass</th></tr></thead>
+        <tbody></tbody>
+      </table>
 
       <h3>Beregning</h3>
       <div class="felt"><label>Profilavstand</label><input type="number" id="m_profilAvstand" step="1" value="5"><span>m</span></div>
@@ -217,7 +245,9 @@
 <div id="framdrift" class="framdrift skjult"><div class="framdriftboks"><div id="framdriftTekst">Laster…</div><div class="stolpe"><div id="framdriftStolpe"></div></div></div></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="js/farger.js"></script>
 <script src="js/lager.js"></script>
+<script src="js/veiklasser.js"></script>
 <script src="js/geo.js"></script>
 <script src="js/linjeforing.js"></script>
 <script src="js/vertikalprofil.js"></script>

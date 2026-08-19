@@ -3,8 +3,8 @@
 Teikne ein veg i kartet og få ut kor mykje som må gravast, sprengjast og fyllast –
 rekna mot Kartverket sin nasjonale høgdemodell (DTM1, 1 × 1 m laserdata).
 
-Programmet køyrer lokalt på maskina. Ingen innlogging, ingen skytenester, ingen
-tredjepartsbibliotek utanom kartkomponenten.
+Ingen innlogging, ingen database å drifte, ingen npm-avhengigheiter utanom
+kartkomponenten. Køyrer både lokalt og på Vercel.
 
 ## Kom i gang
 
@@ -50,6 +50,46 @@ sjå «Vidare arbeid» nedst.
    strekningar, og observasjonar du klikkar inn i kartet (verktøyet «Fjellpunkt»).
    Observasjonane vektast med avstand og overstyrer standardverdien i nærleiken.
 6. **Les massane** i sidepanelet, og trykk **Rapport** for eit utskriftsklart samandrag.
+
+## Veiklasse som hurtigval
+
+Under **Vegmal** vel du veiklasse, og malen blir sett opp med krava som
+faktisk gjeld — vegbreidd, minste radius, grøftedjupn, breiddeutviding i kurver
+og største stigning. Tala er henta rett frå *Normaler for landbruksveier med
+byggebeskrivelse* (Landbruks- og matdepartementet / Skogkurs), klasse for klasse,
+og kjelda står i programmet. Alt kan overstyrast.
+
+To ting normalen gjer som er verdt å vite:
+
+* **Kurvetabellen oppgir total vegbreidd, ikkje eit tillegg.** Byggjer du 4,5 m
+  brei veg og normalen krev 5,5 m i ein R = 10-sving, blir utvidinga 1,0 m.
+  Breidda avheng òg av kor mykje kurven dreiar, så det blir interpolert mellom
+  kolonnane for 45° og 135°.
+* **Stigningskravet er ulikt med og utan lass.** Klasse 5 tillèt 14 % i ein
+  R = 30-sving når tømmerlasset skal opp, men 17 % når det er den tomme bilen
+  som klatrar. Difor set du kva veg lasset køyrer, og programmet vel rett krav
+  i kvar bakke.
+
+Klasse 1 har inga eiga tabell i normalen — den blir bygd i samarbeid med
+offentleg vegmyndigheit — så der er verdiane berre eit utgangspunkt, og
+programmet seier ifrå om det.
+
+## Høgder du bestemmer sjølv
+
+Skal du treffe ein lengdeprofil som alt er prosjektert, legg du høgdene inn
+under fana **Høyder**:
+
+* Lim inn heile tabellen frå veiplanen eller reknearket. Formatet er fritt —
+  mellomrom, semikolon, tabulator eller komma, `250` eller `0+250`,
+  punktum eller komma som desimalteikn.
+* **Fyll hver N m** lagar rader med jamn avstand, til dømes kvar 5 m.
+* **Låste** høgder ligg i ro. «Foreslå profil», «Massebalanse» og «Optimaliser»
+  flyttar berre dei frie punkta, og seier ifrå når alt er låst.
+
+I **tverrprofilet** kan du skrive inn høgda på venstre vegkant, i senterlinja og
+på høgre vegkant for det profilet du står i. Senterlinja styrer lengdeprofilen,
+og vegkantane styrer tverrfallet på si side — så eit oppmålt tverrsnitt kan
+leggjast rett inn, med ulikt fall til kvar side om det trengst.
 
 Knappane over lengdeprofilen:
 
@@ -118,10 +158,11 @@ må du kontrollere mot befaring.
 node test/selftest.js
 ```
 
-73 kontrollar: koordinatrekning mot kjende referansar, linjeføring mot geometri
+111 kontrollar: koordinatrekning mot kjende referansar, linjeføring mot geometri
 rekna for hand, lengdeprofil mot parabelformlane, masseberegning mot eit tverrsnitt
-rekna ut for hand med sju siffer, massebalansen mot bokføringsreglane, pakkinga av
-terrengfliser, og terrengmodellen mot Kartverket.
+rekna ut for hand med sju siffer, veiklassane mot tala i normalen, innlesing av
+høgdetabellar, eige tverrfall per profil, massebalansen mot bokføringsreglane,
+pakkinga av terrengfliser, og terrengmodellen mot Kartverket.
 
 ```bash
 node test/demo-ydestad.js
@@ -133,6 +174,10 @@ demoprosjektet til `public/demo/`.
 ## Filer
 
 ```
+public/js/veiklasser.js  veiklassane frå landbruksveinormalen
+public/js/farger.js      tegnefargane, henta frå CSS-variablane
+public/bilde/hm-logo.png HM-logoen (same fila som i dei andre appane)
+
 api/dtm/flis.js          hentar og pakkar ei terrengflis (Vercel-funksjon)
 api/punkt.js             kontroll mot Kartverket sitt punkt-API
 api/sok.js               stadnamn- og adressesøk

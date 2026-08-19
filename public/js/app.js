@@ -24,9 +24,36 @@ const App = {
       mal: Object.assign({}, StandardMal),
       faktorer: Object.assign({}, StandardFaktorer),
       fjell: { standarddybde: 0.5, rekkevidde: 60, strekninger: [], punkter: [] },
+      tverrfall: [],            // egne fall per profil, satt i tverrprofilet
       profilAvstand: 5,
       bakkekorreksjon: true
     };
+  },
+
+  /**
+   * Eldre prosjektfiler hadde grøftedybden malt fra vegkanten og
+   * breddeutvidelsen som tillegg. Normalen maler fra planum og oppgir
+   * total bredde, sa gamle filer regnes om ved apning.
+   */
+  moderniserProsjekt(P) {
+    const m = P.mal || {};
+    if (m.grofteDybde != null && m.grofteDybdePlanum == null) {
+      const overbygning = (m.slitelagTykkelse || 0.10) + (m.baerelagTykkelse || 0.60);
+      m.grofteDybdePlanum = Math.max(0.05, +(m.grofteDybde - overbygning).toFixed(3));
+      delete m.grofteDybde;
+    }
+    if (m.breddeutvidelse && !m.breddeIKurve) {
+      m.breddeIKurve = m.breddeutvidelse
+        .filter(r => r[1] > 0)
+        .map(r => [r[0], r[0] + 4, (m.vegbredde || 4.5) + r[1], (m.vegbredde || 4.5) + r[1]]);
+      delete m.breddeutvidelse;
+    }
+    if (m.maksStigning && !m.stigningIKurve) {
+      m.stigningIKurve = m.maksStigning.map(r => [r[0], r[1], r[1]]);
+      delete m.maksStigning;
+    }
+    if (!Array.isArray(P.tverrfall)) P.tverrfall = [];
+    return P;
   },
 
   async start() {
@@ -129,7 +156,7 @@ const App = {
   lagProfilforslag() {
     const vipAvstand = parseFloat(document.getElementById('vipAvstand').value) || 40;
     const k = parseFloat(document.getElementById('kVerdi').value);
-    const maksBrukt = this.P.mal.maksStigning.reduce((a, r) => Math.max(a, r[1]), 0);
+    const maksBrukt = this.P.mal.stigningIKurve.reduce((a, r) => Math.max(a, r[1], r[2]), 0);
     this.P.vip = foreslaProfil(this.terrengProfil.s, this.terrengProfil.z, {
       vipAvstand, maksStigning: maksBrukt, k: isFinite(k) ? k : 1,
       // krappe kurver har strengere stigningskrav
@@ -178,6 +205,7 @@ const App = {
     this.resultat = beregnMasser({
       linje: this.linje, profil: this.vprofil, terreng: this.terreng,
       mal: this.P.mal, fjell: this.fjellmodell, faktorer: this.P.faktorer,
+      tverrfallOverstyring: this.P.tverrfall,
       profilAvstand: this.P.profilAvstand, bakkefaktor: this.bakkefaktor()
     });
     this.resultat.mal.profilAvstand = this.P.profilAvstand;
@@ -198,6 +226,7 @@ const App = {
     return beregnMasser({
       linje: this.linje, profil: vp, terreng: this.terreng,
       mal: this.P.mal, fjell: this.fjellmodell, faktorer: this.P.faktorer,
+      tverrfallOverstyring: this.P.tverrfall,
       profilAvstand: Math.max(this.P.profilAvstand, 10),
       integrasjonssteg: 0.25,
       bakkefaktor: this.bakkefaktor()
@@ -213,6 +242,7 @@ const App = {
     }
     this.tverrStasjon = best.s;
     Tverrprofil.vis(best);
+    this.visPunkthoyder(best);
     Kart.visStasjon(best.s);
     if (!behold) Lengdeprofil.tegn();
     else Lengdeprofil.tegn();
@@ -271,7 +301,7 @@ const App = {
       this.status('Alle høyder er låst – lås opp noen for å kunne optimalisere');
       return;
     }
-    const maksTillatt = this.P.mal.maksStigning.reduce((a, r) => Math.max(a, r[1]), 0);
+    const maksTillatt = this.P.mal.stigningIKurve.reduce((a, r) => Math.max(a, r[1], r[2]), 0);
 
     const kostnad = liste => {
       const r = this.beregnRaskt(liste);
@@ -367,7 +397,7 @@ const App = {
     sett('m_slitelagTykkelse', m.slitelagTykkelse);
     sett('m_slitelagBredde', m.slitelagBredde);
     sett('m_baerelagTykkelse', m.baerelagTykkelse);
-    sett('m_grofteDybde', m.grofteDybde);
+    sett('m_grofteDybdePlanum', m.grofteDybdePlanum);
     sett('m_grofteBunn', m.grofteBunn);
     sett('m_grofteInnerHelning', m.grofteInnerHelning);
     sett('m_skjaeringLosmasse', m.skjaeringLosmasse);
@@ -376,8 +406,10 @@ const App = {
     sett('m_renskDybde', m.renskDybde);
     sett('m_renskUtenfor', m.renskUtenfor);
     sett('m_utvidelseOvergang', m.utvidelseOvergang);
-    sett('m_breddeutvidelse', m.breddeutvidelse.map(r => r[0] + ':' + r[1]).join(', '));
-    sett('m_maksStigning', m.maksStigning.filter(r => r[0] < 1e8).map(r => r[0] + ':' + Math.round(r[1] * 100)).join(', '));
+    sett('m_veiklasse', m.veiklasse || 'egen');
+    sett('m_lassretning', String(m.lassretning || -1));
+    this.visVeiklasse();
+    this.visKravtabell();
     sett('m_profilAvstand', this.P.profilAvstand);
     sett('m_maksSokebredde', m.maksSokebredde);
     document.getElementById('m_bakkekorreksjon').checked = !!this.P.bakkekorreksjon;
@@ -400,7 +432,7 @@ const App = {
     m.slitelagTykkelse = tall('m_slitelagTykkelse');
     m.slitelagBredde = tall('m_slitelagBredde');
     m.baerelagTykkelse = tall('m_baerelagTykkelse');
-    m.grofteDybde = tall('m_grofteDybde');
+    m.grofteDybdePlanum = tall('m_grofteDybdePlanum');
     m.grofteBunn = tall('m_grofteBunn');
     m.grofteInnerHelning = tall('m_grofteInnerHelning');
     m.skjaeringLosmasse = tall('m_skjaeringLosmasse');
@@ -410,9 +442,7 @@ const App = {
     m.renskUtenfor = tall('m_renskUtenfor');
     m.utvidelseOvergang = tall('m_utvidelseOvergang');
     m.maksSokebredde = tall('m_maksSokebredde');
-    m.breddeutvidelse = lesPar(document.getElementById('m_breddeutvidelse').value, 1) || m.breddeutvidelse;
-    const st = lesPar(document.getElementById('m_maksStigning').value, 0.01);
-    if (st) { m.maksStigning = st.concat([[1e9, st[st.length - 1][1]]]); }
+    m.lassretning = parseInt(document.getElementById('m_lassretning').value, 10) || -1;
     this.P.profilAvstand = Math.max(1, tall('m_profilAvstand'));
     this.P.bakkekorreksjon = document.getElementById('m_bakkekorreksjon').checked;
     f.sprengningsfaktor = tall('f_sprengningsfaktor');
@@ -457,6 +487,122 @@ const App = {
     boks.querySelectorAll('button').forEach(b => {
       b.onclick = () => { this.P.fjell.punkter.splice(+b.dataset.i, 1); this.grunnEndret(); };
     });
+  },
+
+  /* ---------------- veiklasse ---------------- */
+
+  fyllVeiklassevalg() {
+    const v = document.getElementById('m_veiklasse');
+    if (!v || v.options.length) return;
+    for (const [n, k] of Object.entries(Veiklasser)) {
+      const o = document.createElement('option');
+      o.value = n; o.textContent = k.navn;
+      v.appendChild(o);
+    }
+  },
+
+  visVeiklasse() {
+    const boks = document.getElementById('veiklasseinfo');
+    if (!boks) return;
+    const k = Veiklasser[this.P.mal.veiklasse] || Veiklasser.egen;
+    boks.innerHTML = `<p>${k.beskrivelse}</p>`
+      + (k.kilde ? `<p class="kilde">${k.kilde}</p>` : '')
+      + (k.usikker ? `<p class="merke-varsel">Kontroller kravene mot gjeldende vegnormal.</p>` : '')
+      + (k.fri ? '' : `<div class="klassetall">
+           <span>Min. bredde <b>${k.vegbredde} m</b></span>
+           <span>Min. radius <b>${k.minRadius} m</b></span>
+           <span>Maks stigning <b>${Math.round(k.maksStigningLass * 100)} / ${Math.round(k.maksStigningRetur * 100)} %</b></span>
+         </div>`);
+  },
+
+  visKravtabell() {
+    const tb = document.querySelector('#kravTabell tbody');
+    if (!tb) return;
+    const m = this.P.mal;
+    const bredde = m.breddeIKurve || [];
+    const stign = m.stigningIKurve || [];
+    tb.innerHTML = stign.map(rad => {
+      const til = rad[0];
+      const b = bredde.find(r => til >= r[0] && til <= r[1]);
+      const merke = til > 1e8 ? '> 60 m' : `≤ ${til} m`;
+      return `<tr><td>${merke}</td>
+        <td>${b ? (b[2] === b[3] ? b[2].toFixed(1) : b[2].toFixed(1) + '–' + b[3].toFixed(1)) + ' m' : '–'}</td>
+        <td>${(rad[1] * 100).toFixed(0)} %</td>
+        <td>${(rad[2] * 100).toFixed(0)} %</td></tr>`;
+    }).join('');
+  },
+
+  velgVeiklasse(navn) {
+    this.P.mal = malFraVeiklasse(navn, this.P.mal);
+    this.P.mal.veiklasse = navn;
+    if (Veiklasser[navn] && !Veiklasser[navn].fri) {
+      // Vegbredden er minstekravet i klassen; byggherren kan ville ha mer
+      const k = Veiklasser[navn];
+      if (this.P.mal.vegbredde < k.vegbredde) this.P.mal.vegbredde = k.vegbredde;
+    }
+    this.malTilSkjema();
+    this.planlegg(30);
+  },
+
+  /* ---------------- punkthøyder i tverrprofilet ---------------- */
+
+  /** Fallet som gjelder i et profilnummer, enten fra malen eller overstyrt. */
+  fallVed(s) { return tverrfallVed(this.P.mal, this.P.tverrfall, s); },
+
+  visPunkthoyder(pr) {
+    const v = document.getElementById('tp_venstre');
+    const c = document.getElementById('tp_senter');
+    const h = document.getElementById('tp_hoyre');
+    if (!v || !pr) return;
+    const fall = this.fallVed(pr.s);
+    v.value = (pr.vegnivaa - fall.venstre * pr.halvbredde).toFixed(3);
+    c.value = pr.vegnivaa.toFixed(3);
+    h.value = (pr.vegnivaa - fall.hoyre * pr.halvbredde).toFixed(3);
+    const egen = (this.P.tverrfall || []).some(t => Math.abs(t.s - pr.s) < 1e-6);
+    v.classList.toggle('overstyrt', egen);
+    h.classList.toggle('overstyrt', egen);
+  },
+
+  /**
+   * Skriver inn en høyde i et punkt i tverrsnittet.
+   *
+   * Senterlinjen styrer lengdeprofilen, mens vegkantene styrer tverrfallet
+   * pa den sida. Slik kan et oppmalt tverrsnitt legges rett inn: mal de tre
+   * punktene i felt, skriv dem inn, og malen retter seg etter dem.
+   */
+  settPunkthoyde(hvor, verdi) {
+    const pr = this.resultat && this.resultat.profiler.find(p => Math.abs(p.s - this.tverrStasjon) < 1e-6);
+    if (!pr || !isFinite(verdi)) return;
+
+    if (hvor === 'senter') {
+      const finnes = this.P.vip.find(v => Math.abs(v.s - pr.s) < 1e-6);
+      if (finnes) { finnes.z = verdi; finnes.laast = true; }
+      else this.P.vip.push({ s: pr.s, z: verdi, k: 0, laast: true });
+      this.P.vip.sort((a, b) => a.s - b.s);
+      this.profilEndret(false);
+      this.visHoydetabell();
+      return;
+    }
+
+    const fall = this.fallVed(pr.s);
+    const nytt = { s: pr.s, venstre: fall.venstre, hoyre: fall.hoyre };
+    const helning = (pr.vegnivaa - verdi) / pr.halvbredde;
+    if (hvor === 'venstre') nytt.venstre = helning; else nytt.hoyre = helning;
+
+    const i = this.P.tverrfall.findIndex(t => Math.abs(t.s - pr.s) < 1e-6);
+    if (i >= 0) this.P.tverrfall[i] = nytt; else this.P.tverrfall.push(nytt);
+    this.P.tverrfall.sort((a, b) => a.s - b.s);
+    this.beregn();
+  },
+
+  nullstillPunkthoyder() {
+    const s = this.tverrStasjon;
+    const i = this.P.tverrfall.findIndex(t => Math.abs(t.s - s) < 1e-6);
+    if (i >= 0) this.P.tverrfall.splice(i, 1);
+    const j = this.P.vip.findIndex(v => Math.abs(v.s - s) < 1e-6);
+    if (j >= 0 && this.P.vip.length > 2) this.P.vip.splice(j, 1);
+    this.profilEndret(false);
+    this.beregn();
   },
 
   /* ---------------- høydetabell ---------------- */
@@ -654,8 +800,8 @@ const App = {
   async apne(navn) {
     const d = await Lager.hent(navn);
     if (!d) return;
-    this.P = Object.assign(this.nyttProsjekt(), d);
-    this.P.mal = Object.assign({}, StandardMal, d.mal || {});
+    this.P = this.moderniserProsjekt(Object.assign(this.nyttProsjekt(), d));
+    this.P.mal = Object.assign({}, StandardMal, this.P.mal || {});
     this.P.faktorer = Object.assign({}, StandardFaktorer, d.faktorer || {});
     this.P.fjell = Object.assign({ standarddybde: 0.5, rekkevidde: 60, strekninger: [], punkter: [] }, d.fjell || {});
     document.getElementById('prosjektnavn').value = this.P.navn;
@@ -709,6 +855,16 @@ const App = {
       this.P.faktorer = Object.assign({}, StandardFaktorer);
       this.malTilSkjema(); this.planlegg(30);
     };
+    // Veiklasse
+    this.fyllVeiklassevalg();
+    id('m_veiklasse').onchange = e => this.velgVeiklasse(e.target.value);
+
+    // Punkthøyder i tverrprofilet
+    for (const [felt, hvor] of [['tp_venstre', 'venstre'], ['tp_senter', 'senter'], ['tp_hoyre', 'hoyre']]) {
+      id(felt).onchange = e => this.settPunkthoyde(hvor, parseFloat(e.target.value));
+    }
+    id('tp_nullstill').onclick = () => this.nullstillPunkthoyder();
+
     // Høydetabellen
     id('h_fyll').onclick = () => this.fyllHoyder(Math.max(1, parseFloat(id('h_steg').value) || 5));
     id('h_laasAlle').onclick = () => { this.P.vip.forEach(v => v.laast = true); this.visHoydetabell(); Lengdeprofil.tegn(); };

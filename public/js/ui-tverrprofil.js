@@ -58,16 +58,16 @@ const Tverrprofil = {
     c.setTransform(dpr, 0, 0, dpr, 0, 0);
     const B = l.clientWidth, H = l.clientHeight, m = this.marg;
     c.clearRect(0, 0, B, H);
-    c.fillStyle = '#12161c'; c.fillRect(0, 0, B, H);
+    c.fillStyle = Farger.flate; c.fillRect(0, 0, B, H);
 
     const pr = this.profil;
     if (!pr) {
-      c.fillStyle = '#97a5b6'; c.font = '13px system-ui'; c.textAlign = 'center';
+      c.fillStyle = Farger.blekkSvak; c.font = '13px system-ui'; c.textAlign = 'center';
       c.fillText('Velg et profilnummer for å se tverrsnittet.', B / 2, H / 2);
       return;
     }
     if (!pr.geometri || pr.geometri.terreng.length < 2) {
-      c.fillStyle = '#e2544a'; c.font = '13px system-ui'; c.textAlign = 'center';
+      c.fillStyle = Farger.skjaering; c.font = '13px system-ui'; c.textAlign = 'center';
       c.fillText('Terrengmodellen mangler data for profil ' + pr.s.toFixed(1) + '.', B / 2, H / 2);
       return;
     }
@@ -90,7 +90,7 @@ const Tverrprofil = {
     const py = z => m.o + bruksH / 2 - (z - midtZ) * skala;
 
     // rutenett
-    c.strokeStyle = '#232c38'; c.lineWidth = 1; c.fillStyle = '#6d7d90'; c.font = '10px system-ui';
+    c.strokeStyle = Farger.rutenett; c.lineWidth = 1; c.fillStyle = Farger.blekkSvak; c.font = '10px system-ui';
     const zSteg = velgSteg(zMax - zMin, 5);
     c.textAlign = 'right'; c.textBaseline = 'middle';
     for (let z = Math.ceil(zMin / zSteg) * zSteg; z <= zMax; z += zSteg) {
@@ -103,7 +103,7 @@ const Tverrprofil = {
       c.beginPath(); c.moveTo(px(t), m.o); c.lineTo(px(t), H - m.u); c.stroke();
       c.fillText(t.toFixed(0), px(t), H - m.u + 3);
     }
-    c.strokeStyle = '#3c4756';
+    c.strokeStyle = Farger.akse;
     c.beginPath(); c.moveTo(px(0), m.o); c.lineTo(px(0), H - m.u); c.stroke();
 
     const bane = (punkter, lukk) => {
@@ -119,74 +119,95 @@ const Tverrprofil = {
     c.save();
     bane(terr.concat(jord.slice().reverse()), true);
     c.clip();
-    c.fillStyle = 'rgba(232,151,58,.34)';   // skjæring: under terrengoverflaten
+    c.fillStyle = Farger.skjaeringFlate;   // skjæring: under terrengoverflaten
     bane(terr.concat([[terr[terr.length - 1][0], zMin], [terr[0][0], zMin]]), true); c.fill();
-    c.fillStyle = 'rgba(79,180,119,.34)';   // fylling: over terrengoverflaten
+    c.fillStyle = Farger.fyllingFlate;     // fylling: over terrengoverflaten
     bane(terr.concat([[terr[terr.length - 1][0], zMax], [terr[0][0], zMax]]), true); c.fill();
     c.restore();
 
-    // fjellandel av skjæringen
+    /* Fjellet er den delen av skjæringen som ma sprenges. Det blir skravert
+       oppa skjæringsfargen i stedet for a fa en egen kulør, sa det leses som
+       "denne delen av det samme". */
     c.save();
     bane(terr.concat(jord.slice().reverse()), true); c.clip();
     bane(fjellL.concat([[fjellL[fjellL.length - 1][0], zMin], [fjellL[0][0], zMin]]), true);
-    c.fillStyle = 'rgba(176,107,214,.30)'; c.fill();
+    c.fillStyle = Farger.fjellskravur(c); c.fill();
     c.restore();
 
     // fjelloverflate
-    c.strokeStyle = 'rgba(176,107,214,.85)'; c.lineWidth = 1.2; c.setLineDash([5, 4]);
+    c.strokeStyle = Farger.fjell; c.lineWidth = 1.2; c.setLineDash([5, 4]);
     bane(fjellL); c.stroke();
 
     // terreng etter rensk - grensen masseberegningen regnes fra
     if (pr.geometri.rensk && pr.geometri.rensk.length > 1) {
-      c.strokeStyle = 'rgba(195,204,216,.55)'; c.lineWidth = 1; c.setLineDash([2, 3]);
+      c.strokeStyle = Farger.rensk; c.lineWidth = 1; c.setLineDash([2, 3]);
       bane(pr.geometri.rensk); c.stroke();
     }
     c.setLineDash([]);
 
     // jordarbeidsflate (planum, grøft, skraninger)
-    c.strokeStyle = '#ffd08a'; c.lineWidth = 1.8; bane(jord); c.stroke();
+    c.strokeStyle = Farger.planum; c.lineWidth = 1.8; bane(jord); c.stroke();
 
     // vegkropp: baerelag og slitelag
     const hb = pr.halvbredde, mal = this.app.resultat ? this.app.resultat.mal : StandardMal;
     const veg = pr.geometri.veg;
     if (veg.length > 1) {
       const planum = veg.map(([t, z]) => [t, z - mal.slitelagTykkelse - mal.baerelagTykkelse]);
-      c.fillStyle = 'rgba(120,132,148,.75)';
+      c.fillStyle = Farger.baerelag;
       bane(veg.map(([t, z]) => [t, z - mal.slitelagTykkelse]).concat(planum.slice().reverse()), true); c.fill();
-      c.fillStyle = 'rgba(60,68,80,.95)';
+      c.fillStyle = Farger.slitelag;
       bane(veg.concat(veg.map(([t, z]) => [t, z - mal.slitelagTykkelse]).reverse()), true); c.fill();
-      c.strokeStyle = '#e6ecf3'; c.lineWidth = 1.6; bane(veg); c.stroke();
+      c.strokeStyle = Farger.veg; c.lineWidth = 2; bane(veg); c.stroke();
     }
 
     // fjelloverflaten tegnes pa nytt over vegkroppen - det er den som avgjør
     // hvor mye som ma sprenges, sa den skal alltid vaere synlig
-    c.strokeStyle = 'rgba(199,140,236,.95)'; c.lineWidth = 1.2; c.setLineDash([5, 4]);
+    c.strokeStyle = Farger.fjell; c.lineWidth = 1.2; c.setLineDash([5, 4]);
     bane(fjellL); c.stroke(); c.setLineDash([]);
 
     // terrenglinje
-    c.strokeStyle = '#c3ccd8'; c.lineWidth = 1.7; bane(terr); c.stroke();
+    c.strokeStyle = Farger.terreng; c.lineWidth = 1.7; bane(terr); c.stroke();
 
     // malsetting
-    c.fillStyle = '#8fa3ba'; c.font = '10px system-ui'; c.textAlign = 'center'; c.textBaseline = 'bottom';
+    c.fillStyle = Farger.blekkSvak; c.font = '10px system-ui'; c.textAlign = 'center'; c.textBaseline = 'bottom';
     c.fillText(`${(mal.vegbredde + pr.utvidelse).toFixed(2)} m`, px(0), py(pr.vegnivaa) - 5);
-    c.strokeStyle = '#8fa3ba'; c.lineWidth = 1;
+    c.strokeStyle = Farger.blekkSvak; c.lineWidth = 1;
     c.beginPath(); c.moveTo(px(-hb), py(pr.vegnivaa) - 3); c.lineTo(px(hb), py(pr.vegnivaa) - 3); c.stroke();
 
     // tegnforklaring
+    /* Tegnforklaringen viser hver post slik den faktisk er tegnet - strek,
+       flate eller skravur. Med bare fargeruter ville de tre rødtonene sett
+       nesten like ut. */
     const forklaring = [
-      ['Terreng', '#c3ccd8'], ['Etter rensk', 'rgba(195,204,216,.55)'], ['Planum/skråning', '#ffd08a'],
-      ['Skjæring', 'rgba(232,151,58,.7)'], ['Fylling', 'rgba(79,180,119,.7)'], ['Fjell', 'rgba(176,107,214,.8)']
+      ['Terreng', 'strek', Farger.terreng],
+      ['Etter rensk', 'stipla', Farger.rensk],
+      ['Planum/skråning', 'strek', Farger.planum],
+      ['Skjæring', 'flate', Farger.skjaeringFlate],
+      ['Fylling', 'flate', Farger.fyllingFlate],
+      ['Fjell', 'skravur', null]
     ];
     c.textAlign = 'left'; c.textBaseline = 'middle'; c.font = '10px system-ui';
     let fx = m.v + 4;
-    for (const [navn, farge] of forklaring) {
-      c.fillStyle = farge; c.fillRect(fx, m.o + 4, 9, 9);
-      c.fillStyle = '#8fa3ba'; c.fillText(navn, fx + 13, m.o + 9);
-      fx += 16 + c.measureText(navn).width + 8;
+    const fy = m.o + 9;
+    for (const [navn, form, farge] of forklaring) {
+      c.save();
+      if (form === 'flate') { c.fillStyle = farge; c.fillRect(fx, fy - 5, 11, 10); }
+      else if (form === 'skravur') {
+        c.fillStyle = Farger.skjaeringFlate; c.fillRect(fx, fy - 5, 11, 10);
+        c.beginPath(); c.rect(fx, fy - 5, 11, 10); c.clip();
+        c.fillStyle = Farger.fjellskravur(c); c.fillRect(fx, fy - 5, 11, 10);
+      } else {
+        c.strokeStyle = farge; c.lineWidth = 1.8;
+        if (form === 'stipla') c.setLineDash([2, 2]);
+        c.beginPath(); c.moveTo(fx, fy); c.lineTo(fx + 11, fy); c.stroke();
+      }
+      c.restore();
+      c.fillStyle = Farger.blekkSvak; c.fillText(navn, fx + 15, fy);
+      fx += 18 + c.measureText(navn).width + 8;
     }
 
     if (pr.advarsel) {
-      c.fillStyle = '#e2544a'; c.textAlign = 'right'; c.textBaseline = 'top';
+      c.fillStyle = Farger.skjaering; c.textAlign = 'right'; c.textBaseline = 'top';
       c.fillText('⚠ ' + pr.advarsel, B - m.h, m.o + 4);
     }
   }

@@ -174,19 +174,20 @@ console.log('\n4. Masseberegning mot handregning');
     linje, terreng, mal, fjell, s: 50, vegnivaa: 100, utvidelse: 0, integrasjonssteg: 0.02
   });
 
-  /* Handregning, en side:
+  /* Handregning, en side, med normalens verdier (tverrfall 5 %,
+     grøft 0,20 m under planum, grøftebunn 0,30 m):
        hb        = 2,25            planum ved senter = 100 - 0,70 = 99,30
        terreng etter rensk         = 99,80
-       planum ved vegkant          = 100 - 0,06·2,25 - 0,70 = 99,165
-       grøftebunn                  = min(99,865-0,80 ; 99,165-0,05) = 99,065
-       t1 = 2,25 + 0,10·1,0 = 2,35     t2 = 2,85
-       skraning 1:1,5 opp 0,735 m  => 1,1025 m ut, fot ved t = 3,9525
-       areal = 1,276875 + 0,0685 + 0,3675 + 0,40516875 = 2,11804375  */
-  const enSide = 2.11804375;
+       planum ved vegkant          = 100 - 0,05·2,25 - 0,70 = 99,1875
+       grøftebunn                  = 99,1875 - 0,20 = 98,9875
+       t1 = 2,25 + 0,20·1,0 = 2,45     t2 = 2,75
+       skraning 1:1,5 opp 0,8125 m => 1,21875 m ut, fot ved t = 3,96875
+       areal = 1,2515625 + 0,1425 + 0,24375 + 0,49511719 = 2,13292969  */
+  const enSide = 2.13292969;
   sjekk('skjæringsareal (begge sider)', pr.areal.skjaering, 2 * enSide, 0.01);
   sjekk('fyllingsareal', pr.areal.fylling, 0, 1e-6);
-  sjekk('skjæringsfot høyre', pr.fotHoyre, 3.9525, 0.01);
-  sjekk('renskeareal', pr.areal.rensk, 0.2 * (2 * 3.9525 + 2), 0.02);
+  sjekk('skjæringsfot høyre', pr.fotHoyre, 3.96875, 0.01);
+  sjekk('renskeareal', pr.areal.rensk, 0.2 * (2 * 3.96875 + 2), 0.02);
   sjekk('bærelagsareal', pr.areal.baerelag, 0.6 * 4.5, 1e-9);
   sjekk('slitelagsareal', pr.areal.slitelag, 0.1 * 4.0, 1e-9);
   sjekk('ingen fjell når fjellet ligger 99 m nede', pr.areal.skjaeringFjell, 0, 1e-9);
@@ -213,16 +214,17 @@ console.log('\n4. Masseberegning mot handregning');
     linje, profil: new Vertikalprofil([{ s: 0, z: 103, k: 1 }, { s: 100, z: 103, k: 1 }]),
     terreng, mal, fjell, profilAvstand: 5, bakkefaktor: 1, integrasjonssteg: 0.02
   });
-  /* Fyllingsareal for hand, en side:
-       vegkant 103 - 0,06·2,25 = 102,865 ; planum 102,165 ; terreng etter rensk 99,80
-       skraning 1:1,5 ned 3,065 m => 4,5975 m ut
-       under vegen  (0..2,25): høyde = (102,165 - 0,06t·0) ... integreres eksakt under
-       trapes:  A = ∫0^2,25 (102,30 - 0,06t - 99,80) dt  = 2,5·2,25 - 0,06·2,25²/2 = 5,625 - 0,151875
-                 + trekant utenfor: 0,5·(102,865-99,80)·4,5975 = 0,5·3,065·4,5975
-                 + rektangel mellom planum og vegkant ved t = 2,25: 0 (vertikalt skille)      */
-  const fyllEnSide = (2.5 * 2.25 - 0.06 * 2.25 * 2.25 / 2) + 0.5 * 3.065 * 4.5975;
+  /* Fyllingsareal for hand, en side.
+     Fyllingen blir over 2 m høy, og da krever normalen 0,5 m ekstra
+     veibredde. Halvbredden blir derfor 2,5 m, ikke 2,25 m:
+       vegkant 103 - 0,05·2,5 = 102,875 ; terreng etter rensk 99,80
+       skraning 1:1,5 ned 3,075 m => 4,6125 m ut
+       under vegen: ∫0^2,5 (102,30 - 0,05t - 99,80) dt = 6,25 - 0,15625
+       trekant utenfor: 0,5 · 3,075 · 4,6125                                */
+  const fyllEnSide = (2.5 * 2.5 - 0.05 * 2.5 * 2.5 / 2) + 0.5 * 3.075 * 4.6125;
   sjekk('fyllingsareal (begge sider)', resF.profiler[0].areal.fylling, 2 * fyllEnSide, 0.02);
   sjekk('ingen skjæring ved ren fylling', resF.sum.skjaering, 0, 1e-6);
+  sjekk('høy fylling gir 0,5 m ekstra bredde', resF.profiler[0].utvidelse, 0.5, 1e-9);
 
   /* Kurvekorreksjon (Pappus).
      Sidebratt terreng gjennom en venstrekurve: skjæring pa den ene siden,
@@ -336,15 +338,76 @@ console.log('\n5. Massebalanse');
 }
 
 /* ------------------------------------------------------------------ */
-console.log('\n6. Breddeutvidelse og stigningskrav');
+console.log('\n6. Veiklasser, breddeutvidelse og stigningskrav');
 {
-  const mal = M.StandardMal;
-  sjekk('utvidelse ved R=10', M.utvidelseFraRadius(mal, 10), 1.5, 1e-9);
-  sjekk('utvidelse ved R=30', M.utvidelseFraRadius(mal, 30), 0.25, 1e-9);
-  sjekk('utvidelse på rettstrekk', M.utvidelseFraRadius(mal, Infinity), 0, 1e-9);
-  sjekk('maks stigning ved R=10', M.maksStigningFraRadius(mal, 10), 0.12, 1e-9);
-  sjekk('maks stigning ved R=30', M.maksStigningFraRadius(mal, 30), 0.17, 1e-9);
-  sjekk('maks stigning på rettstrekk', M.maksStigningFraRadius(mal, Infinity), 0.20, 1e-9);
+  const V = require(path.join(__dirname, '..', 'public', 'js', 'veiklasser.js'));
+  const mal = M.StandardMal;   // klasse 5, veibredde 4,5 m
+
+  /* Normalen for klasse 5 krever 5,5 m total bredde i en kort kurve med
+     R = 10–14 m. Bygges veien 4,5 m bred, blir utvidelsen 1,0 m. */
+  sjekk('utvidelse ved R=10, kort kurve', M.utvidelseFraRadius(mal, 10, 45), 1.0, 1e-9);
+  sjekk('utvidelse ved R=10, lang kurve', M.utvidelseFraRadius(mal, 10, 135), 1.5, 1e-9);
+  sjekk('utvidelse ved R=12 interpolert', M.utvidelseFraRadius(mal, 12, 90), 1.25, 1e-9);
+  sjekk('utvidelse ved R=30 kort kurve', M.utvidelseFraRadius(mal, 30, 45), 0, 1e-9);
+  sjekk('utvidelse ved R=30 lang kurve', M.utvidelseFraRadius(mal, 30, 135), 0.5, 1e-9);
+  sjekk('utvidelse på rettstrekk', M.utvidelseFraRadius(mal, Infinity, 45), 0, 1e-9);
+
+  /* Stigningskravet avhenger av hvilken vei lasset kjører. Med lassretning
+     mot profil 0 (-1) er en fallende veg motbakke for lasset. */
+  sjekk('R=10, lasset klatrer', M.maksStigningFraRadius(mal, 10, -0.05, -1), 0.10, 1e-9);
+  sjekk('R=10, tom bil klatrer', M.maksStigningFraRadius(mal, 10, +0.05, -1), 0.12, 1e-9);
+  sjekk('R=30, lasset klatrer', M.maksStigningFraRadius(mal, 30, -0.05, -1), 0.14, 1e-9);
+  sjekk('R=30, tom bil klatrer', M.maksStigningFraRadius(mal, 30, +0.05, -1), 0.17, 1e-9);
+  sjekk('rettstrekk, tom bil klatrer', M.maksStigningFraRadius(mal, Infinity, +0.05, -1), 0.20, 1e-9);
+  sjekk('uten retning gis det romsligste kravet', M.maksStigningFraRadius(mal, 10, null), 0.12, 1e-9);
+
+  // Verdiene i planen for Ydestad er klasse 5 sine returretningskrav
+  sjekk('Ydestad: R=10 gir 12 %', M.maksStigningFraRadius(mal, 10, 0.05, -1), 0.12, 1e-9);
+  sjekk('Ydestad: R=30 gir 17 %', M.maksStigningFraRadius(mal, 30, 0.05, -1), 0.17, 1e-9);
+  sjekk('Ydestad: rettstrekk gir 20 %', M.maksStigningFraRadius(mal, 1e9, 0.05, -1), 0.20, 1e-9);
+
+  // Hurtigvalg av klasse skal sette malen
+  const k3 = V.malFraVeiklasse('k3', Object.assign({}, M.StandardMal));
+  sjekk('klasse 3 setter veibredde', k3.vegbredde, 4.0, 1e-9);
+  sjekk('klasse 3 setter minste radius', k3.minRadius, 10, 1e-9);
+  sjekk('klasse 3 setter overgangslengde', k3.utvidelseOvergang, 10, 1e-9);
+  sjekk('klasse 3 krever 7,0 m i R=10 kort kurve', M.utvidelseFraRadius(k3, 10, 45) + k3.vegbredde, 7.0, 1e-9);
+  const k2 = V.malFraVeiklasse('k2', Object.assign({}, M.StandardMal));
+  sjekk('klasse 2 setter veibredde', k2.vegbredde, 4.5, 1e-9);
+  sjekk('klasse 2 har 20 m minsteradius', k2.minRadius, 20, 1e-9);
+  sjekk('klasse 2 maks 8 % stigning', M.maksStigningFraRadius(k2, 1e9, 0.05, -1), 0.08, 1e-9);
+  paastand('alle klassene har navn og beskrivelse',
+    Object.values(V.Veiklasser).every(k => k.navn && k.beskrivelse));
+}
+
+/* ------------------------------------------------------------------ */
+console.log('\n6b. Eget tverrfall per profil');
+{
+  const mal = Object.assign({}, M.StandardMal, { ekstraBredde: null });
+  const linje = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 100, y: 0, r: 0 }]);
+  const flatt = { z: () => 100 };
+
+  sjekk('standard takfall venstre', M.tverrfallVed(mal, [], 50).venstre, 0.05, 1e-9);
+  const ensidig = Object.assign({}, mal, { tverrfallType: 'ensidig', tverrfallRetning: 1 });
+  sjekk('ensidig fall venstre', M.tverrfallVed(ensidig, [], 50).venstre, -0.05, 1e-9);
+  sjekk('ensidig fall høyre', M.tverrfallVed(ensidig, [], 50).hoyre, 0.05, 1e-9);
+
+  const eget = [{ s: 0, venstre: 0.02, hoyre: 0.08 }, { s: 100, venstre: 0.06, hoyre: 0.04 }];
+  sjekk('eget fall interpoleres', M.tverrfallVed(mal, eget, 50).venstre, 0.04, 1e-9);
+  sjekk('eget fall interpoleres, høyre', M.tverrfallVed(mal, eget, 50).hoyre, 0.06, 1e-9);
+
+  // Vegkanthøydene skal bli akkurat som fallet tilsier
+  const res = M.beregnMasser({
+    linje, profil: new Vertikalprofil([{ s: 0, z: 100, k: 0 }, { s: 100, z: 100, k: 0 }]),
+    terreng: flatt, mal, fjell: new M.Fjellmodell({ standarddybde: 5 }),
+    tverrfallOverstyring: eget, profilAvstand: 25, bakkefaktor: 1
+  });
+  const midt = res.profiler.find(p => Math.abs(p.s - 50) < 1e-6);
+  const hb = midt.halvbredde;
+  const vegVenstre = midt.geometri.veg[0];
+  sjekk('venstre vegkant følger eget fall', vegVenstre[1], 100 - 0.04 * hb, 0.01);
+  const vegHoyre = midt.geometri.veg[midt.geometri.veg.length - 1];
+  sjekk('høyre vegkant følger eget fall', vegHoyre[1], 100 - 0.06 * hb, 0.01);
 }
 
 /* ------------------------------------------------------------------ */

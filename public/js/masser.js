@@ -20,15 +20,16 @@
  */
 
 const StandardMal = {
+  veiklasse: 'k5',            // hurtigvalg fra Normaler for landbruksveier
   vegbredde: 4.5,             // kjørebredde inkl. skulder, meter
-  tverrfall: 0.06,            // 6 %
+  tverrfall: 0.05,            // 5 %
   tverrfallType: 'tak',       // 'tak' (tosidig) eller 'ensidig'
   tverrfallRetning: 1,        // ved ensidig: 1 = fall mot høyre
   slitelagTykkelse: 0.10,
   slitelagBredde: 4.0,
   baerelagTykkelse: 0.60,
-  grofteDybde: 0.80,          // under vegkant
-  grofteBunn: 0.50,
+  grofteDybdePlanum: 0.20,    // under planum, slik normalen angir det
+  grofteBunn: 0.30,
   grofteInnerHelning: 1.0,    // H:V fra vegkant ned i grøfta
   skjaeringLosmasse: 1.5,     // H:V
   skjaeringFjell: 0.2,        // H:V (5:1)
@@ -36,11 +37,27 @@ const StandardMal = {
   renskDybde: 0.20,
   renskUtenfor: 1.0,
   maksSokebredde: 45,
-  // Breddeutvidelse i kurver: [radius, utvidelse]
-  breddeutvidelse: [[10, 1.5], [15, 1.0], [20, 0.7], [30, 0.25], [40, 0.10], [60, 0]],
+
+  /* Minste totale veibredde i kurver etter normalen:
+     [radiusFra, radiusTil, bredde ved 45° dreining, bredde ved 135°] */
+  breddeIKurve: [[10, 14, 5.5, 6.0], [15, 19, 5.0, 5.5], [20, 29, 5.0, 5.0],
+  [30, 39, 4.5, 5.0], [40, 49, 4.5, 4.5], [50, 59, 4.0, 4.5]],
   utvidelseOvergang: 15,
-  // Maks stigning avhengig av kurveradius (veiklasse 5)
-  maksStigning: [[10, 0.12], [30, 0.17], [60, 0.20], [1e9, 0.20]]
+
+  /* Største stigning: [radius til og med, med lass, uten lass] */
+  stigningIKurve: [[14, 0.10, 0.12], [19, 0.11, 0.14], [29, 0.12, 0.15],
+  [39, 0.14, 0.17], [49, 0.15, 0.18], [59, 0.16, 0.20], [1e9, 0.18, 0.20]],
+
+  /* +1 nar tømmerlasset kjører mot økende profilnummer, -1 andre veien.
+     Avgjør hvilken av de to stigningskolonnene som gjelder i hver bakke. */
+  lassretning: -1,
+
+  minRadius: 10,
+  minVertikalLavbrekk: 60,
+  minVertikalHoybrekk: 100,
+  ensidigUnderRadius: 60,
+  ensidigMaks: 0.05,
+  ekstraBredde: { fyllingshoyde: 2.0, stigning: 0.14, tillegg: 0.5 }
 };
 
 const StandardFaktorer = {
@@ -93,30 +110,51 @@ class Fjellmodell {
  *  Hjelpefunksjoner
  * ------------------------------------------------------------------ */
 
-function utvidelseFraRadius(mal, R) {
+/**
+ * Breddeutvidelse i en kurve.
+ *
+ * Normalen oppgir minste *totale* veibredde, avhengig av bade radius og hvor
+ * mye kurven dreier. Utvidelsen er derfor differansen mot den veibredden
+ * prosjektet ellers bygger - bygger man allerede bredere enn kravet, blir
+ * det ingen utvidelse.
+ */
+function utvidelseFraRadius(mal, R, dreiningGrader) {
   if (!isFinite(R)) return 0;
-  const tab = mal.breddeutvidelse.slice().sort((a, b) => a[0] - b[0]);
-  if (R <= tab[0][0]) return tab[0][1];
-  if (R >= tab[tab.length - 1][0]) return tab[tab.length - 1][1];
-  for (let i = 0; i < tab.length - 1; i++) {
-    if (R >= tab[i][0] && R <= tab[i + 1][0]) {
-      const f = (R - tab[i][0]) / (tab[i + 1][0] - tab[i][0]);
-      return tab[i][1] + f * (tab[i + 1][1] - tab[i][1]);
+  const tab = mal.breddeIKurve || [];
+  for (const [fra, til, b45, b135] of tab) {
+    if (R >= fra && R <= til) {
+      const g = Math.max(45, Math.min(135, dreiningGrader == null ? 45 : dreiningGrader));
+      const mal2 = b45 + (b135 - b45) * (g - 45) / 90;
+      return Math.max(0, mal2 - mal.vegbredde);
     }
   }
   return 0;
 }
 
-function maksStigningFraRadius(mal, R) {
-  const tab = mal.maksStigning.slice().sort((a, b) => a[0] - b[0]);
-  for (const [r, g] of tab) if (R <= r) return g;
-  return tab[tab.length - 1][1];
+/**
+ * Største tillatte stigning i et punkt.
+ *
+ * Kravet er strengere der tømmerlasset skal oppover (motkjøring med lass)
+ * enn der det er den tomme bilen som klatrer. Hvilken som gjelder avhenger
+ * derfor bade av fortegnet pa stigningen og av hvilken vei lasset kjører.
+ */
+function maksStigningFraRadius(mal, R, stigning, lassretning) {
+  const tab = mal.stigningIKurve || [];
+  if (!tab.length) return 1;
+  let rad = tab[tab.length - 1];
+  for (const r of tab) { if (R <= r[0]) { rad = r; break; } }
+  if (stigning == null) return Math.max(rad[1], rad[2]);
+  const lassetKlatrer = (stigning * (lassretning || 1)) > 0;
+  return lassetKlatrer ? rad[1] : rad[2];
 }
 
 /** Breddeutvidelse med jevn overgang inn og ut av kurven. */
-function lagUtvidelsesprofil(linje, mal, stasjoner) {
-  const ra = stasjoner.map(s => linje.radiusVed(s));
-  const grunn = ra.map(R => utvidelseFraRadius(mal, R));
+function lagUtvidelsesprofil(linje, mal, stasjoner, ekstra) {
+  const grunn = stasjoner.map(s => {
+    const kurve = linje.kurveVed ? linje.kurveVed(s) : null;
+    const dreining = kurve ? Math.abs(kurve.avbøy) * 180 / Math.PI : 45;
+    return utvidelseFraRadius(mal, linje.radiusVed(s), dreining);
+  });
   const ut = grunn.slice();
   const overgang = mal.utvidelseOvergang;
   if (overgang > 0) {
@@ -131,7 +169,39 @@ function lagUtvidelsesprofil(linje, mal, stasjoner) {
       ut[i] = best;
     }
   }
+  // Normalen krever ekstra bredde i bratte bakker og pa høye fyllinger
+  if (ekstra) for (let i = 0; i < ut.length; i++) if (ekstra[i]) ut[i] += ekstra[i];
   return ut;
+}
+
+/**
+ * Tverrfall i et gitt profilnummer.
+ *
+ * Standard er takfall fra malen, men brukeren kan legge inn eget fall for
+ * venstre og høyre side pa enkeltprofiler - typisk nar en oppmalt veg skal
+ * treffes, eller nar kurven skal doseres ensidig slik normalen krever.
+ */
+function tverrfallVed(mal, overstyringer, s) {
+  const standard = mal.tverrfallType === 'ensidig'
+    ? { venstre: -mal.tverrfall * mal.tverrfallRetning, hoyre: mal.tverrfall * mal.tverrfallRetning }
+    : { venstre: mal.tverrfall, hoyre: mal.tverrfall };
+  const liste = (overstyringer || []).slice().sort((a, b) => a.s - b.s);
+  if (!liste.length) return standard;
+  if (s <= liste[0].s) return { venstre: liste[0].venstre, hoyre: liste[0].hoyre };
+  if (s >= liste[liste.length - 1].s) {
+    const sist = liste[liste.length - 1];
+    return { venstre: sist.venstre, hoyre: sist.hoyre };
+  }
+  for (let i = 0; i < liste.length - 1; i++) {
+    if (s >= liste[i].s && s <= liste[i + 1].s) {
+      const f = (s - liste[i].s) / (liste[i + 1].s - liste[i].s || 1);
+      return {
+        venstre: liste[i].venstre + f * (liste[i + 1].venstre - liste[i].venstre),
+        hoyre: liste[i].hoyre + f * (liste[i + 1].hoyre - liste[i].hoyre)
+      };
+    }
+  }
+  return standard;
 }
 
 /* ------------------------------------------------------------------ *
@@ -158,13 +228,12 @@ function beregnTverrprofil(o) {
   // Terreng etter rensk (avdekking av matjord/stubber)
   const terr = t => terrRå(t) - rensk;
 
-  // Ferdig vegoverflate
+  /* Ferdig vegoverflate. Venstre og høyre fall er skilt, slik at et
+     oppmalt tverrsnitt kan treffes og kurver kan doseres ensidig. */
+  const fall = o.tverrfall || { venstre: mal.tverrfall, hoyre: mal.tverrfall };
   const vegflate = t => {
     const tt = Math.max(-hb, Math.min(hb, t));
-    if (mal.tverrfallType === 'ensidig') {
-      return vegnivaa - mal.tverrfall * mal.tverrfallRetning * tt;
-    }
-    return vegnivaa - mal.tverrfall * Math.abs(tt);
+    return vegnivaa - (tt < 0 ? fall.venstre * -tt : fall.hoyre * tt);
   };
 
   const fjelldybde = fjell ? fjell.dybde(p.x, p.y, s) : 0.5;
@@ -180,9 +249,11 @@ function beregnTverrprofil(o) {
     let type, tFot;
 
     if (tKant > planumKant + 1e-6) {
-      /* --- Skjæring: grøft og skraning opp til terreng --- */
+      /* --- Skjæring: grøft og skraning opp til terreng ---
+         Normalen maler grøftedybden fra planum, ikke fra veioverflaten,
+         fordi det er drenering av bærelaget som er poenget. */
       type = 'skjaering';
-      const zGroft = Math.min(zKant - mal.grofteDybde, planumKant - 0.05);
+      const zGroft = planumKant - Math.max(0.05, mal.grofteDybdePlanum);
       const t1 = hb + Math.max(0, planumKant - zGroft) * mal.grofteInnerHelning;
       const t2 = t1 + mal.grofteBunn;
       knekk.push({ t: hb, z: planumKant });
@@ -409,16 +480,30 @@ function beregnMasser(o) {
   for (let s = 0; s < linje.lengde - 1e-6; s += dS) stasjoner.push(+s.toFixed(4));
   stasjoner.push(+linje.lengde.toFixed(4));
 
-  const utvidelser = lagUtvidelsesprofil(linje, mal, stasjoner);
+  const kjørProfiler = utvidelser => stasjoner.map((s, i) => beregnTverrprofil({
+    linje, terreng: o.terreng, mal, fjell: o.fjell,
+    s, vegnivaa: profil.hoyde(s), utvidelse: utvidelser[i],
+    tverrfall: tverrfallVed(mal, o.tverrfallOverstyring, s),
+    integrasjonssteg: o.integrasjonssteg
+  }));
 
-  const profiler = [];
-  for (let i = 0; i < stasjoner.length; i++) {
-    const s = stasjoner[i];
-    profiler.push(beregnTverrprofil({
-      linje, terreng: o.terreng, mal, fjell: o.fjell,
-      s, vegnivaa: profil.hoyde(s), utvidelse: utvidelser[i],
-      integrasjonssteg: o.integrasjonssteg
-    }));
+  let utvidelser = lagUtvidelsesprofil(linje, mal, stasjoner);
+  let profiler = kjørProfiler(utvidelser);
+
+  /* Normalen krever 0,5 m ekstra bredde der veien ligger pa høy fylling
+     eller er bratt. Fyllingshøyden er ikke kjent før profilene er regnet,
+     sa de stedene far et nytt gjennomløp med den økte bredden. */
+  const ekstra = mal.ekstraBredde;
+  if (ekstra && ekstra.tillegg) {
+    const paslag = profiler.map(p => {
+      const brattNok = ekstra.stigning != null && Math.abs(profil.stigning(p.s)) > ekstra.stigning;
+      const høyNok = ekstra.fyllingshoyde != null && p.maksFylling > ekstra.fyllingshoyde;
+      return (brattNok || høyNok) ? ekstra.tillegg : 0;
+    });
+    if (paslag.some(v => v > 0)) {
+      utvidelser = lagUtvidelsesprofil(linje, mal, stasjoner, paslag);
+      profiler = kjørProfiler(utvidelser);
+    }
   }
 
   // --- Volum mellom profilene (gjennomsnittlig endeareal) ------------
@@ -477,12 +562,21 @@ function beregnMasser(o) {
   const merknader = [];
   for (const pr of profiler) {
     if (pr.advarsel) merknader.push({ s: pr.s, type: pr.manglerData ? 'data' : 'geometri', tekst: pr.advarsel });
-    const g = Math.abs(profil.stigning(pr.s));
-    const maks = maksStigningFraRadius(mal, pr.radius);
-    if (g > maks + 1e-4) {
+    const stign = profil.stigning(pr.s);
+    const maks = maksStigningFraRadius(mal, pr.radius, stign, mal.lassretning);
+    if (Math.abs(stign) > maks + 1e-4) {
+      const lassetKlatrer = (stign * (mal.lassretning || 1)) > 0;
       merknader.push({
         s: pr.s, type: 'stigning',
-        tekst: `Stigning ${(g * 100).toFixed(1)} % overstiger ${(maks * 100).toFixed(0)} % (radius ${isFinite(pr.radius) ? pr.radius.toFixed(0) + ' m' : 'rettstrekk'})`
+        tekst: `Stigning ${(Math.abs(stign) * 100).toFixed(1)} % overstiger ${(maks * 100).toFixed(0)} % `
+          + `${lassetKlatrer ? 'i lassretningen' : 'i returretningen'} `
+          + `(${isFinite(pr.radius) ? 'radius ' + pr.radius.toFixed(0) + ' m' : 'rettstrekk'})`
+      });
+    }
+    if (isFinite(pr.radius) && mal.minRadius && pr.radius < mal.minRadius - 1e-6) {
+      merknader.push({
+        s: pr.s, type: 'kurvatur',
+        tekst: `Radius ${pr.radius.toFixed(1)} m er under minstekravet på ${mal.minRadius} m`
       });
     }
     if (!isFinite(pr.terrengSenter)) {
@@ -515,6 +609,6 @@ if (typeof module !== 'undefined') {
   module.exports = {
     StandardMal, StandardFaktorer, Fjellmodell,
     beregnMasser, beregnTverrprofil,
-    utvidelseFraRadius, maksStigningFraRadius, lagUtvidelsesprofil
+    utvidelseFraRadius, maksStigningFraRadius, lagUtvidelsesprofil, tverrfallVed
   };
 }

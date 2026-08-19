@@ -147,23 +147,48 @@ const Rapport = {
 
     const html = `<!DOCTYPE html><html lang="nb"><head><meta charset="utf-8">
 <title>Masseberegning – ${app.P.navn}</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&display=swap">
 <style>
-  body{font-family:"Segoe UI",Arial,sans-serif;color:#111;margin:26px;font-size:12px;line-height:1.45}
-  h1{font-size:20px;margin:0 0 2px} h2{font-size:14px;margin:20px 0 6px;border-bottom:1px solid #bbb;padding-bottom:3px}
-  .undertittel{color:#555;margin-bottom:14px}
+  body{font-family:"Segoe UI",Arial,sans-serif;color:#0b0b0c;margin:22px;font-size:12px;line-height:1.45}
+  .brevhode{display:flex;align-items:center;gap:14px;background:#0b0b0c;color:#fff;
+    padding:12px 16px;border-bottom:4px solid #d81e28;margin:-22px -22px 18px}
+  .brevhode img{height:36px}
+  .brevhode .tittel{font-family:"Barlow Condensed",Arial,sans-serif;font-weight:700;
+    text-transform:uppercase;letter-spacing:.04em;font-size:24px;line-height:1.05}
+  .brevhode .under{color:#d0d0d5;font-size:11px}
+  .brevhode .hoyre{margin-left:auto;text-align:right;color:#d0d0d5;font-size:11px}
+  h1{font-size:19px;margin:0} h2{font-family:"Barlow Condensed",Arial,sans-serif;font-size:16px;
+    text-transform:uppercase;letter-spacing:.04em;margin:20px 0 6px;
+    border-bottom:2px solid #0b0b0c;padding-bottom:3px}
   table{border-collapse:collapse;width:100%;margin-bottom:10px}
-  th,td{border:1px solid #ccc;padding:3px 6px;text-align:right;font-variant-numeric:tabular-nums}
-  th{background:#eee;text-align:right;font-weight:600}
+  th,td{border:1px solid #d0d0d5;padding:3px 6px;text-align:right;font-variant-numeric:tabular-nums}
+  th{background:#0b0b0c;color:#fff;text-align:right;font-weight:600;
+    font-family:"Barlow Condensed",Arial,sans-serif;text-transform:uppercase;letter-spacing:.03em}
   td:first-child,th:first-child{text-align:left}
-  .sum td{font-weight:700;background:#f3f3f3}
+  .sum td{font-weight:700;background:#f4f4f5;border-top:2px solid #0b0b0c}
   .to{display:grid;grid-template-columns:1fr 1fr;gap:22px}
   .noekkel td:first-child{text-align:left;width:64%}
-  .liten{font-size:11px;color:#555}
-  @media print{body{margin:12mm} .ikkeSkriv{display:none}}
+  .liten{font-size:11px;color:#52525b}
+  .raud{color:#a8151d;font-weight:700}
+  .bunn{margin-top:16px;border-top:3px solid #d81e28;padding-top:8px}
+  .knapp{background:#d81e28;color:#fff;border:2px solid #0b0b0c;box-shadow:3px 3px 0 0 #0b0b0c;
+    padding:7px 16px;font-weight:700;text-transform:uppercase;cursor:pointer;font-family:inherit}
+  @media print{body{margin:12mm} .ikkeSkriv{display:none} .brevhode{margin:-12mm -12mm 14px;
+    -webkit-print-color-adjust:exact;print-color-adjust:exact}
+    th,.sum td{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
 </style></head><body>
-<button class="ikkeSkriv" onclick="window.print()" style="float:right;padding:6px 14px">Skriv ut / lagre som PDF</button>
-<h1>Masseberegning – ${escapeHtml(app.P.navn)}</h1>
-<div class="undertittel">${dato} · Veglengde ${t(res.lengde, 1)} m · Terrengmodell: Kartverket DTM1 (1 m laserdata) · EUREF89 UTM${app.sone}</div>
+<div class="brevhode">
+  <img src="${location.origin}/bilde/hm-logo.png" alt="Hauge Maskin">
+  <div>
+    <div class="tittel">Masseberegning</div>
+    <div class="under">${escapeHtml(app.P.navn)}</div>
+  </div>
+  <div class="hoyre">
+    ${dato}<br>Veglengde ${t(res.lengde, 1)} m<br>${klassenavn(app)}
+  </div>
+</div>
+<button class="ikkeSkriv knapp" onclick="window.print()" style="float:right">Skriv ut / lagre som PDF</button>
+<div class="liten">Terrengmodell: Kartverket DTM1 (1 m laserdata) · EUREF89 UTM${app.sone}</div>
 
 <div class="to">
 <div>
@@ -194,10 +219,11 @@ const Rapport = {
 <div>
 <h2>Forutsetninger</h2>
 <table class="noekkel">
+<tr><td>Veiklasse</td><td>${klassenavn(app)}</td></tr>
 <tr><td>Vegbredde inkl. skulder</td><td>${m.vegbredde} m</td></tr>
 <tr><td>Tverrfall</td><td>${(m.tverrfall * 100).toFixed(1)} % ${m.tverrfallType === 'tak' ? '(tosidig)' : '(ensidig)'}</td></tr>
 <tr><td>Overbygning (bærelag + slitelag)</td><td>${(m.baerelagTykkelse + m.slitelagTykkelse).toFixed(2)} m</td></tr>
-<tr><td>Grøftedybde under vegkant</td><td>${m.grofteDybde} m</td></tr>
+<tr><td>Grøftedybde under planum</td><td>${m.grofteDybdePlanum} m</td></tr>
 <tr><td>Grøftebunn</td><td>${m.grofteBunn} m</td></tr>
 <tr><td>Skjæring i løsmasse</td><td>1:${m.skjaeringLosmasse}</td></tr>
 <tr><td>Skjæring i fjell</td><td>1:${m.skjaeringFjell}</td></tr>
@@ -223,9 +249,14 @@ ${rader.map(r => `<tr><td>${r.fra}–${r.til.toFixed(0)}</td><td>${t(r.rensk)}</
 
 ${merknader ? `<h2>Merknader</h2><table><thead><tr><th>Profil</th><th>Type</th><th>Merknad</th></tr></thead><tbody>${merknader}</tbody></table>` : ''}
 
-<p class="liten">Beregnet i Massekalk. Terrenghøydene er hentet fra Kartverket sin nasjonale høydemodell (DTM1, 1×1 m fra flybåren laserskanning)
-og er kontrollert mot Kartverket sitt punkt-API. Terrengmodellen viser terrenget slik det var da området sist ble skannet –
-kontroller mot befaring før kontrahering.</p>
+<div class="bunn liten">
+<b>Hauge Maskin</b> · Beregnet i Massekalk.
+Terrenghøydene er hentet fra Kartverket sin nasjonale høydemodell (DTM1, 1×1 m fra flybåren laserskanning)
+og er kontrollert mot Kartverket sitt punkt-API.
+Terrengmodellen viser terrenget slik det var da området sist ble skannet –
+<span class="raud">kontroller mot befaring før kontrahering</span>.
+Dybden til fjell er den største usikkerheten i sprengningsvolumet.
+</div>
 </body></html>`;
 
     const v = window.open('', '_blank');
@@ -299,6 +330,11 @@ kontroller mot befaring før kontrahering.</p>
     this.lastNed(app.P.navn.replace(/\W+/g, '_') + '.geojson', JSON.stringify(geo, null, 1), 'application/geo+json');
   }
 };
+
+function klassenavn(app) {
+  const k = Veiklasser[app.P.mal.veiklasse];
+  return k ? k.navn : 'Egne verdier';
+}
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
