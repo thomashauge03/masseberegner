@@ -42,7 +42,8 @@ const StandardMal = {
      [radiusFra, radiusTil, bredde ved 45° dreining, bredde ved 135°] */
   breddeIKurve: [[10, 14, 5.5, 6.0], [15, 19, 5.0, 5.5], [20, 29, 5.0, 5.0],
   [30, 39, 4.5, 5.0], [40, 49, 4.5, 4.5], [50, 59, 4.0, 4.5]],
-  utvidelseOvergang: 15,
+  utvidelseOvergang: 15,     // hvor langt breddeutvidelsen jevnes ut
+  utflatingForKurve: 10,     // hvor langt stigningen flates ut før kurven
 
   /* Største stigning: [radius til og med, med lass, uten lass] */
   stigningIKurve: [[14, 0.10, 0.12], [19, 0.11, 0.14], [29, 0.12, 0.15],
@@ -139,15 +140,23 @@ class Fjellmodell {
  */
 function utvidelseFraRadius(mal, R, dreiningGrader) {
   if (!isFinite(R)) return 0;
-  const tab = mal.breddeIKurve || [];
-  for (const [fra, til, b45, b135] of tab) {
-    if (R >= fra && R <= til) {
-      const g = Math.max(45, Math.min(135, dreiningGrader == null ? 45 : dreiningGrader));
-      const mal2 = b45 + (b135 - b45) * (g - 45) / 90;
-      return Math.max(0, mal2 - mal.vegbredde);
-    }
+  const tab = (mal.breddeIKurve || []).slice().sort((a, b) => a[0] - b[0]);
+  if (!tab.length) return 0;
+
+  /* Radiusbandene i normalen er oppgitt i hele meter: 10-14, 15-19, 20-24 …
+     En radius pa 14,5 m faller mellom to band. Da gjelder fortsatt det
+     strengere kravet - man har ikke naadd 15 m, og kan ikke paberope seg
+     kravet som hører til der. Uten dette ga 14,5 m ingen breddeutvidelse i
+     det hele tatt, selv om bade 14 og 15 krever bredere veg. */
+  let valgt = null;
+  for (let i = 0; i < tab.length; i++) {
+    // det siste bandet stopper der det slutter - over 60 m kreves ingen utvidelse
+    const slutt = i + 1 < tab.length ? tab[i + 1][0] : tab[i][1] + 1;
+    if (R >= tab[i][0] && R < slutt) { valgt = tab[i]; break; }
   }
-  return 0;
+  if (!valgt) return 0;                      // slakere enn tabellen rekker
+  const g = Math.max(45, Math.min(135, dreiningGrader == null ? 45 : dreiningGrader));
+  return Math.max(0, (valgt[2] + (valgt[3] - valgt[2]) * (g - 45) / 90) - mal.vegbredde);
 }
 
 /**
@@ -160,8 +169,11 @@ function utvidelseFraRadius(mal, R, dreiningGrader) {
 function maksStigningFraRadius(mal, R, stigning, lassretning) {
   const tab = mal.stigningIKurve || [];
   if (!tab.length) return 1;
+  /* Samme bandlogikk som for bredden: radiusgrensene er hele meter, sa en
+     radius pa 14,5 m har ikke naadd 15-bandet og beholder det strengere
+     kravet fra 10-14. */
   let rad = tab[tab.length - 1];
-  for (const r of tab) { if (R <= r[0]) { rad = r; break; } }
+  for (const r of tab) { if (R < r[0] + 1) { rad = r; break; } }
   if (stigning == null) return Math.max(rad[1], rad[2]);
   const lassetKlatrer = (stigning * (lassretning || 1)) > 0;
   return lassetKlatrer ? rad[1] : rad[2];

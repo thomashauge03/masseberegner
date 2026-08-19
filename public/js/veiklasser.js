@@ -16,6 +16,10 @@
  *  - Stigningskravet er ulikt i lassretningen (motkjøring med tømmerlass)
  *    og returretningen (normalt tom bil). Begge ligger inne, og hvilken som
  *    gjelder avhenger av hvilken vei lasset kjører.
+ *  - Normalen har *to* overgangslengder som er lette a blande: hvor langt
+ *    breddeutvidelsen jevnes ut (`utvidelseOvergang`), og hvor langt
+ *    stigningen flates ut før kurven (`stigningsovergang`). De er ulike i de
+ *    fleste klassene, og star derfor som hvert sitt felt.
  */
 
 const Veiklasser = {
@@ -44,7 +48,7 @@ const Veiklasser = {
     minRadius: 20, minVertikalLavbrekk: 200, minVertikalHoybrekk: 200,
     tverrfall: 0.05, ensidigMaks: 0.05, ensidigUnderRadius: 60,
     grofteDybdePlanum: 0.20, grofteBunn: 0.30,
-    utvidelseOvergang: 20,
+    utvidelseOvergang: 20, stigningsovergang: 20,
     maksStigningLass: 0.08, maksStigningRetur: 0.08,
     kortStrekkTillegg: 0.02,
     breddeIKurve: [[20, 24, 6.0, 7.0], [25, 29, 6.0, 6.5], [30, 39, 5.5, 6.0], [40, 49, 5.5, 5.5], [50, 59, 5.0, 5.5]],
@@ -61,7 +65,7 @@ const Veiklasser = {
     minRadius: 10, minVertikalLavbrekk: 100, minVertikalHoybrekk: 200,
     tverrfall: 0.05, ensidigMaks: 0.05, ensidigUnderRadius: 60,
     grofteDybdePlanum: 0.20, grofteBunn: 0.30,
-    utvidelseOvergang: 10,
+    utvidelseOvergang: 20, stigningsovergang: 10,
     maksStigningLass: 0.10, maksStigningRetur: 0.12,
     kortStrekkTillegg: 0.02,
     breddeIKurve: [[10, 14, 7.0, 9.5], [15, 19, 6.5, 8.0], [20, 24, 6.0, 7.0], [25, 29, 5.5, 6.5], [30, 39, 5.5, 6.0], [40, 49, 5.0, 5.5], [50, 59, 5.0, 5.0]],
@@ -78,12 +82,13 @@ const Veiklasser = {
     minRadius: 10, minVertikalLavbrekk: 100, minVertikalHoybrekk: 200,
     tverrfall: 0.05, ensidigMaks: 0.05, ensidigUnderRadius: 60,
     grofteDybdePlanum: 0.20, grofteBunn: 0.30,
-    utvidelseOvergang: 10,
+    utvidelseOvergang: 20, stigningsovergang: 10,
     maksStigningLass: 0.12, maksStigningRetur: 0.18,
     kortStrekkTillegg: 0.02,
     breddeIKurve: [[10, 14, 7.0, 9.5], [15, 19, 6.5, 8.0], [20, 24, 6.0, 7.0], [25, 29, 5.5, 6.5], [30, 39, 5.5, 6.0], [40, 49, 5.0, 5.5], [50, 59, 5.0, 5.0]],
     stigningIKurve: [[14, 0.04, 0.07], [19, 0.06, 0.09], [29, 0.08, 0.11], [39, 0.10, 0.13], [49, 0.11, 0.14], [59, 0.11, 0.16], [1e9, 0.12, 0.16]],
-    ekstraBredde: { stigning: 0.12, tillegg: 0.5 }
+    // normalen: fylling over 2 m *eller* stigning over 12 %
+    ekstraBredde: { fyllingshoyde: 2.0, stigning: 0.12, tillegg: 0.5 }
   },
 
   k5: {
@@ -96,7 +101,7 @@ const Veiklasser = {
     minRadius: 10, minVertikalLavbrekk: 60, minVertikalHoybrekk: 100,
     tverrfall: 0.05, ensidigMaks: 0.05, ensidigUnderRadius: 60,
     grofteDybdePlanum: 0.20, grofteBunn: 0.30,
-    utvidelseOvergang: 15,
+    utvidelseOvergang: 15, stigningsovergang: 10,
     maksStigningLass: 0.18, maksStigningRetur: 0.20,
     kortStrekkTillegg: 0.02,
     breddeIKurve: [[10, 14, 5.5, 6.0], [15, 19, 5.0, 5.5], [20, 29, 5.0, 5.0], [30, 39, 4.5, 5.0], [40, 49, 4.5, 4.5], [50, 59, 4.0, 4.5]],
@@ -110,14 +115,18 @@ const Veiklasser = {
     beskrivelse: 'Bilvei for tømmertransport på vinterføre.',
     kilde: 'Normaler for landbruksveier, kap. 3.6',
     vegbredde: 4.5, kjorebane: 3.5, skulder: 0.5,
-    minRadius: 20, minVertikalLavbrekk: 100, minVertikalHoybrekk: 200,
+    // normalen gir én vertikalradius for denne klassen, ikke to
+    minRadius: 20, minVertikalLavbrekk: 200, minVertikalHoybrekk: 200,
     tverrfall: 0.05, ensidigMaks: 0.05, ensidigUnderRadius: 60,
     grofteDybdePlanum: 0.20, grofteBunn: 0.30,
-    utvidelseOvergang: 15,
+    utvidelseOvergang: 20, stigningsovergang: 10,
     maksStigningLass: 0.08, maksStigningRetur: 0.12,
     kortStrekkTillegg: 0.02,
     breddeIKurve: [[20, 24, 6.0, 7.0], [25, 29, 6.0, 6.5], [30, 39, 6.0, 6.5], [40, 49, 5.5, 5.5], [50, 59, 5.0, 5.5]],
-    stigningIKurve: [[24, 0.06, 0.08], [30, 0.07, 0.09], [39, 0.08, 0.10], [49, 0.08, 0.11], [59, 0.08, 0.11], [1e9, 0.08, 0.12]]
+    stigningIKurve: [[24, 0.06, 0.08], [30, 0.07, 0.09], [39, 0.08, 0.10], [49, 0.08, 0.11], [59, 0.08, 0.11], [1e9, 0.08, 0.12]],
+    ekstraBredde: { fyllingshoyde: 2.0, tillegg: 0.5 },
+    // grøft, tverrfall og kjørebane er ikke tallfestet for denne klassen
+    utledet: ['grofteDybdePlanum', 'grofteBunn', 'tverrfall', 'ensidigMaks', 'kjorebane', 'skulder']
   },
 
   // ── Traktorveier ────────────────────────────────────────────
@@ -127,12 +136,19 @@ const Veiklasser = {
     beskrivelse: 'Vei for transport av landbruksprodukter og tømmer med traktor.',
     kilde: 'Normaler for landbruksveier, kap. 5.1',
     vegbredde: 3.5, kjorebane: 3.0, skulder: 0.25,
-    minRadius: 10, minVertikalLavbrekk: 40, minVertikalHoybrekk: 60,
+    // normalen: «Vertikalkurver bør ikke ha mindre radius enn 50 m»
+    minRadius: 10, minVertikalLavbrekk: 50, minVertikalHoybrekk: 50,
     tverrfall: 0.05, grofteDybdePlanum: 0.20, grofteBunn: 0.30,
-    utvidelseOvergang: 10,
+    // traktorvei doserer krappere og brattere enn bilveiklassene
+    ensidigUnderRadius: 20, ensidigMaks: 0.10,
+    utvidelseOvergang: 5, stigningsovergang: 10,
     maksStigningLass: 0.15, maksStigningRetur: 0.30,
     breddeIKurve: [[10, 14, 6.0, 6.0], [15, 19, 5.0, 5.0], [20, 29, 4.5, 4.5], [30, 39, 4.0, 4.0]],
-    stigningIKurve: [[14, 0.06, 0.20], [19, 0.08, 0.20], [29, 0.10, 0.25], [39, 0.12, 0.25], [49, 0.15, 0.30], [1e9, 0.15, 0.30]]
+    stigningIKurve: [[14, 0.06, 0.20], [19, 0.08, 0.20], [29, 0.10, 0.25], [39, 0.12, 0.25], [49, 0.15, 0.30], [1e9, 0.15, 0.30]],
+    ekstraBredde: { fyllingshoyde: 2.0, tillegg: 0.5 },
+    merknad: 'Stigningstallene gjelder landbrukstraktor. For lastetraktorvei tillater '
+      + 'normalen 20 % i lassretningen og høyere verdier i kurvene.',
+    utledet: ['kjorebane', 'skulder']
   },
 
   k8: {
@@ -141,11 +157,17 @@ const Veiklasser = {
     beskrivelse: 'Enkel vei for transport av tømmer og landbruksprodukter med traktor.',
     kilde: 'Normaler for landbruksveier, kap. 5.2',
     vegbredde: 2.5, kjorebane: 2.5, skulder: 0,
-    minRadius: 10, minVertikalLavbrekk: 40, minVertikalHoybrekk: 60,
+    /* Normalen: «Det stilles ingen bestemte krav til kurvatur, men
+       kurveradius må være tilfredsstillende for bruk av det transportutstyr
+       veien er bygget for.» Derfor star kurvaturkravene som 0 - programmet
+       skal ikke merke noe som brudd mot et krav som ikke finnes. */
+    minRadius: 0, minVertikalLavbrekk: 0, minVertikalHoybrekk: 0,
     tverrfall: 0.05, grofteDybdePlanum: 0.20, grofteBunn: 0.30,
-    utvidelseOvergang: 10,
+    utvidelseOvergang: 5, stigningsovergang: 10,
     maksStigningLass: 0.15, maksStigningRetur: 0.30,
-    breddeIKurve: [], stigningIKurve: [[1e9, 0.15, 0.30]]
+    breddeIKurve: [], stigningIKurve: [[1e9, 0.15, 0.30]],
+    ekstraBredde: { fyllingshoyde: 2.0, tillegg: 0.5 },
+    utledet: ['grofteDybdePlanum', 'grofteBunn', 'tverrfall', 'utvidelseOvergang']
   },
 
   // ── Ikke landbruksvei ───────────────────────────────────────
@@ -176,6 +198,8 @@ function malFraVeiklasse(klasse, gjeldende) {
   m.grofteDybdePlanum = k.grofteDybdePlanum;
   m.grofteBunn = k.grofteBunn;
   m.utvidelseOvergang = k.utvidelseOvergang;
+  // normalen skiller disse to; se kommentaren øverst i filen
+  m.utflatingForKurve = k.stigningsovergang != null ? k.stigningsovergang : k.utvidelseOvergang;
   m.slitelagBredde = Math.min(m.slitelagBredde || k.kjorebane, k.vegbredde);
   m.breddeIKurve = (k.breddeIKurve || []).map(r => r.slice());
   m.stigningIKurve = (k.stigningIKurve || []).map(r => r.slice());

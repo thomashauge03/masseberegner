@@ -435,7 +435,8 @@ console.log('\n6. Veiklasser, breddeutvidelse og stigningskrav');
   const k3 = V.malFraVeiklasse('k3', Object.assign({}, M.StandardMal));
   sjekk('klasse 3 setter veibredde', k3.vegbredde, 4.0, 1e-9);
   sjekk('klasse 3 setter minste radius', k3.minRadius, 10, 1e-9);
-  sjekk('klasse 3 setter overgangslengde', k3.utvidelseOvergang, 10, 1e-9);
+  sjekk('klasse 3 setter overgangslengde for bredde', k3.utvidelseOvergang, 20, 1e-9);
+  sjekk('klasse 3 setter egen utflating for stigning', k3.utflatingForKurve, 10, 1e-9);
   sjekk('klasse 3 krever 7,0 m i R=10 kort kurve', M.utvidelseFraRadius(k3, 10, 45) + k3.vegbredde, 7.0, 1e-9);
   const k2 = V.malFraVeiklasse('k2', Object.assign({}, M.StandardMal));
   sjekk('klasse 2 setter veibredde', k2.vegbredde, 4.5, 1e-9);
@@ -443,6 +444,50 @@ console.log('\n6. Veiklasser, breddeutvidelse og stigningskrav');
   sjekk('klasse 2 maks 8 % stigning', M.maksStigningFraRadius(k2, 1e9, 0.05, -1), 0.08, 1e-9);
   paastand('alle klassene har navn og beskrivelse',
     Object.values(V.Veiklasser).every(k => k.navn && k.beskrivelse));
+
+  /* Verdier kontrollert mot normalen kapittel for kapittel. Hver av disse
+     var feil en gang, sa de star her for at de ikke skal bli det igjen. */
+  const K = V.Veiklasser;
+  sjekk('K6 lavbrekk er 200 m, ikke 100', K.k6.minVertikalLavbrekk, 200, 1e-9);
+  sjekk('K7 vertikalradius er 50 m', K.k7.minVertikalLavbrekk, 50, 1e-9);
+  sjekk('K7 høybrekk er ogsa 50 m', K.k7.minVertikalHoybrekk, 50, 1e-9);
+
+  // Breddeovergang og stigningsutflating er to ulike lengder i normalen
+  const overganger = { k2: [20, 20], k3: [20, 10], k4: [20, 10], k5: [15, 10], k6: [20, 10], k7: [5, 10] };
+  for (const [n, [bredde, stigning]] of Object.entries(overganger)) {
+    sjekk(`${n}: breddeovergang`, K[n].utvidelseOvergang, bredde, 1e-9);
+    sjekk(`${n}: stigningsutflating`, K[n].stigningsovergang, stigning, 1e-9);
+  }
+
+  // «I fyllinger høyere enn 2 m skal veibredden økes med 0,5 m»
+  for (const n of ['k2', 'k3', 'k4', 'k5', 'k6', 'k7', 'k8']) {
+    paastand(`${n} har fyllingsregelen for ekstra bredde`,
+      K[n].ekstraBredde && K[n].ekstraBredde.fyllingshoyde === 2.0 && K[n].ekstraBredde.tillegg === 0.5);
+  }
+  sjekk('K4 har ogsa stigningsvilkaret', K.k4.ekstraBredde.stigning, 0.12, 1e-9);
+  sjekk('K5 har stigningsvilkaret pa 14 %', K.k5.ekstraBredde.stigning, 0.14, 1e-9);
+
+  // K8: normalen sier uttrykkelig at det ikke stilles krav til kurvatur
+  paastand('K8 har ingen kurvaturkrav',
+    K.k8.minRadius === 0 && K.k8.minVertikalLavbrekk === 0 && K.k8.minVertikalHoybrekk === 0);
+
+  // Traktorvei doserer krappere og brattere enn bilveiklassene
+  sjekk('K7 doserer under 20 m radius', K.k7.ensidigUnderRadius, 20, 1e-9);
+  sjekk('K7 tillater 10 % ensidig fall', K.k7.ensidigMaks, 0.10, 1e-9);
+
+  /* Radiusbandene er hele meter. En radius mellom to band skal beholde det
+     strengere kravet - før falt den mellom stolene og ga null utvidelse. */
+  const k3mal = V.malFraVeiklasse('k3', Object.assign({}, M.StandardMal, { vegbredde: 4.0 }));
+  sjekk('R=14 krever 7,0 m', M.utvidelseFraRadius(k3mal, 14, 45) + 4.0, 7.0, 1e-9);
+  sjekk('R=14,5 faller ikke mellom bandene', M.utvidelseFraRadius(k3mal, 14.5, 45) + 4.0, 7.0, 1e-9);
+  sjekk('R=15 gar over i neste band', M.utvidelseFraRadius(k3mal, 15, 45) + 4.0, 6.5, 1e-9);
+  sjekk('R=24,5 beholder 20-24-kravet', M.utvidelseFraRadius(k3mal, 24.5, 45) + 4.0, 6.0, 1e-9);
+  sjekk('R=100 er utenfor tabellen', M.utvidelseFraRadius(k3mal, 100, 45), 0, 1e-9);
+
+  // Samme for stigningskravet
+  sjekk('stigning ved R=14', M.maksStigningFraRadius(k3mal, 14, 0.05, -1), 0.05, 1e-9);
+  sjekk('stigning ved R=14,5 beholder strengeste', M.maksStigningFraRadius(k3mal, 14.5, 0.05, -1), 0.05, 1e-9);
+  sjekk('stigning ved R=15', M.maksStigningFraRadius(k3mal, 15, 0.05, -1), 0.07, 1e-9);
 }
 
 /* ------------------------------------------------------------------ */
