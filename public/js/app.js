@@ -74,6 +74,64 @@ const App = {
 
   status(t) { document.getElementById('statuslinje').textContent = t; },
 
+  /**
+   * Ja/nei-boks i programmets egen stil.
+   *
+   * Nettleserens confirm() blir blokkert i noen sammenhenger, og da forsvant
+   * handlingen uten at brukeren fikk vite hvorfor. Denne gjør det samme, men
+   * er alltid synlig.
+   */
+  bekreft(tekst, jaTekst = 'Ja') {
+    return new Promise(løs => {
+      const boks = document.getElementById('dialog');
+      const innhold = document.getElementById('dialoginnhold');
+      document.getElementById('dialogtittel').textContent = 'Bekreft';
+      innhold.innerHTML = `<p class="notis" style="font-size:13px">${tekst}</p>
+        <div class="knapperad" style="justify-content:flex-end">
+          <button class="knapp" id="bekreftNei">Avbryt</button>
+          <button class="knapp primaer" id="bekreftJa">${jaTekst}</button>
+        </div>`;
+      const lukk = svar => {
+        boks.classList.add('skjult');
+        document.removeEventListener('keydown', taste);
+        løs(svar);
+      };
+      const taste = e => {
+        if (e.key === 'Escape') lukk(false);
+        if (e.key === 'Enter') lukk(true);
+      };
+      innhold.querySelector('#bekreftJa').onclick = () => lukk(true);
+      innhold.querySelector('#bekreftNei').onclick = () => lukk(false);
+      document.addEventListener('keydown', taste);
+      boks.classList.remove('skjult');
+      innhold.querySelector('#bekreftJa').focus();
+    });
+  },
+
+  /** Tømmer alle panelene. Brukes nar et prosjekt legges bort. */
+  tomPaneler() {
+    this.resultat = null;
+    this.terrengProfil = null;
+    this.vprofil = null;
+    this._terrengnokkel = '';
+    this.tverrStasjon = 0;
+    Rapport.visSammendrag(null);
+    Tverrprofil.vis(null);
+    Kart.lag.venstreFot.setLatLngs([]);
+    Kart.lag.hoyreFot.setLatLngs([]);
+    Kart.lag.vegkant.clearLayers();
+    Kart.lag.stasjoner.clearLayers();
+    Kart.lag.markorPos.clearLayers();
+    this.visHoydetabell();
+    this.visLinjetabell();
+    Lengdeprofil.tegn();
+    for (const f of ['tp_venstre', 'tp_senter', 'tp_hoyre']) {
+      const e = document.getElementById(f);
+      if (e) { e.value = ''; e.classList.remove('overstyrt'); }
+    }
+    document.getElementById('tverrEtikett').textContent = '–';
+  },
+
   framdrift(vis, tekst, andel) {
     const boks = document.getElementById('framdrift');
     boks.classList.toggle('skjult', !vis);
@@ -775,8 +833,12 @@ const App = {
     innhold.querySelectorAll('[data-eksport]').forEach(el => { el.onclick = () => Lager.eksporter(el.dataset.eksport); });
     innhold.querySelectorAll('[data-slett]').forEach(el => {
       el.onclick = async () => {
-        if (!confirm('Slette «' + el.dataset.slett + '»?')) return;
-        await Lager.slett(el.dataset.slett);
+        const navn = el.dataset.slett;
+        document.getElementById('dialog').classList.add('skjult');
+        if (!await this.bekreft(`Slette prosjektet «${navn}»? Dette kan ikke angres.`, 'Slett')) {
+          return this.apneDialog();
+        }
+        await Lager.slett(navn);
         this.apneDialog();
       };
     });
@@ -823,13 +885,25 @@ const App = {
     id('knappLagre').onclick = () => this.lagre();
     id('knappApne').onclick = () => this.apneDialog();
     id('dialogLukk').onclick = () => id('dialog').classList.add('skjult');
-    id('knappNy').onclick = () => {
-      if (this.P.ip.length && !confirm('Starte på nytt? Ulagrede endringer går tapt.')) return;
+    id('knappNy').onclick = async () => {
+      if (this.P.ip.length) {
+        const ja = await this.bekreft(
+          'Starte på et nytt prosjekt? Det du har tegnet nå forsvinner hvis det ikke er lagret.',
+          'Nytt prosjekt');
+        if (!ja) return;
+      }
+      const mal = Object.assign({}, this.P.mal);   // behold vegmalen til neste vei
       this.P = this.nyttProsjekt();
-      this.resultat = null; this.terrengProfil = null; this._terrengnokkel = '';
+      this.P.mal = mal;
+      this.tomPaneler();
+      Kart.tegn();
       id('prosjektnavn').value = this.P.navn;
+      id('prosjektnavn').select();
       this.malTilSkjema();
-      this.oppdater();
+      // Uten dette blir man staende i redigeringsmodus og far ikke satt et
+      // eneste punkt, uten at noe forteller hvorfor.
+      Kart.settModus('tegn');
+      this.status('Nytt prosjekt – klikk i kartet for å tegne senterlinjen. Dobbeltklikk for å avslutte.');
     };
     id('knappRapport').onclick = () => Rapport.apneRapport();
 
@@ -870,8 +944,8 @@ const App = {
     id('h_laasAlle').onclick = () => { this.P.vip.forEach(v => v.laast = true); this.visHoydetabell(); Lengdeprofil.tegn(); };
     id('h_laasIngen').onclick = () => { this.P.vip.forEach(v => v.laast = false); this.visHoydetabell(); Lengdeprofil.tegn(); };
     id('h_limInn').onclick = () => this.limInnHoyder();
-    id('h_tomTabell').onclick = () => {
-      if (!confirm('Fjerne alle innlagte høyder og lage nytt forslag fra terrenget?')) return;
+    id('h_tomTabell').onclick = async () => {
+      if (!await this.bekreft('Fjerne alle innlagte høyder og lage nytt forslag fra terrenget?', 'Tøm tabellen')) return;
       this.P.vip = [];
       if (this.terrengProfil) this.lagProfilforslag();
       this.beregn(); this.visHoydetabell();
