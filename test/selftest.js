@@ -14,6 +14,7 @@ const Geo = require(path.join(__dirname, '..', 'public', 'js', 'geo.js'));
 const { Linjeforing } = require(path.join(__dirname, '..', 'public', 'js', 'linjeforing.js'));
 const { Vertikalprofil, foreslaProfil, lesHoydetabell } = require(path.join(__dirname, '..', 'public', 'js', 'vertikalprofil.js'));
 const M = require(path.join(__dirname, '..', 'public', 'js', 'masser.js'));
+const VK = require(path.join(__dirname, '..', 'public', 'js', 'veiklasser.js'));
 const H = require(path.join(__dirname, '..', 'lib', 'hoydedata.js'));
 
 let feil = 0, ok = 0;
@@ -253,7 +254,10 @@ console.log('\n4. Masseberegning mot handregning');
   sjekk('fyllingsareal', pr.areal.fylling, 0, 1e-6);
   sjekk('skjæringsfot høyre', pr.fotHoyre, 3.96875, 0.01);
   sjekk('renskeareal', pr.areal.rensk, 0.2 * (2 * 3.96875 + 2), 0.02);
-  sjekk('bærelagsareal', pr.areal.baerelag, 0.6 * 4.5, 1e-9);
+  /* 0,60 m bærelag i full bredde, og i tillegg de øverste 0,10 m pa den halve
+     meteren skulder som ligger utenfor slitelaget - der gar bærelaget helt
+     opp til veinivaet. */
+  sjekk('bærelagsareal', pr.areal.baerelag, 0.6 * 4.5 + 0.1 * (4.5 - 4.0), 1e-9);
   sjekk('slitelagsareal', pr.areal.slitelag, 0.1 * 4.0, 1e-9);
   sjekk('ingen fjell når fjellet ligger 99 m nede', pr.areal.skjaeringFjell, 0, 1e-9);
 
@@ -271,7 +275,7 @@ console.log('\n4. Masseberegning mot handregning');
     terreng, mal, fjell, profilAvstand: 5, bakkefaktor: 1, integrasjonssteg: 0.02
   });
   sjekk('skjæringsvolum over 100 m', res.sum.skjaering, 2 * enSide * 100, 3);
-  sjekk('bærelagsvolum over 100 m', res.sum.baerelag, 0.6 * 4.5 * 100, 0.5);
+  sjekk('bærelagsvolum over 100 m', res.sum.baerelag, (0.6 * 4.5 + 0.1 * 0.5) * 100, 0.5);
   sjekk('lengde', res.lengde, 100, 1e-9);
 
   // Ren fylling: veg 3 m over terrenget
@@ -487,6 +491,46 @@ console.log('\n4a. Feil som er funnet og rettet');
     tett.every((v, i) => i === 0 || v.s > tett[i - 1].s));
   paastand('alle stigninger er tall',
     new Vertikalprofil(tett).stigninger.every(g => isFinite(g)));
+
+  /* Der skjæring gar over i fylling inne i et integrasjonssteg, ma trekanten
+     vektes over hele bredden sin - ikke med vekten i endepunktet. Prøven er at
+     svaret ikke skal henge pa hvor fint man deler opp. */
+  const krappLinje = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 60, y: 0, r: 12 }, { x: 60, y: 60, r: 0 }]);
+  const skraaLi = { z: (x, y) => 100 + 0.55 * y };
+  const krappMal = Object.assign({}, M.StandardMal, { maksSokebredde: 45, ekstraBredde: null });
+  const krappVip = [];
+  for (let s = 0; s <= krappLinje.lengde; s += 5) {
+    const q = krappLinje.punktVed(Math.min(s, krappLinje.lengde));
+    krappVip.push({ s: Math.min(s, krappLinje.lengde), z: skraaLi.z(q.x, q.y), k: 0 });
+  }
+  const medSteg = steg => M.beregnMasser({
+    linje: krappLinje, profil: new Vertikalprofil(krappVip), terreng: skraaLi, mal: krappMal,
+    fjell: new M.Fjellmodell({ standarddybde: 3 }), profilAvstand: 5,
+    integrasjonssteg: steg, bakkefaktor: 1
+  }).sum;
+  const grovt = medSteg(0.2), fasit = medSteg(0.005);
+  for (const f of ['skjaering', 'fylling']) {
+    paastand(`${f} henger ikke på integrasjonssteget i krapp kurve`,
+      Math.abs(grovt[f] - fasit[f]) / fasit[f] < 1e-4,
+      `0,2 m: ${grovt[f].toFixed(2)}  0,005 m: ${fasit[f].toFixed(2)}`);
+  }
+
+  /* Overbygningen skal fylle nøyaktig det som ble gravd ut ned til planum.
+     Slitelaget ligger bare over kjørebanen, sa skuldrene ma fylles med
+     bærelag helt opp - ellers star 50 til 100 kubikk per kilometer pa
+     ingen post. */
+  for (const veiklasse of ['k1', 'k3', 'k7', 'k8']) {
+    const vm = Object.assign({}, M.StandardMal, VK.malFraVeiklasse(veiklasse) || {},
+      { grofteDybdePlanum: 0, grofteBunn: 0 });
+    const r = M.beregnMasser({
+      linje: rettLinje, profil: new Vertikalprofil([{ s: 0, z: 100, k: 0 }, { s: 100, z: 100, k: 0 }]),
+      terreng: { z: () => 100 }, mal: vm, fjell: new M.Fjellmodell({ standarddybde: 5 }),
+      profilAvstand: 10, bakkefaktor: 1
+    });
+    const gravd = (vm.slitelagTykkelse + vm.baerelagTykkelse) * vm.vegbredde * 100;
+    sjekk(`${veiklasse}: overbygningen fyller det som er gravd ut`,
+      r.sum.slitelag + r.sum.baerelag, gravd, 1e-6);
+  }
 
   /* Sonevalget skal følge nærmeste midtmeridian (9, 15 og 27 grader). Med 18
      grader som grense havnet Tromsø i sone 35, atte grader unna. */

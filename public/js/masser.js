@@ -513,18 +513,22 @@ function beregnTverrprofil(o) {
       } else {
         const u = forrige.d / (forrige.d - naa.d);
         const wMidt = forrige.w + (naa.w - forrige.w) * u;
+        /* Over en trekant der dybden gar fra d til null, og vekten fra w til
+           wMidt, er det vektede arealet d·(2w + wMidt)/6 av grunnflaten - ikke
+           d·w/2. Med endepunktvekten alene ble arealet riktig, men volumet fikk
+           en systematisk skjevhet i kurver, samme sted som fjellsplitten rett
+           under alt regnet det riktig. */
         if (forrige.d > 0) {
           arealSkjaering += 0.5 * forrige.d * u * dtI;
-          vSkjaering += 0.5 * forrige.d * forrige.w * u * dtI;
+          vSkjaering += forrige.d * (2 * forrige.w + wMidt) / 6 * u * dtI;
           arealFylling += 0.5 * (-naa.d) * (1 - u) * dtI;
-          vFylling += 0.5 * (-naa.d) * naa.w * (1 - u) * dtI;
+          vFylling += (-naa.d) * (wMidt + 2 * naa.w) / 6 * (1 - u) * dtI;
         } else {
           arealFylling += 0.5 * (-forrige.d) * u * dtI;
-          vFylling += 0.5 * (-forrige.d) * forrige.w * u * dtI;
+          vFylling += (-forrige.d) * (2 * forrige.w + wMidt) / 6 * u * dtI;
           arealSkjaering += 0.5 * naa.d * (1 - u) * dtI;
-          vSkjaering += 0.5 * naa.d * naa.w * (1 - u) * dtI;
+          vSkjaering += naa.d * (wMidt + 2 * naa.w) / 6 * (1 - u) * dtI;
         }
-        void wMidt;
       }
       /* Fjellandelen ma deles like nøyaktig som skjæringen selv. Med rein
          trapes over knekken der fjellet slipper taket, ble splitten mellom
@@ -573,8 +577,15 @@ function beregnTverrprofil(o) {
   const arealRensk = manglerData ? 0 : mal.renskDybde * renskBredde;
   const vRensk = manglerData ? 0 : mal.renskDybde * renskVekt;
 
-  const arealSlitelag = mal.slitelagTykkelse * Math.min(mal.slitelagBredde + utvidelse, mal.vegbredde + utvidelse);
-  const arealBaerelag = mal.baerelagTykkelse * (mal.vegbredde + utvidelse);
+  /* Slitelaget ligger bare over kjørebanen. Utenfor - pa skuldrene - er det
+     bærelaget som gar helt opp til veinivaet. Uten dette ble den øverste
+     desimeteren av skuldrene gravd ut, men aldri fylt igjen med noe: 50 til
+     100 kubikk per kilometer som ikke sto pa noen post. */
+  const bredde = mal.vegbredde + utvidelse;
+  const slitebredde = Math.min(mal.slitelagBredde + utvidelse, bredde);
+  const arealSlitelag = mal.slitelagTykkelse * slitebredde;
+  const arealBaerelag = mal.baerelagTykkelse * bredde
+    + mal.slitelagTykkelse * (bredde - slitebredde);
 
   return {
     s, x: p.x, y: p.y, retning: p.retning, krumning: kr,
