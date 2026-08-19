@@ -16,6 +16,11 @@ const Lengdeprofil = {
     l.addEventListener('mousedown', e => {
       const { s, z } = this.fraSkjerm(e);
       const i = this.finnVip(e);
+      // Laste høyder er bestemt av brukeren og skal ikke kunne dras ut av stilling
+      if (i >= 0 && this.app.P.vip[i].laast) {
+        this.app.status(`Profil ${this.app.P.vip[i].s.toFixed(0)} er låst – lås den opp under «Høyder» for å flytte den`);
+        return;
+      }
       if (i >= 0) { this.dragIndeks = i; return; }
       this.app.settTverrStasjon(s);
       void z;
@@ -32,7 +37,8 @@ const Lengdeprofil = {
     });
     l.addEventListener('mousemove', e => {
       this.peker = this.fraSkjerm(e);
-      l.style.cursor = this.finnVip(e) >= 0 ? 'ns-resize' : 'crosshair';
+      const i = this.finnVip(e);
+      l.style.cursor = i < 0 ? 'crosshair' : (this.app.P.vip[i].laast ? 'not-allowed' : 'ns-resize');
       this.tegn();
     });
     l.addEventListener('mouseleave', () => { this.peker = null; this.tegn(); });
@@ -42,10 +48,11 @@ const Lengdeprofil = {
       if (i > 0 && i < V.length - 1) V.splice(i, 1);
       else {
         const { s, z } = this.fraSkjerm(e);
-        V.push({ s, z, k: parseFloat(document.getElementById('kVerdi').value) || 1 });
+        V.push({ s, z, k: parseFloat(document.getElementById('kVerdi').value) || 1, laast: false });
         V.sort((a, b) => a.s - b.s);
       }
       this.app.profilEndret(false);
+      this.app.visHoydetabell();
     });
     new ResizeObserver(() => this.tegn()).observe(l);
     return this;
@@ -239,12 +246,18 @@ const Lengdeprofil = {
         c.beginPath(); c.moveTo(a.x, H - m.u - 5); c.lineTo(b.x, H - m.u - 5); c.stroke();
       }
 
-      // knekkpunkt
+      // knekkpunkt - laste høyder som firkant, frie som sirkel
       app.P.vip.forEach((v, i) => {
         const p = this.tilSkjerm(v.s, v.z);
-        c.fillStyle = i === this.dragIndeks ? '#fff' : '#4ea3ff';
         c.strokeStyle = '#0b1017'; c.lineWidth = 1.5;
-        c.beginPath(); c.arc(p.x, p.y, 4.5, 0, 7); c.fill(); c.stroke();
+        if (v.laast) {
+          c.fillStyle = i === this.dragIndeks ? '#fff' : 'var(--laast)';
+          c.fillStyle = '#f5f5f5';
+          c.beginPath(); c.rect(p.x - 4, p.y - 4, 8, 8); c.fill(); c.stroke();
+        } else {
+          c.fillStyle = i === this.dragIndeks ? '#fff' : this.farge;
+          c.beginPath(); c.arc(p.x, p.y, 4.5, 0, 7); c.fill(); c.stroke();
+        }
       });
     }
 

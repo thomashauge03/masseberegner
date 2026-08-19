@@ -133,7 +133,9 @@ const App = {
     this.P.vip = foreslaProfil(this.terrengProfil.s, this.terrengProfil.z, {
       vipAvstand, maksStigning: maksBrukt, k: isFinite(k) ? k : 1,
       // krappe kurver har strengere stigningskrav
-      maksStigningVed: s => maksStigningFraRadius(this.P.mal, this.linje.radiusVed(s))
+      maksStigningVed: s => maksStigningFraRadius(this.P.mal, this.linje.radiusVed(s)),
+      // høyder brukeren har bestemt blir liggende
+      laste: this.lasteHoyder()
     });
     this.profilManuelt = false;
   },
@@ -186,6 +188,7 @@ const App = {
     Lengdeprofil.tegn();
     this.settTverrStasjon(this.tverrStasjon, true);
     this.visLinjetabell();
+    this.visHoydetabell();
     this.status(`Beregnet ${this.resultat.profiler.length} profiler på ${tid.toFixed(0)} ms`);
   },
 
@@ -228,16 +231,22 @@ const App = {
 
   async balanser() {
     if (!this.terreng || !this.linje) return;
+    if (this.P.vip.every(v => v.laast)) {
+      this.status('Alle høyder er låst – lås opp noen for å kunne balansere massene');
+      return;
+    }
     this.framdrift(true, 'Finner høyden som gir massebalanse…', 0.1);
     await pause();
-    const grunn = this.P.vip.map(v => ({ s: v.s, z: v.z, k: v.k }));
-    const verdi = d => this.beregnRaskt(grunn.map(v => ({ s: v.s, z: v.z + d, k: v.k }))).balanse.balanse;
+    const grunn = this.P.vip.map(v => ({ s: v.s, z: v.z, k: v.k, laast: v.laast }));
+    // Laste høyder blir liggende; bare de andre løftes eller senkes
+    const flytt = (liste, d) => liste.map(v => ({ s: v.s, z: v.laast ? v.z : v.z + d, k: v.k }));
+    const verdi = d => this.beregnRaskt(flytt(grunn, d)).balanse.balanse;
     let lo = -8, hi = 8;
     let vLo = verdi(lo), vHi = verdi(hi);
+    let d;
     if (vLo * vHi > 0) {
       // ingen fortegnsskifte - velg endepunktet nærmest balanse
-      const d = Math.abs(vLo) < Math.abs(vHi) ? lo : hi;
-      this.P.vip.forEach(v => v.z += d);
+      d = Math.abs(vLo) < Math.abs(vHi) ? lo : hi;
     } else {
       for (let i = 0; i < 26; i++) {
         const midt = (lo + hi) / 2;
@@ -246,9 +255,9 @@ const App = {
         this.framdrift(true, 'Finner høyden som gir massebalanse…', 0.1 + 0.9 * i / 26);
         if (i % 6 === 0) await pause();
       }
-      const d = (lo + hi) / 2;
-      this.P.vip.forEach(v => v.z += d);
+      d = (lo + hi) / 2;
     }
+    this.P.vip.forEach(v => { if (!v.laast) v.z += d; });
     this.profilManuelt = true;
     this.framdrift(false);
     this.beregn();
@@ -258,6 +267,10 @@ const App = {
     if (!this.terreng || !this.linje) return;
     const V = this.P.vip;
     if (V.length < 2) return;
+    if (V.every(v => v.laast)) {
+      this.status('Alle høyder er låst – lås opp noen for å kunne optimalisere');
+      return;
+    }
     const maksTillatt = this.P.mal.maksStigning.reduce((a, r) => Math.max(a, r[1]), 0);
 
     const kostnad = liste => {
@@ -276,14 +289,15 @@ const App = {
 
     this.framdrift(true, 'Optimaliserer lengdeprofilen…', 0);
     await pause();
-    let best = V.map(v => ({ s: v.s, z: v.z, k: v.k }));
+    let best = V.map(v => ({ s: v.s, z: v.z, k: v.k, laast: v.laast }));
     let bestK = kostnad(best);
     let steg = 1.5;
     const runder = 4;
     for (let runde = 0; runde < runder; runde++) {
       for (let i = 0; i < best.length; i++) {
+        if (best[i].laast) continue;             // denne høyden er bestemt
         for (const d of [steg, -steg]) {
-          const forsok = best.map((v, j) => ({ s: v.s, z: v.z + (j === i ? d : 0), k: v.k }));
+          const forsok = best.map((v, j) => ({ s: v.s, z: v.z + (j === i ? d : 0), k: v.k, laast: v.laast }));
           const kk = kostnad(forsok);
           if (kk < bestK - 1e-6) { best = forsok; bestK = kk; }
         }
@@ -445,6 +459,114 @@ const App = {
     });
   },
 
+  /* ---------------- høydetabell ---------------- */
+
+  /** Høyder brukeren har last - de skal ligge i ro. */
+  lasteHoyder() {
+    return this.P.vip.filter(v => v.laast).map(v => ({ s: v.s, z: v.z, k: v.k }));
+  },
+
+  terrengHoyde(s) {
+    if (!this.terrengProfil) return NaN;
+    const { s: ss, z: zz } = this.terrengProfil;
+    if (!ss.length) return NaN;
+    if (s <= ss[0]) return zz[0];
+    if (s >= ss[ss.length - 1]) return zz[zz.length - 1];
+    let lo = 0, hi = ss.length - 1;
+    while (hi - lo > 1) { const m = (lo + hi) >> 1; if (ss[m] < s) lo = m; else hi = m; }
+    const f = (s - ss[lo]) / (ss[hi] - ss[lo] || 1);
+    return zz[lo] + f * (zz[hi] - zz[lo]);
+  },
+
+  visHoydetabell() {
+    const tb = document.querySelector('#hoydeTabell tbody');
+    if (!tb) return;
+    tb.innerHTML = '';
+    const V = this.P.vip;
+    V.forEach((v, i) => {
+      const zt = this.terrengHoyde(v.s);
+      const diff = zt - v.z;                     // positiv = skjæring
+      const tr = document.createElement('tr');
+      if (v.laast) tr.className = 'laast';
+      tr.innerHTML =
+        `<td><input type="number" step="1" value="${+v.s.toFixed(2)}"></td>
+         <td><input type="number" step="0.01" value="${+v.z.toFixed(3)}"></td>
+         <td>${isFinite(zt) ? zt.toFixed(2) : '–'}</td>
+         <td class="${diff >= 0 ? 'diff-skjaering' : 'diff-fylling'}">${isFinite(diff) ? (diff >= 0 ? '+' : '') + diff.toFixed(2) : '–'}</td>
+         <td><input type="checkbox" ${v.laast ? 'checked' : ''}></td>
+         <td><button title="Slett">×</button></td>`;
+      const [fS, fZ] = tr.querySelectorAll('input[type=number]');
+      const laas = tr.querySelector('input[type=checkbox]');
+      fS.onchange = () => {
+        const ny = parseFloat(fS.value);
+        if (isFinite(ny)) { v.s = Math.max(0, Math.min(this.linje ? this.linje.lengde : ny, ny)); }
+        this.P.vip.sort((a, b) => a.s - b.s);
+        this.profilEndret(false); this.visHoydetabell();
+      };
+      fZ.onchange = () => {
+        const ny = parseFloat(fZ.value);
+        if (isFinite(ny)) { v.z = ny; v.laast = true; }
+        this.profilEndret(false); this.visHoydetabell();
+      };
+      laas.onchange = () => { v.laast = laas.checked; this.visHoydetabell(); Lengdeprofil.tegn(); };
+      tr.querySelector('button').onclick = () => {
+        this.P.vip.splice(i, 1); this.profilEndret(false); this.visHoydetabell();
+      };
+      tb.appendChild(tr);
+    });
+
+    const laste = V.filter(v => v.laast).length;
+    const info = document.getElementById('hoydeinfo');
+    if (info) {
+      info.innerHTML = this.vprofil && V.length > 1
+        ? `<div class="rad"><span>Punkt i profilen</span><span>${V.length}, ${laste} låst</span></div>
+           <div class="rad"><span>Største stigning</span><span>${(this.vprofil.maksStigning(1) * 100).toFixed(1)} %</span></div>
+           <div class="rad"><span>Vertikalkurver</span><span>${this.vprofil.kurver.length}</span></div>`
+        : '';
+    }
+  },
+
+  /** Fyller tabellen med jevn avstand, med terrenghøyde der det ikke finnes noe fra før. */
+  fyllHoyder(steg) {
+    if (!this.linje || this.linje.lengde <= 0) return;
+    const k = document.getElementById('h_retteLinjer').checked ? 0 : (parseFloat(document.getElementById('kVerdi').value) || 1);
+    const gammel = this.vprofil;
+    const ny = [];
+    for (let s = 0; s <= this.linje.lengde + 1e-6; s += steg) {
+      const ss = Math.min(s, this.linje.lengde);
+      const fanns = this.P.vip.find(v => Math.abs(v.s - ss) < steg / 2 && v.laast);
+      if (fanns) { ny.push(fanns); continue; }
+      const z = gammel && this.P.vip.length > 1 ? gammel.hoyde(ss) : this.terrengHoyde(ss);
+      ny.push({ s: +ss.toFixed(2), z: isFinite(z) ? +z.toFixed(3) : 0, k, laast: false });
+      if (ss >= this.linje.lengde) break;
+    }
+    const slutt = +this.linje.lengde.toFixed(2);
+    if (!ny.some(v => Math.abs(v.s - slutt) < 1e-6)) {
+      const z = gammel ? gammel.hoyde(slutt) : this.terrengHoyde(slutt);
+      ny.push({ s: slutt, z: isFinite(z) ? +z.toFixed(3) : 0, k, laast: false });
+    }
+    this.P.vip = ny.sort((a, b) => a.s - b.s);
+    this.profilEndret(false);
+    this.visHoydetabell();
+  },
+
+  limInnHoyder() {
+    const felt = document.getElementById('h_lim');
+    const rader = lesHoydetabell(felt.value);
+    if (!rader.length) { alert('Fant ingen profilnummer og høyder i teksten.'); return; }
+    const k = document.getElementById('h_retteLinjer').checked ? 0 : (parseFloat(document.getElementById('kVerdi').value) || 1);
+    const L = this.linje ? this.linje.lengde : Infinity;
+    const utenfor = rader.filter(r => r.s > L + 0.5).length;
+    const beholdt = rader.filter(r => r.s <= L + 0.5);
+    this.P.vip = beholdt.map(r => ({ s: +Math.min(r.s, L).toFixed(2), z: r.z, k, laast: true }));
+    this.profilManuelt = true;
+    this.beregn();
+    this.visHoydetabell();
+    felt.value = '';
+    this.status(`La inn ${beholdt.length} låste høyder`
+      + (utenfor ? ` (${utenfor} lå utenfor veglengden på ${L.toFixed(0)} m og ble hoppet over)` : ''));
+  },
+
   visLinjetabell() {
     const tb = document.querySelector('#ipTabell tbody');
     tb.innerHTML = '';
@@ -587,6 +709,30 @@ const App = {
       this.P.faktorer = Object.assign({}, StandardFaktorer);
       this.malTilSkjema(); this.planlegg(30);
     };
+    // Høydetabellen
+    id('h_fyll').onclick = () => this.fyllHoyder(Math.max(1, parseFloat(id('h_steg').value) || 5));
+    id('h_laasAlle').onclick = () => { this.P.vip.forEach(v => v.laast = true); this.visHoydetabell(); Lengdeprofil.tegn(); };
+    id('h_laasIngen').onclick = () => { this.P.vip.forEach(v => v.laast = false); this.visHoydetabell(); Lengdeprofil.tegn(); };
+    id('h_limInn').onclick = () => this.limInnHoyder();
+    id('h_tomTabell').onclick = () => {
+      if (!confirm('Fjerne alle innlagte høyder og lage nytt forslag fra terrenget?')) return;
+      this.P.vip = [];
+      if (this.terrengProfil) this.lagProfilforslag();
+      this.beregn(); this.visHoydetabell();
+    };
+    id('h_nyRad').onclick = () => {
+      const s = this.tverrStasjon || 0;
+      const z = this.vprofil ? this.vprofil.hoyde(s) : this.terrengHoyde(s);
+      this.P.vip.push({ s: +s.toFixed(2), z: +(isFinite(z) ? z : 0).toFixed(3), k: parseFloat(id('kVerdi').value) || 1, laast: true });
+      this.P.vip.sort((a, b) => a.s - b.s);
+      this.profilEndret(false); this.visHoydetabell();
+    };
+    id('h_retteLinjer').onchange = e => {
+      const k = e.target.checked ? 0 : (parseFloat(id('kVerdi').value) || 1);
+      this.P.vip.forEach(v => v.k = k);
+      this.profilEndret(false); this.visHoydetabell();
+    };
+
     id('knappNyStrekning').onclick = () => {
       const L = this.linje ? this.linje.lengde : 100;
       this.P.fjell.strekninger.push({ fra: 0, til: Math.round(L), dybde: this.P.fjell.standarddybde });

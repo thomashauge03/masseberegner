@@ -83,6 +83,7 @@
   <aside class="panel sidepanel">
     <div class="faner">
       <button class="fane aktiv" data-fane="masser">Masser</button>
+      <button class="fane" data-fane="hoyder">Høyder</button>
       <button class="fane" data-fane="mal">Vegmal</button>
       <button class="fane" data-fane="grunn">Grunnforhold</button>
       <button class="fane" data-fane="linje">Linje</button>
@@ -91,6 +92,39 @@
     <!-- Masser -->
     <div class="faneinnhold aktiv" id="fane-masser">
       <div id="massesammendrag" class="tomtekst">Tegn en senterlinje i kartet for å komme i gang.</div>
+    </div>
+
+    <!-- Høyder -->
+    <div class="faneinnhold" id="fane-hoyder">
+      <p class="notis">Ønsket veghøyde langs traseen. Skriv inn høyden der du vet hva den skal være –
+        for eksempel fra lengdeprofilen i veiplanen. <b>Låste</b> høyder blir liggende der de står;
+        «Foreslå profil», «Massebalanse» og «Optimaliser» flytter bare de andre.</p>
+
+      <div class="knapperad hoydeverktoy">
+        <label class="minitall">Fyll hver <input type="number" id="h_steg" value="5" min="1" max="100" step="1"> m</label>
+        <button id="h_fyll" class="knapp">Fyll inn</button>
+        <button id="h_laasAlle" class="knapp">Lås alle</button>
+        <button id="h_laasIngen" class="knapp">Lås ingen</button>
+      </div>
+      <div class="felt avkryssfelt">
+        <label><input type="checkbox" id="h_retteLinjer"> Rette linjer mellom høydene (ingen vertikalkurver)</label>
+      </div>
+
+      <h3>Lim inn fra veiplan eller regneark</h3>
+      <textarea id="h_lim" class="limfelt" rows="4" spellcheck="false"
+        placeholder="Én linje per punkt, profilnummer og høyde:&#10;0    269.54&#10;5    269.76&#10;10   270.01&#10;&#10;Godtar også 0+250, semikolon, tabulator og komma som desimaltegn."></textarea>
+      <div class="knapperad">
+        <button id="h_limInn" class="knapp">Legg inn som låste høyder</button>
+        <button id="h_tomTabell" class="knapp">Tøm tabellen</button>
+      </div>
+
+      <h3>Høydetabell</h3>
+      <table class="minitabell hoydetabell" id="hoydeTabell">
+        <thead><tr><th>Profil</th><th>Ønsket høyde</th><th>Terreng</th><th>Diff</th><th title="Låst">🔒</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <button id="h_nyRad" class="knapp bred">+ Legg til høyde</button>
+      <div id="hoydeinfo" class="listeboks"></div>
     </div>
 
     <!-- Vegmal -->

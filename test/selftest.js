@@ -12,7 +12,7 @@
 const path = require('path');
 const Geo = require(path.join(__dirname, '..', 'public', 'js', 'geo.js'));
 const { Linjeforing } = require(path.join(__dirname, '..', 'public', 'js', 'linjeforing.js'));
-const { Vertikalprofil, foreslaProfil } = require(path.join(__dirname, '..', 'public', 'js', 'vertikalprofil.js'));
+const { Vertikalprofil, foreslaProfil, lesHoydetabell } = require(path.join(__dirname, '..', 'public', 'js', 'vertikalprofil.js'));
 const M = require(path.join(__dirname, '..', 'public', 'js', 'masser.js'));
 const H = require(path.join(__dirname, '..', 'lib', 'hoydedata.js'));
 
@@ -114,6 +114,51 @@ console.log('\n3. Lengdeprofil');
   const vp3 = new Vertikalprofil(bratt);
   paastand('umulig terreng gir fortsatt gyldige tall',
     bratt.every(v => isFinite(v.z)) && vp3.maksStigning(5) > 0.2);
+}
+
+/* ------------------------------------------------------------------ */
+console.log('\n3b. Innlagte høyder');
+{
+  // Innlesing av en limt inn tabell
+  const rader = lesHoydetabell(`
+    Profil   Høyde
+    0        269,54
+    5;269.76
+    10\t270.01
+    0+015    270,30
+    tull uten tall
+    20 270.55 (kommentar)
+  `);
+  sjekk('leste alle radene', rader.length, 5, 0);
+  sjekk('komma som desimaltegn', rader[0].z, 269.54, 1e-9);
+  sjekk('semikolon som skille', rader[1].z, 269.76, 1e-9);
+  sjekk('tabulator som skille', rader[2].z, 270.01, 1e-9);
+  sjekk('profilnummer på formen 0+015', rader[3].s, 15, 1e-9);
+  sjekk('siste rad', rader[4].z, 270.55, 1e-9);
+
+  // Laste høyder skal ligge nøyaktig der de er satt
+  const st = [], zt = [];
+  for (let s = 0; s <= 300; s += 5) { st.push(s); zt.push(100 + s * 0.08); }
+  const laste = [{ s: 0, z: 95.5, k: 0 }, { s: 150, z: 108.0, k: 0 }, { s: 300, z: 130.0, k: 0 }];
+  const vip = foreslaProfil(st, zt, { vipAvstand: 40, maksStigning: 0.2, k: 1, laste });
+  const vp = new Vertikalprofil(vip);
+  for (const l of laste) sjekk(`låst høyde ved profil ${l.s}`, vp.hoyde(l.s), l.z, 1e-6);
+  paastand('låste punkt er merket', vip.filter(v => v.laast).length === 3);
+  paastand('forslaget har også frie punkt mellom', vip.some(v => !v.laast));
+
+  // Uten laste punkt skal profilen fortsatt legge seg pa terrenget
+  const utenLas = new Vertikalprofil(foreslaProfil(st, zt, { vipAvstand: 40, maksStigning: 0.2, k: 1 }));
+  paastand('uten låsing følger profilen terrenget', Math.abs(utenLas.hoyde(150) - (100 + 150 * 0.08)) < 3);
+
+  // Alt last: profilen skal vaere nøyaktig som oppgitt, ogsa mellom punktene
+  const alt = foreslaProfil(st, zt, {
+    vipAvstand: 40, maksStigning: 0.2, k: 0,
+    laste: st.map(s => ({ s, z: 200 + Math.sin(s / 40) * 3, k: 0 }))
+  });
+  const vpAlt = new Vertikalprofil(alt);
+  let maksAvvik = 0;
+  for (const s of st) maksAvvik = Math.max(maksAvvik, Math.abs(vpAlt.hoyde(s) - (200 + Math.sin(s / 40) * 3)));
+  sjekk('full høydetabell gjengis nøyaktig', maksAvvik, 0, 1e-9);
 }
 
 /* ------------------------------------------------------------------ */

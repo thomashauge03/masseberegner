@@ -108,12 +108,16 @@ class Vertikalprofil {
  *
  * @param {function} [opsjoner.maksStigningVed] (profilnummer) => tillatt stigning.
  *        Brukes til a ta hensyn til at krappe kurver har strengere krav.
+ * @param {Array<{s,z,k}>} [opsjoner.laste] Høyder som er bestemt pa forhand.
+ *        Disse blir liggende nøyaktig der de star; resten av profilen legger
+ *        seg etter dem.
  */
 function foreslaProfil(stasjoner, terrengZ, opsjoner = {}) {
   const vipAvstand = opsjoner.vipAvstand || 40;
   const maksStigning = opsjoner.maksStigning || 0.20;
   const maksVed = opsjoner.maksStigningVed || (() => maksStigning);
   const kVerdi = opsjoner.k == null ? 1.0 : opsjoner.k;
+  const laste = (opsjoner.laste || []).slice().sort((a, b) => a.s - b.s);
   const n = stasjoner.length;
   if (n < 2) return [];
 
@@ -137,35 +141,93 @@ function foreslaProfil(stasjoner, terrengZ, opsjoner = {}) {
   }
   vip.push({ s: slutt, z: glattet[n - 1], k: kVerdi });
 
-  // 3) Tving stigningen under makskravet.
+  // 3) Sett inn høydene som allerede er bestemt, og hold dem last
+  for (const l of laste) {
+    if (l.s < -1e-6 || l.s > slutt + 1e-6) continue;
+    const finnes = vip.find(v => Math.abs(v.s - l.s) < 1e-6);
+    if (finnes) { finnes.z = l.z; finnes.k = l.k == null ? finnes.k : l.k; finnes.laast = true; }
+    else vip.push({ s: l.s, z: l.z, k: l.k == null ? kVerdi : l.k, laast: true });
+  }
+  vip.sort((a, b) => a.s - b.s);
+
+  // 4) Tving stigningen under makskravet.
   //    Hvert brudd rettes ved a flytte begge endene like mye, sa formen holdes.
+  //    Laste punkt star i ro, sa naboen ma ta hele rettingen alene.
   const ønsket = vip.map(v => v.z);
   for (let runde = 0; runde < 2000; runde++) {
     let verstBrudd = 0;
     for (let i = 0; i < vip.length - 1; i++) {
       const dl = vip[i + 1].s - vip[i].s;
       if (dl < 1e-6) continue;
-      const grense = Math.min(maksVed(vip[i].s), maksVed(vip[i + 1].s));
-      const dz = vip[i + 1].z - vip[i].z;
-      const g = dz / dl;
-      const brudd = Math.abs(g) - grense;
+      const a = vip[i], b = vip[i + 1];
+      if (a.laast && b.laast) continue;          // dette strekket er bestemt
+      const grense = Math.min(maksVed(a.s), maksVed(b.s));
+      const dz = b.z - a.z;
+      const brudd = Math.abs(dz / dl) - grense;
       if (brudd <= 1e-6) continue;
       verstBrudd = Math.max(verstBrudd, brudd);
       const overskudd = dz - Math.sign(dz) * grense * dl;
-      vip[i + 1].z -= overskudd / 2;
-      vip[i].z += overskudd / 2;
+      if (a.laast) b.z -= overskudd;
+      else if (b.laast) a.z += overskudd;
+      else { b.z -= overskudd / 2; a.z += overskudd / 2; }
     }
     if (verstBrudd < 1e-5) break;
   }
 
-  // 4) Løft/senk hele profilen tilbake pa terrenget. Et konstant skift endrer
-  //    ingen stigninger, sa makskravet holdes fortsatt.
-  let skift = 0;
-  for (let i = 0; i < vip.length; i++) skift += ønsket[i] - vip[i].z;
-  skift /= vip.length;
-  for (const v of vip) v.z += skift;
+  // 5) Uten laste punkt kan hele profilen løftes eller senkes tilbake pa
+  //    terrenget. Et konstant skift endrer ingen stigninger, sa makskravet
+  //    holdes fortsatt. Med laste punkt er profilen allerede forankret.
+  if (!laste.length) {
+    let skift = 0;
+    for (let i = 0; i < vip.length; i++) skift += ønsket[i] - vip[i].z;
+    skift /= vip.length;
+    for (const v of vip) v.z += skift;
+  }
 
   return vip;
+}
+
+/**
+ * Leser en tabell med profilnummer og høyder, slik den kan limes inn fra
+ * en veiplan eller et regneark. Tar bade mellomrom, semikolon, komma og
+ * tabulator, bade punktum og komma som desimalskille, og bade "250" og
+ * "0+250" som profilnummer.
+ */
+function lesHoydetabell(tekst) {
+  const rader = [];
+  for (const linje of String(tekst).split(/\r?\n/)) {
+    let reint = linje.trim();
+    if (!reint || /^[a-zæøåA-ZÆØÅ]/.test(reint)) continue;      // hopp over overskrifter
+
+    // Komma er desimaltegn i Norge, men blir ogsa brukt til a skille felt.
+    // Finnes det et annet skilletegn pa linjen, ma kommaet vaere desimaltegn.
+    if (/[;\t\s]/.test(reint)) reint = reint.replace(/(\d),(\d)/g, '$1.$2');
+
+    const biter = reint.split(/[\s;,\t]+/).filter(Boolean);
+    if (biter.length < 2) continue;
+
+    // profilnummer: "250", "0+250" eller "1+250"
+    let s = null;
+    const km = biter[0].match(/^(\d+)\+(\d+(?:[.,]\d+)?)$/);
+    if (km) s = parseInt(km[1], 10) * 1000 + parseFloat(km[2].replace(',', '.'));
+    else s = parseFloat(biter[0].replace(',', '.'));
+
+    // høyden er det neste tallet som ser ut som en høyde
+    let z = null;
+    for (let i = 1; i < biter.length; i++) {
+      const v = parseFloat(biter[i].replace(',', '.'));
+      if (isFinite(v)) { z = v; break; }
+    }
+    if (isFinite(s) && z !== null && isFinite(z)) rader.push({ s, z });
+  }
+  rader.sort((a, b) => a.s - b.s);
+  // fjern doble profilnummer - siste vinner
+  const ut = [];
+  for (const r of rader) {
+    if (ut.length && Math.abs(ut[ut.length - 1].s - r.s) < 1e-6) ut[ut.length - 1] = r;
+    else ut.push(r);
+  }
+  return ut;
 }
 
 function naermesteIndeks(arr, v) {
@@ -177,4 +239,4 @@ function naermesteIndeks(arr, v) {
   return (Math.abs(arr[lo] - v) <= Math.abs(arr[hi] - v)) ? lo : hi;
 }
 
-if (typeof module !== 'undefined') module.exports = { Vertikalprofil, foreslaProfil };
+if (typeof module !== 'undefined') module.exports = { Vertikalprofil, foreslaProfil, lesHoydetabell };
