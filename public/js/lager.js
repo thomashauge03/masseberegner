@@ -13,21 +13,40 @@
 
 const Lager = {
   _db: null,
+  _reserve: false,          // sant nar vi ma bruke localStorage i stedet
   DB: 'massekalk',
   BUTIKK: 'prosjekter',
+  NOKKEL: 'massekalk:prosjekt:',
+  TIDSGRENSE: 8000,
 
+  /**
+   * Apner databasen. Blir den blokkert - for eksempel av et annet vindu
+   * som star midt i en oppgradering - eller er IndexedDB slatt av, gar vi
+   * over til localStorage i stedet for a bli hengende.
+   */
   async db() {
     if (this._db) return this._db;
-    this._db = await new Promise((løs, avvis) => {
-      const b = indexedDB.open(this.DB, 1);
-      b.onupgradeneeded = () => {
-        const d = b.result;
-        if (!d.objectStoreNames.contains(this.BUTIKK)) d.createObjectStore(this.BUTIKK, { keyPath: 'navn' });
-      };
-      b.onsuccess = () => løs(b.result);
-      b.onerror = () => avvis(b.error);
-    });
-    return this._db;
+    if (this._reserve) throw new Error('reservelager');
+    try {
+      this._db = await new Promise((løs, avvis) => {
+        if (typeof indexedDB === 'undefined') return avvis(new Error('IndexedDB er ikke tilgjengelig'));
+        const b = indexedDB.open(this.DB, 1);
+        const klokke = setTimeout(() => avvis(new Error('Databasen svarte ikke')), this.TIDSGRENSE);
+        const ferdig = f => (...a) => { clearTimeout(klokke); f(...a); };
+        b.onupgradeneeded = () => {
+          const d = b.result;
+          if (!d.objectStoreNames.contains(this.BUTIKK)) d.createObjectStore(this.BUTIKK, { keyPath: 'navn' });
+        };
+        b.onsuccess = ferdig(() => løs(b.result));
+        b.onerror = ferdig(() => avvis(b.error || new Error('Kunne ikke åpne databasen')));
+        b.onblocked = ferdig(() => avvis(new Error('Databasen er låst av et annet vindu')));
+      });
+      return this._db;
+    } catch (e) {
+      console.warn('Bruker localStorage til prosjektene:', e.message);
+      this._reserve = true;
+      throw e;
+    }
   },
 
   async _kjør(modus, arbeid) {
@@ -37,31 +56,56 @@ const Lager = {
       const s = t.objectStore(this.BUTIKK);
       let svar;
       try { svar = arbeid(s); } catch (e) { return avvis(e); }
-      t.oncomplete = () => løs(svar && svar.result !== undefined ? svar.result : svar);
-      t.onerror = () => avvis(t.error);
+      const klokke = setTimeout(() => avvis(new Error('Databasen svarte ikke')), this.TIDSGRENSE);
+      t.oncomplete = () => { clearTimeout(klokke); løs(svar && svar.result !== undefined ? svar.result : svar); };
+      t.onerror = () => { clearTimeout(klokke); avvis(t.error); };
+      t.onabort = () => { clearTimeout(klokke); avvis(t.error || new Error('Avbrutt')); };
     });
   },
 
+  /* ---------------- reservelager i localStorage ---------------- */
+
+  _reserveRader() {
+    const ut = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k.startsWith(this.NOKKEL)) continue;
+      try { ut.push(JSON.parse(localStorage.getItem(k))); } catch (e) { /* hopp over */ }
+    }
+    return ut;
+  },
+
+  /* ---------------- felles grensesnitt ---------------- */
+
   async liste() {
-    const rader = await this._kjør('readonly', s => s.getAll());
+    let rader;
+    try { rader = await this._kjør('readonly', s => s.getAll()); }
+    catch (e) { rader = this._reserveRader(); }
     return (rader || [])
       .map(r => ({ navn: r.navn, endret: r.endret, storrelse: JSON.stringify(r.data || {}).length }))
       .sort((a, b) => String(b.endret).localeCompare(String(a.endret)));
   },
 
   async hent(navn) {
-    const rad = await this._kjør('readonly', s => s.get(navn));
-    return rad ? rad.data : null;
+    try {
+      const rad = await this._kjør('readonly', s => s.get(navn));
+      return rad ? rad.data : null;
+    } catch (e) {
+      const rå = localStorage.getItem(this.NOKKEL + navn);
+      return rå ? JSON.parse(rå).data : null;
+    }
   },
 
   async lagre(navn, data) {
     const rad = { navn, endret: new Date().toISOString(), data };
-    await this._kjør('readwrite', s => s.put(rad));
+    try { await this._kjør('readwrite', s => s.put(rad)); }
+    catch (e) { localStorage.setItem(this.NOKKEL + navn, JSON.stringify(rad)); }
     return rad;
   },
 
   async slett(navn) {
-    await this._kjør('readwrite', s => s.delete(navn));
+    try { await this._kjør('readwrite', s => s.delete(navn)); }
+    catch (e) { localStorage.removeItem(this.NOKKEL + navn); }
   },
 
   /** Legger inn demoprosjektet første gang programmet apnes. */
