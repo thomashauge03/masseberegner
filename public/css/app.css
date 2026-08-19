@@ -176,6 +176,8 @@ body {
 #dialoginnhold .rad { display: flex; justify-content: space-between; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--linje); }
 #dialoginnhold .rad:hover { background: var(--bg3); }
 #dialoginnhold .rad span { cursor: pointer; flex: 1; }
+#dialoginnhold .rad .knapp { margin-left: 6px; }
+.dialogverktoy { display: flex; gap: 8px; padding-bottom: 10px; border-bottom: 1px solid var(--linje); margin-bottom: 4px; }
 .framdriftboks { background: var(--bg2); border: 1px solid var(--linje); border-radius: 9px; padding: 18px 22px; width: 340px; text-align: center; }
 .stolpe { height: 6px; background: var(--bg3); border-radius: 3px; margin-top: 12px; overflow: hidden; }
 #framdriftStolpe { height: 100%; width: 0%; background: var(--aksent); transition: width .15s; }

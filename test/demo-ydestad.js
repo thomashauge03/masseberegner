@@ -13,7 +13,7 @@ const Geo = require('../public/js/geo.js');
 const { Linjeforing } = require('../public/js/linjeforing.js');
 const { Vertikalprofil, foreslaProfil } = require('../public/js/vertikalprofil.js');
 const M = require('../public/js/masser.js');
-const { hentFlis } = require('../server.js');
+const { hentFlis, pakkOpp } = require('../lib/hoydedata.js');
 
 /* --- Terrengmodell for Node (samme oppslag som i nettleseren) --- */
 class NodeTerreng {
@@ -30,8 +30,7 @@ class NodeTerreng {
     for (const k of trengs) {
       const [tx, ty] = k.split('_').map(Number);
       try {
-        const b = await hentFlis(this.sr, tx, ty, 1);
-        this.fliser.set(k, new Float32Array(b.buffer, b.byteOffset, b.byteLength / 4));
+        this.fliser.set(k, pakkOpp(await hentFlis(this.sr, tx, ty, 1)).data);
       } catch (e) { /* utenfor dekning */ }
     }
     return trengs.size;
@@ -141,7 +140,9 @@ class NodeTerreng {
     profilAvstand: 5,
     bakkekorreksjon: true
   };
-  const ut = path.join(__dirname, '..', 'prosjekter', 'Ydestad demo.json');
+  // Demoprosjektet legges der programmet henter det første gang det apnes
+  const ut = path.join(__dirname, '..', 'public', 'demo', 'ydestad-demo.json');
+  fs.mkdirSync(path.dirname(ut), { recursive: true });
   fs.writeFileSync(ut, JSON.stringify(prosjekt, null, 1), 'utf8');
   console.log('\nDemoprosjekt lagret: ' + ut);
 })();

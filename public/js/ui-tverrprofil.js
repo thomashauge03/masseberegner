@@ -66,6 +66,11 @@ const Tverrprofil = {
       c.fillText('Velg et profilnummer for å se tverrsnittet.', B / 2, H / 2);
       return;
     }
+    if (!pr.geometri || pr.geometri.terreng.length < 2) {
+      c.fillStyle = '#e2544a'; c.font = '13px system-ui'; c.textAlign = 'center';
+      c.fillText('Terrengmodellen mangler data for profil ' + pr.s.toFixed(1) + '.', B / 2, H / 2);
+      return;
+    }
 
     // omrade
     let zMin = Infinity, zMax = -Infinity;

@@ -8,14 +8,35 @@ tredjepartsbibliotek utanom kartkomponenten.
 
 ## Kom i gang
 
+**På nett:** appen ligg på Vercel. Kvar push til `main` blir lagt ut automatisk.
+
+**Lokalt:**
+
 ```bash
 node server.js
 ```
 
-Opne så <http://localhost:5178>.
+Opne så <http://localhost:5178>. Ingen npm install – programmet brukar berre
+det som ligg i Node frå før.
 
-Terrengdata blir henta automatisk og mellomlagra i `cache/`, så andre gongen du
-opnar same prosjektet går det med ein gong – òg utan nett.
+Terrengdata blir henta automatisk. Flisene har eit år med hurtigbuffer, så andre
+gongen du opnar same prosjektet går det med ein gong – òg utan nett.
+
+## Prosjekt
+
+Prosjekta ligg i nettlesaren si eiga database (IndexedDB) på den maskina du
+brukar. Det gjer at programmet verkar likt lokalt og på Vercel, utan innlogging
+og utan at nokon må drifte ein database.
+
+Under **Åpne** finn du difor:
+
+* **Importer fil** – hent inn eit prosjekt frå ei `.json`-fil
+* **Eksporter** – ta med eitt prosjekt til ei anna maskin eller ein kollega
+* **Eksporter alle** – sikkerheitskopi av alt
+
+Ta ein eksport med jamne mellomrom. Tømmer du nettlesardata, forsvinn prosjekta.
+Skal fleire jobbe på same prosjekt samtidig, må det ein delt database til –
+sjå «Vidare arbeid» nedst.
 
 ## Slik brukar du det
 
@@ -97,28 +118,49 @@ må du kontrollere mot befaring.
 node test/selftest.js
 ```
 
-66 kontrollar: koordinatrekning mot kjende referansar, linjeføring mot geometri
+73 kontrollar: koordinatrekning mot kjende referansar, linjeføring mot geometri
 rekna for hand, lengdeprofil mot parabelformlane, masseberegning mot eit tverrsnitt
-rekna ut for hand med sju siffer, massebalansen mot bokføringsreglane, og
-terrengmodellen mot Kartverket.
+rekna ut for hand med sju siffer, massebalansen mot bokføringsreglane, pakkinga av
+terrengfliser, og terrengmodellen mot Kartverket.
 
 ```bash
 node test/demo-ydestad.js
 ```
 
-Køyrer heile kjeda på verkeleg terreng ved Ydestad i Lyngdal og lagrar
-demoprosjektet som kan opnast i programmet.
+Køyrer heile kjeda på verkeleg terreng ved Ydestad i Lyngdal og skriv
+demoprosjektet til `public/demo/`.
 
 ## Filer
 
 ```
-server.js                lokal server, GeoTIFF-lesar, flis-cache, prosjektlagring
+api/dtm/flis.js          hentar og pakkar ei terrengflis (Vercel-funksjon)
+api/punkt.js             kontroll mot Kartverket sitt punkt-API
+api/sok.js               stadnamn- og adressesøk
+lib/hoydedata.js         GeoTIFF-lesar, flishenting og pakking
+server.js                lokal utviklingsserver som brukar dei same funksjonane
+vercel.json              utlegging
+
+public/js/lager.js       prosjektlager i nettlesaren, import og eksport
 public/js/geo.js         UTM-projeksjon (Krüger, 4. orden) og målestokkfaktor
 public/js/linjeforing.js horisontal linjeføring med sirkelkurver
 public/js/vertikalprofil.js  lengdeprofil med parabolske vertikalkurver
 public/js/terreng.js     terrengmodell i nettlesaren, bilineær interpolasjon
 public/js/masser.js      tverrprofil og volumberegning
 public/js/ui-*.js        kart, lengdeprofil, tverrprofil, rapport
-prosjekter/              prosjektfiler (JSON)
-cache/                   nedlasta terrengfliser
+public/demo/             demoprosjekt som blir lagt inn første gongen
 ```
+
+Terrengflisene blir sende som heile centimeter over eit nullnivå for flisa
+(16 bits). Terrengmodellen er sjølv oppgitt i centimeter, så ingenting går tapt –
+kontrollen mot Kartverket sitt API gir no **0,000 m avvik** – og flisa blir under
+halvparten så stor på nettet. `FLIS_VERSJON` i `public/js/terreng.js` må aukast
+dersom formatet blir endra, sidan flisene blir bufra i eit år.
+
+## Vidare arbeid
+
+* **Delte prosjekt.** I dag ligg prosjekta lokalt i nettlesaren. Skal fleire på
+  kontoret sjå dei same prosjekta, må det ein delt database til (Supabase eller
+  Vercel Postgres) med innlogging.
+* **Stikkrenner.** Vegplanane har stikkrenner med plassering, dimensjon og lengd.
+  Desse kan leggjast inn som punkt langs linja med automatisk lengd ut frå
+  fyllingshøgda.

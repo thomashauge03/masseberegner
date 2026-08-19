@@ -1,3 +1,5 @@
 cache/
+prosjekter/
 node_modules/
+.vercel/
 *.log

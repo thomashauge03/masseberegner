@@ -14,7 +14,7 @@ const Geo = require(path.join(__dirname, '..', 'public', 'js', 'geo.js'));
 const { Linjeforing } = require(path.join(__dirname, '..', 'public', 'js', 'linjeforing.js'));
 const { Vertikalprofil, foreslaProfil } = require(path.join(__dirname, '..', 'public', 'js', 'vertikalprofil.js'));
 const M = require(path.join(__dirname, '..', 'public', 'js', 'masser.js'));
-const { hentFlis } = require(path.join(__dirname, '..', 'server.js'));
+const H = require(path.join(__dirname, '..', 'lib', 'hoydedata.js'));
 
 let feil = 0, ok = 0;
 function sjekk(navn, faktisk, ventet, toleranse) {
@@ -304,12 +304,38 @@ console.log('\n6. Breddeutvidelse og stigningskrav');
 
 /* ------------------------------------------------------------------ */
 (async () => {
-  console.log('\n7. Terrengmodell mot Kartverket sitt punkt-API');
+  console.log('\n7. Pakking av terrengfliser');
+  {
+    // Fram og tilbake gjennom flisformatet skal ikke endre høydene
+    const n = 64 * 64;
+    const inn = new Float32Array(n);
+    for (let i = 0; i < n; i++) inn[i] = 137.42 + (i % 977) * 0.13;
+    inn[5] = NaN; inn[900] = NaN;
+    const ut = H.pakkOpp(H.pakkFlis(inn, 64));
+    let maks = 0, nanOk = true;
+    for (let i = 0; i < n; i++) {
+      if (isNaN(inn[i])) { if (!isNaN(ut.data[i])) nanOk = false; continue; }
+      maks = Math.max(maks, Math.abs(inn[i] - ut.data[i]));
+    }
+    sjekk('16-bits pakking holder centimeteren', maks, 0, 0.006);
+    paastand('manglende data overlever pakkingen', nanOk);
+
+    // Stort høydespenn i samme flis ma falle tilbake til float32
+    const bratt = new Float32Array(1024);
+    for (let i = 0; i < 1024; i++) bratt[i] = i * 0.5;      // spenner 512 m
+    const b2 = H.pakkFlis(bratt, 32);
+    paastand('stort høydespenn sendes som float32', b2.readUInt8(4) === H.FORMAT_F32);
+    const u2 = H.pakkOpp(b2);
+    let maks2 = 0;
+    for (let i = 0; i < 1024; i++) maks2 = Math.max(maks2, Math.abs(bratt[i] - u2.data[i]));
+    sjekk('float32-varianten er eksakt', maks2, 0, 1e-9);
+  }
+
+  console.log('\n8. Terrengmodell mot Kartverket sitt punkt-API');
   try {
     const sone = 33, sr = 25833;
     const tx = 171, ty = 25344;                       // 43776–44032 øst, 6488064–6488320 nord
-    const buf = await hentFlis(sr, tx, ty, 1);
-    const rist = new Float32Array(buf.buffer, buf.byteOffset, buf.byteLength / 4);
+    const rist = H.pakkOpp(await H.hentFlis(sr, tx, ty, 1)).data;
     const P = 256;
     const originX = tx * 256, originY = (ty + 1) * 256;
 

@@ -12,6 +12,35 @@
 
 const FLIS_M = 256;
 
+/**
+ * Flisene har svaert lang levetid i hurtigbufferen, bade hos Vercel og i
+ * nettleseren. Derfor ma dette tallet økes hver gang formatet endres -
+ * ellers ville gamle, bufrede fliser blitt tolket som det nye formatet.
+ */
+const FLIS_VERSJON = 2;
+
+/**
+ * Pakker ut en flis fra serveren.
+ *
+ * Format 1: hele centimeter over et nullniva for flisen, som 16-bits tall.
+ *           Terrengmodellen er selv oppgitt i centimeter, sa ingenting gar
+ *           tapt, og flisen blir under halvparten sa stor pa nettet.
+ * Format 2: rå float32. Brukes nar høydeforskjellen innenfor flisen er for
+ *           stor for et 16-bits tall.
+ */
+function pakkOppFlis(arrayBuffer) {
+  const b = new DataView(arrayBuffer);
+  const magi = String.fromCharCode(b.getUint8(0), b.getUint8(1), b.getUint8(2), b.getUint8(3));
+  if (magi !== 'MKT1') throw new Error('Ukjent flisformat');
+  const format = b.getUint8(4);
+  const base = b.getFloat32(8, true);
+  if (format === 2) return new Float32Array(arrayBuffer, 16);
+  const i16 = new Int16Array(arrayBuffer, 16);
+  const ut = new Float32Array(i16.length);
+  for (let i = 0; i < i16.length; i++) ut[i] = i16[i] === -32768 ? NaN : base + i16[i] / 100;
+  return ut;
+}
+
 class Terreng {
   constructor(sonenr, oppløsning = 1) {
     this.sone = sonenr;
@@ -58,10 +87,9 @@ class Terreng {
         const k = liste[i++];
         const [tx, ty] = k.split('_').map(Number);
         try {
-          const svar = await fetch(`/api/dtm/flis?sr=${this.sr}&tx=${tx}&ty=${ty}&res=${this.res}`);
+          const svar = await fetch(`api/dtm/flis?sr=${this.sr}&tx=${tx}&ty=${ty}&res=${this.res}&v=${FLIS_VERSJON}`);
           if (!svar.ok) throw new Error('HTTP ' + svar.status);
-          const buf = await svar.arrayBuffer();
-          this.fliser.set(k, new Float32Array(buf));
+          this.fliser.set(k, pakkOppFlis(await svar.arrayBuffer()));
         } catch (e) {
           console.warn('Fikk ikke flis', k, e.message);
           this.mangler.add(k);

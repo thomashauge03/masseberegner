@@ -39,6 +39,10 @@ const App = {
     this.malTilSkjema();
     this.tegnAlt();
     this.status('Klar. Velg «Tegn senterlinje» og klikk i kartet.');
+    try {
+      const liste = await Lager.saFrø();
+      if (liste.length) this.status(`Klar. ${liste.length} lagrede prosjekt – trykk «Åpne».`);
+    } catch (e) { /* uten lager virker programmet fortsatt, bare uten lagring */ }
   },
 
   status(t) { document.getElementById('statuslinje').textContent = t; },
@@ -90,7 +94,11 @@ const App = {
     });
     this.framdrift(false);
     this._terrengnokkel = nokkel;
-    this.status(`Terreng lastet (${this.terreng.fliser.size} fliser, ${this.terreng.minneMb()} MB)`);
+    if (this.terreng.mangler.size) {
+      this.status(`⚠ Fikk ikke ${this.terreng.mangler.size} av ${this.terreng.fliser.size + this.terreng.mangler.size} terrengfliser – deler av traseen mangler data`);
+    } else {
+      this.status(`Terreng lastet (${this.terreng.fliser.size} fliser, ${this.terreng.minneMb()} MB)`);
+    }
   },
 
   hentTerrengProfil() {
@@ -309,7 +317,7 @@ const App = {
       for (let i = 0; i < punkter.length; i += 40) bolker.push(punkter.slice(i, i + 40));
       const svar = [];
       for (const b of bolker) {
-        const r = await fetch(`/api/punkt?sr=${Geo.epsg(this.sone)}&punkter=${encodeURIComponent(JSON.stringify(b))}`);
+        const r = await fetch(`api/punkt?sr=${Geo.epsg(this.sone)}&punkter=${encodeURIComponent(JSON.stringify(b))}`);
         const d = await r.json();
         svar.push(...(d.punkter || []));
       }
@@ -467,37 +475,63 @@ const App = {
 
   async lagre() {
     this.P.navn = document.getElementById('prosjektnavn').value.trim() || 'Uten navn';
-    const svar = await fetch('/api/prosjekt/' + encodeURIComponent(this.P.navn), {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(this.P, null, 1)
-    });
-    this.status(svar.ok ? 'Lagret ' + this.P.navn : 'Kunne ikke lagre');
+    try {
+      await Lager.lagre(this.P.navn, this.P);
+      this.status('Lagret «' + this.P.navn + '»');
+    } catch (e) {
+      this.status('Kunne ikke lagre: ' + e.message);
+    }
   },
 
   async apneDialog() {
-    const r = await fetch('/api/prosjekt');
-    const d = await r.json();
+    const liste = await Lager.liste();
     const innhold = document.getElementById('dialoginnhold');
-    document.getElementById('dialogtittel').textContent = 'Åpne prosjekt';
-    innhold.innerHTML = d.prosjekter.length
-      ? d.prosjekter.map(p => `<div class="rad"><span data-navn="${escapeAttr(p.navn)}">${p.navn}<br><small style="color:#97a5b6">${new Date(p.endret).toLocaleString('nb-NO')}</small></span><button class="knapp" data-slett="${escapeAttr(p.navn)}">Slett</button></div>`).join('')
-      : '<p class="tomtekst">Ingen lagrede prosjekter ennå.</p>';
-    innhold.querySelectorAll('[data-navn]').forEach(el => {
-      el.onclick = () => this.apne(el.dataset.navn);
-    });
+    document.getElementById('dialogtittel').textContent = 'Prosjekter';
+    innhold.innerHTML = `
+      <div class="dialogverktoy">
+        <button class="knapp" id="dlgImport">Importer fil…</button>
+        <button class="knapp" id="dlgEksportAlle">Eksporter alle</button>
+        <input type="file" id="dlgFil" accept=".json" hidden multiple>
+      </div>
+      ${liste.length
+        ? liste.map(p => `<div class="rad">
+            <span data-navn="${escapeAttr(p.navn)}">${p.navn}<br><small style="color:#97a5b6">${new Date(p.endret).toLocaleString('nb-NO')}</small></span>
+            <button class="knapp" data-eksport="${escapeAttr(p.navn)}">Eksporter</button>
+            <button class="knapp" data-slett="${escapeAttr(p.navn)}">Slett</button>
+          </div>`).join('')
+        : '<p class="tomtekst">Ingen lagrede prosjekter ennå.</p>'}
+      <p class="notis" style="margin-top:12px">Prosjektene ligger i nettleseren på denne maskinen.
+      Eksporter en fil for å ta med prosjektet til en annen maskin eller ta sikkerhetskopi.</p>`;
+
+    innhold.querySelectorAll('[data-navn]').forEach(el => { el.onclick = () => this.apne(el.dataset.navn); });
+    innhold.querySelectorAll('[data-eksport]').forEach(el => { el.onclick = () => Lager.eksporter(el.dataset.eksport); });
     innhold.querySelectorAll('[data-slett]').forEach(el => {
       el.onclick = async () => {
         if (!confirm('Slette «' + el.dataset.slett + '»?')) return;
-        await fetch('/api/prosjekt/' + encodeURIComponent(el.dataset.slett), { method: 'DELETE' });
+        await Lager.slett(el.dataset.slett);
         this.apneDialog();
       };
     });
+    const fil = innhold.querySelector('#dlgFil');
+    innhold.querySelector('#dlgImport').onclick = () => fil.click();
+    innhold.querySelector('#dlgEksportAlle').onclick = async () => {
+      const n = await Lager.eksporterAlle();
+      this.status(`Eksporterte ${n} prosjekt`);
+    };
+    fil.onchange = async () => {
+      const lagt = [];
+      for (const f of fil.files) {
+        try { lagt.push(...await Lager.importer(f)); }
+        catch (e) { alert('Klarte ikke lese ' + f.name + ': ' + e.message); }
+      }
+      if (lagt.length) { this.status(`Importerte ${lagt.join(', ')}`); await this.apneDialog(); }
+    };
     document.getElementById('dialog').classList.remove('skjult');
   },
 
   async apne(navn) {
-    const r = await fetch('/api/prosjekt/' + encodeURIComponent(navn));
-    if (!r.ok) return;
-    const d = await r.json();
+    const d = await Lager.hent(navn);
+    if (!d) return;
     this.P = Object.assign(this.nyttProsjekt(), d);
     this.P.mal = Object.assign({}, StandardMal, d.mal || {});
     this.P.faktorer = Object.assign({}, StandardFaktorer, d.faktorer || {});

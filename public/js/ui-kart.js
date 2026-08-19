@@ -76,7 +76,7 @@ const Kart = {
       if (q.length < 2) { liste.classList.add('skjult'); return; }
       tidsavbrudd = setTimeout(async () => {
         try {
-          const r = await fetch('/api/sok?q=' + encodeURIComponent(q));
+          const r = await fetch('api/sok?q=' + encodeURIComponent(q));
           const d = await r.json();
           liste.innerHTML = '';
           (d.treff || []).slice(0, 12).forEach(t => {
