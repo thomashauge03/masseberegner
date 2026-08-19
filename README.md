@@ -1,14 +1,14 @@
-# Massekalk
+﻿# Massekalk
 
-Teikne ein veg i kartet og få ut kor mykje som må gravast, sprengjast og fyllast –
-rekna mot Kartverket sin nasjonale høgdemodell (DTM1, 1 × 1 m laserdata).
+Tegn en vei i kartet og få ut hvor mye som må graves, sprenges og fylles –
+regnet mot Kartverkets nasjonale høydemodell (DTM1, 1 × 1 m laserdata).
 
-Ingen innlogging, ingen database å drifte, ingen npm-avhengigheiter utanom
-kartkomponenten. Køyrer både lokalt og på Vercel.
+Ingen innlogging, ingen database å drifte, ingen npm-avhengigheter utenom
+kartkomponenten. Kjører både lokalt og på Vercel.
 
 ## Kom i gang
 
-**På nett:** appen ligg på Vercel. Kvar push til `main` blir lagt ut automatisk.
+**På nett:** appen ligger på Vercel. Hver push til `main` blir lagt ut automatisk.
 
 **Lokalt:**
 
@@ -16,141 +16,182 @@ kartkomponenten. Køyrer både lokalt og på Vercel.
 node server.js
 ```
 
-Opne så <http://localhost:5178>. Ingen npm install – programmet brukar berre
-det som ligg i Node frå før.
+Åpne så <http://localhost:5178>. Ingen npm install – programmet bruker bare
+det som ligger i Node fra før.
 
-Terrengdata blir henta automatisk. Flisene har eit år med hurtigbuffer, så andre
-gongen du opnar same prosjektet går det med ein gong – òg utan nett.
+Terrengdata blir hentet automatisk. Flisene har ett år med hurtigbuffer, så andre
+gangen du åpner samme prosjektet går det med en gang – også uten nett.
 
 ## Prosjekt
 
-Prosjekta ligg i nettlesaren si eiga database (IndexedDB) på den maskina du
-brukar. Det gjer at programmet verkar likt lokalt og på Vercel, utan innlogging
-og utan at nokon må drifte ein database.
+Prosjektene ligger i nettleserens egen database (IndexedDB) på den maskinen du
+bruker. Det gjør at programmet virker likt lokalt og på Vercel, uten innlogging
+og uten at noen må drifte en database.
 
-Under **Åpne** finn du difor:
+Under **Åpne** finner du derfor:
 
-* **Importer fil** – hent inn eit prosjekt frå ei `.json`-fil
-* **Eksporter** – ta med eitt prosjekt til ei anna maskin eller ein kollega
-* **Eksporter alle** – sikkerheitskopi av alt
+* **Importer fil** – hent inn et prosjekt fra en `.json`-fil
+* **Eksporter** – ta med ett prosjekt til en annen maskin eller en kollega
+* **Eksporter alle** – sikkerhetskopi av alt
 
-Ta ein eksport med jamne mellomrom. Tømmer du nettlesardata, forsvinn prosjekta.
-Skal fleire jobbe på same prosjekt samtidig, må det ein delt database til –
-sjå «Vidare arbeid» nedst.
+Ta en eksport med jevne mellomrom. Tømmer du nettleserdata, forsvinner prosjektene.
+Skal flere jobbe på samme prosjekt samtidig, trengs det en delt database –
+se «Videre arbeid» nederst.
 
-## Slik brukar du det
+## Slik bruker du det
 
-1. **Søk opp staden** i søkefeltet oppe til venstre (stadnamn eller adresse).
+1. **Søk opp stedet** i søkefeltet oppe til venstre (stedsnavn eller adresse).
 2. **Trykk «Tegn senterlinje»** og klikk deg langs traseen. Dobbeltklikk for å avslutte.
-3. **Sett kurveradius** ved å klikke på eit knekkpunkt – akkurat som BC/EC/R i ein vanleg vegplan.
-4. **Lengdeprofilen** kjem opp automatisk. Programmet foreslår ei linje som følgjer terrenget
-   og held stigningskravet. Dra i knekkpunkta for å justere, dobbeltklikk for å leggje til
-   eller fjerne eit.
-5. **Legg inn grunnforhold** under fana «Grunnforhold»: standard djupn til fjell, kjende
-   strekningar, og observasjonar du klikkar inn i kartet (verktøyet «Fjellpunkt»).
-   Observasjonane vektast med avstand og overstyrer standardverdien i nærleiken.
-6. **Les massane** i sidepanelet, og trykk **Rapport** for eit utskriftsklart samandrag.
+3. **Sett kurveradius** ved å klikke på et knekkpunkt – akkurat som BC/EC/R i en vanlig veiplan.
+4. **Lengdeprofilen** kommer opp automatisk. Programmet foreslår en linje som følger terrenget
+   og holder stigningskravet. Dra i knekkpunktene for å justere, dobbeltklikk for å legge til
+   eller fjerne et.
+5. **Legg inn grunnforhold** under fanen «Grunnforhold»: standard dybde til fjell, kjente
+   strekninger, og observasjoner du klikker inn i kartet (verktøyet «Fjellpunkt»).
+   Observasjonene vektes med avstand og overstyrer standardverdien i nærheten.
+6. **Les massene** i sidepanelet, og trykk **Rapport** for et utskriftsklart sammendrag.
 
-## Veiklasse som hurtigval
+## Veiklasse som hurtigvalg
 
-Under **Vegmal** vel du veiklasse, og malen blir sett opp med krava som
-faktisk gjeld — vegbreidd, minste radius, grøftedjupn, breiddeutviding i kurver
-og største stigning. Tala er henta rett frå *Normaler for landbruksveier med
+Under **Vegmal** velger du veiklasse, og malen blir satt opp med kravene som
+faktisk gjelder — vegbredde, minste radius, grøftedybde, breddeutvidelse i kurver
+og største stigning. Tallene er hentet rett fra *Normaler for landbruksveier med
 byggebeskrivelse* (Landbruks- og matdepartementet / Skogkurs), klasse for klasse,
-og kjelda står i programmet. Alt kan overstyrast.
+og kilden står i programmet. Alt kan overstyres.
 
-To ting normalen gjer som er verdt å vite:
+To ting normalen gjør som er verdt å vite:
 
-* **Kurvetabellen oppgir total vegbreidd, ikkje eit tillegg.** Byggjer du 4,5 m
-  brei veg og normalen krev 5,5 m i ein R = 10-sving, blir utvidinga 1,0 m.
-  Breidda avheng òg av kor mykje kurven dreiar, så det blir interpolert mellom
-  kolonnane for 45° og 135°.
-* **Stigningskravet er ulikt med og utan lass.** Klasse 5 tillèt 14 % i ein
+* **Kurvetabellen oppgir total vegbredde, ikke et tillegg.** Bygger du 4,5 m
+  bred vei og normalen krever 5,5 m i en R = 10-sving, blir utvidelsen 1,0 m.
+  Bredden avhenger også av hvor mye kurven dreier, så det blir interpolert mellom
+  kolonnene for 45° og 135°.
+* **Stigningskravet er ulikt med og uten lass.** Klasse 5 tillater 14 % i en
   R = 30-sving når tømmerlasset skal opp, men 17 % når det er den tomme bilen
-  som klatrar. Difor set du kva veg lasset køyrer, og programmet vel rett krav
-  i kvar bakke.
+  som klatrer. Derfor setter du hvilken vei lasset kjører, og programmet velger
+  riktig krav i hver bakke.
 
-Klasse 1 har inga eiga tabell i normalen — den blir bygd i samarbeid med
-offentleg vegmyndigheit — så der er verdiane berre eit utgangspunkt, og
-programmet seier ifrå om det.
+Klasse 1 har ingen egen tabell i normalen — den blir bygd i samarbeid med
+offentlig vegmyndighet — så der er verdiene bare et utgangspunkt, og
+programmet sier ifra om det.
 
-## Høgder du bestemmer sjølv
+## Høyder du bestemmer selv
 
-Skal du treffe ein lengdeprofil som alt er prosjektert, legg du høgdene inn
-under fana **Høyder**:
+Skal du treffe en lengdeprofil som allerede er prosjektert, legger du høydene inn
+under fanen **Høyder**:
 
-* Lim inn heile tabellen frå veiplanen eller reknearket. Formatet er fritt —
+* Lim inn hele tabellen fra veiplanen eller regnearket. Formatet er fritt —
   mellomrom, semikolon, tabulator eller komma, `250` eller `0+250`,
-  punktum eller komma som desimalteikn.
-* **Fyll hver N m** lagar rader med jamn avstand, til dømes kvar 5 m.
-* **Låste** høgder ligg i ro. «Foreslå profil», «Massebalanse» og «Optimaliser»
-  flyttar berre dei frie punkta, og seier ifrå når alt er låst.
+  punktum eller komma som desimaltegn.
+* **Fyll hver N m** lager rader med jevn avstand, for eksempel hver 5 m.
+* **Låste** høyder ligger i ro. «Foreslå profil», «Massebalanse» og «Optimaliser»
+  flytter bare de frie punktene, og sier ifra når alt er låst.
 
-I **tverrprofilet** kan du skrive inn høgda på venstre vegkant, i senterlinja og
-på høgre vegkant for det profilet du står i. Senterlinja styrer lengdeprofilen,
-og vegkantane styrer tverrfallet på si side — så eit oppmålt tverrsnitt kan
-leggjast rett inn, med ulikt fall til kvar side om det trengst.
+I **tverrprofilet** kan du skrive inn høyden på venstre vegkant, i senterlinjen og
+på høyre vegkant for det profilet du står i. Senterlinjen styrer lengdeprofilen,
+og vegkantene styrer tverrfallet på sin side — så et oppmålt tverrsnitt kan
+legges rett inn, med ulikt fall til hver side om det trengs.
 
-Knappane over lengdeprofilen:
+Knappene over lengdeprofilen:
 
-| Knapp | Kva han gjer |
+| Knapp | Hva den gjør |
 |---|---|
-| Foreslå profil | Ny profillinje som følgjer terrenget og held stigningskravet |
-| Massebalanse | Løftar/senker heile profilen til skjering og fylling går opp i opp |
-| Optimaliser | Finjusterer kvart knekkpunkt for minst mogleg masseflytting (sprengning vektast tyngst) |
+| **Rett opp** | Beholder profilen du har, retter bruddene på kravene, og går så løs på å få ned sprengning og fylling. Bruk denne på et prosjekt som allerede er tegnet |
+| Foreslå profil | Ny profillinje fra terrenget. Kaster den du har |
+| Massebalanse | Løfter/senker hele profilen til skjæring og fylling går opp i opp |
+| Optimaliser | Finjusterer hvert knekkpunkt for billigst mulig løsning |
 
-## Kva som blir rekna
+## Hva «billigst» betyr
+
+Optimaliseringen vekter, i den rekkefølgen det gjør vondt:
+
+1. **Sprengning** – dyrest, og det man helst vil unngå
+2. **Graving i løsmasse**
+3. **Transport** inn eller ut av anlegget når massene ikke går opp
+4. **Inngrepet i terrenget** – renskevolumet er tykkelsen ganger fotavtrykket,
+   altså et direkte mål på hvor bredt man river opp lia
+5. **Avstanden til terrenget** – arealet mellom veglinjen og bakken i
+   lengdeprofilen, så veien legger seg rolig oppå terrenget i stedet for å
+   svinge over og under det
+6. **Fylling** – billigst, så lenge massene finnes
+
+I tillegg er kravene fra veiklassen og grensene for hva som lar seg bygge lagt
+inn som svært dyre brudd, så en løsning som bryter dem blir aldri valgt.
+
+Under **Vegmal → Grenser** setter du hva som lar seg bygge: største
+fyllingshøyde, største skjæringsdybde og største utslag fra vegkant. «Regn bare
+ut til» stopper regnestykket et gitt antall meter fra vegkanten, så du får
+massene for det du faktisk har tenkt å gjøre. Setter du **«Kan flytte linjen
+inntil»**, får «Optimaliser» lov til å flytte senterlinjen sidelengs for å treffe
+billigere terreng – knekkpunktene i kartet flyttes, så du ser hvor den nye linjen
+går.
+
+Der terrenget gjør det umulig å holde både stigningskravet og fyllingsgrensen –
+over en trang kløft må veien bru den – blir profilen dratt så nær som mulig, og
+resten kommer som merknad. Programmet sier ifra i stedet for å skjule det.
+
+## Hva som blir regnet
 
 | Post | Slik |
 |---|---|
-| Rensk / avdekking | Tjukn × (fotavtrykk + margin på kvar side) |
-| Skjering | Frå terreng etter rensk ned til planum, grøft og skjeringsskråning |
-| – fordelt på fjell og lausmasse | Etter djupna til fjell i kvart punkt |
-| Fylling | Frå terreng etter rensk opp til planum og fyllingsskråning |
-| Berelag / slitelag | Tjukn × breidd, breiddeutvida i kurver |
-| Massebalanse | Kor mykje av skjeringa som kan brukast om att i fyllinga |
-| Massetransport | Brucknerkurve – kvar det er overskot og kvar det manglar masse |
+| Rensk / avdekking | Tykkelse × (fotavtrykk + margin på hver side) |
+| Skjæring | Fra terreng etter rensk ned til planum, grøft og skjæringsskråning |
+| – fordelt på fjell og løsmasse | Etter dybden til fjell i hvert punkt |
+| Fylling | Fra terreng etter rensk opp til planum og fyllingsskråning |
+| Bærelag / slitelag | Tykkelse × bredde, breddeutvidet i kurver |
+| Massebalanse | Hvor mye av skjæringen som kan brukes om igjen i fyllingen |
+| Massetransport | Brucknerkurve – hvor det er overskudd og hvor det mangler masse |
 
-Detaljar som er tekne med:
+Detaljer som er tatt med:
 
-* **Kurvekorreksjon.** I ein krapp kurve blir det meir masse på yttersida enn på
-  innsida. Kvar arealstripe blir vekta med `(1 + t · krumning)` etter Pappus' regel,
-  så volumet blir rett òg i ein R = 10-sving.
-* **Breiddeutviding i kurver** etter tabell, med jamn overgang inn og ut (standard 15 m).
-* **Samansett skjeringsskråning.** Skråninga er slak i lausmassen over fjellet og
-  brattare i fjellet under – ho blir bygd opp steg for steg gjennom laga.
-* **Stigningskrav etter kurveradius.** Profil som bryt kravet blir merkt.
-* **Lengdekorreksjon.** UTM-planet strekkjer lengdene litt. Programmet reknar
-  punktmålestokken og gjer om til verkeleg lengd på bakken (kan slåast av).
+* **Kurvekorreksjon.** I en krapp kurve blir det mer masse på yttersiden enn på
+  innsiden. Hver arealstripe blir vektet med `(1 + t · krumning)` etter Pappus' regel,
+  så volumet blir riktig også i en R = 10-sving.
+* **Breddeutvidelse i kurver** etter tabell, med jevn overgang inn og ut (standard 15 m).
+* **Sammensatt skjæringsskråning.** Skråningen er slak i løsmassen over fjellet og
+  brattere i fjellet under – den blir bygd opp steg for steg gjennom lagene.
+* **Stigningskrav etter kurveradius.** Profil som bryter kravet blir merket.
+* **Lengdekorreksjon.** UTM-planet strekker lengdene litt. Programmet regner ut
+  punktmålestokken og gjør om til virkelig lengde på bakken (kan slås av).
 
-Alle volum er *prosjektert fast volum* (p.f.m³) om ikkje anna står. Omrekning til
-anbrakt volum (p.a.m³) skjer med faktorane du set under «Vegmal».
+Alle volum er *prosjektert fast volum* (p.f.m³) om ikke annet står. Omregning til
+anbrakt volum (p.a.m³) skjer med faktorene du setter under «Vegmal».
 
 ## Datagrunnlag
 
-| Kva | Kjelde |
+| Hva | Kilde |
 |---|---|
-| Terreng | Kartverket, nasjonal høgdemodell DTM1 (1 m, flyboren laser) |
+| Terreng | Kartverket, nasjonal høydemodell DTM1 (1 m, flybåren laser) |
 | Bakgrunnskart | Kartverket WMTS (topografisk, turkart, gråtone) |
-| Terrengskugge | Kartverket høgdedata, skuggerelieff av laserdataene |
-| Lausmassar | NGU (valfritt kartlag) |
-| Stadnamn og adresser | Kartverket sitt opne API |
+| Terrengskygge | Kartverket høydedata, skyggerelieff av laserdataene |
+| Løsmasser | NGU (valgfritt kartlag) |
+| Stedsnavn og adresser | Kartverkets åpne API |
 
-Høgdene er kontrollerte mot Kartverket sitt offisielle punkt-API og stemmer innanfor
-**5 millimeter** (`node test/selftest.js`, punkt 6). Knappen «Kontroller høyder mot
-Kartverket» under fana «Linje» køyrer den same kontrollen på din eigen trasé.
+Høydene er kontrollert mot Kartverkets offisielle punkt-API og stemmer **eksakt**
+(`node test/selftest.js`, punkt 8). Knappen «Kontroller høyder mot Kartverket»
+under fanen «Linje» kjører den samme kontrollen på din egen trasé.
 
-**Hugs:** terrengmodellen viser terrenget slik det var då området sist vart skanna.
-Er det gjort inngrep etterpå, eller står det tett skog med dårleg laserdekning,
+## Hvor sikre er tallene
+
+Terrenghøydene er målt. **Dybden til fjell er et anslag** – og det er den som
+avgjør hva jobben koster. Sidepanelet og rapporten regner derfor sprengningen om
+igjen med fjellet en halvmeter høyere og en halvmeter lavere, så du ser hva
+anslaget faktisk betyr i kubikk. På demoprosjektet flytter et halvmetersbom
+1 115 m³ – 70 % av hele skjæringsvolumet.
+
+Registrer fjellpunkt i kartet der dere vet hva som ligger under. Det er det
+eneste som strammer inn dette tallet.
+
+**Husk:** terrengmodellen viser terrenget slik det var da området sist ble skannet.
+Er det gjort inngrep etterpå, eller står det tett skog med dårlig laserdekning,
 må du kontrollere mot befaring.
 
 ## Eksport
 
-* **Stikningsdata (CSV)** – profilnummer, nord, aust, veghøgd og vegkantar. Kan lesast
+* **Stikningsdata (CSV)** – profilnummer, nord, øst, veghøyde og vegkanter. Kan leses
   inn i maskinstyring.
-* **Masseoppsett per profil (CSV)** – areal og volum for kvart profil.
-* **GeoJSON** – senterlinje, fotavtrykk og fjellobservasjonar.
-* **Rapport** – utskriftsklar HTML som kan lagrast som PDF frå nettlesaren.
+* **Masseoppsett per profil (CSV)** – areal og volum for hvert profil.
+* **GeoJSON** – senterlinje, fotavtrykk og fjellobservasjoner.
+* **Rapport** – utskriftsklar HTML som kan lagres som PDF fra nettleseren.
 
 ## Test
 
@@ -158,54 +199,54 @@ må du kontrollere mot befaring.
 node test/selftest.js
 ```
 
-111 kontrollar: koordinatrekning mot kjende referansar, linjeføring mot geometri
-rekna for hand, lengdeprofil mot parabelformlane, masseberegning mot eit tverrsnitt
-rekna ut for hand med sju siffer, veiklassane mot tala i normalen, innlesing av
-høgdetabellar, eige tverrfall per profil, massebalansen mot bokføringsreglane,
-pakkinga av terrengfliser, og terrengmodellen mot Kartverket.
+124 kontroller: koordinatregning mot kjente referanser, linjeføring mot geometri
+regnet for hånd, lengdeprofil mot parabelformlene, masseberegning mot et tverrsnitt
+regnet ut for hånd med sju siffer, veiklassene mot tallene i normalen, innlesing av
+høydetabeller, eget tverrfall per profil, avkortet beregningsbredde, grensene mot
+terrenget, massebalansen mot bokføringsreglene, pakkingen av terrengfliser, og
+terrengmodellen mot Kartverket.
 
 ```bash
 node test/demo-ydestad.js
 ```
 
-Køyrer heile kjeda på verkeleg terreng ved Ydestad i Lyngdal og skriv
+Kjører hele kjeden på virkelig terreng ved Ydestad i Lyngdal og skriver
 demoprosjektet til `public/demo/`.
 
 ## Filer
 
 ```
-public/js/veiklasser.js  veiklassane frå landbruksveinormalen
-public/js/farger.js      tegnefargane, henta frå CSS-variablane
-public/bilde/hm-logo.png HM-logoen (same fila som i dei andre appane)
-
-api/dtm/flis.js          hentar og pakkar ei terrengflis (Vercel-funksjon)
-api/punkt.js             kontroll mot Kartverket sitt punkt-API
-api/sok.js               stadnamn- og adressesøk
-lib/hoydedata.js         GeoTIFF-lesar, flishenting og pakking
-server.js                lokal utviklingsserver som brukar dei same funksjonane
+api/dtm/flis.js          henter og pakker en terrengflis (Vercel-funksjon)
+api/punkt.js             kontroll mot Kartverkets punkt-API
+api/sok.js               stedsnavn- og adressesøk
+lib/hoydedata.js         GeoTIFF-leser, flishenting og pakking
+server.js                lokal utviklingsserver som bruker de samme funksjonene
 vercel.json              utlegging
 
-public/js/lager.js       prosjektlager i nettlesaren, import og eksport
 public/js/geo.js         UTM-projeksjon (Krüger, 4. orden) og målestokkfaktor
 public/js/linjeforing.js horisontal linjeføring med sirkelkurver
-public/js/vertikalprofil.js  lengdeprofil med parabolske vertikalkurver
-public/js/terreng.js     terrengmodell i nettlesaren, bilineær interpolasjon
+public/js/vertikalprofil.js  lengdeprofil, retting mot kravene, innlesing av høydetabell
+public/js/terreng.js     terrengmodell i nettleseren, bilineær interpolasjon
 public/js/masser.js      tverrprofil og volumberegning
+public/js/veiklasser.js  veiklassene fra landbruksveinormalen
+public/js/lager.js       prosjektlager i nettleseren, import og eksport
+public/js/farger.js      tegnefargene, hentet fra CSS-variablene
 public/js/ui-*.js        kart, lengdeprofil, tverrprofil, rapport
-public/demo/             demoprosjekt som blir lagt inn første gongen
+public/bilde/hm-logo.png HM-logoen (samme fil som i de andre appene)
+public/demo/             demoprosjekt som blir lagt inn første gangen
 ```
 
-Terrengflisene blir sende som heile centimeter over eit nullnivå for flisa
-(16 bits). Terrengmodellen er sjølv oppgitt i centimeter, så ingenting går tapt –
-kontrollen mot Kartverket sitt API gir no **0,000 m avvik** – og flisa blir under
-halvparten så stor på nettet. `FLIS_VERSJON` i `public/js/terreng.js` må aukast
-dersom formatet blir endra, sidan flisene blir bufra i eit år.
+Terrengflisene blir sendt som hele centimeter over et nullnivå for flisen
+(16 bits). Terrengmodellen er selv oppgitt i centimeter, så ingenting går tapt –
+kontrollen mot Kartverkets API gir nå **0,000 m avvik** – og flisen blir under
+halvparten så stor på nettet. `FLIS_VERSJON` i `public/js/terreng.js` må økes
+dersom formatet blir endret, siden flisene blir bufret i ett år.
 
-## Vidare arbeid
+## Videre arbeid
 
-* **Delte prosjekt.** I dag ligg prosjekta lokalt i nettlesaren. Skal fleire på
-  kontoret sjå dei same prosjekta, må det ein delt database til (Supabase eller
+* **Delte prosjekt.** I dag ligger prosjektene lokalt i nettleseren. Skal flere på
+  kontoret se de samme prosjektene, trengs det en delt database (Supabase eller
   Vercel Postgres) med innlogging.
-* **Stikkrenner.** Vegplanane har stikkrenner med plassering, dimensjon og lengd.
-  Desse kan leggjast inn som punkt langs linja med automatisk lengd ut frå
-  fyllingshøgda.
+* **Stikkrenner.** Veiplanene har stikkrenner med plassering, dimensjon og lengde.
+  Disse kan legges inn som punkt langs linjen med automatisk lengde ut fra
+  fyllingshøyden.
