@@ -378,6 +378,20 @@ body {
 .sumrad.stor .verdi { font-size: 20px; font-family: var(--skrift-tittel); letter-spacing: .01em; }
 .sumrad small { color: var(--blekk-svak); font-weight: 400; font-size: 11px; margin-left: 4px; }
 .strek { border-top: 2px solid var(--kant); margin: 8px 0; }
+.hjelpknapp {
+  background: none; border: 2px solid var(--kant); color: var(--blekk-svak);
+  width: 18px; height: 18px; line-height: 1; cursor: pointer;
+  font-size: 11px; font-weight: 700; font-family: var(--skrift); padding: 0; flex: none;
+}
+.hjelpknapp:hover, .hjelpknapp.aktiv { border-color: var(--hm-raud); color: var(--raud); }
+.hjelpetekstboks {
+  margin-top: 8px; padding: 8px 10px; background: var(--flate);
+  border-left: 3px solid var(--hm-raud); font-size: 12px; line-height: 1.55; color: var(--blekk-svak);
+}
+.hjelpetekstboks p { margin: 0 0 7px; }
+.hjelpetekstboks p:last-child { margin-bottom: 0; }
+.hjelpetekstboks b { color: var(--blekk); }
+.sumrad[title] { cursor: help; }
 .merke-skjaering { color: var(--data-skjaering); }
 .merke-fylling { color: var(--data-fylling); }
 .merke-fjell { color: var(--data-fjell); }

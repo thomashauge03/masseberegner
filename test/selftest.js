@@ -446,6 +446,47 @@ console.log('\n6. Veiklasser, breddeutvidelse og stigningskrav');
 }
 
 /* ------------------------------------------------------------------ */
+console.log('\n6a. Avkortet beregningsbredde');
+{
+  const linje = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 100, y: 0, r: 0 }]);
+  /* Sidebratt li pa 50 %. Da gar bade skjæringen oppover og fyllingen
+     nedover langt ut fra veien - fyllingsfoten havner 9,5 m ut, som er
+     nettopp tilfellet beregningsbredden er laget for. */
+  const li = { z: (x, y) => 100 + 0.5 * y };
+  const grunnmal = Object.assign({}, M.StandardMal, { ekstraBredde: null, maksSokebredde: 60 });
+  const fjell = new M.Fjellmodell({ standarddybde: 5 });
+  const profil = new Vertikalprofil([{ s: 0, z: 100, k: 0 }, { s: 100, z: 100, k: 0 }]);
+
+  const utenGrense = M.beregnMasser({
+    linje, profil, terreng: li, mal: grunnmal, fjell, profilAvstand: 25, bakkefaktor: 1
+  });
+  const medGrense = M.beregnMasser({
+    linje, profil, terreng: li, mal: Object.assign({}, grunnmal, { beregningsbredde: 5 }),
+    fjell, profilAvstand: 25, bakkefaktor: 1
+  });
+
+  const bredde = utenGrense.profiler[1].fotHoyre - utenGrense.profiler[1].halvbredde;
+  paastand('uten grense gar skraningen langt ut', bredde > 5);
+  paastand('med grense stopper profilet ved grensen',
+    medGrense.profiler[1].fotHoyre <= medGrense.profiler[1].halvbredde + 5.0001);
+  paastand('avkortet volum er mindre', medGrense.sum.skjaering < utenGrense.sum.skjaering);
+  paastand('avkortede profiler blir merket',
+    medGrense.antallAvkortet > 0 && medGrense.merknader.some(m => m.type === 'avkortet'));
+  paastand('uten grense merkes ingenting som avkortet', utenGrense.antallAvkortet === 0);
+
+  // Grensen skal ikke røre profiler som uansett er innenfor
+  const flatt = { z: () => 100 };
+  const smalt = M.beregnMasser({
+    linje, profil, terreng: flatt, mal: Object.assign({}, grunnmal, { beregningsbredde: 20 }),
+    fjell, profilAvstand: 25, bakkefaktor: 1
+  });
+  const fritt = M.beregnMasser({
+    linje, profil, terreng: flatt, mal: grunnmal, fjell, profilAvstand: 25, bakkefaktor: 1
+  });
+  sjekk('romslig grense endrer ingenting', smalt.sum.skjaering, fritt.sum.skjaering, 1e-9);
+}
+
+/* ------------------------------------------------------------------ */
 console.log('\n6b. Eget tverrfall per profil');
 {
   const mal = Object.assign({}, M.StandardMal, { ekstraBredde: null });

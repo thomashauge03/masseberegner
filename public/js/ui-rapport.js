@@ -14,7 +14,7 @@ const Rapport = {
   visSammendrag(res) {
     const boks = document.getElementById('massesammendrag');
     if (!res) { boks.innerHTML = '<span class="tomtekst">Tegn en senterlinje i kartet for å komme i gang.</span>'; return; }
-    const s = res.sum, b = res.balanse, f = res.faktorer;
+    const s = res.sum, b = res.balanse, f = res.faktorer, m = res.mal;
     const t = (v, d = 0) => this.tall(v, d);
 
     let maksSkjaering = 0, maksFylling = 0;
@@ -47,16 +47,30 @@ const Rapport = {
       </div>
 
       <div class="sumkort">
-        <h4>Masser – prosjektert fast volum (p.f.m³)</h4>
-        <div class="sumrad"><span>Rensk / avdekking</span><span class="verdi">${t(s.rensk)} m³</span></div>
+        <h4>Masser – prosjektert fast volum (p.f.m³) <button class="hjelpknapp" data-hjelp="masser" title="Hva betyr postene?">?</button></h4>
+        <div class="sumrad" title="Matjord, torv, stubber og røtter som skrapes av før man begynner. Regnes ${m.renskDybde} m tykt over hele fotavtrykket pluss ${m.renskUtenfor} m på hver side. Går til deponi eller til jordkledning av fyllingene.">
+          <span>Rensk / avdekking</span><span class="verdi">${t(s.rensk)} m³</span></div>
         <div class="strek"></div>
-        <div class="sumrad stor"><span class="merke-skjaering">Skjæring totalt</span><span class="verdi merke-skjaering">${t(s.skjaering)} m³</span></div>
-        <div class="sumrad"><span>&nbsp;&nbsp;– løsmasse</span><span class="verdi">${t(s.skjaeringLosmasse)} m³</span></div>
-        <div class="sumrad"><span class="merke-fjell">&nbsp;&nbsp;– fjell (sprengning)</span><span class="verdi merke-fjell">${t(s.skjaeringFjell)} m³</span></div>
+        <div class="sumrad stor" title="Alt som må graves eller sprenges bort for å komme ned på planum, medregnet grøft og skjæringsskråning.">
+          <span class="merke-skjaering">Skjæring totalt</span><span class="verdi merke-skjaering">${t(s.skjaering)} m³</span></div>
+        <div class="sumrad" title="Den delen av skjæringen som ligger over fjellet – jord og løsmasse som kan graves.">
+          <span>&nbsp;&nbsp;– løsmasse</span><span class="verdi">${t(s.skjaeringLosmasse)} m³</span></div>
+        <div class="sumrad" title="Den delen som ligger under fjelloverflaten og må sprenges. Avhenger helt av hvor dypt dere har satt fjellet.">
+          <span class="merke-fjell">&nbsp;&nbsp;– fjell (sprengning)</span><span class="verdi merke-fjell">${t(s.skjaeringFjell)} m³</span></div>
         <div class="strek"></div>
-        <div class="sumrad stor"><span class="merke-fylling">Fylling</span><span class="verdi merke-fylling">${t(s.fylling)} m³</span></div>
-        <div class="sumrad"><span>Bærelag</span><span class="verdi">${t(s.baerelag)} m³</span></div>
-        <div class="sumrad"><span>Slitelag</span><span class="verdi">${t(s.slitelag)} m³</span></div>
+        <div class="sumrad stor" title="Hulrommet mellom terrenget og veien der veien ligger høyere enn bakken – det som må fylles opp for å bære veien. Måles opp til planum, så bærelaget kommer i tillegg.">
+          <span class="merke-fylling">Fylling</span><span class="verdi merke-fylling">${t(s.fylling)} m³</span></div>
+        <div class="sumrad" title="Sprengstein under vegkroppen, ${m.baerelagTykkelse} m tykt i ${m.vegbredde} m bredde. Dette er selve bæringen og må skaffes uansett om veien ligger i skjæring eller fylling.">
+          <span>Bærelag</span><span class="verdi">${t(s.baerelag)} m³</span></div>
+        <div class="sumrad" title="Knust grus på toppen, ${m.slitelagTykkelse} m tykt i ${m.slitelagBredde} m bredde.">
+          <span>Slitelag</span><span class="verdi">${t(s.slitelag)} m³</span></div>
+        <div class="hjelpetekstboks skjult" data-hjelptekst="masser">
+          <p><b>Rensk</b> er matjord og stubber som skrapes av først. Den er ikke bygge­masse – den går til deponi eller brukes til å jordkle fyllingene.</p>
+          <p><b>Skjæring</b> er alt som må bort for å komme ned på planum. Den deles i løsmasse og fjell etter hvor dypt fjellet ligger, og det er den delingen som avgjør hva jobben koster.</p>
+          <p><b>Fylling</b> er hulrommet under veien der den ligger høyere enn bakken. Er dette tallet stort, ligger lengdeprofilen høyt over terrenget – prøv «Massebalanse» eller «Optimaliser», eller senk profilen for hånd.</p>
+          <p><b>Bærelag og slitelag</b> er selve vegkroppen og kommer i tillegg til fyllingen. De må skaffes uansett.</p>
+          <p>Fylling og skjæring trenger ikke å være like store. Ett fast kubikkmeter fjell blir til om lag ${f.fjellIFylling} m³ ferdig fylling når det er sprengt og lagt ut.</p>
+        </div>
       </div>
 
       <div class="sumkort">
@@ -85,11 +99,55 @@ const Rapport = {
         <div class="sumrad"><small>Over null = overskudd bakover, under null = behov for tilkjørt masse.</small></div>
       </div>
 
+      ${this.usikkerhetKort(res)}
+
       <div class="sumkort">
         <h4>Grunnlag</h4>
         <div class="sumrad"><span>Terrengmodell</span><span class="verdi"><small>Kartverket DTM1, 1 m laser</small></span></div>
         <div class="sumrad"><span>Koordinatsystem</span><span class="verdi"><small>EUREF89 UTM${this.app.sone}</small></span></div>
         <div class="sumrad"><span>Lengdekorreksjon</span><span class="verdi"><small>${res.bakkefaktor === 1 ? 'av' : '×' + res.bakkefaktor.toFixed(6)}</small></span></div>
+      </div>`;
+
+    // Hjelpetekstene folder seg ut der de hører hjemme, ikke i et eget vindu
+    boks.querySelectorAll('.hjelpknapp').forEach(kn => {
+      kn.onclick = () => {
+        const t = boks.querySelector(`[data-hjelptekst="${kn.dataset.hjelp}"]`);
+        if (t) { t.classList.toggle('skjult'); kn.classList.toggle('aktiv'); }
+      };
+    });
+  },
+
+  /**
+   * Hva tallene taler av at forutsetningene er feil.
+   *
+   * Terrenget er malt, men dybden til fjell er anslatt. Den star for hele
+   * forskjellen mellom graving og sprengning, og er derfor det eneste tallet
+   * som virkelig kan velte et anbud. Her vises hva et halvmetersbom betyr.
+   */
+  usikkerhetKort(res) {
+    const u = res.usikkerhet;
+    if (!u) return '';
+    const t = (v, d = 0) => this.tall(v, d);
+    const andel = u.skjaeringTotalt > 0 ? (u.spenn / u.skjaeringTotalt * 100) : 0;
+    const antallObs = this.app.P.fjell.punkter.length;
+    return `
+      <div class="sumkort">
+        <h4>Hvor sikre er tallene</h4>
+        <div class="sumrad"><span>Terrenghøyder</span><span class="verdi merke-fylling">Målt</span></div>
+        <div class="sumrad"><small>Kartverket DTM1, kontrollert mot deres eget API</small></div>
+        <div class="strek"></div>
+        <div class="sumrad"><span>Dybde til fjell</span><span class="verdi ${antallObs ? '' : 'merke-varsel'}">${antallObs ? antallObs + ' observasjoner' : 'Kun anslag'}</span></div>
+        <div class="sumrad"><span>Sprengning ved 0,5 m grunnere fjell</span><span class="verdi">${t(u.fjellGrunnere)} m³</span></div>
+        <div class="sumrad"><span>Sprengning nå</span><span class="verdi merke-fjell">${t(u.fjellNa)} m³</span></div>
+        <div class="sumrad"><span>Sprengning ved 0,5 m dypere fjell</span><span class="verdi">${t(u.fjellDypere)} m³</span></div>
+        <div class="strek"></div>
+        <div class="sumrad stor">
+          <span>Et halvmetersbom flytter</span>
+          <span class="verdi ${andel > 15 ? 'merke-varsel' : ''}">${t(u.spenn)} m³</span>
+        </div>
+        <div class="sumrad"><small>Det er ${andel.toFixed(0)} % av hele skjæringsvolumet.
+          ${antallObs ? 'Flere observasjoner i kartet strammer inn anslaget.'
+        : 'Registrer fjellpunkt i kartet der dere vet hva som ligger under.'}</small></div>
       </div>`;
   },
 

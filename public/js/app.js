@@ -270,6 +270,7 @@ const App = {
       profilAvstand: this.P.profilAvstand, bakkefaktor: this.bakkefaktor()
     });
     this.resultat.mal.profilAvstand = this.P.profilAvstand;
+    this.resultat.usikkerhet = this.regnUsikkerhet();
     const tid = performance.now() - t0;
 
     Rapport.visSammendrag(this.resultat);
@@ -301,11 +302,75 @@ const App = {
     return isFinite(minste) ? minste : 1;
   },
 
+  /**
+   * Flytter et knekkpunkt sidelengs, pa tvers av veien der det ligger.
+   * Retningen tas fra nabopunktene, sa forskyvningen blir vinkelrett pa
+   * linjen og ikke pa nord-akse.
+   */
+  flyttIpSidelengs(ipUtm, i, avstand) {
+    const n = ipUtm.length;
+    const foran = ipUtm[Math.max(0, i - 1)];
+    const bak = ipUtm[Math.min(n - 1, i + 1)];
+    const dx = bak.x - foran.x, dy = bak.y - foran.y;
+    const l = Math.hypot(dx, dy) || 1;
+    // høyre normal
+    return { x: ipUtm[i].x + (dy / l) * avstand, y: ipUtm[i].y - (dx / l) * avstand, r: ipUtm[i].r };
+  },
+
+  ipTilUtm() {
+    return this.P.ip.map(p => {
+      const u = Geo.tilUtm(p.lat, p.lon, this.sone);
+      return { x: u.x, y: u.y, r: p.r || 0 };
+    });
+  },
+
+  /**
+   * Hvor mye tallene flytter seg nar forutsetningene endres.
+   *
+   * Terrenghøydene er malt, men dybden til fjell er anslatt - og det er den
+   * som avgjør hvor mye som ma sprenges. Her regnes sprengningsvolumet om
+   * igjen med fjellet en halvmeter høyere og en halvmeter lavere, sa man ser
+   * hva anslaget faktisk betyr i kubikk. Terrengmodellens egen unøyaktighet
+   * regnes pa samme mate ved a heve og senke hele terrenget 0,1 m.
+   */
+  regnUsikkerhet() {
+    if (!this.linje || !this.terreng || !this.vprofil) return null;
+    const lagFjell = tillegg => new Fjellmodell({
+      standarddybde: Math.max(0, this.P.fjell.standarddybde + tillegg),
+      rekkevidde: this.P.fjell.rekkevidde,
+      strekninger: (this.P.fjell.strekninger || []).map(s => ({ fra: s.fra, til: s.til, dybde: Math.max(0, s.dybde + tillegg) })),
+      punkter: this.P.fjell.punkter.map(p => {
+        const u = Geo.tilUtm(p.lat, p.lon, this.sone);
+        return { x: u.x, y: u.y, dybde: Math.max(0, p.dybde + tillegg) };
+      })
+    });
+    const kjor = fjell => beregnMasser({
+      linje: this.linje, profil: this.vprofil, terreng: this.terreng,
+      mal: this.P.mal, fjell, faktorer: this.P.faktorer,
+      tverrfallOverstyring: this.P.tverrfall,
+      profilAvstand: Math.max(this.P.profilAvstand, 10),
+      integrasjonssteg: 0.25,
+      bakkefaktor: this.bakkefaktor()
+    });
+    try {
+      const grunn = kjor(lagFjell(0)).sum;
+      const grunnere = kjor(lagFjell(-0.5)).sum;   // fjellet ligger høyere
+      const dypere = kjor(lagFjell(+0.5)).sum;
+      return {
+        fjellNa: grunn.skjaeringFjell,
+        fjellGrunnere: grunnere.skjaeringFjell,
+        fjellDypere: dypere.skjaeringFjell,
+        spenn: Math.abs(grunnere.skjaeringFjell - dypere.skjaeringFjell),
+        skjaeringTotalt: grunn.skjaering
+      };
+    } catch (e) { return null; }
+  },
+
   /** Rask beregning brukt av optimaliseringen. */
-  beregnRaskt(vipListe) {
+  beregnRaskt(vipListe, linje) {
     const vp = new Vertikalprofil(vipListe);
     return beregnMasser({
-      linje: this.linje, profil: vp, terreng: this.terreng,
+      linje: linje || this.linje, profil: vp, terreng: this.terreng,
       mal: this.P.mal, fjell: this.fjellmodell, faktorer: this.P.faktorer,
       tverrfallOverstyring: this.P.tverrfall,
       profilAvstand: Math.max(this.P.profilAvstand, 10),
@@ -385,8 +450,8 @@ const App = {
     const maksTillatt = this.P.mal.stigningIKurve.reduce((a, r) => Math.max(a, r[1], r[2]), 0);
 
     const mal = this.P.mal;
-    const kostnad = liste => {
-      const r = this.beregnRaskt(liste);
+    const kostnad = (liste, linje) => {
+      const r = this.beregnRaskt(liste, linje);
       const s = r.sum, b = r.balanse;
       // Kostnadsbilde: sprengning er dyrest, sa graving, sa transport inn/ut
       let k = s.skjaeringLosmasse * 1 + s.skjaeringFjell * 3 + s.fylling * 0.5
@@ -397,6 +462,7 @@ const App = {
          den løsningen som er billigst pa papiret - gjerne en 20 % bakke i en
          30-meterskurve, eller en fylling som stikker 40 m ut. */
       const vp = new Vertikalprofil(liste);
+      for (const m of r.merknader) if (m.type === 'kurvatur') k += 200000;
       for (const pr of r.profiler) {
         const g = vp.stigning(pr.s);
         const tillatt = maksStigningFraRadius(mal, pr.radius, g, mal.lassretning);
@@ -437,10 +503,61 @@ const App = {
       }
       steg /= 2;
     }
+    /* Sidelengs flytting av linjen.
+       Pa en sidebratt li ligger det ofte mye a spare pa a flytte veien noen
+       meter inn i skraningen i stedet for a bygge en høy fylling ut. Hvert
+       knekkpunkt prøves flyttet pa tvers, og linjen bygges pa nytt sa
+       kurvene fortsatt blir riktige. */
+    const maksSide = this.P.mal.sideforskyvning || 0;
+    let flyttet = 0;
+    if (maksSide > 0 && this.P.ip.length >= 2) {
+      const start = this.ipTilUtm();
+      let beste = start.map(p => Object.assign({}, p));
+      let besteK = kostnad(best, new Linjeforing(beste));
+      let sideSteg = Math.min(maksSide, 1.5);
+
+      for (let runde = 0; runde < 3; runde++) {
+        for (let i = 0; i < beste.length; i++) {
+          for (const d of [sideSteg, -sideSteg]) {
+            const forsok = beste.map(p => Object.assign({}, p));
+            const flytta = this.flyttIpSidelengs(beste, i, d);
+            // hold oss innenfor det brukeren har tillatt, malt fra der punktet la
+            const samlet = Math.hypot(flytta.x - start[i].x, flytta.y - start[i].y);
+            if (samlet > maksSide + 1e-6) continue;
+            forsok[i] = flytta;
+            const linje2 = new Linjeforing(forsok);
+            if (linje2.lengde <= 1) continue;
+            const kk = kostnad(best, linje2);
+            if (kk < besteK - 1e-6) { beste = forsok; besteK = kk; }
+          }
+          this.framdrift(true, 'Prøver å flytte linjen sidelengs…', (runde + i / beste.length) / 3);
+          if (i % 3 === 0) await pause();
+        }
+        sideSteg /= 2;
+      }
+      for (let i = 0; i < beste.length; i++) {
+        const d = Math.hypot(beste[i].x - start[i].x, beste[i].y - start[i].y);
+        if (d > 0.01) {
+          flyttet++;
+          const g = Geo.fraUtm(beste[i].x, beste[i].y, this.sone);
+          this.P.ip[i].lat = g.lat; this.P.ip[i].lon = g.lon;
+        }
+      }
+      this._terrengnokkel = '';       // korridoren ma lastes for den nye linjen
+      this.byggLinje();
+    }
+
     this.P.vip = best;
     this.profilManuelt = true;
     this.framdrift(false);
+    if (flyttet) {
+      await this.lastTerreng();
+      this.hentTerrengProfil();
+      this.justerProfilTilLengde();
+      Kart.tegn();
+    }
     this.beregn();
+    if (flyttet) this.status(`Optimalisert – ${flyttet} knekkpunkt flyttet sidelengs`);
   },
 
   /* ---------------- kontroll mot Kartverket ---------------- */
@@ -514,6 +631,8 @@ const App = {
     sett('m_maksFyllingshoyde', m.maksFyllingshoyde);
     sett('m_maksSkjaeringsdybde', m.maksSkjaeringsdybde);
     sett('m_maksUtslag', m.maksUtslag);
+    sett('m_beregningsbredde', m.beregningsbredde);
+    sett('m_sideforskyvning', m.sideforskyvning || 0);
     sett('m_profilAvstand', this.P.profilAvstand);
     sett('m_maksSokebredde', m.maksSokebredde);
     document.getElementById('m_bakkekorreksjon').checked = !!this.P.bakkekorreksjon;
@@ -549,6 +668,8 @@ const App = {
     m.maksFyllingshoyde = tall('m_maksFyllingshoyde');
     m.maksSkjaeringsdybde = tall('m_maksSkjaeringsdybde');
     m.maksUtslag = tall('m_maksUtslag');
+    m.beregningsbredde = tall('m_beregningsbredde');
+    m.sideforskyvning = tall('m_sideforskyvning');
     m.lassretning = parseInt(document.getElementById('m_lassretning').value, 10) || -1;
     this.P.profilAvstand = Math.max(1, tall('m_profilAvstand'));
     this.P.bakkekorreksjon = document.getElementById('m_bakkekorreksjon').checked;

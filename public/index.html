@@ -205,6 +205,16 @@
       <div class="felt"><label>Største fyllingshøyde</label><input type="number" id="m_maksFyllingshoyde" step="0.5" value="4"><span>m</span></div>
       <div class="felt"><label>Største skjæringsdybde</label><input type="number" id="m_maksSkjaeringsdybde" step="0.5" value="8"><span>m</span></div>
       <div class="felt"><label>Største utslag fra vegkant</label><input type="number" id="m_maksUtslag" step="1" value="15"><span>m</span></div>
+      <div class="felt"><label>Regn bare ut til</label><input type="number" id="m_beregningsbredde" step="1" value="0"><span>m</span></div>
+      <p class="notis">«Regn bare ut til» stopper regnestykket et gitt antall meter fra vegkanten.
+        Da får du massene for det du faktisk har tenkt å gjøre, i stedet for en skråning som
+        forsvinner nedover lia. Profilene det gjelder blir merket. 0 = ingen grense.</p>
+
+      <h3>La programmet flytte veien</h3>
+      <p class="notis">«Optimaliser» kan flytte senterlinjen sidelengs for å treffe billigere terreng –
+        typisk litt inn i skjæringen for å slippe en høy fylling. Knekkpunktene i kartet blir flyttet,
+        så du ser hvor den nye linjen går. 0 = linjen står som du har tegnet den.</p>
+      <div class="felt"><label>Kan flytte linjen inntil</label><input type="number" id="m_sideforskyvning" step="0.5" value="0"><span>m</span></div>
 
       <h3>Beregning</h3>
       <div class="felt"><label>Profilavstand</label><input type="number" id="m_profilAvstand" step="1" value="5"><span>m</span></div>

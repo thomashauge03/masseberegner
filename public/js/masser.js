@@ -65,7 +65,18 @@ const StandardMal = {
      profilen der volumet ser billig ut pa papiret. 0 slar grensen av. */
   maksFyllingshoyde: 4.0,
   maksSkjaeringsdybde: 8.0,
-  maksUtslag: 15.0          // vannrett fra vegkant til fyllingsfot/skjæringstopp
+  maksUtslag: 15.0,         // vannrett fra vegkant til fyllingsfot/skjæringstopp
+
+  /* Hvor langt ut fra vegkanten massene i det hele tatt regnes. Er den satt,
+     stopper regnestykket der, og det som ligger utenfor blir ikke med i
+     volumet. Da far man et tall for det man faktisk har tenkt a gjøre, i
+     stedet for en skraning som forsvinner nedover lia. Profilene det gjelder
+     blir merket, sa det er tydelig at tallet er avkortet. 0 = ingen grense. */
+  beregningsbredde: 0,
+
+  /* Hvor langt "Optimaliser" far flytte senterlinjen sidelengs for a treffe
+     billigere terreng. 0 = linjen star der den er tegnet. */
+  sideforskyvning: 0
 };
 
 const StandardFaktorer = {
@@ -343,7 +354,13 @@ function beregnTverrprofil(o) {
   }
 
   // --- Integrer arealene --------------------------------------------
-  const tV = -sider[-1].tFot, tH = sider[1].tFot;
+  /* Er det satt en beregningsbredde, stopper regnestykket der selv om
+     skraningen fortsetter. Det som ligger utenfor blir ikke talt med. */
+  const grense = mal.beregningsbredde > 0 ? hb + mal.beregningsbredde : Infinity;
+  const avkortetV = sider[-1].tFot > grense;
+  const avkortetH = sider[1].tFot > grense;
+  const tV = -Math.min(sider[-1].tFot, grense);
+  const tH = Math.min(sider[1].tFot, grense);
   let arealSkjaering = 0, arealFylling = 0, arealSkjaeringFjell = 0;
   let vSkjaering = 0, vFylling = 0, vSkjaeringFjell = 0; // kurvevektet
   let maksSkjaering = 0, maksFylling = 0;
@@ -459,6 +476,7 @@ function beregnTverrprofil(o) {
     sider,
     geometri,
     manglerData,
+    avkortet: avkortetV || avkortetH,
     advarsel: manglerData
       ? 'Terrengmodellen har hull i dette tverrsnittet – volumet er ufullstendig'
       : ((!sider[-1].truffet || !sider[1].truffet)
@@ -568,8 +586,10 @@ function beregnMasser(o) {
 
   // --- Kontroll mot krav ---------------------------------------------
   const merknader = [];
+  let antallAvkortet = 0;
   for (const pr of profiler) {
     if (pr.advarsel) merknader.push({ s: pr.s, type: pr.manglerData ? 'data' : 'geometri', tekst: pr.advarsel });
+    if (pr.avkortet) antallAvkortet++;
     const stign = profil.stigning(pr.s);
     const maks = maksStigningFraRadius(mal, pr.radius, stign, mal.lassretning);
     if (Math.abs(stign) > maks + 1e-4) {
@@ -613,8 +633,17 @@ function beregnMasser(o) {
     }
   }
 
+  if (antallAvkortet) {
+    merknader.push({
+      s: 0, type: 'avkortet',
+      tekst: `${antallAvkortet} profiler er avkortet ved beregningsbredden på ${mal.beregningsbredde} m `
+        + 'fra vegkant. Masser utenfor er ikke tatt med.'
+    });
+  }
+
   return {
     stasjoner, profiler, intervaller, sum, bruckner, merknader,
+    antallAvkortet,
     mal, faktorer,
     lengde: linje.lengde * bf,
     lengdeKart: linje.lengde,
