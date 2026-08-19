@@ -91,8 +91,11 @@ const Lager = {
       const rad = await this._kjør('readonly', s => s.get(navn));
       return rad ? rad.data : null;
     } catch (e) {
-      const rå = localStorage.getItem(this.NOKKEL + navn);
-      return rå ? JSON.parse(rå).data : null;
+      // en ødelagt oppføring skal gi null, ikke kaste videre og stoppe apningen
+      try {
+        const rå = localStorage.getItem(this.NOKKEL + navn);
+        return rå ? JSON.parse(rå).data : null;
+      } catch (e2) { return null; }
     }
   },
 

@@ -323,9 +323,16 @@ function beregnTverrprofil(o) {
          Normalen maler grøftedybden fra planum, ikke fra veioverflaten,
          fordi det er drenering av bærelaget som er poenget. */
       type = 'skjaering';
-      const zGroft = planumKant - Math.max(0.05, mal.grofteDybdePlanum);
+      /* Grøfta trappes ned der skjæringen tar slutt.
+         En veg som gar fra skjæring til fylling har ikke full grøft helt fram
+         til skillet - den renner ut. Uten nedtrappingen forsvant hele grøfta
+         i ett sprang idet profilet vippet over til fylling, og arealet hoppet
+         med den. Optimaliseringen ble trukket mot det spranget. */
+      const skjaeringVedKant = tKant - planumKant;
+      const grofteAndel = Math.max(0, Math.min(1, skjaeringVedKant / 0.5));
+      const zGroft = planumKant - Math.max(0, mal.grofteDybdePlanum) * grofteAndel;
       const t1 = hb + Math.max(0, planumKant - zGroft) * mal.grofteInnerHelning;
-      const t2 = t1 + mal.grofteBunn;
+      const t2 = t1 + mal.grofteBunn * grofteAndel;
       knekk.push({ t: hb, z: planumKant });
       knekk.push({ t: t1, z: zGroft });
       knekk.push({ t: t2, z: zGroft });
@@ -369,13 +376,21 @@ function beregnTverrprofil(o) {
       /* --- Fylling: skraning ned til terreng --- */
       type = 'fylling';
       knekk.push({ t: hb, z: planumKant });
-      knekk.push({ t: hb, z: zKant });          // materialskillet mot overbygningen
-      /* Fyllingsskraningen har fast helning hele veien - her er det ingen
-         fjellovergang a treffe. Da kan stegene vaere store, og treffpunktet
-         finnes med halvering. */
-      let t = hb, z = zKant;
+      /* Skraningen starter i planum, ikke i veikanten. Overbygningen er en
+         egen post som legges oppa, og skal ikke telles med i fyllingen -
+         slik det ogsa star i rapporten.
+
+         Startet den i veikanten, ville jordarbeidsflaten hoppet 0,70 m i det
+         øyeblikket profilet gikk fra skjæring til fylling. Et profil kunne da
+         tredoble fyllingsarealet pa en femtedels millimeter endring i
+         vegnivået, og optimaliseringen ble trukket mot det spranget.
+
+         Fyllingsskraningen har fast helning hele veien - ingen fjellovergang
+         a treffe. Da kan stegene vaere store, og treffpunktet finnes med
+         halvering. */
+      let t = hb, z = planumKant;
       const fallPerM = 1 / Math.max(0.02, mal.fylling);
-      const skraning = tt => zKant - (tt - hb) * fallPerM;
+      const skraning = tt => planumKant - (tt - hb) * fallPerM;
       const steg = 0.4;
       let truffet = false;
       while (t < mal.maksSokebredde) {
@@ -443,6 +458,7 @@ function beregnTverrprofil(o) {
 
   let forrige = null;
   let manglerData = false;
+  let forbiKurvesenter = false;
   for (let i = 0; i < offsets.length; i++) {
     const t = offsets[i];
     const zT = terr(t);
@@ -456,7 +472,15 @@ function beregnTverrprofil(o) {
     const zF = fjellflate(t);
     const d = zT - zJ;                       // positiv = skjæring
     const dFjell = Math.max(0, Math.min(zT, zF) - zJ);
-    const naa = { t, d, dFjell, w: 1 + t * kr };
+    /* Pappus-vekten gjelder bare sa lenge stripa ligger pa samme side av
+       kurvesenteret som vegen. Strekker fyllingsfoten seg forbi senteret,
+       blir (1 + t·krumning) negativ, og et areal ville da blitt trukket fra
+       i stedet for lagt til. Da folder tverrsnittene seg over hverandre pa
+       innersida, og det finnes ikke noe entydig volum - vi lar stripa telle
+       null og merker profilet i stedet. */
+    const rawW = 1 + t * kr;
+    if (rawW < 0) forbiKurvesenter = true;
+    const naa = { t, d, dFjell, w: Math.max(0, rawW) };
     if (forrige) {
       const dtI = t - forrige.t;
       // skjæring / fylling med eksakt nullpunkt
@@ -482,8 +506,27 @@ function beregnTverrprofil(o) {
         }
         void wMidt;
       }
-      arealSkjaeringFjell += (forrige.dFjell + naa.dFjell) / 2 * dtI;
-      vSkjaeringFjell += (forrige.dFjell * forrige.w + naa.dFjell * naa.w) / 2 * dtI;
+      /* Fjellandelen ma deles like nøyaktig som skjæringen selv. Med rein
+         trapes over knekken der fjellet slipper taket, ble splitten mellom
+         fjell og løsmasse avhengig av hvor fint man delte opp - og fjellet er
+         den dyre posten. */
+      if ((forrige.dFjell > 0) !== (naa.dFjell > 0)) {
+        // fjellet slipper taket et sted inne i intervallet - del der
+        const u = Math.max(0, Math.min(1, forrige.dFjell / (forrige.dFjell - naa.dFjell)));
+        const wMidt = forrige.w + (naa.w - forrige.w) * u;
+        if (forrige.dFjell > 0) {
+          const del = u * dtI, D = forrige.dFjell;
+          arealSkjaeringFjell += 0.5 * D * del;
+          vSkjaeringFjell += D * (2 * forrige.w + wMidt) / 6 * del;
+        } else {
+          const del = (1 - u) * dtI, D = naa.dFjell;
+          arealSkjaeringFjell += 0.5 * D * del;
+          vSkjaeringFjell += D * (wMidt + 2 * naa.w) / 6 * del;
+        }
+      } else {
+        arealSkjaeringFjell += (forrige.dFjell + naa.dFjell) / 2 * dtI;
+        vSkjaeringFjell += (forrige.dFjell * forrige.w + naa.dFjell * naa.w) / 2 * dtI;
+      }
     }
     forrige = naa;
     if (d > maksSkjaering) maksSkjaering = d;
@@ -504,9 +547,11 @@ function beregnTverrprofil(o) {
   // --- Rensk og overbygning -----------------------------------------
   const tR0 = tV - mal.renskUtenfor, tR1 = tH + mal.renskUtenfor;
   const renskBredde = tR1 - tR0;
-  const renskVekt = renskBredde + kr * (tR1 * tR1 - tR0 * tR0) / 2;
-  const arealRensk = mal.renskDybde * renskBredde;
-  const vRensk = mal.renskDybde * renskVekt;
+  // samme klemme som over: vekten kan ikke bli negativ
+  const renskVekt = Math.max(0, renskBredde + kr * (tR1 * tR1 - tR0 * tR0) / 2);
+  // ingen rensk der terrengmodellen ikke har data
+  const arealRensk = manglerData ? 0 : mal.renskDybde * renskBredde;
+  const vRensk = manglerData ? 0 : mal.renskDybde * renskVekt;
 
   const arealSlitelag = mal.slitelagTykkelse * Math.min(mal.slitelagBredde + utvidelse, mal.vegbredde + utvidelse);
   const arealBaerelag = mal.baerelagTykkelse * (mal.vegbredde + utvidelse);
@@ -542,12 +587,15 @@ function beregnTverrprofil(o) {
     sider,
     geometri,
     manglerData,
+    forbiKurvesenter,
     avkortet: avkortetV || avkortetH,
     advarsel: manglerData
       ? 'Terrengmodellen har hull i dette tverrsnittet – volumet er ufullstendig'
-      : ((!sider[-1].truffet || !sider[1].truffet)
-        ? 'Skraningen nadde ikke terrenget innenfor søkebredden'
-        : null)
+      : forbiKurvesenter
+        ? 'Skråningen strekker seg forbi kurvesenteret – volumet her er ikke entydig'
+        : ((!sider[-1].truffet || !sider[1].truffet)
+          ? 'Skraningen nadde ikke terrenget innenfor søkebredden'
+          : null)
   };
 }
 

@@ -77,12 +77,16 @@ const Eksport = {
         </Line>`;
       }
       const a = linje.punktVed(el.s0), b = linje.punktVed(el.s0 + el.lengde);
-      const midt = linje.punktVed(el.s0 + el.lengde / 2);
+      /* PI er tangentskjæringspunktet, altsa selve knekkpunktet - ikke
+         midtpunktet pa buen. Med buemidtpunktet ble geometrien inntil 12 m
+         feil i en krapp sving for lesere som bygger linja opp fra PI. */
+      const kurve = linje.kurver.find(k => Math.abs(k.sBC - el.s0) < 1e-6);
+      const pi = kurve && kurve.ipPunkt ? kurve.ipPunkt : linje.punktVed(el.s0 + el.lengde / 2);
       return `        <Curve rot="${el.tegn > 0 ? 'ccw' : 'cw'}" radius="${el.r.toFixed(4)}" length="${el.lengde.toFixed(4)}" staStart="${el.s0.toFixed(4)}">
           <Start>${nk(a)}</Start>
           <Center>${nk({ x: el.cx, y: el.cy })}</Center>
           <End>${nk(b)}</End>
-          <PI>${nk(midt)}</PI>
+          <PI>${nk(pi)}</PI>
         </Curve>`;
     }).join('\n');
 
@@ -91,7 +95,7 @@ const Eksport = {
 
     return `<?xml version="1.0" encoding="UTF-8"?>
 <LandXML xmlns="http://www.landxml.org/schema/LandXML-1.2" version="1.2" date="${nå.slice(0, 10)}" time="${nå.slice(11, 19)}">
-  <Units><Metric linearUnit="meter" areaUnit="squareMeter" volumeUnit="cubicMeter" angularUnit="decimal degrees" directionUnit="decimal degrees"/></Units>
+  <Units><Metric linearUnit="meter" areaUnit="squareMeter" volumeUnit="cubicMeter" temperatureUnit="celsius" pressureUnit="milliBars" angularUnit="decimal degrees" directionUnit="decimal degrees"/></Units>
   <Application name="Massekalk" manufacturer="Hauge Maskin" version="1.0"/>
   <CoordinateSystem epsgCode="${Geo.epsg(app.sone)}" horizontalDatum="ETRS89" verticalDatum="NN2000"/>
   <Alignments name="${this.xml(app.P.navn)}">
@@ -119,10 +123,13 @@ ${pvi}
   sosi(app, res) {
     const punkter = this.punkter(app, res);
     const cm = v => Math.round(v * 100);
+    // omradet ma dekke alt som faktisk star i filen, ikke bare senterlinjen
     let minN = Infinity, maksN = -Infinity, minO = Infinity, maksO = -Infinity;
     for (const p of punkter) {
-      minN = Math.min(minN, p.senter.n); maksN = Math.max(maksN, p.senter.n);
-      minO = Math.min(minO, p.senter.o); maksO = Math.max(maksO, p.senter.o);
+      for (const q of [p.senter, p.venstre, p.hoyre]) {
+        minN = Math.min(minN, q.n); maksN = Math.max(maksN, q.n);
+        minO = Math.min(minO, q.o); maksO = Math.max(maksO, q.o);
+      }
     }
 
     const rader = [];
@@ -140,7 +147,8 @@ ${pvi}
 
     rader.push('.KURVE 1:');
     rader.push('..OBJTYPE Vegsenterlinje');
-    rader.push('..VEGNAVN ' + app.P.navn);
+    // linjeskift i navnet ville brutt SOSI-strukturen
+    rader.push('..VEGNAVN ' + String(app.P.navn).replace(/[\r\n]+/g, ' ').slice(0, 60));
     rader.push('..NØH');
     for (const p of punkter) rader.push(`${cm(p.senter.n)} ${cm(p.senter.o)} ${cm(p.senter.z)}`);
 

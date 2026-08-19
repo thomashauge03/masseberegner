@@ -91,6 +91,10 @@ const Rapport = {
         ? `<div class="sumrad stor"><span>Må kjøres inn</span><span class="verdi merke-varsel">${t(b.manglerTotalt)} m³</span></div>`
         : `<div class="sumrad stor"><span>Overskudd av sprengstein</span><span class="verdi merke-fylling">${t(b.overskuddFjell)} m³</span></div>`}
         <div class="sumrad"><span>Til deponi (rensk + ubrukbar løsmasse)</span><span class="verdi">${t(b.tilDeponi)} m³</span></div>
+        ${b.overskuddLos > 1
+        ? `<div class="sumrad"><span>Brukbar løsmasse til overs</span><span class="verdi">${t(b.overskuddLos)} m³</span></div>`
+        : ''}
+        <div class="sumrad"><small>Til sammen ${t(b.tilDeponi + b.overskuddLos + b.overskuddFjell)} m³ skal ut av anlegget.</small></div>
       </div>
 
       <div class="sumkort">
@@ -477,15 +481,26 @@ Dybden til fjell er den største usikkerheten i sprengningsvolumet.
 </div>
 </body></html>`;
 
+    /* Blokkerer nettleseren nye vinduer, gir window.open null. Da lastes
+       rapporten ned som fil i stedet, sa arbeidet ikke bare forsvinner. */
     const v = window.open('', '_blank');
-    v.document.write(html);
-    v.document.close();
+    if (v && v.document) {
+      v.document.write(html);
+      v.document.close();
+    } else {
+      this.lastNed(app.P.navn.replace(/\W+/g, '_') + '_rapport.html', html, 'text/html;charset=utf-8');
+      app.status('Nettleseren blokkerte nytt vindu – rapporten ble lastet ned som fil i stedet');
+    }
   },
 
   /* ---------------- Eksport ---------------- */
 
   lastNed(navn, innhold, type = 'text/csv;charset=utf-8') {
-    const blob = new Blob(['﻿' + innhold], { type });
+    /* Byte order mark hører til CSV-ene: uten den viser Excel æ, ø og å feil.
+       Foran GeoJSON knekker den JSON.parse, og foran DXF og SOSI star den i
+       veien for lesere som forventer et bestemt første tegn. */
+    const csv = /\.csv$/i.test(navn);
+    const blob = new Blob([(csv ? '﻿' : '') + innhold], { type });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = navn;
@@ -497,16 +512,16 @@ Dybden til fjell er den største usikkerheten i sprengningsvolumet.
     const app = this.app, res = app.resultat;
     if (!res) return alert('Ingen beregning ennå.');
     const rader = ['Profil;Nord;Ost;Z_veg;Z_terreng;VK_nord;VK_ost;VK_z;HK_nord;HK_ost;HK_z'];
-    for (const p of res.profiler) {
-      const vk = app.linje.punktMedAvvik(p.s, -p.halvbredde);
-      const hk = app.linje.punktMedAvvik(p.s, p.halvbredde);
-      const mal = res.mal;
-      const zk = p.vegnivaa - mal.tverrfall * p.halvbredde;
+    /* Samme kilde som rapporten og de andre eksportene bruker. Tidligere ble
+       vegkanthøyden regnet rett fra mal.tverrfall her, som ga samme høyde pa
+       begge sider - galt bade ved ensidig fall, ved egne tverrfall og i
+       kurver som doseres. */
+    for (const r of Eksport.punkter(app, res)) {
       rader.push([
-        p.s.toFixed(2), p.y.toFixed(3), p.x.toFixed(3), p.vegnivaa.toFixed(3),
-        isFinite(p.terrengSenter) ? p.terrengSenter.toFixed(3) : '',
-        vk.y.toFixed(3), vk.x.toFixed(3), zk.toFixed(3),
-        hk.y.toFixed(3), hk.x.toFixed(3), zk.toFixed(3)
+        r.s.toFixed(2), r.senter.n.toFixed(3), r.senter.o.toFixed(3), r.senter.z.toFixed(3),
+        isFinite(r.terreng) ? r.terreng.toFixed(3) : '',
+        r.venstre.n.toFixed(3), r.venstre.o.toFixed(3), r.venstre.z.toFixed(3),
+        r.hoyre.n.toFixed(3), r.hoyre.o.toFixed(3), r.hoyre.z.toFixed(3)
       ].join(';'));
     }
     this.lastNed(this.app.P.navn.replace(/\W+/g, '_') + '_stikning.csv', rader.join('\r\n'));

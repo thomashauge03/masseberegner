@@ -281,12 +281,15 @@ console.log('\n4. Masseberegning mot handregning');
   });
   /* Fyllingsareal for hand, en side.
      Fyllingen blir over 2 m høy, og da krever normalen 0,5 m ekstra
-     veibredde. Halvbredden blir derfor 2,5 m, ikke 2,25 m:
-       vegkant 103 - 0,05·2,5 = 102,875 ; terreng etter rensk 99,80
-       skraning 1:1,5 ned 3,075 m => 4,6125 m ut
+     veibredde. Halvbredden blir derfor 2,5 m, ikke 2,25 m.
+     Skraningen starter i planum, ikke i veikanten - overbygningen er en egen
+     post som legges oppa:
+       planum ved kant 103 - 0,05·2,5 - 0,70 = 102,175
+       terreng etter rensk                    = 99,80
+       skraning 1:1,5 ned 2,375 m            => 3,5625 m ut
        under vegen: ∫0^2,5 (102,30 - 0,05t - 99,80) dt = 6,25 - 0,15625
-       trekant utenfor: 0,5 · 3,075 · 4,6125                                */
-  const fyllEnSide = (2.5 * 2.5 - 0.05 * 2.5 * 2.5 / 2) + 0.5 * 3.075 * 4.6125;
+       trekant utenfor: 0,5 · 2,375 · 3,5625                                */
+  const fyllEnSide = (2.5 * 2.5 - 0.05 * 2.5 * 2.5 / 2) + 0.5 * 2.375 * 3.5625;
   sjekk('fyllingsareal (begge sider)', resF.profiler[0].areal.fylling, 2 * fyllEnSide, 0.02);
   sjekk('ingen skjæring ved ren fylling', resF.sum.skjaering, 0, 1e-6);
   sjekk('høy fylling gir 0,5 m ekstra bredde', resF.profiler[0].utvidelse, 0.5, 1e-9);
@@ -333,6 +336,91 @@ console.log('\n4. Masseberegning mot handregning');
     terreng, mal, fjell, profilAvstand: 5, bakkefaktor: 1.001, integrasjonssteg: 0.02
   });
   sjekk('bakkekorreksjon på volum', resB.sum.skjaering / res.sum.skjaering, 1.001 * 1.001, 1e-6);
+}
+
+/* ------------------------------------------------------------------ */
+console.log('\n4a. Feil som er funnet og rettet');
+{
+  /* Et knekkpunkt uten kurve ble stille hoppet over, og linja skar rett over
+     hjørnet. En trasé med radius 0 pa ett innvendig punkt kunne passere
+     titalls meter fra der brukeren hadde tegnet den. */
+  const skarp = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 100, y: 0, r: 0 }, { x: 100, y: 100, r: 0 }]);
+  sjekk('skarp knekk gir full lengde', skarp.lengde, 200, 1e-9);
+  const hjornet = skarp.punktVed(100);
+  sjekk('linja gar gjennom knekkpunktet, ikke over det', Math.hypot(hjornet.x - 100, hjornet.y - 0), 0, 1e-6);
+
+  const blandet = new Linjeforing([
+    { x: 0, y: 0, r: 0 }, { x: 100, y: 0, r: 20 }, { x: 100, y: 100, r: 0 }, { x: 200, y: 100, r: 0 }
+  ]);
+  const ventet = (100 - 20) + 20 * Math.PI / 2 + (100 - 20) + 100;
+  sjekk('kurve og skarp knekk om hverandre', blandet.lengde, ventet, 1e-6);
+
+  // To sammenfallende punkt skal ikke sluke naboene sine
+  const dobbelt = new Linjeforing([
+    { x: 0, y: 0, r: 0 }, { x: 100, y: 0, r: 0 }, { x: 100, y: 0, r: 0 }, { x: 100, y: 100, r: 0 }
+  ]);
+  sjekk('sammenfallende punkt gir fortsatt riktig lengde', dobbelt.lengde, 200, 1e-6);
+
+  /* Pappus-vekten (1 + t·krumning) blir negativ forbi kurvesenteret. Da ble
+     et areal trukket fra i stedet for lagt til, og et fyllingsareal pa 36 m²
+     kom ut som −0,3 m². */
+  const krapp = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 60, y: 0, r: 12 }, { x: 60, y: 60, r: 0 }]);
+  const li = { z: (x, y) => 100 + 0.55 * y };
+  const mal = Object.assign({}, M.StandardMal, { maksSokebredde: 45, ekstraBredde: null });
+  const vipK = [];
+  for (let s = 0; s <= krapp.lengde; s += 5) {
+    const q = krapp.punktVed(Math.min(s, krapp.lengde));
+    vipK.push({ s: Math.min(s, krapp.lengde), z: li.z(q.x, q.y) - 2, k: 0 });
+  }
+  const rKrapp = M.beregnMasser({
+    linje: krapp, profil: new Vertikalprofil(vipK), terreng: li, mal,
+    fjell: new M.Fjellmodell({ standarddybde: 5 }), profilAvstand: 5, bakkefaktor: 1
+  });
+  paastand('ingen negative vektede arealer i krapp kurve',
+    rKrapp.profiler.every(p => p.vektet.fylling >= -1e-9 && p.vektet.skjaering >= -1e-9));
+  paastand('ingen negative volum', Object.values(rKrapp.sum).every(v => v >= -1e-9));
+
+  /* Jordarbeidsflaten var diskontinuerlig i skjæring/fylling-skillet:
+     fyllingssida startet 0,70 m høyere enn skjæringssida, sa et profil kunne
+     tredoble fyllingsarealet pa en femtedels millimeter. */
+  const flatt = { z: () => 100 };
+  const rettLinje = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 100, y: 0, r: 0 }]);
+  const areal = z => M.beregnTverrprofil({
+    linje: rettLinje, terreng: flatt, mal, fjell: new M.Fjellmodell({ standarddybde: 9 }),
+    s: 50, vegnivaa: z, utvidelse: 0, integrasjonssteg: 0.02
+  });
+  /* Malt som endring i endringstakten: et sprang i selve flaten viser seg som
+     et hopp her, mens en jevn overgang gir sma tall. Før rettingen hoppet
+     fyllingsarealet 0,736 m² i ett eneste 0,02 m steg. */
+  const totalt = z => { const r = areal(z); return r.areal.skjaering + r.areal.fylling; };
+  let verstHopp = 0;
+  for (let z = 99.9; z <= 100.9; z += 0.02) {
+    const takt1 = totalt(z) - totalt(z - 0.02);
+    const takt2 = totalt(z + 0.02) - totalt(z);
+    verstHopp = Math.max(verstHopp, Math.abs(takt2 - takt1));
+  }
+  paastand('overgangen skjæring/fylling er sammenhengende', verstHopp < 0.10, 'verste sprang ' + verstHopp.toFixed(4));
+
+  /* Fjell/løsmasse-splitten skal ikke henge pa hvor fint man deler opp. */
+  const sideli = { z: (x, y) => 100 + y / 3 };
+  const vipS = [];
+  for (let s = 0; s <= 100; s += 5) vipS.push({ s, z: 100, k: 0 });
+  const splitt = steg => M.beregnMasser({
+    linje: rettLinje, profil: new Vertikalprofil(vipS), terreng: sideli, mal,
+    fjell: new M.Fjellmodell({ standarddybde: 0.5 }), profilAvstand: 5,
+    integrasjonssteg: steg, bakkefaktor: 1
+  }).sum.skjaeringFjell;
+  const standard = splitt(0.1), fin = splitt(0.02);
+  paastand('fjellandelen er stabil ved standard oppløsning',
+    Math.abs(standard - fin) / Math.max(1, fin) < 0.005, `0,1 m: ${standard.toFixed(1)}  0,02 m: ${fin.toFixed(1)}`);
+
+  // Rensk skal ikke faktureres der terrengmodellen ikke har data
+  const utenData = M.beregnMasser({
+    linje: rettLinje, profil: new Vertikalprofil([{ s: 0, z: 100, k: 0 }, { s: 100, z: 100, k: 0 }]),
+    terreng: { z: () => NaN }, mal, fjell: new M.Fjellmodell({ standarddybde: 5 }),
+    profilAvstand: 10, bakkefaktor: 1
+  });
+  sjekk('ingen rensk uten terrengdata', utenData.sum.rensk, 0, 1e-9);
 }
 
 /* ------------------------------------------------------------------ */
@@ -510,10 +598,10 @@ console.log('\n6a. Avkortet beregningsbredde');
     fjell, profilAvstand: 25, bakkefaktor: 1
   });
 
-  const bredde = utenGrense.profiler[1].fotHoyre - utenGrense.profiler[1].halvbredde;
-  paastand('uten grense gar skraningen langt ut', bredde > 5);
+  const utslag = pr => Math.max(-pr.fotVenstre, pr.fotHoyre) - pr.halvbredde;
+  paastand('uten grense gar skraningen langt ut', utslag(utenGrense.profiler[1]) > 5);
   paastand('med grense stopper profilet ved grensen',
-    medGrense.profiler[1].fotHoyre <= medGrense.profiler[1].halvbredde + 5.0001);
+    utslag(medGrense.profiler[1]) <= 5.0001);
   paastand('avkortet volum er mindre', medGrense.sum.skjaering < utenGrense.sum.skjaering);
   paastand('avkortede profiler blir merket',
     medGrense.antallAvkortet > 0 && medGrense.merknader.some(m => m.type === 'avkortet'));

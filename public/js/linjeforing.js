@@ -71,7 +71,23 @@ class Linjeforing {
     let s = 0;
     let fra = { x: P[0].x, y: P[0].y };
     for (let i = 1; i < nP - 1; i++) {
-      if (!data[i] || tangent[i] <= 1e-9) continue;
+      /* Et knekkpunkt uten kurve er en skarp knekk - linja skal fortsatt gå
+         gjennom punktet. Uten dette ble punktet stille hoppet over, og linja
+         skar rett over hjørnet: en trasé med radius 0 pa ett innvendig punkt
+         kunne passere titalls meter fra der brukeren hadde tegnet den, uten
+         at noe sa ifra. */
+      if (!data[i] || tangent[i] <= 1e-9) {
+        const rett = avstand(fra, P[i]);
+        if (rett > 1e-9) {
+          this.elementer.push({
+            type: 'linje', x1: fra.x, y1: fra.y, x2: P[i].x, y2: P[i].y,
+            s0: s, lengde: rett, retning: Math.atan2(P[i].y - fra.y, P[i].x - fra.x)
+          });
+          s += rett;
+          fra = { x: P[i].x, y: P[i].y };
+        }
+        continue;
+      }
       const { inn, ut, avbøy } = data[i];
       const T = tangent[i];
       const R = T / Math.tan(Math.abs(avbøy) / 2);
@@ -88,7 +104,11 @@ class Linjeforing {
       const a0 = Math.atan2(BC.y - senter.y, BC.x - senter.x);
       const buelengde = R * Math.abs(avbøy);
       this.elementer.push({ type: 'kurve', cx: senter.x, cy: senter.y, r: R, a0, tegn, s0: s, lengde: buelengde });
-      this.kurver.push({ ip: i, r: R, tangent: T, avbøy, sBC: s, sEC: s + buelengde, BC, EC, tegn });
+      this.kurver.push({
+        ip: i, r: R, tangent: T, avbøy, sBC: s, sEC: s + buelengde, BC, EC, tegn,
+        // selve knekkpunktet, der tangentene møtes - brukes av LandXML-eksporten
+        ipPunkt: { x: P[i].x, y: P[i].y }
+      });
       s += buelengde;
       fra = EC;
     }

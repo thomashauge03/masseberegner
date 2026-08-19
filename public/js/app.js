@@ -62,6 +62,7 @@ const App = {
     Lengdeprofil.init(this);
     Tverrprofil.init(this);
     Rapport.init(this);
+    PdfUI.init(this);
     this.koblingerUI();
     this.malTilSkjema();
     this.tegnAlt();
@@ -85,21 +86,36 @@ const App = {
     return new Promise(løs => {
       const boks = document.getElementById('dialog');
       const innhold = document.getElementById('dialoginnhold');
+      const lukkeknapp = document.getElementById('dialogLukk');
       document.getElementById('dialogtittel').textContent = 'Bekreft';
-      innhold.innerHTML = `<p class="notis" style="font-size:13px">${tekst}</p>
+      innhold.innerHTML = `<p class="notis" style="font-size:13px">${escapeHtml(tekst)}</p>
         <div class="knapperad" style="justify-content:flex-end">
           <button class="knapp" id="bekreftNei">Avbryt</button>
-          <button class="knapp primaer" id="bekreftJa">${jaTekst}</button>
+          <button class="knapp primaer" id="bekreftJa">${escapeHtml(jaTekst)}</button>
         </div>`;
+
+      let avgjort = false;
       const lukk = svar => {
+        if (avgjort) return;
+        avgjort = true;
         boks.classList.add('skjult');
         document.removeEventListener('keydown', taste);
+        lukkeknapp.onclick = gammelLukk;
         løs(svar);
       };
       const taste = e => {
+        // Enter i et skrivefelt hører til feltet, ikke til dialogen
+        if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
         if (e.key === 'Escape') lukk(false);
         if (e.key === 'Enter') lukk(true);
       };
+      /* Lukkeknappen i dialoghodet ma ogsa svare. Uten dette ble løftet
+         staende uløst og tastelytteren hengende igjen - og et tilfeldig
+         Enter langt senere kunne fullføre en sletting brukeren hadde
+         avbrutt. */
+      const gammelLukk = lukkeknapp.onclick;
+      lukkeknapp.onclick = () => lukk(false);
+
       innhold.querySelector('#bekreftJa').onclick = () => lukk(true);
       innhold.querySelector('#bekreftNei').onclick = () => lukk(false);
       document.addEventListener('keydown', taste);
@@ -108,13 +124,25 @@ const App = {
     });
   },
 
-  /** Tømmer alle panelene. Brukes nar et prosjekt legges bort. */
+  /**
+   * Tømmer alle panelene. Brukes nar et prosjekt legges bort.
+   *
+   * Alt som hører til det forrige prosjektet ma bort her. Sto for eksempel
+   * angre-listen for sidelengs flytting igjen, kunne et klikk pa «Angre»
+   * skrive forrige prosjekts koordinater inn i det nye.
+   */
   tomPaneler() {
     this.resultat = null;
     this.terrengProfil = null;
     this.vprofil = null;
+    this.linje = null;
     this._terrengnokkel = '';
     this.tverrStasjon = 0;
+    this.flyttingsliste = [];
+    this._ipForFlytting = null;
+    this.skogdekke = null;
+    this._dom = null;
+    this.profilManuelt = false;
     Rapport.visSammendrag(null);
     Tverrprofil.vis(null);
     Kart.lag.venstreFot.setLatLngs([]);
@@ -122,6 +150,7 @@ const App = {
     Kart.lag.vegkant.clearLayers();
     Kart.lag.stasjoner.clearLayers();
     Kart.lag.markorPos.clearLayers();
+    this.byggLinje();          // før tabellen tegnes, ellers viser den gammel lengde
     this.visHoydetabell();
     this.visLinjetabell();
     Lengdeprofil.tegn();
@@ -173,11 +202,17 @@ const App = {
     }
     const nokkel = this.P.ip.map(p => `${p.lat.toFixed(6)},${p.lon.toFixed(6)},${p.r}`).join('|') + '#' + this.korridorbredde();
     if (nokkel === this._terrengnokkel) return;
+    /* Framdriftsboksen dekker hele skjermen. Blir den staende fordi noe
+       kastet underveis, er programmet last til man laster pa nytt - derfor
+       ryddes den i finally, ikke etter kallet. */
     this.framdrift(true, 'Henter terrengdata fra Kartverket…', 0);
-    await this.terreng.lastKorridor(this.linje, this.korridorbredde(), (f, t) => {
-      this.framdrift(true, `Henter terrengdata fra Kartverket… ${f}/${t}`, t ? f / t : 1);
-    });
-    this.framdrift(false);
+    try {
+      await this.terreng.lastKorridor(this.linje, this.korridorbredde(), (f, t) => {
+        this.framdrift(true, `Henter terrengdata fra Kartverket… ${f}/${t}`, t ? f / t : 1);
+      });
+    } finally {
+      this.framdrift(false);
+    }
     this._terrengnokkel = nokkel;
     if (this.terreng.mangler.size) {
       this.status(`⚠ Fikk ikke ${this.terreng.mangler.size} av ${this.terreng.fliser.size + this.terreng.mangler.size} terrengfliser – deler av traseen mangler data`);
@@ -345,12 +380,15 @@ const App = {
         return { x: u.x, y: u.y, dybde: Math.max(0, p.dybde + tillegg) };
       })
     });
+    /* Samme oppløsning som hovedberegningen. Med grovere innstillinger her
+       ble «Sprengning nå» i usikkerhetsboksen et litt annet tall enn
+       sprengningen i sammendraget for samme prosjekt, og da er det ikke til
+       a stole pa noen av dem. */
     const kjor = fjell => beregnMasser({
       linje: this.linje, profil: this.vprofil, terreng: this.terreng,
       mal: this.P.mal, fjell, faktorer: this.P.faktorer,
       tverrfallOverstyring: this.P.tverrfall,
-      profilAvstand: Math.max(this.P.profilAvstand, 10),
-      integrasjonssteg: 0.25,
+      profilAvstand: this.P.profilAvstand,
       bakkefaktor: this.bakkefaktor()
     });
     try {
@@ -382,10 +420,13 @@ const App = {
       this._dom = new Terreng(this.sone, this.terreng.res, 'dom');
     }
     this.framdrift(true, 'Henter overflatemodellen…', 0.2);
-    await this._dom.lastKorridor(this.linje, this.korridorbredde(), (f, t) => {
-      this.framdrift(true, `Henter overflatemodellen… ${f}/${t}`, t ? f / t : 1);
-    });
-    this.framdrift(false);
+    try {
+      await this._dom.lastKorridor(this.linje, this.korridorbredde(), (f, t) => {
+        this.framdrift(true, `Henter overflatemodellen… ${f}/${t}`, t ? f / t : 1);
+      });
+    } finally {
+      this.framdrift(false);
+    }
 
     let sum = 0, n = 0, over2 = 0, over5 = 0, maks = 0;
     const bredde = (this.P.mal.vegbredde || 4.5) / 2 + 8;
@@ -508,19 +549,23 @@ const App = {
     };
 
     this.framdrift(true, modus === 'inngrep' ? 'Legger veien tettest mulig på terrenget…' : 'Retter profilen…', 0.15);
-    await pause();
-
-    const mal = this.P.mal;
-    rettProfil(this.P.vip, {
-      maksStigningFor: (sA, sB, g) => this.tillattStigning(sA, sB, g),
-      maksOverTerreng: mal.maksFyllingshoyde > 0 ? mal.maksFyllingshoyde : null,
-      maksUnderTerreng: mal.maksSkjaeringsdybde > 0 ? mal.maksSkjaeringsdybde : null,
-      terrengVed: lagTerrengoppslag(this.terrengProfil.s, this.terrengProfil.z)
-    });
-    this.profilManuelt = true;
-    this.beregn();
-
-    await this.optimaliser(true, modus);
+    try {
+      await pause();
+      const mal = this.P.mal;
+      rettProfil(this.P.vip, {
+        maksStigningFor: (sA, sB, g) => this.tillattStigning(sA, sB, g),
+        maksOverTerreng: mal.maksFyllingshoyde > 0 ? mal.maksFyllingshoyde : null,
+        maksUnderTerreng: mal.maksSkjaeringsdybde > 0 ? mal.maksSkjaeringsdybde : null,
+        terrengVed: lagTerrengoppslag(this.terrengProfil.s, this.terrengProfil.z)
+      });
+      this.beregn();
+      await this.optimaliser(true, modus);
+    } catch (e) {
+      this.status('Rettingen feilet: ' + e.message);
+      return;
+    } finally {
+      this.framdrift(false);
+    }
 
     const bruddEtter = this.tellBrudd(this.vprofil);
     const igjen = bruddEtter ? bruddEtter.totalt : 0;
@@ -553,31 +598,35 @@ const App = {
       return;
     }
     this.framdrift(true, 'Finner høyden som gir massebalanse…', 0.1);
-    await pause();
-    const grunn = this.P.vip.map(v => ({ s: v.s, z: v.z, k: v.k, laast: v.laast }));
-    // Laste høyder blir liggende; bare de andre løftes eller senkes
-    const flytt = (liste, d) => liste.map(v => ({ s: v.s, z: v.laast ? v.z : v.z + d, k: v.k }));
-    const verdi = d => this.beregnRaskt(flytt(grunn, d)).balanse.balanse;
-    let lo = -8, hi = 8;
-    let vLo = verdi(lo), vHi = verdi(hi);
-    let d;
-    if (vLo * vHi > 0) {
-      // ingen fortegnsskifte - velg endepunktet nærmest balanse
-      d = Math.abs(vLo) < Math.abs(vHi) ? lo : hi;
-    } else {
-      for (let i = 0; i < 26; i++) {
-        const midt = (lo + hi) / 2;
-        const vM = verdi(midt);
-        if (vLo * vM <= 0) { hi = midt; vHi = vM; } else { lo = midt; vLo = vM; }
-        this.framdrift(true, 'Finner høyden som gir massebalanse…', 0.1 + 0.9 * i / 26);
-        if (i % 6 === 0) await pause();
+    try {
+      await pause();
+      const grunn = this.P.vip.map(v => ({ s: v.s, z: v.z, k: v.k, laast: v.laast }));
+      // Laste høyder blir liggende; bare de andre løftes eller senkes
+      const flytt = (liste, d) => liste.map(v => ({ s: v.s, z: v.laast ? v.z : v.z + d, k: v.k }));
+      const verdi = d => this.beregnRaskt(flytt(grunn, d)).balanse.balanse;
+      let lo = -8, hi = 8;
+      let vLo = verdi(lo), vHi = verdi(hi);
+      let d;
+      if (vLo * vHi > 0) {
+        // ingen fortegnsskifte - velg endepunktet nærmest balanse
+        d = Math.abs(vLo) < Math.abs(vHi) ? lo : hi;
+      } else {
+        for (let i = 0; i < 26; i++) {
+          const midt = (lo + hi) / 2;
+          const vM = verdi(midt);
+          if (vLo * vM <= 0) { hi = midt; vHi = vM; } else { lo = midt; vLo = vM; }
+          this.framdrift(true, 'Finner høyden som gir massebalanse…', 0.1 + 0.9 * i / 26);
+          if (i % 6 === 0) await pause();
+        }
+        d = (lo + hi) / 2;
       }
-      d = (lo + hi) / 2;
+      this.P.vip.forEach(v => { if (!v.laast) v.z += d; });
+      this.beregn();
+    } catch (e) {
+      this.status('Massebalanseringen feilet: ' + e.message);
+    } finally {
+      this.framdrift(false);
     }
-    this.P.vip.forEach(v => { if (!v.laast) v.z += d; });
-    this.profilManuelt = true;
-    this.framdrift(false);
-    this.beregn();
   },
 
   async optimaliser(stille, modus) {
@@ -659,9 +708,9 @@ const App = {
       }
       return k;
     };
-    void maksTillatt;
 
     this.framdrift(true, 'Optimaliserer lengdeprofilen…', 0);
+    try {
     await pause();
     let best = V.map(v => ({ s: v.s, z: v.z, k: v.k, laast: v.laast }));
     let bestK = kostnad(best);
@@ -732,8 +781,6 @@ const App = {
     }
 
     this.P.vip = best;
-    this.profilManuelt = true;
-    this.framdrift(false);
     if (flyttet) {
       await this.lastTerreng();
       this.hentTerrengProfil();
@@ -741,7 +788,13 @@ const App = {
       Kart.tegn();
     }
     this.beregn();
-    if (flyttet) this.status(`Optimalisert – ${flyttet} knekkpunkt flyttet sidelengs`);
+    if (flyttet && !stille) this.status(`Optimalisert – ${flyttet} knekkpunkt flyttet sidelengs`);
+    } catch (e) {
+      if (!stille) this.status('Optimaliseringen feilet: ' + e.message);
+      else throw e;
+    } finally {
+      this.framdrift(false);
+    }
   },
 
   /** Setter senterlinjen tilbake dit den la før optimaliseringen flyttet den. */
@@ -842,8 +895,20 @@ const App = {
   },
 
   skjemaTilMal() {
-    const tall = id => parseFloat(document.getElementById(id).value);
     const m = this.P.mal, f = this.P.faktorer, g = this.P.fjell;
+    /* Et tomt eller ugyldig felt ma ikke skrive NaN inn i malen. Det ga
+       stille nullvolum: `while (t < NaN)` kjører aldri, og skjæringen ble 0
+       uten at noe sa ifra at grunnlaget var ødelagt. Verdien som sto der fra
+       før beholdes i stedet, og feltet settes tilbake til den. */
+    const tall = id => {
+      const felt = document.getElementById(id);
+      const v = parseFloat(felt.value);
+      if (isFinite(v)) return v;
+      const gammel = m[id.replace(/^m_/, '')] ?? f[id.replace(/^f_/, '')] ?? g[id.replace(/^g_/, '')];
+      if (isFinite(gammel)) { felt.value = gammel; return gammel; }
+      felt.value = 0;
+      return 0;
+    };
     m.vegbredde = tall('m_vegbredde');
     m.tverrfall = tall('m_tverrfall') / 100;
     m.tverrfallType = document.getElementById('m_tverrfallType').value;
@@ -969,8 +1034,18 @@ const App = {
 
   /* ---------------- punkthøyder i tverrprofilet ---------------- */
 
-  /** Fallet som gjelder i et profilnummer, enten fra malen eller overstyrt. */
-  fallVed(s) { return tverrfallVed(this.P.mal, this.P.tverrfall, s); },
+  /**
+   * Fallet som gjelder i et profilnummer, enten fra malen eller overstyrt.
+   *
+   * Krumningen ma vaere med: i kurver under 60 m radius doserer normalen
+   * ensidig, og da har den ene sida motsatt fortegn. Uten krumningen ville
+   * vegkanthøydene i alle krappe kurver blitt feil - bade i feltene over
+   * tverrprofilet, i stikningstabellen og i alt som eksporteres.
+   */
+  fallVed(s) {
+    const kr = this.linje && this.linje.lengde > 0 ? this.linje.punktVed(s).krumning : 0;
+    return tverrfallVed(this.P.mal, this.P.tverrfall, s, kr);
+  },
 
   visPunkthoyder(pr) {
     const v = document.getElementById('tp_venstre');
@@ -1232,7 +1307,7 @@ const App = {
       </div>
       ${liste.length
         ? liste.map(p => `<div class="rad">
-            <span data-navn="${escapeAttr(p.navn)}">${p.navn}<br><small style="color:#97a5b6">${new Date(p.endret).toLocaleString('nb-NO')}</small></span>
+            <span data-navn="${escapeAttr(p.navn)}">${escapeHtml(p.navn)}<br><small style="color:#97a5b6">${new Date(p.endret).toLocaleString('nb-NO')}</small></span>
             <button class="knapp" data-eksport="${escapeAttr(p.navn)}">Eksporter</button>
             <button class="knapp" data-slett="${escapeAttr(p.navn)}">Slett</button>
           </div>`).join('')
@@ -1271,8 +1346,15 @@ const App = {
   },
 
   async apne(navn) {
-    const d = await Lager.hent(navn);
-    if (!d) return;
+    let d;
+    try {
+      d = await Lager.hent(navn);
+    } catch (e) {
+      this.status('Klarte ikke åpne «' + navn + '»: ' + e.message);
+      return;
+    }
+    if (!d) { this.status('Fant ikke prosjektet «' + navn + '»'); return; }
+    this.tomPaneler();       // alt fra forrige prosjekt ma bort først
     this.P = this.moderniserProsjekt(Object.assign(this.nyttProsjekt(), d));
     this.P.mal = Object.assign({}, StandardMal, this.P.mal || {});
     this.P.faktorer = Object.assign({}, StandardFaktorer, d.faktorer || {});
@@ -1437,11 +1519,12 @@ const App = {
     });
 
     document.addEventListener('keydown', e => {
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+      // Ctrl+S skal virke ogsa rett etter at man har skrevet prosjektnavnet
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); this.lagre(); return; }
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
       if (e.key === 'Escape') { Kart.settModus('rediger'); if (this._nullstillVisning) this._nullstillVisning(); }
       if (e.key === 'ArrowRight') Tverrprofil.flytt(1);
       if (e.key === 'ArrowLeft') Tverrprofil.flytt(-1);
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); this.lagre(); }
     });
   }
 };
@@ -1455,7 +1538,12 @@ function lesPar(tekst, skala) {
   }
   return par.length ? par.sort((a, b) => a[0] - b[0]) : null;
 }
-function escapeAttr(s) { return String(s).replace(/"/g, '&quot;'); }
+function escapeAttr(s) { return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;'); }
+/* Prosjektnavn kan komme fra en fil en kollega har sendt, og ma derfor
+   behandles som tekst - ikke som markup. */
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
 /**
  * Slipper til tegningen mellom tunge runder.
  *
