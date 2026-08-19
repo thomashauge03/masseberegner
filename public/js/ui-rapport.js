@@ -108,6 +108,9 @@ const Rapport = {
         <div class="sumrad"><span>Lengdekorreksjon</span><span class="verdi"><small>${res.bakkefaktor === 1 ? 'av' : '×' + res.bakkefaktor.toFixed(6)}</small></span></div>
       </div>`;
 
+    const skogknapp = boks.querySelector('#sjekkSkog');
+    if (skogknapp) skogknapp.onclick = () => this.app.sjekkSkogdekke();
+
     // Hjelpetekstene folder seg ut der de hører hjemme, ikke i et eget vindu
     boks.querySelectorAll('.hjelpknapp').forEach(kn => {
       kn.onclick = () => {
@@ -124,6 +127,28 @@ const Rapport = {
    * forskjellen mellom graving og sprengning, og er derfor det eneste tallet
    * som virkelig kan velte et anbud. Her vises hva et halvmetersbom betyr.
    */
+  /**
+   * Skogdekket langs traseen.
+   *
+   * Terrengmodellen er laget av laserpulser som ma na helt ned til bakken.
+   * Star det tett skog, slipper fa av dem gjennom, og høyden er interpolert
+   * mellom spredte treff i stedet for malt. Det er den viktigste grunnen til
+   * at terrenghøyden kan bomme - og den kan males.
+   */
+  skograd() {
+    const s = this.app.skogdekke;
+    if (!s) {
+      return `<div class="sumrad"><span><button class="minilenke" id="sjekkSkog">Sjekk skogdekket langs traseen</button></span>
+              <span class="verdi"><small>ikke målt</small></span></div>`;
+    }
+    const tett = s.andelOver5 > 0.25;
+    return `<div class="sumrad"><span>Skog over traseen</span>
+        <span class="verdi ${tett ? 'merke-varsel' : ''}">${(s.andelOver5 * 100).toFixed(0)} % over 5 m</span></div>
+      <div class="sumrad"><small>Snitt ${s.snitt.toFixed(1)} m, høyeste ${s.maks.toFixed(0)} m.
+        ${tett ? 'Under tett skog når laseren dårligere ned, så terrenghøyden her er mer usikker enn på åpen mark.'
+        : 'Stort sett åpent – gode forhold for laserdata.'}</small></div>`;
+  },
+
   usikkerhetKort(res) {
     const u = res.usikkerhet;
     if (!u) return '';
@@ -135,6 +160,7 @@ const Rapport = {
         <h4>Hvor sikre er tallene</h4>
         <div class="sumrad"><span>Terrenghøyder</span><span class="verdi merke-fylling">Målt</span></div>
         <div class="sumrad"><small>Kartverket DTM1, kontrollert mot deres eget API</small></div>
+        ${this.skograd()}
         <div class="strek"></div>
         <div class="sumrad"><span>Dybde til fjell</span><span class="verdi ${antallObs ? '' : 'merke-varsel'}">${antallObs ? antallObs + ' observasjoner' : 'Kun anslag'}</span></div>
         <div class="sumrad"><span>Sprengning ved 0,5 m grunnere fjell</span><span class="verdi">${t(u.fjellGrunnere)} m³</span></div>

@@ -219,13 +219,20 @@ function rettProfil(vip, opsjoner = {}) {
   for (let runde = 0; runde < 2000; runde++) {
     let verstBrudd = 0;
 
+    /* Avstanden til terrenget dras bare halvveis inn hver runde, mens
+       stigningskravet settes helt.
+       Grunnen: stigningen er et krav fra veinormalen, mens fyllingsgrensen er
+       var egen mening om hva som er verdt a bygge. Nar de star mot hverandre
+       - som i en bratt li der veien ma brues over en søkk - ma stigningen
+       vinne, ellers ender man med en veg som verken er lovlig eller billig.
+       Det som ikke gar opp kommer som merknad i stedet. */
     if (terrengVed && (maksOver != null || maksUnder != null)) {
       for (const v of vip) {
         if (v.laast) continue;
         const t = terrengVed(v.s);
         if (!isFinite(t)) continue;
-        if (maksOver != null && v.z - t > maksOver) { v.z = t + maksOver; verstBrudd = Math.max(verstBrudd, 1); }
-        if (maksUnder != null && t - v.z > maksUnder) { v.z = t - maksUnder; verstBrudd = Math.max(verstBrudd, 1); }
+        if (maksOver != null && v.z - t > maksOver) { v.z -= (v.z - t - maksOver) * 0.5; verstBrudd = Math.max(verstBrudd, 1); }
+        if (maksUnder != null && t - v.z > maksUnder) { v.z += (t - v.z - maksUnder) * 0.5; verstBrudd = Math.max(verstBrudd, 1); }
       }
     }
 

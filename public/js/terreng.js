@@ -14,10 +14,17 @@ const FLIS_M = 256;
 
 /**
  * Flisene har svaert lang levetid i hurtigbufferen, bade hos Vercel og i
- * nettleseren. Derfor ma dette tallet økes hver gang formatet endres -
- * ellers ville gamle, bufrede fliser blitt tolket som det nye formatet.
+ * nettleseren.
+ *
+ * Dette tallet ma økes hver gang *innholdet* bak en adresse endrer seg - ikke
+ * bare nar formatet gjør det. Da overflatemodellen ble lagt til, rakk en feil
+ * versjon a bli bufret i et helt ar før den var riktig, og med "immutable"
+ * ville den aldri blitt hentet pa nytt.
+ *
+ *   2: fliser pakket som centimeter over et nullniva
+ *   3: egen adresse for overflatemodellen (modell=dom)
  */
-const FLIS_VERSJON = 2;
+const FLIS_VERSJON = 3;
 
 /**
  * Pakker ut en flis fra serveren.
@@ -42,10 +49,12 @@ function pakkOppFlis(arrayBuffer) {
 }
 
 class Terreng {
-  constructor(sonenr, oppløsning = 1) {
+  /** @param {string} [modell] 'dtm' (terreng) eller 'dom' (overflate med vegetasjon) */
+  constructor(sonenr, oppløsning = 1, modell = 'dtm') {
     this.sone = sonenr;
     this.sr = 25800 + sonenr;   // ETRS89 / UTM (EPSG 25832, 25833, 25835)
     this.res = oppløsning;                 // meter per piksel
+    this.modell = modell;
     this.P = Math.round(FLIS_M / this.res); // piksler per flis
     this.fliser = new Map();
     this.mangler = new Set();
@@ -87,7 +96,8 @@ class Terreng {
         const k = liste[i++];
         const [tx, ty] = k.split('_').map(Number);
         try {
-          const svar = await fetch(`api/dtm/flis?sr=${this.sr}&tx=${tx}&ty=${ty}&res=${this.res}&v=${FLIS_VERSJON}`);
+          const svar = await fetch(`api/dtm/flis?sr=${this.sr}&tx=${tx}&ty=${ty}&res=${this.res}`
+            + `&modell=${this.modell}&v=${FLIS_VERSJON}`);
           if (!svar.ok) throw new Error('HTTP ' + svar.status);
           this.fliser.set(k, pakkOppFlis(await svar.arrayBuffer()));
         } catch (e) {

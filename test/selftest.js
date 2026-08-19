@@ -517,6 +517,51 @@ console.log('\n6b. Eget tverrfall per profil');
 }
 
 /* ------------------------------------------------------------------ */
+console.log('\n6c. Avlesning av PDF');
+{
+  const Pdf = require(path.join(__dirname, '..', 'public', 'js', 'pdfimport.js'));
+
+  // Transformasjonsmatrisen ma sla inn pa punktene
+  const baner = Pdf.tolkBaner('q 1 0 0 1 100 200 cm 0 0 m 10 5 l 20 3 l S Q 50 50 m 60 60 l S');
+  sjekk('to baner tolket', baner.length, 2, 0);
+  sjekk('cm forskyver x', baner[0][0].x, 100, 1e-9);
+  sjekk('cm forskyver y', baner[0][0].y, 200, 1e-9);
+  sjekk('punkt etter forskyvning', baner[0][2].x, 120, 1e-9);
+  paastand('Q gjenoppretter matrisen', Math.abs(baner[1][0].x - 50) < 1e-9);
+
+  const skalert = Pdf.tolkBaner('q 2 0 0 3 0 0 cm 5 7 m 10 9 l S Q');
+  sjekk('cm skalerer x', skalert[0][0].x, 10, 1e-9);
+  sjekk('cm skalerer y', skalert[0][0].y, 21, 1e-9);
+
+  // Kandidater: bare brede linjer som gar mot høyre
+  const framover = [], bakover = [], kort = [];
+  for (let i = 0; i < 30; i++) {
+    framover.push({ x: i * 5, y: 10 + Math.sin(i) });
+    bakover.push({ x: (29 - i) * 5, y: 10 });
+    if (i < 20) kort.push({ x: i * 0.5, y: 10 });
+  }
+  const k = Pdf.kandidater([framover, bakover, kort]);
+  sjekk('bare den ene banen er kandidat', k.length, 1, 0);
+  paastand('det er den som gar framover', k[0].bane === framover);
+
+  /* Omregningen: to referansepunkt gir malestokk og forskyvning i hver
+     retning. Med en rett linje ma svaret bli nøyaktig. */
+  const rett = [];
+  for (let i = 0; i <= 20; i++) rett.push({ x: i * 10, y: i * 2 });
+  const r = Pdf.tilHoyder(rett, [{ pdfX: 0, pdfY: 0, s: 0, z: 100 }, { pdfX: 200, pdfY: 40, s: 400, z: 140 }], 50);
+  sjekk('første profilnummer', r.punkt[0].s, 0, 1e-9);
+  sjekk('siste profilnummer', r.punkt[r.punkt.length - 1].s, 400, 1e-9);
+  let verst = 0;
+  for (const p of r.punkt) verst = Math.max(verst, Math.abs(p.z - (100 + p.s / 10)));
+  sjekk('høydene treffer eksakt på en rett linje', verst, 0, 1e-6);
+
+  const snudd = Pdf.tilHoyder(rett, [{ pdfX: 0, pdfY: 40, s: 0, z: 100 }, { pdfX: 200, pdfY: 0, s: 400, z: 140 }], 100);
+  paastand('snudd høydeakse gir synkende høyder', snudd.punkt[0].z > snudd.punkt[snudd.punkt.length - 1].z);
+  paastand('like x-verdier avvises',
+    Pdf.tilHoyder(rett, [{ pdfX: 5, pdfY: 0, s: 0, z: 100 }, { pdfX: 5, pdfY: 40, s: 400, z: 140 }], 50) === null);
+}
+
+/* ------------------------------------------------------------------ */
 (async () => {
   console.log('\n7. Pakking av terrengfliser');
   {

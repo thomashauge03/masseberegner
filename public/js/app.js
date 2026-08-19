@@ -366,6 +366,53 @@ const App = {
     } catch (e) { return null; }
   },
 
+  /**
+   * Måler skogdekket langs traseen.
+   *
+   * Terrengmodellen er laget av laserpulser som ma na helt ned til bakken.
+   * Under tett skog slipper fa av dem gjennom, og da er terrenghøyden
+   * interpolert mellom spredte treff i stedet for malt. Overflatemodellen tar
+   * med trærne, sa forskjellen mellom de to er vegetasjonshøyden - og den er
+   * det beste malet vi har pa hvor godt laseren har naadd ned akkurat her.
+   */
+  async sjekkSkogdekke() {
+    if (!this.linje || this.linje.lengde <= 0 || !this.terreng) return null;
+    if (!this._dom || this._dom.sone !== this.sone) {
+      this._dom = new Terreng(this.sone, this.terreng.res, 'dom');
+    }
+    this.framdrift(true, 'Henter overflatemodellen…', 0.2);
+    await this._dom.lastKorridor(this.linje, this.korridorbredde(), (f, t) => {
+      this.framdrift(true, `Henter overflatemodellen… ${f}/${t}`, t ? f / t : 1);
+    });
+    this.framdrift(false);
+
+    let sum = 0, n = 0, over2 = 0, over5 = 0, maks = 0;
+    const bredde = (this.P.mal.vegbredde || 4.5) / 2 + 8;
+    for (let s = 0; s <= this.linje.lengde; s += 2) {
+      for (let t = -bredde; t <= bredde; t += 2) {
+        const p = this.linje.punktMedAvvik(s, t);
+        const bakke = this.terreng.z(p.x, p.y);
+        const topp = this._dom.z(p.x, p.y);
+        if (!isFinite(bakke) || !isFinite(topp)) continue;
+        const h = topp - bakke;
+        if (h < -1) continue;
+        sum += h; n++;
+        if (h > 2) over2++;
+        if (h > 5) over5++;
+        if (h > maks) maks = h;
+      }
+    }
+    if (!n) return null;
+    this.skogdekke = {
+      snitt: sum / n,
+      andelOver2: over2 / n,
+      andelOver5: over5 / n,
+      maks, punkt: n
+    };
+    if (this.resultat) Rapport.visSammendrag(this.resultat);
+    return this.skogdekke;
+  },
+
   /** Rask beregning brukt av optimaliseringen. */
   beregnRaskt(vipListe, linje) {
     const vp = new Vertikalprofil(vipListe);
@@ -441,7 +488,7 @@ const App = {
    * som bryter kravene med 8 % ville den brukt kreftene pa a klatre ut av
    * bruddene i stedet for a finne noe billigere.
    */
-  async rettOpp() {
+  async rettOpp(modus) {
     if (!this.vprofil || this.P.vip.length < 2 || !this.terrengProfil || !this.resultat) {
       this.status('Ingen profil å rette ennå.');
       return;
@@ -455,10 +502,11 @@ const App = {
     const volumFor = {
       fjell: this.resultat.sum.skjaeringFjell,
       skjaering: this.resultat.sum.skjaering,
-      fylling: this.resultat.sum.fylling
+      fylling: this.resultat.sum.fylling,
+      rensk: this.resultat.sum.rensk
     };
 
-    this.framdrift(true, 'Retter profilen…', 0.15);
+    this.framdrift(true, modus === 'inngrep' ? 'Legger veien tettest mulig på terrenget…' : 'Retter profilen…', 0.15);
     await pause();
 
     const mal = this.P.mal;
@@ -471,21 +519,28 @@ const App = {
     this.profilManuelt = true;
     this.beregn();
 
-    // Sa jakten pa minst mulig sprengning og fylling
-    await this.optimaliser(true);
+    await this.optimaliser(true, modus);
 
     const bruddEtter = this.tellBrudd(this.vprofil);
     const igjen = bruddEtter ? bruddEtter.totalt : 0;
-    const spart = volumFor.fjell - this.resultat.sum.skjaeringFjell;
-    const spartFylling = volumFor.fylling - this.resultat.sum.fylling;
+    const s = this.resultat.sum;
     const tall = v => Math.round(Math.abs(v)).toLocaleString('nb-NO');
+    const endring = (fra, til) => (fra - til > 0 ? '−' : '+') + tall(fra - til);
 
     const deler = [];
     if (bruddFor.totalt > igjen) deler.push(`rettet ${bruddFor.totalt - igjen} brudd`);
-    if (Math.abs(spart) > 5) deler.push(`sprengning ${spart > 0 ? '−' : '+'}${tall(spart)} m³`);
-    if (Math.abs(spartFylling) > 5) deler.push(`fylling ${spartFylling > 0 ? '−' : '+'}${tall(spartFylling)} m³`);
-    if (igjen > 0) deler.push(`${igjen} brudd står igjen – terrenget tillater ikke både stigningskrav og fyllingsgrense, se merknadene`);
-    this.status(deler.length ? 'Rettet opp: ' + deler.join(' · ') : 'Fant ingenting å rette.');
+    if (modus === 'inngrep') {
+      const flyttetFor = volumFor.skjaering + volumFor.fylling;
+      const flyttetNa = s.skjaering + s.fylling;
+      if (Math.abs(flyttetFor - flyttetNa) > 5) deler.push(`flyttet masse ${endring(flyttetFor, flyttetNa)} m³`);
+      if (Math.abs(volumFor.rensk - s.rensk) > 5) deler.push(`fotavtrykk ${endring(volumFor.rensk, s.rensk)} m³`);
+    } else {
+      if (Math.abs(volumFor.fjell - s.skjaeringFjell) > 5) deler.push(`sprengning ${endring(volumFor.fjell, s.skjaeringFjell)} m³`);
+      if (Math.abs(volumFor.fylling - s.fylling) > 5) deler.push(`fylling ${endring(volumFor.fylling, s.fylling)} m³`);
+    }
+    if (igjen > 0) deler.push(`${igjen} brudd står igjen – se «Hva må til» i merknadene`);
+    const tittel = modus === 'inngrep' ? 'Minst inngrep' : 'Rettet opp';
+    this.status(deler.length ? tittel + ': ' + deler.join(' · ') : 'Fant ingenting å rette.');
   },
 
   /* ---------------- optimalisering ---------------- */
@@ -524,7 +579,7 @@ const App = {
     this.beregn();
   },
 
-  async optimaliser(stille) {
+  async optimaliser(stille, modus) {
     if (!this.terreng || !this.linje) return;
     const V = this.P.vip;
     if (V.length < 2) return;
@@ -535,21 +590,26 @@ const App = {
     const maksTillatt = this.P.mal.stigningIKurve.reduce((a, r) => Math.max(a, r[1], r[2]), 0);
 
     const mal = this.P.mal;
+    const inngrep = modus === 'inngrep';
     const kostnad = (liste, linje) => {
       const r = this.beregnRaskt(liste, linje);
       const s = r.sum, b = r.balanse;
       const vpKost = new Vertikalprofil(liste);
 
-      /* Kostnadsbilde, i den rekkefølgen det gjør vondt:
-           sprengning        dyrest, og den man helst vil unnga
-           graving i løsmasse
-           transport inn eller ut av anlegget nar massene ikke gar opp
-           inngrep i terrenget - renskevolumet er tykkelsen ganger
-             fotavtrykket, sa det er et direkte mal pa hvor bredt man river
-             opp lia. Uten dette leddet ville en løsning som sparer noen
-             kubikk, men brer seg dobbelt sa langt utover, kommet best ut.
-           fylling           billigst, sa lenge massene finnes */
-      let k = s.skjaeringFjell * 3
+      /* To ulike malestokker, fordi de ikke er samme sak:
+
+         BILLIGST tar hensyn til hva postene koster. Sprengning er dyrest, sa
+         den godtar gjerne mer fylling for a slippe a sprenge.
+
+         MINST INNGREP bryr seg ikke om hva noe koster - den teller alt som
+         blir flyttet likt, og vekter fotavtrykket og avstanden til terrenget
+         tungt. Da blir det ikke gravd eller fylt mer enn nødvendig, selv om
+         regnestykket kunne blitt billigere av a gjøre mer. */
+      let k = inngrep
+        ? (s.skjaering + s.fylling) * 1
+        + s.rensk * 6
+        + Math.abs(b.balanse) * 0.3
+        : s.skjaeringFjell * 3
         + s.skjaeringLosmasse * 1
         + Math.abs(b.balanse) * 1.6
         + s.rensk * 2
@@ -571,7 +631,7 @@ const App = {
           const dB = Math.abs(vpKost.hoyde(tp.s[i]) - tp.z[i]);
           avvik += (dA + dB) / 2 * (tp.s[i] - tp.s[i - hopp]);
         }
-        k += avvik * 30;
+        k += avvik * (inngrep ? 120 : 30);
       }
 
       /* Kravene fra veiklassen og grensene for hva som lar seg bygge legges

@@ -133,6 +133,15 @@
         <label><input type="checkbox" id="h_retteLinjer"> Rette linjer mellom høydene (ingen vertikalkurver)</label>
       </div>
 
+      <h3>Les av en PDF</h3>
+      <p class="notis">Har du lengdeprofilen som PDF, kan programmet lese av den tegnede linjen.
+        Du peker ut to punkt du vet profilnummer og høyde på, og velger hvilken strek som er veien.
+        <b>Dette er avlesning av en tegning</b> – kontroller noen punkter mot planen før du priser på det.</p>
+      <div class="knapperad">
+        <button id="pdfVelg" class="knapp bred">Åpne PDF…</button>
+        <input type="file" id="pdfFil" accept="application/pdf,.pdf" hidden>
+      </div>
+
       <h3>Lim inn fra veiplan eller regneark</h3>
       <textarea id="h_lim" class="limfelt" rows="4" spellcheck="false"
         placeholder="Én linje per punkt, profilnummer og høyde:&#10;0    269.54&#10;5    269.76&#10;10   270.01&#10;&#10;Godtar også 0+250, semikolon, tabulator og komma som desimaltegn."></textarea>
@@ -274,12 +283,37 @@
   </div>
 </div>
 
+<div id="pdfdialog" class="dialog skjult">
+  <div class="dialogboks pdfboks">
+    <div class="dialoghode">
+      <span>Les av lengdeprofil fra PDF</span>
+      <button id="pdfLukk" class="knapp">Lukk</button>
+    </div>
+    <div class="pdfinnhold">
+      <div class="pdfsteg" id="pdfSteg">1 · Velg tegningen som viser lengdeprofilen</div>
+      <div class="pdfverktoy">
+        <select id="pdfTegning" class="minivalg"></select>
+        <span class="skilje"></span>
+        <button id="pdfRef1" class="verktoyknapp">Sett punkt 1</button>
+        <button id="pdfRef2" class="verktoyknapp">Sett punkt 2</button>
+        <button id="pdfVelgLinje" class="verktoyknapp">Velg linje</button>
+        <span class="skilje"></span>
+        <label class="minitall">Hver <input type="number" id="pdfSteglengde" value="5" min="1" max="50" step="1"> m</label>
+        <button id="pdfBruk" class="knapp primaer" disabled>Legg inn høydene</button>
+      </div>
+      <canvas id="pdflerret"></canvas>
+      <div class="pdfstatus" id="pdfStatus"></div>
+    </div>
+  </div>
+</div>
+
 <div id="framdrift" class="framdrift skjult"><div class="framdriftboks"><div id="framdriftTekst">Laster…</div><div class="stolpe"><div id="framdriftStolpe"></div></div></div></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="js/farger.js"></script>
 <script src="js/lager.js"></script>
 <script src="js/veiklasser.js"></script>
+<script src="js/pdfimport.js"></script>
 <script src="js/geo.js"></script>
 <script src="js/linjeforing.js"></script>
 <script src="js/vertikalprofil.js"></script>

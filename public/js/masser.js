@@ -609,11 +609,23 @@ function beregnMasser(o) {
     const maks = maksStigningFraRadius(mal, pr.radius, stign, mal.lassretning);
     if (Math.abs(stign) > maks + 1e-4) {
       const lassetKlatrer = (stign * (mal.lassretning || 1)) > 0;
+      /* Er det kurven som setter grensen, er den enkleste utveien som regel a
+         slake ut kurven - ikke a flytte høyder. Da er det verdt a si hvilken
+         radius som ville holdt. */
+      let rad = null;
+      if (isFinite(pr.radius)) {
+        for (const r of (mal.stigningIKurve || [])) {
+          const g = lassetKlatrer ? r[1] : r[2];
+          if (g >= Math.abs(stign) - 1e-9) { rad = r[0]; break; }
+        }
+      }
       merknader.push({
         s: pr.s, type: 'stigning',
         tekst: `Stigning ${(Math.abs(stign) * 100).toFixed(1)} % overstiger ${(maks * 100).toFixed(0)} % `
           + `${lassetKlatrer ? 'i lassretningen' : 'i returretningen'} `
           + `(${isFinite(pr.radius) ? 'radius ' + pr.radius.toFixed(0) + ' m' : 'rettstrekk'})`
+          + (rad ? ` – holder med radius ${rad > 1e8 ? 'over 60' : rad} m` : ''),
+        raad: rad ? { type: 'radius', radius: rad > 1e8 ? 60 : rad } : { type: 'stigning', maks }
       });
     }
     if (isFinite(pr.radius) && mal.minRadius && pr.radius < mal.minRadius - 1e-6) {

@@ -15,6 +15,7 @@ module.exports = async (req, res) => {
   const tx = parseInt(q.tx, 10);
   const ty = parseInt(q.ty, 10);
   const oppløsning = Math.max(1, Math.min(8, parseInt(q.res || '1', 10)));
+  const modell = q.modell === 'dom' ? 'dom' : 'dtm';
 
   if (!DTM_TJENESTE[sr] || !Number.isFinite(tx) || !Number.isFinite(ty)) {
     res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -22,7 +23,7 @@ module.exports = async (req, res) => {
   }
 
   try {
-    const buf = await hentFlis(sr, tx, ty, oppløsning);
+    const buf = await hentFlis(sr, tx, ty, oppløsning, modell);
     res.writeHead(200, {
       'Content-Type': 'application/octet-stream',
       'Content-Length': buf.length,
