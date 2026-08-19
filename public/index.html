@@ -110,9 +110,13 @@
 
     <!-- Høyder -->
     <div class="faneinnhold" id="fane-hoyder">
-      <p class="notis">Ønsket veghøyde langs traseen. Skriv inn høyden der du vet hva den skal være –
-        for eksempel fra lengdeprofilen i veiplanen. <b>Låste</b> høyder blir liggende der de står;
-        «Foreslå profil», «Massebalanse» og «Optimaliser» flytter bare de andre.</p>
+      <div id="hoydeToppinfo" class="lengdebanner">Tegn en senterlinje først</div>
+      <p class="notis">Legg inn så mange punkter du vil: profilnummer og ønsket veghøyde.
+        Du kan skrive dem inn her, lime inn hele tabellen fra veiplanen, eller
+        <b>dobbeltklikke i lengdeprofilen</b> for å sette et punkt der du peker.
+        <b>Låste</b> høyder blir liggende der de står – «Foreslå profil», «Massebalanse»
+        og «Optimaliser» flytter bare de andre. Veglinjen går <b>nøyaktig gjennom</b>
+        en låst høyde, uten vertikalkurve.</p>
 
       <div class="knapperad hoydeverktoy">
         <label class="minitall">Fyll hver <input type="number" id="h_steg" value="5" min="1" max="100" step="1"> m</label>
@@ -137,7 +141,11 @@
         <thead><tr><th>Profil</th><th>Ønsket høyde</th><th>Terreng</th><th>Diff</th><th title="Låst">🔒</th><th></th></tr></thead>
         <tbody></tbody>
       </table>
-      <button id="h_nyRad" class="knapp bred">+ Legg til høyde</button>
+      <div class="knapperad hoydeverktoy">
+        <label class="minitall">Profil <input type="number" id="h_nyS" step="1" placeholder="0"></label>
+        <label class="minitall">Høyde <input type="number" id="h_nyZ" step="0.01" placeholder="fra terreng"></label>
+        <button id="h_nyRad" class="knapp primaer">Legg til</button>
+      </div>
       <div id="hoydeinfo" class="listeboks"></div>
     </div>
 

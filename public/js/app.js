@@ -709,10 +709,16 @@ const App = {
       };
       fZ.onchange = () => {
         const ny = parseFloat(fZ.value);
-        if (isFinite(ny)) { v.z = ny; v.laast = true; }
+        if (isFinite(ny)) { v.z = ny; v.laast = true; v.k = 0; }
         this.profilEndret(false); this.visHoydetabell();
       };
-      laas.onchange = () => { v.laast = laas.checked; this.visHoydetabell(); Lengdeprofil.tegn(); };
+      laas.onchange = () => {
+        v.laast = laas.checked;
+        // Last punkt skal treffes eksakt, og da kan det ikke ha vertikalkurve
+        if (v.laast) v.k = 0;
+        this.profilEndret(false);
+        this.visHoydetabell();
+      };
       tr.querySelector('button').onclick = () => {
         this.P.vip.splice(i, 1); this.profilEndret(false); this.visHoydetabell();
       };
@@ -728,6 +734,37 @@ const App = {
            <div class="rad"><span>Vertikalkurver</span><span>${this.vprofil.kurver.length}</span></div>`
         : '';
     }
+    const topp = document.getElementById('hoydeToppinfo');
+    if (topp) {
+      topp.textContent = this.linje && this.linje.lengde > 0
+        ? `Veglengde ${(this.linje.lengde * this.bakkefaktor()).toFixed(1)} m · profil 0 – ${this.linje.lengde.toFixed(0)}`
+        : 'Tegn en senterlinje først';
+    }
+  },
+
+  /**
+   * Legger inn en høyde pa et valgt profilnummer.
+   * Uten oppgitt høyde brukes den prosjekterte linjen der den ligger na,
+   * sa man kan sette ned punkter langs veien og justere dem etterpa.
+   */
+  leggTilHoyde(s, z) {
+    if (!this.linje || this.linje.lengde <= 0) return;
+    const ss = Math.max(0, Math.min(this.linje.lengde, s));
+    const hoyde = isFinite(z) ? z
+      : (this.vprofil && this.P.vip.length > 1 ? this.vprofil.hoyde(ss) : this.terrengHoyde(ss));
+    if (!isFinite(hoyde)) return;
+
+    /* En last høyde er et punkt veien skal gjennom, ikke et knekkpunkt for
+       tangentene. En vertikalkurve ville dratt linjen forbi punktet med
+       A·L/8, sa den far K = 0 og treffes eksakt. */
+    const finnes = this.P.vip.find(v => Math.abs(v.s - ss) < 0.05);
+    if (finnes) { finnes.z = +hoyde.toFixed(3); finnes.laast = true; finnes.k = 0; }
+    else this.P.vip.push({ s: +ss.toFixed(2), z: +hoyde.toFixed(3), k: 0, laast: true });
+    this.P.vip.sort((a, b) => a.s - b.s);
+    this.profilEndret(false);
+    this.visHoydetabell();
+    this.settTverrStasjon(ss);
+    this.status(`Høyde ${hoyde.toFixed(2)} lagt inn i profil ${ss.toFixed(0)}`);
   },
 
   /** Fyller tabellen med jevn avstand, med terrenghøyde der det ikke finnes noe fra før. */
@@ -758,11 +795,11 @@ const App = {
     const felt = document.getElementById('h_lim');
     const rader = lesHoydetabell(felt.value);
     if (!rader.length) { alert('Fant ingen profilnummer og høyder i teksten.'); return; }
-    const k = document.getElementById('h_retteLinjer').checked ? 0 : (parseFloat(document.getElementById('kVerdi').value) || 1);
     const L = this.linje ? this.linje.lengde : Infinity;
     const utenfor = rader.filter(r => r.s > L + 0.5).length;
     const beholdt = rader.filter(r => r.s <= L + 0.5);
-    this.P.vip = beholdt.map(r => ({ s: +Math.min(r.s, L).toFixed(2), z: r.z, k, laast: true }));
+    // Innlimte høyder er punkt veien skal gjennom, sa de far ingen vertikalkurve
+    this.P.vip = beholdt.map(r => ({ s: +Math.min(r.s, L).toFixed(2), z: r.z, k: 0, laast: true }));
     this.profilManuelt = true;
     this.beregn();
     this.visHoydetabell();
@@ -950,13 +987,17 @@ const App = {
       if (this.terrengProfil) this.lagProfilforslag();
       this.beregn(); this.visHoydetabell();
     };
-    id('h_nyRad').onclick = () => {
-      const s = this.tverrStasjon || 0;
-      const z = this.vprofil ? this.vprofil.hoyde(s) : this.terrengHoyde(s);
-      this.P.vip.push({ s: +s.toFixed(2), z: +(isFinite(z) ? z : 0).toFixed(3), k: parseFloat(id('kVerdi').value) || 1, laast: true });
-      this.P.vip.sort((a, b) => a.s - b.s);
-      this.profilEndret(false); this.visHoydetabell();
+    const nyHoyde = () => {
+      const sFelt = id('h_nyS'), zFelt = id('h_nyZ');
+      const s = sFelt.value === '' ? (this.tverrStasjon || 0) : parseFloat(sFelt.value);
+      this.leggTilHoyde(s, parseFloat(zFelt.value));
+      sFelt.value = ''; zFelt.value = '';
+      sFelt.focus();
     };
+    id('h_nyRad').onclick = nyHoyde;
+    for (const f of ['h_nyS', 'h_nyZ']) {
+      id(f).addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); nyHoyde(); } });
+    }
     id('h_retteLinjer').onchange = e => {
       const k = e.target.checked ? 0 : (parseFloat(id('kVerdi').value) || 1);
       this.P.vip.forEach(v => v.k = k);

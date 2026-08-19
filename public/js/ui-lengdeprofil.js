@@ -42,17 +42,20 @@ const Lengdeprofil = {
       this.tegn();
     });
     l.addEventListener('mouseleave', () => { this.peker = null; this.tegn(); });
+    /* Dobbeltklikk setter ned et punkt der man peker, eller fjerner det man
+       treffer. Profilnummeret rundes til hele meter - ellers blir tabellen
+       full av tall som 137,4183, og de er ikke til a stikke ut etter. */
     l.addEventListener('dblclick', e => {
       const i = this.finnVip(e);
       const V = this.app.P.vip;
-      if (i > 0 && i < V.length - 1) V.splice(i, 1);
-      else {
-        const { s, z } = this.fraSkjerm(e);
-        V.push({ s, z, k: parseFloat(document.getElementById('kVerdi').value) || 1, laast: false });
-        V.sort((a, b) => a.s - b.s);
+      if (i > 0 && i < V.length - 1) {
+        V.splice(i, 1);
+        this.app.profilEndret(false);
+        this.app.visHoydetabell();
+        return;
       }
-      this.app.profilEndret(false);
-      this.app.visHoydetabell();
+      const { s, z } = this.fraSkjerm(e);
+      this.app.leggTilHoyde(Math.round(s), z);
     });
     new ResizeObserver(() => this.tegn()).observe(l);
     return this;

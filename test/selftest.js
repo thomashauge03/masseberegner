@@ -146,6 +146,19 @@ console.log('\n3b. Innlagte høyder');
   paastand('låste punkt er merket', vip.filter(v => v.laast).length === 3);
   paastand('forslaget har også frie punkt mellom', vip.some(v => !v.laast));
 
+  /* Et last punkt er noe veien skal gjennom, ikke et knekkpunkt for
+     tangentene. Med vertikalkurve ville linjen gatt A·L/8 forbi punktet,
+     sa laste punkt ma ha K = 0 for a treffes eksakt. */
+  const medKurve = new Vertikalprofil([
+    { s: 0, z: 100, k: 2 }, { s: 100, z: 105, k: 2 }, { s: 200, z: 100, k: 2 }
+  ]);
+  paastand('med vertikalkurve treffer linjen ikke knekkpunktet',
+    Math.abs(medKurve.hoyde(100) - 105) > 0.2);
+  const utenKurve = new Vertikalprofil([
+    { s: 0, z: 100, k: 0 }, { s: 100, z: 105, k: 0 }, { s: 200, z: 100, k: 0 }
+  ]);
+  sjekk('uten vertikalkurve treffes punktet eksakt', utenKurve.hoyde(100), 105, 1e-12);
+
   // Uten laste punkt skal profilen fortsatt legge seg pa terrenget
   const utenLas = new Vertikalprofil(foreslaProfil(st, zt, { vipAvstand: 40, maksStigning: 0.2, k: 1 }));
   paastand('uten låsing følger profilen terrenget', Math.abs(utenLas.hoyde(150) - (100 + 150 * 0.08)) < 3);

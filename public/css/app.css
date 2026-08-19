@@ -315,7 +315,14 @@ body {
 .punkthoyder input:focus { border-color: var(--hm-raud); }
 .punkthoyder input.overstyrt { border-color: var(--hm-raud); color: var(--raud); font-weight: 700; }
 
+.lengdebanner {
+  background: var(--hm-svart); color: #fff; border-left: 5px solid var(--hm-raud);
+  padding: 7px 10px; margin-bottom: 10px;
+  font-family: var(--skrift-tittel); font-weight: 700; font-size: 14px;
+  text-transform: uppercase; letter-spacing: .04em; font-variant-numeric: tabular-nums;
+}
 .hoydeverktoy { flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 8px; }
+.hoydeverktoy .minitall input { width: 76px; }
 .limfelt {
   width: 100%; background: var(--flate-opp); border: 2px solid var(--kant); color: var(--blekk);
   padding: 6px 8px; font-family: ui-monospace, Consolas, monospace;
