@@ -30,9 +30,13 @@ const Rapport = {
          Volumene på disse profilene er ikke til å stole på. Senk eller hev lengdeprofilen,
          eller øk «Søkebredde tverrprofil» under Vegmal.</div>`
       : '';
+    /* En merknad om et tall som ikke lar seg regne med hører ikke til noe
+       profilnummer. «prof 0» foran den peker et sted den ikke gjelder. */
+    const utenSted = v => v.type === 'inngang' || (v.type === 'linje' && !v.s);
     const varselHtml = alvorlig + (varsler.length
       ? `<div class="varselboks"><b>${varsler.length} merknad${varsler.length === 1 ? '' : 'er'}</b>`
-      + varsler.slice(0, 40).map(v => `<div>prof ${v.s.toFixed(0)} – ${v.tekst}</div>`).join('')
+      + varsler.slice(0, 40).map(v =>
+        `<div>${utenSted(v) ? '' : 'prof ' + v.s.toFixed(0) + ' – '}${v.tekst}</div>`).join('')
       + (varsler.length > 40 ? `<div>… og ${varsler.length - 40} til</div>` : '') + '</div>'
       : '');
 
@@ -326,7 +330,8 @@ const Rapport = {
       gjeldende.til = iv.til;
     }
 
-    const merknader = res.merknader.map(v => `<tr><td>${v.s.toFixed(0)}</td><td>${v.type}</td><td>${v.tekst}</td></tr>`).join('');
+    const merknader = res.merknader.map(v =>
+      `<tr><td>${v.type === 'inngang' ? '–' : v.s.toFixed(0)}</td><td>${v.type}</td><td>${v.tekst}</td></tr>`).join('');
 
     const tegninger = this.lagTegninger(res);
     const stikning = this.stikningstabell(res, res.lengdeKart > 600 ? 10 : 5);

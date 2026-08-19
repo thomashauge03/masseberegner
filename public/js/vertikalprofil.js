@@ -14,7 +14,16 @@ class Vertikalprofil {
    * @param {Array<{s:number,z:number,k:number}>} vip
    */
   constructor(vip) {
-    this.vip = (vip || []).slice().sort((a, b) => a.s - b.s).map(p => ({ s: p.s, z: p.z, k: Math.max(0, p.k == null ? 1 : p.k) }));
+    /* To knekkpunkt pa samme profilnummer gir et strekk uten lengde. Stigningen
+       der er ikke et tall, og profilen far et loddrett sprang som ingen
+       stigningskontroll ser: to punkt pa profil 50 med høyde 110 og 90 ga
+       h(49,9) = 109,98 og h(50,1) = 90,02 - tjue meter rett ned - mens
+       stigningen ble meldt som 20 % pa begge sider. Siste punkt gjelder. */
+    const sortert = (vip || []).slice()
+      .filter(p => p && isFinite(p.s) && isFinite(p.z))
+      .sort((a, b) => a.s - b.s)
+      .map(p => ({ s: p.s, z: p.z, k: Math.max(0, isFinite(p.k) ? p.k : 1) }));
+    this.vip = sortert.filter((p, i) => i === sortert.length - 1 || sortert[i + 1].s - p.s > 1e-6);
     this.stigninger = [];
     this.kurver = [];
     this._bygg();

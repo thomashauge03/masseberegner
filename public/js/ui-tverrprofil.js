@@ -60,11 +60,18 @@ const Tverrprofil = {
     c.clearRect(0, 0, B, H);
     c.fillStyle = Farger.flate; c.fillRect(0, 0, B, H);
 
-    const pr = this.profil;
+    let pr = this.profil;
     if (!pr) {
       c.fillStyle = Farger.blekkSvak; c.font = '13px system-ui'; c.textAlign = 'center';
       c.fillText('Velg et profilnummer for å se tverrsnittet.', B / 2, H / 2);
       return;
+    }
+    /* Pa lange veier blir tegningsgeometrien sluppet for a spare minne. Da
+       regnes det ene snittet som skal vises om igjen - det koster under et
+       millisekund. */
+    if (!pr.geometri) {
+      const res = this.app.resultat;
+      if (res && res.geometriFor) pr = res.geometriFor(pr.s);
     }
     if (!pr.geometri || pr.geometri.terreng.length < 2) {
       c.fillStyle = Farger.skjaering; c.font = '13px system-ui'; c.textAlign = 'center';

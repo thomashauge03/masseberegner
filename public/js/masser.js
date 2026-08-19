@@ -232,12 +232,17 @@ function lagUtvidelsesprofil(linje, mal, stasjoner, ekstra) {
   const ut = grunn.slice();
   const overgang = mal.utvidelseOvergang;
   if (overgang > 0) {
+    /* Bare naboer nærmere enn overgangslengden betyr noe, og stasjonene ligger
+       sortert. Et glidende vindu gjør dette lineært i stedet for kvadratisk -
+       med alle mot alle kostet det 2,3 sekunder pa 64 000 stasjoner. */
+    let lav = 0, høy = 0;
     for (let i = 0; i < stasjoner.length; i++) {
+      while (lav < i && stasjoner[i] - stasjoner[lav] > overgang) lav++;
+      if (høy < i) høy = i;
+      while (høy + 1 < stasjoner.length && stasjoner[høy + 1] - stasjoner[i] <= overgang) høy++;
       let best = grunn[i];
-      for (let j = 0; j < stasjoner.length; j++) {
-        const d = Math.abs(stasjoner[j] - stasjoner[i]);
-        if (d > overgang) continue;
-        const avtrapping = grunn[j] * (1 - d / overgang);
+      for (let j = lav; j <= høy; j++) {
+        const avtrapping = grunn[j] * (1 - Math.abs(stasjoner[j] - stasjoner[i]) / overgang);
         if (avtrapping > best) best = avtrapping;
       }
       ut[i] = best;
@@ -309,7 +314,14 @@ function beregnTverrprofil(o) {
   const p = linje.punktVed(s);
   const kr = p.krumning;
   const nx = Math.sin(p.retning), ny = -Math.cos(p.retning); // høyre normal
-  const terrRå = t => terreng.z(p.x + nx * t, p.y + ny * t);
+  /* `isFinite(null)` er sant, og null ville da blitt lest som kote 0 - en
+     terrengmodell som svarer null for hull hadde gitt hundretusenvis av
+     kubikk fylling opp fra havflaten, uten en eneste datamerknad. Bare et
+     ekte tall slipper gjennom. */
+  const terrRå = t => {
+    const v = terreng.z(p.x + nx * t, p.y + ny * t);
+    return typeof v === 'number' && isFinite(v) ? v : NaN;
+  };
 
   const hb = (mal.vegbredde + utvidelse) / 2;
   const ob = mal.slitelagTykkelse + mal.baerelagTykkelse;
@@ -465,14 +477,22 @@ function beregnTverrprofil(o) {
   let arealSkjaering = 0, arealFylling = 0, arealSkjaeringFjell = 0;
   let vSkjaering = 0, vFylling = 0, vSkjaeringFjell = 0; // kurvevektet
   let maksSkjaering = 0, maksFylling = 0;
-  const geometri = { terreng: [], jord: [], veg: [], fjell: [], rensk: [] };
+  /* Tegningsgeometrien er langt tyngre enn tallene, og pa lange veier trengs
+     den ikke: skjermen viser ett snitt om gangen. Da bygges den ikke i det
+     hele tatt - a slippe den etterpa hjelper ikke, for da er toppen alt nadd. */
+  const geometri = o.utenGeometri ? null : { terreng: [], jord: [], veg: [], fjell: [], rensk: [] };
 
   // Integrasjonspunktene legges bade jevnt utover og nøyaktig i hvert knekkpunkt
   // i malen, slik at resultatet ikke henger pa hvor fint man deler opp.
   const brekk = new Set([tV, tH]);
   for (const side of [-1, 1]) for (const k of sider[side].knekk) brekk.add(side * k.t);
   for (const b of [-hb - 1e-7, -hb + 1e-7, hb - 1e-7, hb + 1e-7, 0]) brekk.add(b);
-  const nJevn = Math.max(4, Math.ceil((tH - tV) / dt));
+  /* Taket er det som skiller en tung beregning fra et program som dør. Bredde
+     og integrasjonssteg kommer begge fra felt uten grenser, og produktet av
+     dem er antall punkt: 20 m veg med 1e-6 steg er tjue millioner punkt i ett
+     eneste snitt. Fire tusen punkt over snittet er finere enn terrengmodellen
+     selv, sa taket koster ingenting i nøyaktighet. */
+  const nJevn = Math.min(4000, Math.max(4, Math.ceil((tH - tV) / dt)));
   for (let i = 0; i <= nJevn; i++) brekk.add(tV + (tH - tV) * i / nJevn);
   const offsets = [...brekk].filter(t => t >= tV - 1e-9 && t <= tH + 1e-9).sort((a, b) => a - b);
 
@@ -555,18 +575,22 @@ function beregnTverrprofil(o) {
     forrige = naa;
     if (d > maksSkjaering) maksSkjaering = d;
     if (-d > maksFylling) maksFylling = -d;
-    geometri.terreng.push([t, terrRå(t)]);
-    geometri.jord.push([t, zJ]);
-    geometri.fjell.push([t, zF]);
-    geometri.rensk.push([t, zT]);
+    if (geometri) {
+      geometri.terreng.push([t, terrRå(t)]);
+      geometri.jord.push([t, zJ]);
+      geometri.fjell.push([t, zF]);
+      geometri.rensk.push([t, zT]);
+    }
   }
   // fjellandelen kan ikke overstige skjæringen
   arealSkjaeringFjell = Math.min(arealSkjaeringFjell, arealSkjaering);
   vSkjaeringFjell = Math.min(vSkjaeringFjell, vSkjaering);
 
   // Vegoverflaten til tegning
-  for (let t = -hb; t <= hb + 1e-9; t += Math.max(0.1, (2 * hb) / 40)) geometri.veg.push([t, vegflate(t)]);
-  geometri.veg.push([hb, vegflate(hb)]);
+  if (geometri) {
+    for (let t = -hb; t <= hb + 1e-9; t += Math.max(0.1, (2 * hb) / 40)) geometri.veg.push([t, vegflate(t)]);
+    geometri.veg.push([hb, vegflate(hb)]);
+  }
 
   // --- Rensk og overbygning -----------------------------------------
   const tR0 = tV - mal.renskUtenfor, tR1 = tH + mal.renskUtenfor;
@@ -615,7 +639,10 @@ function beregnTverrprofil(o) {
     },
     maksSkjaering, maksFylling,
     fotVenstre: tV, fotHoyre: tH,
-    sider,
+    /* Marsjpunktene ut mot skraningsfoten leses ikke av noen etter at arealene
+       er regnet, men de var det tyngste pa hvert profil: nesten nitten kilobyte
+       stykket, mot noen hundre byte for tallene. De følger tegningsgeometrien. */
+    sider: geometri ? sider : null,
     geometri,
     manglerData,
     forbiKurvesenter,
@@ -637,13 +664,127 @@ function beregnTverrprofil(o) {
 /**
  * @param {object} o  {linje, profil, terreng, mal, fjell, faktorer, profilAvstand, bakkefaktor}
  */
+/**
+ * Grenser for de tallene som ma vaere fornuftige for at regnestykket i det
+ * hele tatt skal gi mening. [minste, største, navn i klartekst].
+ *
+ * En negativ veibredde eller renskedybde er ikke en veg - det er et fortegn
+ * pa avveie. Uten disse ble svaret et negativt volum uten et ord om hvorfor.
+ */
+const MALGRENSER = {
+  vegbredde: [0.5, 30, 'Veibredde'],
+  slitelagTykkelse: [0, 1, 'Slitelagstykkelse'],
+  slitelagBredde: [0, 30, 'Slitelagsbredde'],
+  baerelagTykkelse: [0, 3, 'Bærelagstykkelse'],
+  grofteDybdePlanum: [0, 3, 'Grøftedybde under planum'],
+  grofteBunn: [0, 5, 'Grøftebunn'],
+  grofteInnerHelning: [0, 10, 'Grøftehelning'],
+  renskDybde: [0, 3, 'Renskedybde'],
+  renskUtenfor: [0, 20, 'Rensk utenfor'],
+  tverrfall: [0, 0.3, 'Tverrfall'],
+  maksSokebredde: [1, 500, 'Søkebredde'],
+  beregningsbredde: [0, 500, 'Beregningsbredde']
+};
+
+/** Samme for omregningsfaktorene: en faktor under null snur et volum. */
+const FAKTORGRENSER = {
+  sprengningsfaktor: [1, 3, 'Sprengningsfaktor'],
+  losmasseFaktor: [1, 3, 'Løsmassefaktor'],
+  brukbarLosmasse: [0, 1, 'Andel brukbar løsmasse'],
+  losmasseIFylling: [0.5, 1.5, 'Løsmasse i fylling'],
+  fjellIFylling: [0.5, 2, 'Sprengstein i fylling']
+};
+
+/**
+ * Ser over det som kommer inn, retter det som ikke lar seg regne med, og
+ * forteller hva som ble rettet.
+ *
+ * Tallene kan komme fra et skjemafelt uten grenser, eller fra en prosjektfil
+ * som er redigert for hand. Skjemaet klemmer noen av dem, men bare nar noen
+ * skriver i det - en fil som lastes gar rett inn. Derfor ma kontrollen ligge
+ * her, der alle veiene inn møtes.
+ */
+function rettInngang(mal, faktorer, fjell, dS, bf) {
+  const merknader = [];
+  const klem = (obj, grenser, hva) => {
+    for (const felt of Object.keys(grenser)) {
+      const [lav, høy, navn] = grenser[felt];
+      const v = obj[felt];
+      if (v == null) continue;
+      if (typeof v !== 'number' || !isFinite(v)) {
+        merknader.push({ s: 0, type: 'inngang', tekst: `${navn} er ikke et tall – bruker ${StandardMal[felt] != null ? StandardMal[felt] : lav}` });
+        obj[felt] = (hva === 'mal' ? StandardMal[felt] : StandardFaktorer[felt]);
+        continue;
+      }
+      if (v < lav || v > høy) {
+        obj[felt] = Math.min(høy, Math.max(lav, v));
+        merknader.push({
+          s: 0, type: 'inngang',
+          tekst: `${navn} var ${v} – utenfor ${lav} til ${høy}, regnet med ${obj[felt]}`
+        });
+      }
+    }
+  };
+  klem(mal, MALGRENSER, 'mal');
+  klem(faktorer, FAKTORGRENSER, 'faktor');
+
+  // skraningene normaliseres allerede, men si ifra nar inngangen var ugyldig
+  for (const [felt, navn] of [['skjaeringLosmasse', 'Skjæring i løsmasse'],
+    ['skjaeringFjell', 'Skjæring i fjell'], ['fylling', 'Fyllingsskråning']]) {
+    const v = mal[felt];
+    if (typeof v !== 'number' || !isFinite(v) || v < 0.02) {
+      merknader.push({ s: 0, type: 'inngang', tekst: `${navn} var ${v} – regnet med 0.02 (nesten loddrett)` });
+    }
+  }
+
+  /* En fjelldybde som ikke er et tall smitter over pa hele massebalansen, og
+     det uten et eneste tegn: skjæringen blir riktig, men fjell, løsmasse og
+     alt som bygger pa dem blir NaN. */
+  if (fjell) {
+    if (!isFinite(fjell.standarddybde)) {
+      merknader.push({ s: 0, type: 'inngang', tekst: `Fjelldybden er ikke et tall – regnet uten fjell` });
+      fjell.standarddybde = 0;
+    }
+    for (const p of (fjell.punkter || [])) {
+      if (!isFinite(p.dybde)) { p.dybde = fjell.standarddybde; }
+      }
+    for (const st of (fjell.strekninger || [])) {
+      if (!isFinite(st.dybde)) st.dybde = fjell.standarddybde;
+    }
+  }
+
+  /* Profilavstanden er den farligste av dem alle: null eller negativ gir en
+     løkke som aldri kommer ut, og fana henger. */
+  let dSut = dS;
+  if (!isFinite(dSut) || dSut <= 0) {
+    merknader.push({ s: 0, type: 'inngang', tekst: `Profilavstanden var ${dS} – regnet med 5 m` });
+    dSut = 5;
+  } else if (dSut > 100) {
+    merknader.push({ s: 0, type: 'inngang', tekst: `Profilavstanden var ${dS} m – regnet med 100 m` });
+    dSut = 100;
+  }
+
+  let bfUt = bf;
+  if (!isFinite(bfUt) || bfUt <= 0) {
+    merknader.push({ s: 0, type: 'inngang', tekst: `Bakkefaktoren var ${bf} – regnet med 1` });
+    bfUt = 1;
+  }
+  return { merknader, dS: dSut, bf: bfUt };
+}
+
 function beregnMasser(o) {
   const linje = o.linje;
   const profil = o.profil;
   const mal = Object.assign({}, StandardMal, o.mal || {});
   const faktorer = Object.assign({}, StandardFaktorer, o.faktorer || {});
-  const dS = o.profilAvstand || 5;
-  const bf = o.bakkefaktor || 1;
+  /* Radverdiene gar inn i vakten, ikke `o.profilAvstand || 5`. Med `||` ville
+     bade 0 og NaN blitt byttet ut med 5 i stillhet, og brukeren fikk et svar
+     som ikke svarte til det som sto i skjemaet. */
+  const vakt = rettInngang(mal, faktorer, o.fjell,
+    o.profilAvstand == null ? 5 : o.profilAvstand,
+    o.bakkefaktor == null ? 1 : o.bakkefaktor);
+  const dS = vakt.dS;
+  const bf = vakt.bf;
   const arealFaktor = bf;          // ett vannrett mal i tverrsnittet
   const volumFaktor = bf * bf;     // to vannrette mal i volumet
 
@@ -651,12 +792,20 @@ function beregnMasser(o) {
   for (let s = 0; s < linje.lengde - 1e-6; s += dS) stasjoner.push(+s.toFixed(4));
   stasjoner.push(+linje.lengde.toFixed(4));
 
-  const kjørProfiler = utvidelser => stasjoner.map((s, i) => beregnTverrprofil({
+  /* Over denne grensen slippes tegningsgeometrien, og det ene snittet som
+     skal vises regnes om igjen ved behov. Uten det sprakk minnet ved rundt
+     20 000 profiler - en 21 km lang veg med profil hver meter. */
+  const GEOMETRIGRENSE = 800;
+  const utenGeometri = stasjoner.length > GEOMETRIGRENSE;
+
+  const ettProfil = (s, utvidelse, medGeometri) => beregnTverrprofil({
     linje, terreng: o.terreng, mal, fjell: o.fjell,
-    s, vegnivaa: profil.hoyde(s), utvidelse: utvidelser[i],
+    s, vegnivaa: profil.hoyde(s), utvidelse,
     tverrfall: tverrfallVed(mal, o.tverrfallOverstyring, s, linje.punktVed(s).krumning),
-    integrasjonssteg: o.integrasjonssteg
-  }));
+    integrasjonssteg: o.integrasjonssteg,
+    utenGeometri: medGeometri ? false : utenGeometri
+  });
+  const kjørProfiler = utvidelser => stasjoner.map((s, i) => ettProfil(s, utvidelser[i]));
 
   let utvidelser = lagUtvidelsesprofil(linje, mal, stasjoner);
   let profiler = kjørProfiler(utvidelser);
@@ -676,6 +825,15 @@ function beregnMasser(o) {
       profiler = kjørProfiler(utvidelser);
     }
   }
+
+  /** Regner om ett tverrprofil med tegningsgeometri, for skjermen. */
+  const geometriFor = s => {
+    let i = 0;
+    for (let j = 1; j < stasjoner.length; j++) {
+      if (Math.abs(stasjoner[j] - s) < Math.abs(stasjoner[i] - s)) i = j;
+    }
+    return ettProfil(stasjoner[i], utvidelser[i], true);
+  };
 
   // --- Volum mellom profilene (gjennomsnittlig endeareal) ------------
   const felt = ['skjaering', 'skjaeringFjell', 'skjaeringLosmasse', 'fylling', 'rensk', 'slitelag', 'baerelag'];
@@ -730,8 +888,25 @@ function beregnMasser(o) {
   }
 
   // --- Kontroll mot krav ---------------------------------------------
-  const merknader = [];
+  const merknader = vakt.merknader.slice();
   let antallAvkortet = 0;
+
+  /* En linje uten lengde gir null i alle poster. Det er et gyldig tall, og
+     nettopp derfor farlig: rapporten ser ferdig ut. */
+  if (!(linje.lengde > 1e-6)) {
+    merknader.push({
+      s: 0, type: 'linje',
+      tekst: 'Linjen har ingen lengde – sett minst to punkt som ikke ligger oppå hverandre'
+    });
+  }
+
+  /* Linjeføringen korter inn kurver som ikke far plass mellom to knekkpunkt.
+     Massene blir riktige for kurven som faktisk ble lagt, men veien er ikke
+     den som ble tegnet, og det sto ingen steder. */
+  for (const a of (linje.advarsler || [])) {
+    const kurve = (linje.kurver || []).find(k => k.ip === a.ip);
+    merknader.push({ s: kurve ? kurve.sBC : 0, type: 'linje', tekst: a.tekst || String(a) });
+  }
   for (const pr of profiler) {
     if (pr.advarsel) merknader.push({ s: pr.s, type: pr.manglerData ? 'data' : 'geometri', tekst: pr.advarsel });
     if (pr.avkortet) antallAvkortet++;
@@ -872,7 +1047,7 @@ function beregnMasser(o) {
 
   return {
     stasjoner, profiler, intervaller, sum, bruckner, merknader,
-    antallAvkortet,
+    antallAvkortet, geometriFor,
     mal, faktorer,
     lengde: linje.lengde * bf,
     lengdeKart: linje.lengde,

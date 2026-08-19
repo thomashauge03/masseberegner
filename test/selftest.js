@@ -546,6 +546,100 @@ console.log('\n4a. Feil som er funnet og rettet');
 }
 
 /* ------------------------------------------------------------------ */
+console.log('\n4c. Tall som ikke lar seg regne med');
+{
+  const linje = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 100, y: 0, r: 0 }]);
+  const profil = new Vertikalprofil([{ s: 0, z: 96, k: 0 }, { s: 100, z: 96, k: 0 }]);
+  const flatt = { z: () => 100 };
+  const grunn = () => ({
+    linje, profil, terreng: flatt, mal: {},
+    fjell: new M.Fjellmodell({ standarddybde: 5 }), profilAvstand: 5, bakkefaktor: 1
+  });
+  const med = endring => M.beregnMasser(Object.assign(grunn(), endring));
+
+  /* Profilavstand null eller negativ ga en løkke som aldri kom ut. Skjemaet
+     klemmer den, men en prosjektfil gar rett inn - fana hang med ett klikk. */
+  for (const dS of [0, -5, NaN, Infinity]) {
+    const r = med({ profilAvstand: dS });
+    paastand(`profilavstand ${dS} henger ikke og sier ifra`,
+      r.profiler.length > 1 && r.merknader.some(m => m.type === 'inngang'));
+  }
+
+  /* En fjelldybde som ikke er et tall smittet over pa hele balansen - uten en
+     eneste merknad, og med riktig skjæringsvolum sa ingenting sa galt ut. */
+  const nanFjell = med({ fjell: new M.Fjellmodell({ standarddybde: NaN }) });
+  paastand('NaN fjelldybde gir tall og merknad',
+    Object.values(nanFjell.sum).every(isFinite)
+    && Object.values(nanFjell.balanse).every(isFinite)
+    && nanFjell.merknader.some(m => m.type === 'inngang'));
+
+  const nanPunkt = med({
+    fjell: new M.Fjellmodell({ standarddybde: 2, punkter: [{ x: 50, y: 0, dybde: undefined }] })
+  });
+  paastand('sonderingspunkt uten dybde gir tall',
+    Object.values(nanPunkt.sum).every(isFinite) && Object.values(nanPunkt.balanse).every(isFinite));
+
+  // Negative mal- og faktorverdier skal aldri gi negative volum
+  for (const [felt, verdi] of [['vegbredde', -4.5], ['baerelagTykkelse', -0.6],
+    ['slitelagTykkelse', -0.5], ['renskDybde', -1], ['renskUtenfor', -50]]) {
+    const r = med({ mal: { [felt]: verdi } });
+    paastand(`${felt}=${verdi} gir ingen negative volum og sier ifra`,
+      Object.values(r.sum).every(v => v >= -1e-9) && r.merknader.some(m => m.type === 'inngang'),
+      JSON.stringify(r.sum));
+  }
+  for (const [felt, verdi] of [['fjellIFylling', -1.3], ['brukbarLosmasse', 2], ['sprengningsfaktor', -1]]) {
+    const r = med({ faktorer: { [felt]: verdi } });
+    paastand(`faktor ${felt}=${verdi} gir ingen negative poster og sier ifra`,
+      Object.values(r.balanse).every(v => v >= -1e-6) && r.merknader.some(m => m.type === 'inngang'),
+      JSON.stringify(r.balanse));
+  }
+
+  // Bakkefaktor under null ga negativ veglengde i rapporten
+  const negBf = med({ bakkefaktor: -1 });
+  paastand('negativ bakkefaktor gir positiv lengde og merknad',
+    negBf.lengde > 0 && negBf.merknader.some(m => m.type === 'inngang'));
+
+  /* En linje uten lengde gir null i alle poster. Det er et gyldig tall, og
+     nettopp derfor farlig - rapporten ser ferdig ut. */
+  for (const ip of [[], [{ x: 0, y: 0, r: 0 }], [{ x: 5, y: 5, r: 0 }, { x: 5, y: 5, r: 0 }]]) {
+    const r = M.beregnMasser(Object.assign(grunn(), { linje: new Linjeforing(ip) }));
+    paastand(`linje med ${ip.length} punkt sier ifra`, r.merknader.some(m => m.type === 'linje'));
+  }
+
+  // Radius som ikke far plass blir kortet inn - det skal sta i rapporten
+  const trang = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 40, y: 0, r: 500 }, { x: 40, y: 40, r: 0 }]);
+  const kortet = M.beregnMasser(Object.assign(grunn(), {
+    linje: trang, profil: new Vertikalprofil([{ s: 0, z: 96, k: 0 }, { s: trang.lengde, z: 96, k: 0 }])
+  }));
+  paastand('innkortet kurve blir meldt i rapporten',
+    trang.advarsler.length > 0 && kortet.merknader.some(m => m.type === 'linje'));
+
+  /* isFinite(null) er sant. En terrengmodell som svarer null for hull ville
+     blitt lest som kote 0 - hundretusenvis av kubikk fylling, ingen merknad. */
+  const nullTerreng = med({ terreng: { z: () => null } });
+  paastand('terreng som svarer null teller som manglende data',
+    nullTerreng.sum.fylling < 1 && nullTerreng.merknader.some(m => m.type === 'data'),
+    `fylling ${nullTerreng.sum.fylling.toFixed(0)}`);
+
+  /* Bredde og integrasjonssteg kommer begge fra felt uten grenser, og
+     produktet er antall punkt i snittet. Uten tak dør programmet. */
+  const t0 = Date.now();
+  const fint = med({ integrasjonssteg: 1e-7 });
+  paastand('svært lite integrasjonssteg krasjer ikke',
+    isFinite(fint.sum.skjaering) && Date.now() - t0 < 8000, `${Date.now() - t0} ms`);
+  const bred = med({ mal: { vegbredde: 25, maksSokebredde: 400 } });
+  paastand('svært bred veg krasjer ikke', isFinite(bred.sum.skjaering));
+
+  // To knekkpunkt pa samme profilnummer ga et loddrett sprang i profilen
+  const dobbel = new Vertikalprofil([{ s: 0, z: 100, k: 0 }, { s: 50, z: 110, k: 0 },
+    { s: 50, z: 90, k: 0 }, { s: 100, z: 100, k: 0 }]);
+  paastand('doble knekkpunkt gir ikke loddrett sprang',
+    Math.abs(dobbel.hoyde(50.1) - dobbel.hoyde(49.9)) < 0.5,
+    `${dobbel.hoyde(49.9).toFixed(2)} -> ${dobbel.hoyde(50.1).toFixed(2)}`);
+  paastand('alle stigninger er tall etter opprydding', dobbel.stigninger.every(isFinite));
+}
+
+/* ------------------------------------------------------------------ */
 console.log('\n4b. Hull i terrengmodellen');
 {
   const linje = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 100, y: 0, r: 0 }]);

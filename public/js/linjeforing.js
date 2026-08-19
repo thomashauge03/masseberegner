@@ -120,14 +120,25 @@ class Linjeforing {
     this.lengde = s;
   }
 
+  /**
+   * Elementet som profilnummeret ligger i.
+   *
+   * Elementene ligger sortert pa s0, sa det skal søkes med halvering. Med
+   * lineært søk kostet hvert oppslag mer jo lengre veien var, og fordi bade
+   * masseberegningen og utflatingskontrollen slar opp titusenvis av ganger,
+   * ble hele beregningen kvadratisk i lengden: en veg pa 21 km brukte 24
+   * ganger sa lang tid per oppslag som en pa 500 m.
+   */
   _element(s) {
     const e = this.elementer;
     if (!e.length) return null;
     if (s <= e[0].s0) return e[0];
-    for (let i = 0; i < e.length; i++) {
-      if (s <= e[i].s0 + e[i].lengde + 1e-9) return e[i];
+    let lo = 0, hi = e.length - 1;
+    while (lo < hi) {
+      const midt = (lo + hi) >> 1;
+      if (s <= e[midt].s0 + e[midt].lengde + 1e-9) hi = midt; else lo = midt + 1;
     }
-    return e[e.length - 1];
+    return e[lo];
   }
 
   /** @returns {{x,y,retning,krumning}} krumning er signert: positiv = venstresving. */
@@ -159,8 +170,15 @@ class Linjeforing {
 
   /** Kurven som dekker profilnummeret, eller null pa rettstrekk. */
   kurveVed(s) {
-    for (const k of this.kurver) if (s >= k.sBC - 1e-9 && s <= k.sEC + 1e-9) return k;
-    return null;
+    // kurvene ligger sortert pa sBC, sa samme halvering som i _element
+    const k = this.kurver;
+    if (!k.length) return null;
+    let lo = 0, hi = k.length - 1;
+    while (lo < hi) {
+      const midt = (lo + hi) >> 1;
+      if (s <= k[midt].sEC + 1e-9) hi = midt; else lo = midt + 1;
+    }
+    return (s >= k[lo].sBC - 1e-9 && s <= k[lo].sEC + 1e-9) ? k[lo] : null;
   }
 
   /** Nærmeste profilnummer til et vilkarlig punkt (brukt til klikk i kartet). */
