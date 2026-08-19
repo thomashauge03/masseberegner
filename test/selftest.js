@@ -224,6 +224,33 @@ console.log('\n4. Masseberegning mot handregning');
 }
 
 /* ------------------------------------------------------------------ */
+console.log('\n4b. Hull i terrengmodellen');
+{
+  const linje = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 100, y: 0, r: 0 }]);
+  const mal = Object.assign({}, M.StandardMal);
+  const fjell = new M.Fjellmodell({ standarddybde: 5 });
+
+  // Ingen data i det hele tatt
+  const tomt = M.beregnMasser({
+    linje, profil: new Vertikalprofil([{ s: 0, z: 100, k: 1 }, { s: 100, z: 100, k: 1 }]),
+    terreng: { z: () => NaN }, mal, fjell, profilAvstand: 10, bakkefaktor: 1
+  });
+  paastand('helt uten terrengdata gir tall, ikke NaN',
+    Object.values(tomt.sum).every(v => isFinite(v)));
+  paastand('helt uten terrengdata gir datamerknad',
+    tomt.merknader.length > 0 && tomt.merknader.every(m => m.type === 'data'));
+
+  // Data bare på den ene siden
+  const halvt = M.beregnMasser({
+    linje, profil: new Vertikalprofil([{ s: 0, z: 99, k: 1 }, { s: 100, z: 99, k: 1 }]),
+    // dekning bare fram til 2 m til høyre for senterlinjen
+    terreng: { z: (x, y) => (y > -2 ? 100 : NaN) }, mal, fjell, profilAvstand: 10, bakkefaktor: 1
+  });
+  paastand('delvis dekning gir gyldige tall og merknad',
+    Object.values(halvt.sum).every(v => isFinite(v)) && halvt.merknader.some(m => m.type === 'data'));
+}
+
+/* ------------------------------------------------------------------ */
 console.log('\n5. Massebalanse');
 {
   const linje = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 200, y: 0, r: 0 }]);

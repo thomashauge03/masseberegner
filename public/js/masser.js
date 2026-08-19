@@ -280,9 +280,16 @@ function beregnTverrprofil(o) {
   const offsets = [...brekk].filter(t => t >= tV - 1e-9 && t <= tH + 1e-9).sort((a, b) => a - b);
 
   let forrige = null;
+  let manglerData = false;
   for (let i = 0; i < offsets.length; i++) {
     const t = offsets[i];
     const zT = terr(t);
+    if (!isFinite(zT)) {
+      // Hull i laserdekningen: ingen masse regnes over hullet
+      manglerData = true;
+      forrige = null;
+      continue;
+    }
     const zJ = jordflate(t);
     const zF = fjellflate(t);
     const d = zT - zJ;                       // positiv = skjæring
@@ -372,9 +379,12 @@ function beregnTverrprofil(o) {
     fotVenstre: tV, fotHoyre: tH,
     sider,
     geometri,
-    advarsel: (!sider[-1].truffet || !sider[1].truffet)
-      ? 'Skraningen nadde ikke terrenget innenfor søkebredden'
-      : null
+    manglerData,
+    advarsel: manglerData
+      ? 'Terrengmodellen har hull i dette tverrsnittet – volumet er ufullstendig'
+      : ((!sider[-1].truffet || !sider[1].truffet)
+        ? 'Skraningen nadde ikke terrenget innenfor søkebredden'
+        : null)
   };
 }
 
@@ -466,7 +476,7 @@ function beregnMasser(o) {
   // --- Kontroll mot krav ---------------------------------------------
   const merknader = [];
   for (const pr of profiler) {
-    if (pr.advarsel) merknader.push({ s: pr.s, type: 'geometri', tekst: pr.advarsel });
+    if (pr.advarsel) merknader.push({ s: pr.s, type: pr.manglerData ? 'data' : 'geometri', tekst: pr.advarsel });
     const g = Math.abs(profil.stigning(pr.s));
     const maks = maksStigningFraRadius(mal, pr.radius);
     if (g > maks + 1e-4) {

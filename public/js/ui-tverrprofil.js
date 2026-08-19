@@ -153,6 +153,11 @@ const Tverrprofil = {
       c.strokeStyle = '#e6ecf3'; c.lineWidth = 1.6; bane(veg); c.stroke();
     }
 
+    // fjelloverflaten tegnes pa nytt over vegkroppen - det er den som avgjør
+    // hvor mye som ma sprenges, sa den skal alltid vaere synlig
+    c.strokeStyle = 'rgba(199,140,236,.95)'; c.lineWidth = 1.2; c.setLineDash([5, 4]);
+    bane(fjellL); c.stroke(); c.setLineDash([]);
+
     // terrenglinje
     c.strokeStyle = '#c3ccd8'; c.lineWidth = 1.7; bane(terr); c.stroke();
 
