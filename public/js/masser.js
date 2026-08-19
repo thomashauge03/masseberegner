@@ -149,7 +149,12 @@ function utvidelseFraRadius(mal, R, dreiningGrader) {
      kravet som hører til der. Uten dette ga 14,5 m ingen breddeutvidelse i
      det hele tatt, selv om bade 14 og 15 krever bredere veg. */
   let valgt = null;
-  for (let i = 0; i < tab.length; i++) {
+  /* Er radien knappere enn tabellen rekker, gjelder det strengeste bandet.
+     Normalen slutter a gi tall der fordi ingen bygger saa knappe kurver -
+     ikke fordi kravet forsvinner. Uten dette ga en 8-metersving mindre
+     utvidelse enn en pa 12. */
+  if (R < tab[0][0]) valgt = tab[0];
+  else for (let i = 0; i < tab.length; i++) {
     // det siste bandet stopper der det slutter - over 60 m kreves ingen utvidelse
     const slutt = i + 1 < tab.length ? tab[i + 1][0] : tab[i][1] + 1;
     if (R >= tab[i][0] && R < slutt) { valgt = tab[i]; break; }
@@ -204,10 +209,25 @@ function effektivRadius(linje, mal, s) {
 
 /** Breddeutvidelse med jevn overgang inn og ut av kurven. */
 function lagUtvidelsesprofil(linje, mal, stasjoner, ekstra) {
-  const grunn = stasjoner.map(s => {
+  /* Utvidelsen ma leses av over hele strekket profilet representerer, ikke
+     bare i det ene punktet. En kurve som er kortere enn profilavstanden kan
+     ellers falle mellom to profiler, og da fikk den ingen utvidelse i det
+     hele tatt - jo knappere sving, desto lettere skjedde det. */
+  const les = s => {
     const kurve = linje.kurveVed ? linje.kurveVed(s) : null;
     const dreining = kurve ? Math.abs(kurve.avbøy) * 180 / Math.PI : 45;
     return utvidelseFraRadius(mal, linje.radiusVed(s), dreining);
+  };
+  const grunn = stasjoner.map((s, i) => {
+    const før = i > 0 ? (s - stasjoner[i - 1]) / 2 : 0;
+    const etter = i + 1 < stasjoner.length ? (stasjoner[i + 1] - s) / 2 : 0;
+    const steg = Math.max(0.5, Math.min(før, etter) / 4);
+    let maks = les(s);
+    for (let d = -før; d <= etter + 1e-9; d += steg) {
+      const v = les(Math.min(Math.max(0, s + d), linje.lengde));
+      if (v > maks) maks = v;
+    }
+    return maks;
   });
   const ut = grunn.slice();
   const overgang = mal.utvidelseOvergang;
@@ -765,16 +785,68 @@ function beregnMasser(o) {
 
   /* Vertikalkurvene har ogsa minstekrav i normalen, ulikt for lavbrekk og
      høybrekk. K-verdien er kurvelengden per prosent stigningsbrudd, og
-     radien blir 100 ganger den. */
-  for (const kv of (profil.kurver || [])) {
-    const radius = kv.L / Math.max(1e-9, Math.abs(kv.A));
-    const lavbrekk = kv.A > 0;
+     radien blir 100 ganger den.
+
+     Kontrollen ma ga pa knekkpunktene, ikke pa kurvene som faktisk ble
+     bygget. Et knekkpunkt med K=0 far nemlig ingen kurve i det hele tatt -
+     og alle laste høyder far K=0. Gikk kontrollen bare pa kurvelisten, slapp
+     hele arbeidsmaten med innlagte høyder fra veiplan, tabell eller PDF unna
+     uten en eneste kontroll av vertikalgeometrien. */
+  const vertikalbrudd = [];
+  for (let i = 1; i < (profil.vip || []).length - 1; i++) {
+    const g1 = profil.stigninger[i - 1], g2 = profil.stigninger[i];
+    const A = g2 - g1;
+    if (Math.abs(A) < 5e-3) continue;                 // under en halv prosent er uten betydning
+    const lavbrekk = A > 0;
     const krav = lavbrekk ? mal.minVertikalLavbrekk : mal.minVertikalHoybrekk;
-    if (krav > 0 && radius < krav - 1e-6) {
+    if (!(krav > 0)) continue;
+
+    const kv = (profil.kurver || []).find(c => c.vip === i);
+    const bygget = kv ? kv.L : 0;
+    const kreves = krav * Math.abs(A);
+    if (bygget >= kreves - 1e-6) continue;
+
+    /* Rommet en kurve kan bruke uten a ta over nabo-knekkpunktet sitt: den
+       ligger symmetrisk om knekkpunktet, sa halve lengden pa hver side. */
+    const plass = Math.min(profil.vip[i].s - profil.vip[i - 1].s,
+                           profil.vip[i + 1].s - profil.vip[i].s);
+    vertikalbrudd.push({
+      s: profil.vip[i].s, lavbrekk, krav, A: Math.abs(A),
+      radius: bygget / Math.abs(A), kreves, plass,
+      ingenKurve: bygget <= 1e-9,
+      trangt: plass < kreves - 1e-6
+    });
+  }
+  if (vertikalbrudd.length) {
+    /* Ligger høydene tett, kan hvert lille knekk gi en merknad. Da er en
+       liste pa hundre linjer til ingen nytte - de verste sier det samme. */
+    /* Sorter etter hvor mye som mangler, ikke etter radius: et knekkpunkt uten
+       kurve har radius 0 uansett hvor lite bruddet er. */
+    vertikalbrudd.sort((a, b) => (b.kreves - b.radius * b.A) - (a.kreves - a.radius * a.A));
+    for (const v of vertikalbrudd.slice(0, 5)) {
+      const sted = v.lavbrekk ? 'lavbrekk' : 'høybrekk';
+      let tekst;
+      if (v.ingenKurve) {
+        /* Laste høyder har K=0 og far ingen kurve. Da hjelper det ikke a be om
+           en høyere K - punktet har ingen. Si hva knekken er og hvor mye
+           avrunding kravet ber om. */
+        tekst = `Knekk på ${(v.A * 100).toFixed(1)} % i ${sted} uten avrunding. `
+          + `Kravet er radius ${v.krav} m, som trenger ${v.kreves.toFixed(0)} m vertikalkurve`
+          + (v.trangt ? `, men det er bare ${v.plass.toFixed(0)} m til nærmeste høyde` : '');
+      } else {
+        tekst = `Vertikalkurve i ${sted} har radius ${v.radius.toFixed(0)} m, `
+          + `kravet er ${v.krav} m – `
+          + (v.trangt
+            ? `bruddet på ${(v.A * 100).toFixed(1)} % er for skarpt for avstanden mellom høydepunktene`
+            : `øk K til ${(v.krav / 100).toFixed(1)}`);
+      }
+      merknader.push({ s: v.s, type: 'vertikalkurve', tekst });
+    }
+    if (vertikalbrudd.length > 5) {
       merknader.push({
-        s: profil.vip[kv.vip].s, type: 'vertikalkurve',
-        tekst: `Vertikalkurve i ${lavbrekk ? 'lavbrekk' : 'høybrekk'} har radius ${radius.toFixed(0)} m, `
-          + `kravet er ${krav} m – øk K til ${(krav / 100).toFixed(1)}`
+        s: vertikalbrudd[5].s, type: 'vertikalkurve',
+        tekst: `${vertikalbrudd.length - 5} vertikalkurver til er under kravet. `
+          + 'De fem skarpeste står over.'
       });
     }
   }

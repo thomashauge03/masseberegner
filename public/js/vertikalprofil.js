@@ -145,22 +145,36 @@ function foreslaProfil(stasjoner, terrengZ, opsjoner = {}) {
   }
 
   // 2) Plukk ut knekkpunkt med jevn avstand
+  /* Er ønsket knekkpunktavstand mindre enn avstanden mellom stasjonene, faller
+     flere knekkpunkt pa samme stasjon. To knekkpunkt pa samme profilnummer gir
+     et strekk uten lengde, og stigningen der er ikke et tall - derfor sikres
+     det at hver stasjon bare brukes en gang. */
   const vip = [];
+  const brukt = new Set();
   const slutt = stasjoner[n - 1];
-  for (let s = 0; s < slutt - 1e-6; s += vipAvstand) {
-    const i = naermesteIndeks(stasjoner, s);
+  const leggTil = (i) => {
+    if (brukt.has(i)) return;
+    brukt.add(i);
     vip.push({ s: stasjoner[i], z: glattet[i], k: kVerdi });
-  }
-  vip.push({ s: slutt, z: glattet[n - 1], k: kVerdi });
+  };
+  for (let s = 0; s < slutt - 1e-6; s += vipAvstand) leggTil(naermesteIndeks(stasjoner, s));
+  leggTil(n - 1);
 
   // 3) Sett inn høydene som allerede er bestemt, og hold dem last
+  const SAMME = 1e-3;                       // en millimeter fra hverandre er samme punkt
   for (const l of laste) {
     if (l.s < -1e-6 || l.s > slutt + 1e-6) continue;
-    const finnes = vip.find(v => Math.abs(v.s - l.s) < 1e-6);
+    const finnes = vip.find(v => Math.abs(v.s - l.s) < SAMME);
     if (finnes) { finnes.z = l.z; finnes.k = l.k == null ? finnes.k : l.k; finnes.laast = true; }
     else vip.push({ s: l.s, z: l.z, k: l.k == null ? kVerdi : l.k, laast: true });
   }
   vip.sort((a, b) => a.s - b.s);
+  // to høyder pa samme sted ville gitt samme problem; en last høyde vinner
+  for (let i = vip.length - 1; i > 0; i--) {
+    if (vip[i].s - vip[i - 1].s >= SAMME) continue;
+    const kast = (vip[i - 1].laast && !vip[i].laast) ? i : i - 1;
+    vip.splice(kast, 1);
+  }
 
   // 4) Tving stigningen under makskravet.
   //    Hvert brudd rettes ved a flytte begge endene like mye, sa formen holdes.

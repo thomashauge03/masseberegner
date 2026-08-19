@@ -84,7 +84,12 @@ class Terreng {
       if (s >= linje.lengde) break;
     }
 
-    const liste = [...trengs].filter(k => !this.fliser.has(k) && !this.mangler.has(k));
+    /* Fliser som slo feil sist far en ny sjanse. En kortvarig nettfeil skal
+       ikke gjøre at et omrade star tomt resten av økta - og fordi tjenesten
+       svarer med gyldige data ogsa utenfor Norge (bare uten verdier), er en
+       feil her alltid en teknisk feil og aldri "her finnes det ingenting". */
+    this.mangler.clear();
+    const liste = [...trengs].filter(k => !this.fliser.has(k));
     let ferdig = 0;
     const totalt = liste.length;
     if (framdrift) framdrift(0, totalt);
@@ -95,14 +100,18 @@ class Terreng {
       while (i < liste.length) {
         const k = liste[i++];
         const [tx, ty] = k.split('_').map(Number);
-        try {
-          const svar = await fetch(`api/dtm/flis?sr=${this.sr}&tx=${tx}&ty=${ty}&res=${this.res}`
-            + `&modell=${this.modell}&v=${FLIS_VERSJON}`);
-          if (!svar.ok) throw new Error('HTTP ' + svar.status);
-          this.fliser.set(k, pakkOppFlis(await svar.arrayBuffer()));
-        } catch (e) {
-          console.warn('Fikk ikke flis', k, e.message);
-          this.mangler.add(k);
+        // ett forsøk til før vi gir opp - opplasteren svarer ikke alltid første gang
+        for (let forsok = 0; forsok < 2; forsok++) {
+          try {
+            const svar = await fetch(`api/dtm/flis?sr=${this.sr}&tx=${tx}&ty=${ty}&res=${this.res}`
+              + `&modell=${this.modell}&v=${FLIS_VERSJON}`);
+            if (!svar.ok) throw new Error('HTTP ' + svar.status);
+            this.fliser.set(k, pakkOppFlis(await svar.arrayBuffer()));
+            break;
+          } catch (e) {
+            if (forsok) { console.warn('Fikk ikke flis', k, e.message); this.mangler.add(k); }
+            else await new Promise(r => setTimeout(r, 400));
+          }
         }
         ferdig++;
         if (framdrift) framdrift(ferdig, totalt);

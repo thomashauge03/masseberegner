@@ -44,10 +44,22 @@ const Geo = (() => {
 
   const grad = Math.PI / 180;
 
-  /** Norsk sonevalg: Sør-Norge = 32, Midt/Nord = 33, Finnmark = 35. */
+  /**
+   * Norsk sonevalg: Sør-Norge = 32, Trøndelag/Nordland/Troms = 33, Finnmark = 35.
+   *
+   * Grensene ligger midt mellom midtmeridianene (9, 15 og 27 grader), slik at
+   * et sted alltid havner i den sonen det ligger nærmest. Det er ogsa den
+   * inndelingen fylkene bruker.
+   *
+   * Valget avgjør ikke om det finnes terrengdata - Kartverket leverer hele
+   * landet i alle tre sonene, prøvd i Trondheim, Tromsø, Bodø, Alta og Vadsø.
+   * Det avgjør malestokksfaktoren, og hvor langt fra midtmeridianen
+   * koordinatregningen ma strekke seg. Med 18 grader som grense havnet Tromsø
+   * i sone 35, atte grader fra midtmeridianen der.
+   */
   function sone(lon) {
     if (lon < 12) return 32;
-    if (lon < 18) return 33;
+    if (lon < 21) return 33;
     return 35;
   }
   // ETRS89 / UTM: EPSG 25832, 25833, 25835

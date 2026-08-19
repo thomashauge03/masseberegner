@@ -421,6 +421,84 @@ console.log('\n4a. Feil som er funnet og rettet');
     profilAvstand: 10, bakkefaktor: 1
   });
   sjekk('ingen rensk uten terrengdata', utenData.sum.rensk, 0, 1e-9);
+
+  /* Laste høyder far K=0, og da lages det ingen vertikalkurve. Gikk kontrollen
+     bare pa kurvelisten, slapp hele arbeidsmaten med innlagte høyder unna
+     kravet til vertikalgeometri - uansett hvor skarpt bruddet var. */
+  const knekkmal = Object.assign({}, M.StandardMal, {
+    minVertikalLavbrekk: 200, minVertikalHoybrekk: 100, maksStigning: 1, stigningIKurve: null
+  });
+  const skarptLavbrekk = M.beregnMasser({
+    linje: rettLinje,
+    profil: new Vertikalprofil([
+      { s: 0, z: 110, k: 0 }, { s: 50, z: 100, k: 0 }, { s: 100, z: 110, k: 0 }
+    ]),
+    terreng: { z: () => 105 }, mal: knekkmal, fjell: new M.Fjellmodell({ standarddybde: 5 }),
+    profilAvstand: 10, bakkefaktor: 1
+  });
+  paastand('skarpt lavbrekk uten kurve gir merknad',
+    skarptLavbrekk.merknader.some(m => m.type === 'vertikalkurve'));
+
+  // Et jevnt fall skal ikke gi merknad selv om alle knekkpunkt har K=0
+  const jevnt = [];
+  for (let s = 0; s <= 100; s += 5) jevnt.push({ s, z: 100 - 0.05 * s, k: 0 });
+  const rett = M.beregnMasser({
+    linje: rettLinje, profil: new Vertikalprofil(jevnt),
+    terreng: { z: () => 100 }, mal: knekkmal, fjell: new M.Fjellmodell({ standarddybde: 5 }),
+    profilAvstand: 10, bakkefaktor: 1
+  });
+  paastand('jevn stigning gir ingen vertikalmerknad',
+    !rett.merknader.some(m => m.type === 'vertikalkurve'));
+
+  /* Tette høyder som vaker opp og ned skal si ifra - men ikke med hundre
+     linjer som alle sier det samme. */
+  const vaker = [];
+  for (let s = 0; s <= 100; s += 5) vaker.push({ s, z: 100 + (s / 5 % 2 ? 0.4 : 0), k: 0 });
+  const bolge = M.beregnMasser({
+    linje: rettLinje, profil: new Vertikalprofil(vaker),
+    terreng: { z: () => 100 }, mal: knekkmal, fjell: new M.Fjellmodell({ standarddybde: 5 }),
+    profilAvstand: 10, bakkefaktor: 1
+  });
+  const vm = bolge.merknader.filter(m => m.type === 'vertikalkurve');
+  paastand('bølgete høyder gir merknad, men en kort liste',
+    vm.length > 0 && vm.length <= 6, `${vm.length} merknader`);
+
+  /* En radius knappere enn tabellen rekker ga null breddeutvidelse - mindre
+     enn en slakere sving fikk. */
+  const bredde = M.StandardMal.breddeIKurve;
+  const knappest = M.utvidelseFraRadius(M.StandardMal, bredde[0][0], 90);
+  paastand('radius under tabellen gir minst like mye utvidelse som det knappeste bandet',
+    M.utvidelseFraRadius(M.StandardMal, bredde[0][0] - 3, 90) >= knappest - 1e-9);
+
+  /* En kurve kortere enn profilavstanden falt mellom to profiler og fikk
+     ingen utvidelse i det hele tatt. */
+  const kortKurve = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 100, y: 0, r: 12 }, { x: 100, y: 100, r: 0 }]);
+  const stasjonerGrovt = [];
+  for (let s = 0; s <= kortKurve.lengde; s += 20) stasjonerGrovt.push(s);
+  const utv = M.lagUtvidelsesprofil(kortKurve, M.StandardMal, stasjonerGrovt, null);
+  paastand('kort kurve mellom to profiler far likevel utvidelse',
+    Math.max(...utv) > 0, `største utvidelse ${Math.max(...utv).toFixed(2)} m`);
+
+  // Knekkpunkt tettere enn stasjonene ga to knekkpunkt pa samme profilnummer
+  const stasjonerTett = [];
+  for (let s = 0; s <= 100; s += 10) stasjonerTett.push(s);
+  const tett = foreslaProfil(stasjonerTett, stasjonerTett.map(() => 100), { vipAvstand: 2 });
+  paastand('for tett knekkpunktavstand gir ikke doble punkt',
+    tett.every((v, i) => i === 0 || v.s > tett[i - 1].s));
+  paastand('alle stigninger er tall',
+    new Vertikalprofil(tett).stigninger.every(g => isFinite(g)));
+
+  /* Sonevalget skal følge nærmeste midtmeridian (9, 15 og 27 grader). Med 18
+     grader som grense havnet Tromsø i sone 35, atte grader unna. */
+  sjekk('Tromsø havner i sone 33', Geo.sone(18.955), 33, 0);
+  sjekk('Alta havner i sone 35', Geo.sone(23.271), 35, 0);
+  sjekk('Lyngdal havner i sone 32', Geo.sone(7.070), 32, 0);
+  for (const lon of [5, 10, 14, 20, 25, 30]) {
+    const s = Geo.sone(lon);
+    const naermest = [32, 33, 35].reduce((a, b) =>
+      Math.abs(lon - Geo.midtmeridian(b)) < Math.abs(lon - Geo.midtmeridian(a)) ? b : a);
+    sjekk(`${lon} grader gir nærmeste sone`, s, naermest, 0);
+  }
 }
 
 /* ------------------------------------------------------------------ */
