@@ -167,6 +167,29 @@ function maksStigningFraRadius(mal, R, stigning, lassretning) {
   return lassetKlatrer ? rad[1] : rad[2];
 }
 
+/**
+ * Radien som bestemmer stigningskravet i et punkt.
+ *
+ * Normalen sier at stigningen skal flates ut *før* knappe kurver, og at
+ * stigningsovergangen skal jevnes ut over en gitt avstand regnet fra
+ * tangentpunktene. Kravet i kurven gjelder derfor ogsa et stykke pa hver side
+ * av den - ellers kunne man kjørt 20 % helt fram til en 10-meterssving og
+ * sluppet unna med det pa papiret.
+ */
+function effektivRadius(linje, mal, s) {
+  const utflating = mal.utflatingForKurve != null ? mal.utflatingForKurve : (mal.utvidelseOvergang || 0);
+  let minste = linje.radiusVed(s);
+  if (utflating > 0) {
+    const steg = Math.max(1, utflating / 6);
+    for (let d = -utflating; d <= utflating + 1e-9; d += steg) {
+      const ss = Math.min(Math.max(0, s + d), linje.lengde);
+      const r = linje.radiusVed(ss);
+      if (r < minste) minste = r;
+    }
+  }
+  return minste;
+}
+
 /** Breddeutvidelse med jevn overgang inn og ut av kurven. */
 function lagUtvidelsesprofil(linje, mal, stasjoner, ekstra) {
   const grunn = stasjoner.map(s => {
@@ -200,10 +223,26 @@ function lagUtvidelsesprofil(linje, mal, stasjoner, ekstra) {
  * venstre og høyre side pa enkeltprofiler - typisk nar en oppmalt veg skal
  * treffes, eller nar kurven skal doseres ensidig slik normalen krever.
  */
-function tverrfallVed(mal, overstyringer, s) {
-  const standard = mal.tverrfallType === 'ensidig'
+function tverrfallVed(mal, overstyringer, s, krumning) {
+  let standard = mal.tverrfallType === 'ensidig'
     ? { venstre: -mal.tverrfall * mal.tverrfallRetning, hoyre: mal.tverrfall * mal.tverrfallRetning }
     : { venstre: mal.tverrfall, hoyre: mal.tverrfall };
+
+  /* Normalen: kurver med radius under 60 m skal bygges med ensidig tverrfall
+     (dosering) inn mot kurvesenteret, og det skal ikke overstige 5 %.
+     Uten dette ville en krapp sving fatt takfall, som heller vannet ut mot
+     yttersiden nettopp der bilen presser mest. */
+    if (krumning != null && mal.ensidigUnderRadius > 0 && Math.abs(krumning) > 1e-9) {
+    const radius = 1 / Math.abs(krumning);
+    if (radius < mal.ensidigUnderRadius) {
+      const fall = Math.min(mal.tverrfall, mal.ensidigMaks != null ? mal.ensidigMaks : 0.05);
+      // positiv krumning = venstresving, sa veien skal falle mot venstre
+      standard = krumning > 0
+        ? { venstre: fall, hoyre: -fall }
+        : { venstre: -fall, hoyre: fall };
+    }
+  }
+
   const liste = (overstyringer || []).slice().sort((a, b) => a.s - b.s);
   if (!liste.length) return standard;
   if (s <= liste[0].s) return { venstre: liste[0].venstre, hoyre: liste[0].hoyre };
@@ -524,7 +563,7 @@ function beregnMasser(o) {
   const kjørProfiler = utvidelser => stasjoner.map((s, i) => beregnTverrprofil({
     linje, terreng: o.terreng, mal, fjell: o.fjell,
     s, vegnivaa: profil.hoyde(s), utvidelse: utvidelser[i],
-    tverrfall: tverrfallVed(mal, o.tverrfallOverstyring, s),
+    tverrfall: tverrfallVed(mal, o.tverrfallOverstyring, s, linje.punktVed(s).krumning),
     integrasjonssteg: o.integrasjonssteg
   }));
 
@@ -606,24 +645,28 @@ function beregnMasser(o) {
     if (pr.advarsel) merknader.push({ s: pr.s, type: pr.manglerData ? 'data' : 'geometri', tekst: pr.advarsel });
     if (pr.avkortet) antallAvkortet++;
     const stign = profil.stigning(pr.s);
-    const maks = maksStigningFraRadius(mal, pr.radius, stign, mal.lassretning);
+    // kravet i kurven gjelder ogsa pa innkjøringen, jf. utflating før knappe kurver
+    const kravRadius = effektivRadius(linje, mal, pr.s);
+    const maks = maksStigningFraRadius(mal, kravRadius, stign, mal.lassretning);
     if (Math.abs(stign) > maks + 1e-4) {
       const lassetKlatrer = (stign * (mal.lassretning || 1)) > 0;
       /* Er det kurven som setter grensen, er den enkleste utveien som regel a
          slake ut kurven - ikke a flytte høyder. Da er det verdt a si hvilken
          radius som ville holdt. */
       let rad = null;
-      if (isFinite(pr.radius)) {
+      if (isFinite(kravRadius)) {
         for (const r of (mal.stigningIKurve || [])) {
           const g = lassetKlatrer ? r[1] : r[2];
           if (g >= Math.abs(stign) - 1e-9) { rad = r[0]; break; }
         }
       }
+      const iKurven = isFinite(pr.radius);
       merknader.push({
         s: pr.s, type: 'stigning',
         tekst: `Stigning ${(Math.abs(stign) * 100).toFixed(1)} % overstiger ${(maks * 100).toFixed(0)} % `
           + `${lassetKlatrer ? 'i lassretningen' : 'i returretningen'} `
-          + `(${isFinite(pr.radius) ? 'radius ' + pr.radius.toFixed(0) + ' m' : 'rettstrekk'})`
+          + (iKurven ? `(radius ${pr.radius.toFixed(0)} m)`
+            : isFinite(kravRadius) ? `(utflating mot kurve med radius ${kravRadius.toFixed(0)} m)` : '(rettstrekk)')
           + (rad ? ` – holder med radius ${rad > 1e8 ? 'over 60' : rad} m` : ''),
         raad: rad ? { type: 'radius', radius: rad > 1e8 ? 60 : rad } : { type: 'stigning', maks }
       });
@@ -657,6 +700,22 @@ function beregnMasser(o) {
           tekst: `Skråningen stikker ${utslag.toFixed(1)} m ut fra vegkant, grensen er ${mal.maksUtslag} m`
         });
       }
+    }
+  }
+
+  /* Vertikalkurvene har ogsa minstekrav i normalen, ulikt for lavbrekk og
+     høybrekk. K-verdien er kurvelengden per prosent stigningsbrudd, og
+     radien blir 100 ganger den. */
+  for (const kv of (profil.kurver || [])) {
+    const radius = kv.L / Math.max(1e-9, Math.abs(kv.A));
+    const lavbrekk = kv.A > 0;
+    const krav = lavbrekk ? mal.minVertikalLavbrekk : mal.minVertikalHoybrekk;
+    if (krav > 0 && radius < krav - 1e-6) {
+      merknader.push({
+        s: profil.vip[kv.vip].s, type: 'vertikalkurve',
+        tekst: `Vertikalkurve i ${lavbrekk ? 'lavbrekk' : 'høybrekk'} har radius ${radius.toFixed(0)} m, `
+          + `kravet er ${krav} m – øk K til ${(krav / 100).toFixed(1)}`
+      });
     }
   }
 
@@ -694,6 +753,7 @@ if (typeof module !== 'undefined') {
   module.exports = {
     StandardMal, StandardFaktorer, Fjellmodell,
     beregnMasser, beregnTverrprofil,
-    utvidelseFraRadius, maksStigningFraRadius, lagUtvidelsesprofil, tverrfallVed
+    utvidelseFraRadius, maksStigningFraRadius, lagUtvidelsesprofil, tverrfallVed,
+    effektivRadius
   };
 }

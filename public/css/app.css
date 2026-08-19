@@ -62,6 +62,28 @@
   --skrift-tittel: 'Barlow Condensed', var(--skrift);
 }
 
+/* Lys palett nar profilene tegnes for papir. Mørk bakgrunn ville blitt både
+   uleselig og en tonerslukende flate i utskriften. */
+:root[data-utskrift] {
+  --flate: #ffffff;
+  --flate-2: #f4f4f5;
+  --blekk: #0b0b0c;
+  --blekk-svak: #52525b;
+  --data-terreng: #3f3f46;
+  --data-rensk: rgba(63, 63, 70, 0.45);
+  --data-veg: #0b0b0c;
+  --data-planum: #a8151d;
+  --data-skjaering: #d81e28;
+  --data-skjaering-flate: rgba(216, 30, 40, 0.22);
+  --data-fylling: #15803d;
+  --data-fylling-flate: rgba(21, 128, 61, 0.22);
+  --data-fjell: rgba(168, 21, 29, 0.8);
+  --data-baerelag: rgba(113, 113, 122, 0.5);
+  --data-slitelag: rgba(63, 63, 70, 0.8);
+  --data-rutenett: #e4e4e7;
+  --data-akse: #d0d0d5;
+}
+
 @media (prefers-color-scheme: light) {
   :root {
     --flate: #ffffff;
@@ -475,6 +497,25 @@ body {
 .leaflet-bar a:hover { background: var(--kant); }
 .leaflet-control-attribution { background: rgba(11,11,12,.7) !important; color: #a1a1aa !important; }
 .leaflet-control-attribution a { color: var(--raud) !important; }
+
+/* Resultatet av nettlesertesten (?test=1) */
+.testresultat {
+  position: fixed; right: 16px; bottom: 16px; z-index: 5000; max-width: 480px;
+  max-height: 60vh; overflow: auto;
+  background: var(--flate-opp); border: 2px solid var(--kant-sterk);
+  box-shadow: 5px 5px 0 0 rgba(0,0,0,.5); padding: 12px 14px; font-size: 12px;
+}
+.testresultat h3 {
+  margin: 0 0 8px; font-family: var(--skrift-tittel); text-transform: uppercase;
+  letter-spacing: .05em; font-size: 15px;
+}
+.testresultat ul { margin: 0 0 8px; padding-left: 18px; color: var(--raud); }
+.testresultat li { margin-bottom: 3px; }
+.testresultat small { color: var(--blekk-svak); font-weight: 400; }
+.testresultat button {
+  background: var(--flate-2); border: 2px solid var(--kant); color: var(--blekk);
+  padding: 4px 12px; cursor: pointer; font-family: var(--skrift);
+}
 
 /* Rørsle er aldri nødvendig for å forstå grensesnittet. */
 @media (prefers-reduced-motion: reduce) {

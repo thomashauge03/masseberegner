@@ -517,6 +517,70 @@ console.log('\n6b. Eget tverrfall per profil');
 }
 
 /* ------------------------------------------------------------------ */
+console.log('\n6d. Kurvereglene fra normalen');
+{
+  const mal = Object.assign({}, M.StandardMal, { utvidelseOvergang: 15, ekstraBredde: null });
+
+  /* Normalen: "Stigningen flates ut før knappe kurver", og
+     stigningsovergangen jevnes ut over en avstand fra tangentpunktene.
+     Kravet i kurven ma derfor gjelde ogsa pa innkjøringen. */
+  const linje = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 200, y: 0, r: 10 }, { x: 200, y: 200, r: 0 }]);
+  const kurve = linje.kurver[0];
+  sjekk('radius inne i kurven', linje.radiusVed(kurve.sBC + 1), 10, 1e-6);
+  paastand('rettstrekk rett før kurven har uendelig radius', !isFinite(linje.radiusVed(kurve.sBC - 5)));
+  sjekk('men effektiv radius tar med utflatingen', M.effektivRadius(linje, mal, kurve.sBC - 5), 10, 1e-6);
+  sjekk('effektiv radius etter kurven ogsa', M.effektivRadius(linje, mal, kurve.sEC + 5), 10, 1e-6);
+  paastand('langt unna kurven gjelder rettstrekket',
+    !isFinite(M.effektivRadius(linje, mal, kurve.sBC - 40)));
+
+  const utenUtflating = Object.assign({}, mal, { utflatingForKurve: 0 });
+  paastand('uten utflating gjelder kravet bare i selve kurven',
+    !isFinite(M.effektivRadius(linje, utenUtflating, kurve.sBC - 5)));
+
+  /* Normalen: kurver med radius under 60 m skal ha ensidig tverrfall
+     (dosering) inn mot kurvesenteret, maks 5 %. */
+  const rett = M.tverrfallVed(mal, [], 50, 0);
+  sjekk('rettstrekk har takfall venstre', rett.venstre, mal.tverrfall, 1e-9);
+  sjekk('rettstrekk har takfall høyre', rett.hoyre, mal.tverrfall, 1e-9);
+
+  const venstresving = M.tverrfallVed(mal, [], 50, 1 / 20);      // R = 20, venstre
+  paastand('venstresving doseres mot venstre', venstresving.venstre > 0 && venstresving.hoyre < 0);
+  sjekk('doseringen er ikke over 5 %', Math.abs(venstresving.venstre), 0.05, 1e-9);
+  const hoyresving = M.tverrfallVed(mal, [], 50, -1 / 20);
+  paastand('høyresving doseres mot høyre', hoyresving.hoyre > 0 && hoyresving.venstre < 0);
+
+  const slakKurve = M.tverrfallVed(mal, [], 50, 1 / 200);        // R = 200
+  sjekk('slak kurve beholder takfall', slakKurve.venstre, mal.tverrfall, 1e-9);
+
+  paastand('egne verdier overstyrer doseringen',
+    M.tverrfallVed(mal, [{ s: 50, venstre: 0.02, hoyre: 0.03 }], 50, 1 / 20).venstre === 0.02);
+
+  /* Vertikalkurvene har egne minstekrav, ulikt i lavbrekk og høybrekk.
+     R = L / A der A er stigningsbruddet som desimaltall. */
+  const flatt = { z: () => 100 };
+  const rettLinje = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 300, y: 0, r: 0 }]);
+  const fjell = new M.Fjellmodell({ standarddybde: 5 });
+  // K = 0,2 gir A = 10 % over L = 2 m, altsa radius 20 m - langt under kravet
+  const skarp = M.beregnMasser({
+    linje: rettLinje,
+    profil: new Vertikalprofil([{ s: 0, z: 100, k: 0.2 }, { s: 150, z: 107.5, k: 0.2 }, { s: 300, z: 100, k: 0.2 }]),
+    terreng: flatt, mal, fjell, profilAvstand: 25, bakkefaktor: 1
+  });
+  paastand('for skarp vertikalkurve blir merket',
+    skarp.merknader.some(m => m.type === 'vertikalkurve'));
+  paastand('merknaden sier hvilken K som trengs',
+    skarp.merknader.some(m => m.type === 'vertikalkurve' && /øk K til/.test(m.tekst)));
+
+  const slak = M.beregnMasser({
+    linje: rettLinje,
+    profil: new Vertikalprofil([{ s: 0, z: 100, k: 3 }, { s: 150, z: 107.5, k: 3 }, { s: 300, z: 100, k: 3 }]),
+    terreng: flatt, mal, fjell, profilAvstand: 25, bakkefaktor: 1
+  });
+  paastand('slak vertikalkurve gir ingen merknad',
+    !slak.merknader.some(m => m.type === 'vertikalkurve'));
+}
+
+/* ------------------------------------------------------------------ */
 console.log('\n6c. Avlesning av PDF');
 {
   const Pdf = require(path.join(__dirname, '..', 'public', 'js', 'pdfimport.js'));

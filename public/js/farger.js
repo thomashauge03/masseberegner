@@ -18,7 +18,7 @@ const Farger = {
   },
 
   /** Kalles dersom temaet endres, sa fargene hentes pa nytt. */
-  glem() { this._bufret = {}; },
+  glem() { this._bufret = {}; this._skravur = null; },
 
   get terreng() { return this.hent('data-terreng'); },
   get rensk() { return this.hent('data-rensk'); },

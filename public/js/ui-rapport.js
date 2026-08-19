@@ -157,7 +157,23 @@ const Rapport = {
     const antallObs = this.app.P.fjell.punkter.length;
     return `
       <div class="sumkort">
-        <h4>Hvor sikre er tallene</h4>
+        <h4>Hvor sikre er tallene <button class="hjelpknapp" data-hjelp="sikkerhet" title="Hva betyr dette?">?</button></h4>
+        <div class="hjelpetekstboks skjult" data-hjelptekst="sikkerhet">
+          <p><b>Terrenghøydene er målt.</b> De kommer fra Kartverkets laserskanning og er kontrollert
+            mot Kartverkets eget API – de stemmer eksakt. På åpen mark er dette det beste grunnlaget
+            som finnes uten å måle selv.</p>
+          <p><b>Skog over traseen</b> forteller hvor godt laseren har nådd ned. Terrengmodellen lages
+            av laserpulser som må helt ned på bakken. Står det tett skog, slipper få gjennom, og
+            høyden mellom treffene er <i>regnet ut, ikke målt</i>. Er tallet høyt, er terrenget langs
+            veien mindre å stole på enn ellers – da er en befaring med GPS verdt tiden.</p>
+          <p><b>Dybden til fjell er et anslag.</b> Programmet kan ikke vite hvor fjellet ligger.
+            Det bruker verdien du har satt under Grunnforhold. Linjene under viser hva sprengningen
+            blir hvis den verdien bommer med en halv meter hver vei – det er som regel den største
+            usikkerheten i hele regnestykket.</p>
+          <p><b>Kort sagt:</b> terrenget kan du regne med. Sprengningsvolumet er ikke sikrere enn
+            det du vet om fjellet. Registrer fjellpunkt i kartet der dere har gravd, sett eller
+            sondert, så strammer det seg inn.</p>
+        </div>
         <div class="sumrad"><span>Terrenghøyder</span><span class="verdi merke-fylling">Målt</span></div>
         <div class="sumrad"><small>Kartverket DTM1, kontrollert mot deres eget API</small></div>
         ${this.skograd()}
@@ -200,6 +216,85 @@ const Rapport = {
 
   /* ---------------- Utskriftsrapport ---------------- */
 
+  /**
+   * Tegner lengdeprofilen og et utvalg tverrsnitt til bilder for rapporten.
+   *
+   * Lerretene pa skjermen er sma og har mørk bakgrunn. Til papir tegnes de pa
+   * nytt i full bredde med lys bakgrunn, ellers blir utskriften bade uleselig
+   * og full av toner.
+   */
+  lagTegninger(res, antallTverrsnitt = 6) {
+    const bilder = { tverrsnitt: [] };
+    const lyst = () => {
+      // bytt til den lyse paletten mens vi tegner for papir
+      document.documentElement.setAttribute('data-utskrift', '1');
+      Farger.glem();
+    };
+    const tilbake = () => { document.documentElement.removeAttribute('data-utskrift'); Farger.glem(); };
+
+    const midlertidig = (bredde, hoyde, tegn) => {
+      const l = document.createElement('canvas');
+      l.width = bredde; l.height = hoyde;
+      l.style.width = bredde + 'px'; l.style.height = hoyde + 'px';
+      Object.defineProperty(l, 'clientWidth', { value: bredde });
+      Object.defineProperty(l, 'clientHeight', { value: hoyde });
+      tegn(l);
+      return l.toDataURL('image/png');
+    };
+
+    lyst();
+    try {
+      const gammeltLerret = Lengdeprofil.lerret;
+      const gammelCtx = Lengdeprofil.ctx;
+      const gammelPeker = Lengdeprofil.peker;
+      Lengdeprofil.peker = null;
+      bilder.lengdeprofil = midlertidig(1600, 520, l => {
+        Lengdeprofil.lerret = l; Lengdeprofil.ctx = l.getContext('2d');
+        Lengdeprofil.tegn();
+      });
+      Lengdeprofil.lerret = gammeltLerret; Lengdeprofil.ctx = gammelCtx; Lengdeprofil.peker = gammelPeker;
+
+      const gammelTverr = Tverrprofil.lerret, gammelTverrCtx = Tverrprofil.ctx, gammelProfil = Tverrprofil.profil;
+      const steg = Math.max(1, Math.floor(res.profiler.length / antallTverrsnitt));
+      for (let i = 0; i < res.profiler.length; i += steg) {
+        const pr = res.profiler[i];
+        bilder.tverrsnitt.push({
+          s: pr.s, areal: pr.areal,
+          bilde: midlertidig(900, 460, l => {
+            Tverrprofil.lerret = l; Tverrprofil.ctx = l.getContext('2d');
+            Tverrprofil.profil = pr;
+            Tverrprofil.tegn();
+          })
+        });
+      }
+      Tverrprofil.lerret = gammelTverr; Tverrprofil.ctx = gammelTverrCtx; Tverrprofil.profil = gammelProfil;
+    } finally {
+      tilbake();
+      Lengdeprofil.tegn(); Tverrprofil.tegn();
+    }
+    return bilder;
+  },
+
+  /** Koordinater og høyder for senterlinjen, til utsetting i felt. */
+  stikningstabell(res, steg) {
+    const app = this.app;
+    const rader = [];
+    const mal = res.mal;
+    for (const p of res.profiler) {
+      if (steg > 0 && Math.abs(p.s % steg) > 1e-6 && p.s !== res.profiler[res.profiler.length - 1].s) continue;
+      const vk = app.linje.punktMedAvvik(p.s, -p.halvbredde);
+      const hk = app.linje.punktMedAvvik(p.s, p.halvbredde);
+      const fall = app.fallVed ? app.fallVed(p.s) : { venstre: mal.tverrfall, hoyre: mal.tverrfall };
+      rader.push({
+        s: p.s, n: p.y, o: p.x, z: p.vegnivaa,
+        terreng: p.terrengSenter,
+        vkN: vk.y, vkO: vk.x, vkZ: p.vegnivaa - fall.venstre * p.halvbredde,
+        hkN: hk.y, hkO: hk.x, hkZ: p.vegnivaa - fall.hoyre * p.halvbredde
+      });
+    }
+    return rader;
+  },
+
   apneRapport() {
     const app = this.app, res = app.resultat;
     if (!res) { alert('Ingen beregning å rapportere ennå.'); return; }
@@ -229,6 +324,9 @@ const Rapport = {
 
     const merknader = res.merknader.map(v => `<tr><td>${v.s.toFixed(0)}</td><td>${v.type}</td><td>${v.tekst}</td></tr>`).join('');
 
+    const tegninger = this.lagTegninger(res);
+    const stikning = this.stikningstabell(res, res.lengdeKart > 600 ? 10 : 5);
+
     const html = `<!DOCTYPE html><html lang="nb"><head><meta charset="utf-8">
 <title>Masseberegning – ${app.P.navn}</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&display=swap">
@@ -255,6 +353,15 @@ const Rapport = {
   .liten{font-size:11px;color:#52525b}
   .raud{color:#a8151d;font-weight:700}
   .bunn{margin-top:16px;border-top:3px solid #d81e28;padding-top:8px}
+  .tegning{width:100%;border:1px solid #d0d0d5;margin-bottom:6px}
+  .tverrsnitt{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .tverrsnitt figure{margin:0}
+  .tverrsnitt img{width:100%;border:1px solid #d0d0d5}
+  .tverrsnitt figcaption{font-size:10.5px;color:#52525b;padding-top:2px}
+  .stikning{font-size:10px}
+  .stikning td,.stikning th{padding:2px 4px}
+  h2{page-break-after:avoid} .tverrsnitt figure{page-break-inside:avoid}
+  table{page-break-inside:auto} tr{page-break-inside:avoid}
   .knapp{background:#d81e28;color:#fff;border:2px solid #0b0b0c;box-shadow:3px 3px 0 0 #0b0b0c;
     padding:7px 16px;font-weight:700;text-transform:uppercase;cursor:pointer;font-family:inherit}
   @media print{body{margin:12mm} .ikkeSkriv{display:none} .brevhode{margin:-12mm -12mm 14px;
@@ -331,6 +438,33 @@ ${rader.map(r => `<tr><td>${r.fra}–${r.til.toFixed(0)}</td><td>${t(r.rensk)}</
 <tr class="sum"><td>Sum</td><td>${t(s.rensk)}</td><td>${t(s.skjaeringLosmasse)}</td><td>${t(s.skjaeringFjell)}</td><td>${t(s.skjaering)}</td><td>${t(s.fylling)}</td><td>${t(s.baerelag)}</td><td>${t(s.slitelag)}</td></tr>
 </tbody></table>
 
+<h2>Lengdeprofil</h2>
+<img class="tegning" src="${tegninger.lengdeprofil}" alt="Lengdeprofil">
+
+<h2>Tverrsnitt</h2>
+<div class="tverrsnitt">
+${tegninger.tverrsnitt.map(t => `<figure>
+  <img src="${t.bilde}" alt="Tverrsnitt profil ${t.s.toFixed(0)}">
+  <figcaption>Profil ${t.s.toFixed(0)} · skjæring ${t.areal.skjaering.toFixed(1)} m²
+    (fjell ${t.areal.skjaeringFjell.toFixed(1)}) · fylling ${t.areal.fylling.toFixed(1)} m²</figcaption>
+</figure>`).join('')}
+</div>
+
+<h2>Stikningsdata – senterlinje</h2>
+<p class="liten">EUREF89 UTM${app.sone}. VK og HK er venstre og høyre vegkant.
+Z er ferdig vegnivå. Hele oppsettet med hver ${t(res.stasjoner[1] - res.stasjoner[0], 1)} meter
+kan hentes som CSV under fanen «Linje».</p>
+<table class="stikning">
+<thead><tr><th>Profil</th><th>Nord</th><th>Øst</th><th>Z veg</th><th>Z terreng</th>
+<th>VK nord</th><th>VK øst</th><th>VK Z</th><th>HK nord</th><th>HK øst</th><th>HK Z</th></tr></thead>
+<tbody>
+${stikning.map(r => `<tr><td>${r.s.toFixed(0)}</td>
+<td>${r.n.toFixed(3)}</td><td>${r.o.toFixed(3)}</td><td>${r.z.toFixed(3)}</td>
+<td>${isFinite(r.terreng) ? r.terreng.toFixed(3) : '–'}</td>
+<td>${r.vkN.toFixed(3)}</td><td>${r.vkO.toFixed(3)}</td><td>${r.vkZ.toFixed(3)}</td>
+<td>${r.hkN.toFixed(3)}</td><td>${r.hkO.toFixed(3)}</td><td>${r.hkZ.toFixed(3)}</td></tr>`).join('')}
+</tbody></table>
+
 ${merknader ? `<h2>Merknader</h2><table><thead><tr><th>Profil</th><th>Type</th><th>Merknad</th></tr></thead><tbody>${merknader}</tbody></table>` : ''}
 
 <div class="bunn liten">
@@ -394,6 +528,27 @@ Dybden til fjell er den største usikkerheten i sprengningsvolumet.
       ].join(';'));
     });
     this.lastNed(this.app.P.navn.replace(/\W+/g, '_') + '_masser.csv', rader.join('\r\n'));
+  },
+
+  /** Eksport til de andre filformatene. */
+  eksporter(format) {
+    const app = this.app, res = app.resultat;
+    if (!res) return alert('Ingen beregning ennå.');
+    const grunnnavn = app.P.navn.replace(/\W+/g, '_');
+    const oppsett = {
+      kof: ['.KOF', () => Eksport.kof(app, res), 'text/plain;charset=utf-8'],
+      landxml: ['.xml', () => Eksport.landxml(app, res), 'application/xml;charset=utf-8'],
+      sosi: ['.sos', () => Eksport.sosi(app, res), 'text/plain;charset=utf-8'],
+      dxf: ['.dxf', () => Eksport.dxf(app, res), 'application/dxf']
+    }[format];
+    if (!oppsett) return;
+    const [endelse, lag, type] = oppsett;
+    try {
+      this.lastNed(grunnnavn + endelse, lag(), type);
+      app.status('Eksporterte ' + grunnnavn + endelse);
+    } catch (e) {
+      app.status('Eksporten feilet: ' + e.message);
+    }
   },
 
   eksportGeojson() {

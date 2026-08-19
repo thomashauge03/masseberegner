@@ -296,7 +296,8 @@ const App = {
     let minste = Infinity;
     const steg = Math.max(1, Math.abs(sB - sA) / 8);
     for (let s = Math.min(sA, sB); s <= Math.max(sA, sB) + 1e-9; s += steg) {
-      const g = maksStigningFraRadius(mal, this.linje.radiusVed(s), stigning, mal.lassretning);
+      // effektiv radius tar med utflatingen foran og etter kurven
+      const g = maksStigningFraRadius(mal, effektivRadius(this.linje, mal, s), stigning, mal.lassretning);
       if (g < minste) minste = g;
     }
     return isFinite(minste) ? minste : 1;
@@ -711,14 +712,21 @@ const App = {
         }
         sideSteg /= 2;
       }
+      /* Senterlinjen flyttes for alvor - knekkpunktene i kartet far nye
+         koordinater, sa linjen ligger fortsatt midt i veien. Den gamle
+         plasseringen tas vare pa, slik at flyttingen kan angres. */
+      const forrige = this.P.ip.map(p => ({ lat: p.lat, lon: p.lon, r: p.r }));
+      this.flyttingsliste = [];
       for (let i = 0; i < beste.length; i++) {
         const d = Math.hypot(beste[i].x - start[i].x, beste[i].y - start[i].y);
         if (d > 0.01) {
           flyttet++;
           const g = Geo.fraUtm(beste[i].x, beste[i].y, this.sone);
           this.P.ip[i].lat = g.lat; this.P.ip[i].lon = g.lon;
+          this.flyttingsliste.push({ nr: i + 1, meter: d });
         }
       }
+      if (flyttet) this._ipForFlytting = forrige;
       this._terrengnokkel = '';       // korridoren ma lastes for den nye linjen
       this.byggLinje();
     }
@@ -734,6 +742,17 @@ const App = {
     }
     this.beregn();
     if (flyttet) this.status(`Optimalisert – ${flyttet} knekkpunkt flyttet sidelengs`);
+  },
+
+  /** Setter senterlinjen tilbake dit den la før optimaliseringen flyttet den. */
+  async angreFlytting() {
+    if (!this._ipForFlytting) return;
+    this.P.ip = this._ipForFlytting.map(p => ({ lat: p.lat, lon: p.lon, r: p.r }));
+    this._ipForFlytting = null;
+    this.flyttingsliste = [];
+    this._terrengnokkel = '';
+    await this.oppdater();
+    this.status('Senterlinjen er satt tilbake dit du tegnet den');
   },
 
   /* ---------------- kontroll mot Kartverket ---------------- */
@@ -1172,11 +1191,20 @@ const App = {
       const k = this.linje.kurver.map(c =>
         `<div class="rad"><span>BC ${c.sBC.toFixed(0)} – EC ${c.sEC.toFixed(0)}</span><span>R = ${c.r.toFixed(1)} m${c.tegn > 0 ? ' venstre' : ' høyre'}</span></div>`
       ).join('');
-      info.innerHTML = `<div class="rad"><span>Lengde i kartplanet</span><span>${this.linje.lengde.toFixed(2)} m</span></div>`
+      const flytting = (this.flyttingsliste && this.flyttingsliste.length)
+        ? `<div class="rad"><span><b>Senterlinjen er flyttet sidelengs</b></span>
+             <span><button class="minilenke" id="angreFlytting">Angre</button></span></div>`
+        + this.flyttingsliste.map(f =>
+          `<div class="rad"><span>&nbsp;&nbsp;Knekkpunkt ${f.nr}</span><span>${f.meter.toFixed(2)} m</span></div>`).join('')
+        : '';
+      info.innerHTML = flytting
+        + `<div class="rad"><span>Lengde i kartplanet</span><span>${this.linje.lengde.toFixed(2)} m</span></div>`
         + `<div class="rad"><span>Lengde på bakken</span><span>${(this.linje.lengde * this.bakkefaktor()).toFixed(2)} m</span></div>`
         + `<div class="rad"><span>Sone</span><span>EUREF89 UTM${this.sone}</span></div>`
         + (k || '<div class="rad"><span>Ingen kurver lagt inn</span><span></span></div>')
         + this.linje.advarsler.map(a => `<div class="rad merke-varsel"><span>${a.tekst}</span><span></span></div>`).join('');
+      const angre = info.querySelector('#angreFlytting');
+      if (angre) angre.onclick = () => this.angreFlytting();
     } else info.innerHTML = '';
   },
 
@@ -1357,6 +1385,10 @@ const App = {
       this.visStrekninger(); this.grunnEndret();
     };
 
+    for (const [knapp, format] of [['knappEksportKof', 'kof'], ['knappEksportLandxml', 'landxml'],
+    ['knappEksportSosi', 'sosi'], ['knappEksportDxf', 'dxf']]) {
+      id(knapp).onclick = () => Rapport.eksporter(format);
+    }
     id('knappEksportStikning').onclick = () => Rapport.eksportStikning();
     id('knappEksportMasser').onclick = () => Rapport.eksportMasser();
     id('knappEksportGeojson').onclick = () => Rapport.eksportGeojson();
