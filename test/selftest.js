@@ -554,6 +554,191 @@ console.log('\n4a. Feil som er funnet og rettet');
 }
 
 /* ------------------------------------------------------------------ */
+console.log('\n4k. Merknadene, og masser som brukes om igjen');
+{
+  /* Sju av elleve merknadstyper var uten dekning i begge testene. Alle
+     advarselblokkene kunne settes til `if (false)` uten at en eneste prøve sa
+     ifra - og det er advarslene som forteller brukeren at tallet ikke holder. */
+  const krapp = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 80, y: 0, r: 8 }, { x: 80, y: 80, r: 0 }]);
+  const sideli = { z: (x, y) => 100 + 0.6 * y };
+  const bratt = [];
+  for (let s = 0; s <= krapp.lengde; s += 10) bratt.push({ s: Math.min(s, krapp.lengde), z: 100 + 0.30 * s, k: 0 });
+  const streng = M.beregnMasser({
+    linje: krapp, profil: new Vertikalprofil(bratt), terreng: sideli,
+    mal: { maksFyllingshoyde: 2, maksSkjaeringsdybde: 3, maksUtslag: 4, minRadius: 10, maksSokebredde: 25 },
+    fjell: new M.Fjellmodell({ standarddybde: 2 }), profilAvstand: 5, bakkefaktor: 1
+  });
+  /* Og en som graver seg ned i stedet for a klatre, sa skjæringsdybden ogsa
+     blir prøvd. */
+  const nedi = [];
+  for (let s = 0; s <= krapp.lengde; s += 10) nedi.push({ s: Math.min(s, krapp.lengde), z: 94, k: 0 });
+  const dypt = M.beregnMasser({
+    linje: krapp, profil: new Vertikalprofil(nedi), terreng: sideli,
+    mal: { maksFyllingshoyde: 2, maksSkjaeringsdybde: 3, maksUtslag: 4, minRadius: 10, maksSokebredde: 25 },
+    fjell: new M.Fjellmodell({ standarddybde: 2 }), profilAvstand: 5, bakkefaktor: 1
+  });
+  const typer = new Set([...streng.merknader, ...dypt.merknader].map(m => m.type));
+  for (const t of ['stigning', 'kurvatur', 'fylling', 'skjaering', 'utslag', 'geometri']) {
+    paastand(`merknadstypen «${t}» blir gitt når den skal`, typer.has(t),
+      [...typer].join(', ') || 'ingen merknader');
+  }
+
+  /* Radet om hvilken radius som ville holdt gis bare nar en radius fra
+     tabellen faktisk er nok - ved 30 % hjelper ingen. Her prøves en stigning
+     som en slakkere kurve ville tillatt. */
+  const slakkere = [];
+  for (let s = 0; s <= krapp.lengde; s += 10) slakkere.push({ s: Math.min(s, krapp.lengde), z: 100 + 0.16 * s, k: 0 });
+  const medRaad = M.beregnMasser({
+    linje: krapp, profil: new Vertikalprofil(slakkere), terreng: sideli,
+    mal: { maksSokebredde: 60 }, fjell: new M.Fjellmodell({ standarddybde: 2 }),
+    profilAvstand: 5, bakkefaktor: 1
+  });
+  paastand('stigningsmerknaden sier hvilken radius som ville holdt',
+    medRaad.merknader.some(m => m.type === 'stigning' && m.raad && m.raad.type === 'radius'),
+    medRaad.merknader.filter(m => m.type === 'stigning').map(m => m.raad && m.raad.type).join(',') || 'ingen');
+  paastand('og en veg uten problemer gir ingen av dem', (() => {
+    const flatt = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 200, y: 0, r: 0 }]);
+    const r = M.beregnMasser({
+      linje: flatt, profil: new Vertikalprofil([{ s: 0, z: 99.5, k: 0 }, { s: 200, z: 99.5, k: 0 }]),
+      terreng: { z: () => 100 }, mal: {}, fjell: new M.Fjellmodell({ standarddybde: 3 }),
+      profilAvstand: 5, bakkefaktor: 1
+    });
+    return r.merknader.length === 0;
+  })());
+
+  /* Alle balanseprøvene sto pa helt flatt terreng: ren skjæring eller ren
+     fylling, aldri begge deler. Da er `fyllFraLos` og `fyllFraFjell` null i
+     hver eneste prøve, og hele gjenbrukslogikken - det massebalansen finnes
+     for - var aldri i drift. */
+  const li = { z: (x, y) => 100 + 0.22 * x };          // terrenget stiger langs veien
+  const langs = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 200, y: 0, r: 0 }]);
+  const midt = M.beregnMasser({
+    linje: langs, profil: new Vertikalprofil([{ s: 0, z: 108, k: 0 }, { s: 200, z: 130, k: 0 }]),
+    terreng: li, mal: {}, fjell: new M.Fjellmodell({ standarddybde: 1.5 }),
+    profilAvstand: 5, bakkefaktor: 1
+  });
+  const b = midt.balanse;
+  paastand('prøven har både skjæring og fylling',
+    midt.sum.skjaering > 50 && midt.sum.fylling > 50,
+    `skjæring ${midt.sum.skjaering.toFixed(0)}, fylling ${midt.sum.fylling.toFixed(0)}`);
+  paastand('masse fra skjæringen blir faktisk brukt i fyllingen',
+    b.fyllFraLos + b.fyllFraFjell > 1,
+    `løsmasse ${b.fyllFraLos.toFixed(0)}, fjell ${b.fyllFraFjell.toFixed(0)}`);
+  paastand('løsmassen brukes før sprengsteinen',
+    b.fyllFraLos > 0 && (b.fyllFraLos >= b.brukbarLos - 1e-6 || b.fyllFraFjell < 1e-6),
+    `${b.fyllFraLos.toFixed(1)} av ${b.brukbarLos.toFixed(1)} brukbar`);
+  sjekk('fyllingsbehovet går nøyaktig opp',
+    b.fyllFraLos + b.fyllFraFjell + b.manglerFylling, b.fyllingBehov, 1e-6);
+  paastand('og ingen post er negativ',
+    Object.values(b).every(v => v >= -1e-9), JSON.stringify(b));
+
+  /* Faktorene ble bare kontrollert for at negative verdier klemmes - aldri
+     for at de brukes riktig. En sprengningsfaktor som ikke gjør noe ville
+     sluppet gjennom. */
+  const medFaktor = f => M.beregnMasser({
+    linje: langs, profil: new Vertikalprofil([{ s: 0, z: 96, k: 0 }, { s: 200, z: 96, k: 0 }]),
+    terreng: { z: () => 100 }, mal: {}, faktorer: f,
+    fjell: new M.Fjellmodell({ standarddybde: 0 }), profilAvstand: 5, bakkefaktor: 1
+  }).balanse;
+  const f14 = medFaktor({ sprengningsfaktor: 1.4 });
+  const f18 = medFaktor({ sprengningsfaktor: 1.8 });
+  paastand('sprengningsfaktoren brukes på det løse volumet',
+    Math.abs(f18.fjellSprengtLos / f14.fjellSprengtLos - 1.8 / 1.4) < 1e-6,
+    `${f14.fjellSprengtLos.toFixed(0)} → ${f18.fjellSprengtLos.toFixed(0)}`);
+  const lav = medFaktor({ fjellIFylling: 1.1 });
+  const hoy = medFaktor({ fjellIFylling: 1.5 });
+  paastand('sprengstein i fylling brukes på det tilgjengelige volumet',
+    Math.abs(hoy.fraFjell / lav.fraFjell - 1.5 / 1.1) < 1e-6,
+    `${lav.fraFjell.toFixed(0)} → ${hoy.fraFjell.toFixed(0)}`);
+}
+
+/* ------------------------------------------------------------------ */
+console.log('\n4j. Fjellmodellen');
+{
+  /* Skillet fjell/løsmasse er den største prisforskjellen i hele beregningen -
+     sprengning koster mangedobbelt av graving. Likevel var modellen utestet:
+     hverken strekninger, rekkevidde eller sonderingsinterpolasjonen ble
+     utøvd noe sted. Fem mutasjoner i koden slapp gjennom hele selvtesten. */
+
+  sjekk('standarddybden er 0,5 m når ingenting er oppgitt',
+    new M.Fjellmodell({}).standarddybde, 0.5, 1e-9);
+  sjekk('rekkevidden er 60 m når ingenting er oppgitt',
+    new M.Fjellmodell({}).rekkevidde, 60, 1e-9);
+
+  /* Strekninger: brukeren legger inn «fjell 0,3 m fra profil 120 til 260»
+     fra en prøvegrop. Blir de ignorert, sier ingen ifra. */
+  const medStrekning = new M.Fjellmodell({
+    standarddybde: 4,
+    strekninger: [{ fra: 120, til: 260, dybde: 0.3 }]
+  });
+  sjekk('innenfor strekningen gjelder strekningens dybde', medStrekning.dybde(0, 0, 200), 0.3, 1e-9);
+  sjekk('før strekningen gjelder standarddybden', medStrekning.dybde(0, 0, 100), 4, 1e-9);
+  sjekk('etter strekningen gjelder standarddybden', medStrekning.dybde(0, 0, 300), 4, 1e-9);
+  sjekk('nøyaktig på startprofilet gjelder strekningen', medStrekning.dybde(0, 0, 120), 0.3, 1e-9);
+  sjekk('nøyaktig på sluttprofilet gjelder strekningen', medStrekning.dybde(0, 0, 260), 0.3, 1e-9);
+
+  /* Rekkevidde: en sondering skal ikke virke i det uendelige. */
+  const medPunkt = new M.Fjellmodell({
+    standarddybde: 4, rekkevidde: 50,
+    punkter: [{ x: 0, y: 0, dybde: 1 }]
+  });
+  sjekk('rett oppå sonderingen gjelder den målte dybden', medPunkt.dybde(0, 0, 0), 1, 1e-9);
+  sjekk('innenfor rekkevidden virker sonderingen', medPunkt.dybde(30, 0, 0), 1, 1e-9);
+  sjekk('utenfor rekkevidden gjelder standarddybden', medPunkt.dybde(80, 0, 0), 4, 1e-9);
+  paastand('rekkevidden er en virkelig grense, ikke en gradvis uttoning',
+    Math.abs(medPunkt.dybde(49.9, 0, 0) - 1) < 1e-9 && Math.abs(medPunkt.dybde(50.1, 0, 0) - 4) < 1e-9);
+
+  /* Interpolasjonen mellom to sonderinger er invers kvadratisk avstand.
+     Midt mellom to like langt unna skal svaret bli snittet; nærmere den ene
+     skal det trekke mot den. */
+  const to = new M.Fjellmodell({
+    standarddybde: 9, rekkevidde: 100,
+    punkter: [{ x: 0, y: 0, dybde: 1 }, { x: 100, y: 0, dybde: 5 }]
+  });
+  sjekk('midt mellom to sonderinger blir det snittet', to.dybde(50, 0, 0), 3, 1e-6);
+  paastand('nærmere den grunne trekker svaret ned',
+    to.dybde(20, 0, 0) < 3 && to.dybde(20, 0, 0) > 1,
+    `${to.dybde(20, 0, 0).toFixed(3)}`);
+  paastand('nærmere den dype trekker svaret opp',
+    to.dybde(80, 0, 0) > 3 && to.dybde(80, 0, 0) < 5,
+    `${to.dybde(80, 0, 0).toFixed(3)}`);
+  /* Vekten er 1/d², ikke 1/d. Ved 25 m og 75 m gir 1/d² 1 + (5-1)·(1/75²)/(1/25²+1/75²)
+     = 1,4; med 1/d ville det blitt 2,0. Prøven skiller de to. */
+  sjekk('vekten er invers kvadratisk, ikke invers lineær', to.dybde(25, 0, 0), 1.4, 0.01);
+
+  // sonderinger går foran strekninger, og strekninger foran standarddybden
+  const alle = new M.Fjellmodell({
+    standarddybde: 9, rekkevidde: 50,
+    strekninger: [{ fra: 0, til: 500, dybde: 3 }],
+    punkter: [{ x: 0, y: 0, dybde: 1 }]
+  });
+  sjekk('en sondering går foran strekningen', alle.dybde(0, 0, 100), 1, 1e-9);
+  sjekk('utenfor sonderingen gjelder strekningen', alle.dybde(200, 0, 100), 3, 1e-9);
+
+  /* Og det skal slå igjennom i volumene: en strekning med fjell høyt oppe
+     skal gi mer sprengning enn en uten. */
+  const linje = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 300, y: 0, r: 0 }]);
+  const profil = new Vertikalprofil([{ s: 0, z: 96, k: 0 }, { s: 300, z: 96, k: 0 }]);
+  const fjellVolum = f => M.beregnMasser({
+    linje, profil, terreng: { z: () => 100 }, mal: {}, fjell: f, profilAvstand: 5, bakkefaktor: 1
+  }).sum.skjaeringFjell;
+  const utenStrekning = fjellVolum(new M.Fjellmodell({ standarddybde: 4 }));
+  const medHoytFjell = fjellVolum(new M.Fjellmodell({
+    standarddybde: 4, strekninger: [{ fra: 100, til: 200, dybde: 0.3 }]
+  }));
+  paastand('en fjellstrekning slår igjennom i sprengningsvolumet',
+    medHoytFjell > utenStrekning * 1.2,
+    `${utenStrekning.toFixed(0)} → ${medHoytFjell.toFixed(0)} m³`);
+
+  const medSondering = fjellVolum(new M.Fjellmodell({
+    standarddybde: 4, rekkevidde: 60, punkter: [{ x: 150, y: 0, dybde: 0.3 }]
+  }));
+  paastand('en sondering slår igjennom i sprengningsvolumet',
+    medSondering > utenStrekning * 1.1,
+    `${utenStrekning.toFixed(0)} → ${medSondering.toFixed(0)} m³`);
+}
+
+/* ------------------------------------------------------------------ */
 console.log('\n4i. Linjeføring som ikke lar seg tegne slik den står');
 {
   /* To knekkpunkt pa nøyaktig samme sted er ikke to punkt. Retningen inn i det
