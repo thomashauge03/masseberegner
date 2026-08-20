@@ -12,7 +12,7 @@
 const path = require('path');
 const Geo = require(path.join(__dirname, '..', 'public', 'js', 'geo.js'));
 const { Linjeforing } = require(path.join(__dirname, '..', 'public', 'js', 'linjeforing.js'));
-const { Vertikalprofil, foreslaProfil, lesHoydetabell, rettVertikalgeometri } = require(path.join(__dirname, '..', 'public', 'js', 'vertikalprofil.js'));
+const { Vertikalprofil, foreslaProfil, lesHoydetabell, rettVertikalgeometri, rettProfil } = require(path.join(__dirname, '..', 'public', 'js', 'vertikalprofil.js'));
 const M = require(path.join(__dirname, '..', 'public', 'js', 'masser.js'));
 const VK = require(path.join(__dirname, '..', 'public', 'js', 'veiklasser.js'));
 const H = require(path.join(__dirname, '..', 'lib', 'hoydedata.js'));
@@ -543,6 +543,50 @@ console.log('\n4a. Feil som er funnet og rettet');
       Math.abs(lon - Geo.midtmeridian(b)) < Math.abs(lon - Geo.midtmeridian(a)) ? b : a);
     sjekk(`${lon} grader gir nærmeste sone`, s, naermest, 0);
   }
+}
+
+/* ------------------------------------------------------------------ */
+console.log('\n4g. Hull i terrenget skal ikke velte lengdeprofilen');
+{
+  /* Er hullet bredere enn glattevinduet, finner glattingen ingen verdier a
+     snitte over, og høyden blir NaN. NaN sprer seg videre: `rettProfil` far
+     NaN av `dz / dl`, og `NaN <= 1e-6` er usant - sa den «retter» bruddet ved
+     a trekke NaN fra begge naboene. Etter noen runder var hvert eneste
+     knekkpunkt NaN, og veien la pa kote null i hele sin lengde. */
+  const st = [], zt = [];
+  for (let s = 0; s <= 300; s += 5) { st.push(s); zt.push(s >= 100 && s <= 140 ? NaN : 100 + 0.02 * s); }
+
+  const vip = foreslaProfil(st, zt, { vipAvstand: 40, maksStigning: 0.12, k: 1 });
+  paastand('et hull gir ingen knekkpunkt uten høyde',
+    vip.length >= 5 && vip.every(v => isFinite(v.z)),
+    `${vip.filter(v => !isFinite(v.z)).length} av ${vip.length} uten høyde`);
+
+  const vp = new Vertikalprofil(vip);
+  paastand('profilen ligger på terrenget, ikke på kote null',
+    vp.hoyde(0) > 90 && vp.hoyde(300) > 90 && vp.hoyde(120) > 90,
+    `${vp.hoyde(0).toFixed(1)} / ${vp.hoyde(120).toFixed(1)} / ${vp.hoyde(300).toFixed(1)}`);
+  paastand('og går rett gjennom hullet',
+    Math.abs(vp.hoyde(120) - (vp.hoyde(95) + vp.hoyde(145)) / 2) < 1.0,
+    `${vp.hoyde(120).toFixed(2)} mot ${((vp.hoyde(95) + vp.hoyde(145)) / 2).toFixed(2)}`);
+
+  // et hull helt i enden skal videreføre høyden fra siden som har data
+  const enden = [];
+  for (let s = 0; s <= 200; s += 5) enden.push(s < 40 ? NaN : 100 + 0.03 * s);
+  const vipEnde = foreslaProfil(st.slice(0, enden.length), enden, { vipAvstand: 40, maksStigning: 0.15 });
+  paastand('hull i enden gir også gyldige høyder',
+    vipEnde.length >= 3 && vipEnde.every(v => isFinite(v.z)));
+
+  // uten terrengdata i det hele tatt skal det ikke komme noe forslag
+  paastand('helt uten terrengdata blir det ingen profil',
+    foreslaProfil(st, st.map(() => NaN), { vipAvstand: 40 }).length === 0);
+
+  /* rettProfil skal heller ikke la en enkelt NaN-høyde smitte over pa
+     naboene, uansett hvor den kommer fra. */
+  const medEn = [{ s: 0, z: 100, k: 1 }, { s: 50, z: NaN, k: 1 }, { s: 100, z: 100, k: 1 }];
+  rettProfil(medEn, { maksStigningFor: () => 0.1 });
+  paastand('en enkelt høyde uten tall smitter ikke over på naboene',
+    isFinite(medEn[0].z) && isFinite(medEn[2].z),
+    JSON.stringify(medEn.map(v => v.z)));
 }
 
 /* ------------------------------------------------------------------ */

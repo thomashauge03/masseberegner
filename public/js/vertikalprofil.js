@@ -153,6 +153,31 @@ function foreslaProfil(stasjoner, terrengZ, opsjoner = {}) {
     glattet[i] = m ? sum / m : terrengZ[i];
   }
 
+  /* Er hullet i terrengmodellen bredere enn vinduet, finner glattingen ingen
+     verdier a snitte over, og høyden blir NaN. Og NaN sprer seg: `rettProfil`
+     regner `dz / dl`, far NaN, og `NaN <= 1e-6` er usant - sa den «retter»
+     bruddet ved a trekke NaN fra begge naboene. Etter noen runder er hvert
+     eneste knekkpunkt NaN, `Vertikalprofil` kaster dem alle, og veien havner
+     pa kote null i hele sin lengde.
+
+     En veg ma ha en høyde overalt. Over hullet trekkes en rett linje mellom
+     de nærmeste kjente høydene; er det ingen kjent høyde pa den ene siden,
+     videreføres den fra den andre. */
+  const kjent = [];
+  for (let i = 0; i < n; i++) if (isFinite(glattet[i])) kjent.push(i);
+  if (!kjent.length) return [];                    // ingen terrengdata i det hele tatt
+  for (let i = 0; i < n; i++) {
+    if (isFinite(glattet[i])) continue;
+    let før = null, etter = null;
+    for (const j of kjent) { if (j < i) før = j; else { etter = j; break; } }
+    if (før == null) glattet[i] = glattet[etter];
+    else if (etter == null) glattet[i] = glattet[før];
+    else {
+      const f = (stasjoner[i] - stasjoner[før]) / (stasjoner[etter] - stasjoner[før] || 1);
+      glattet[i] = glattet[før] + f * (glattet[etter] - glattet[før]);
+    }
+  }
+
   // 2) Plukk ut knekkpunkt med jevn avstand
   /* Er ønsket knekkpunktavstand mindre enn avstanden mellom stasjonene, faller
      flere knekkpunkt pa samme stasjon. To knekkpunkt pa samme profilnummer gir
@@ -253,7 +278,7 @@ function rettProfil(vip, opsjoner = {}) {
       for (const v of vip) {
         if (v.laast) continue;
         const t = terrengVed(v.s);
-        if (!isFinite(t)) continue;
+        if (!Number.isFinite(t) || !Number.isFinite(v.z)) continue;
         if (maksOver != null && v.z - t > maksOver) { v.z -= (v.z - t - maksOver) * 0.5; verstBrudd = Math.max(verstBrudd, 1); }
         if (maksUnder != null && t - v.z > maksUnder) { v.z += (t - v.z - maksUnder) * 0.5; verstBrudd = Math.max(verstBrudd, 1); }
       }
@@ -264,6 +289,10 @@ function rettProfil(vip, opsjoner = {}) {
       if (dl < 1e-6) continue;
       const a = vip[i], b = vip[i + 1];
       if (a.laast && b.laast) continue;          // dette strekket er bestemt
+      /* En høyde som ikke er et tall ma ikke bli med videre. `NaN <= 1e-6` er
+         usant, sa uten dette gikk rettingen i gang og trakk NaN fra begge
+         naboene - og etter noen runder var hvert eneste knekkpunkt NaN. */
+      if (!Number.isFinite(a.z) || !Number.isFinite(b.z)) continue;
       const dz = b.z - a.z;
       // Kravet avhenger av fortegnet, sa det ma hentes pa nytt hver runde
       const grense = maksFor(a.s, b.s, dz / dl);
