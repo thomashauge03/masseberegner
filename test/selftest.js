@@ -1099,6 +1099,58 @@ console.log('\n4d. Retting av vertikalgeometrien');
 }
 
 /* ------------------------------------------------------------------ */
+console.log('\n4b. Krumningsvekten i kurver (Pappus)');
+{
+  /* En stripe t meter ut fra senterlinja sveiper (1 + t·kr) sa langt som
+     senterlinja selv. Vekten sto helt utestet: skrudde man den av, gikk hele
+     selvtesten gjennom uten en eneste anmerkning, mens volumet i kurver ble
+     flere prosent feil.
+     Testen bygger pa en identitet, ikke pa en handregnet fasit: legger vi den
+     samme tverrsnittforma pa ytre og indre side av samme kurve, ma summen av
+     de to vektede arealene bli nøyaktig to ganger det uvektede, siden
+     (1+t·kr) + (1-t·kr) = 2. Den holder uansett hvordan tverrsnittet ser ut. */
+  const R = 60, Z0 = 100, G = 0.25;
+  const linje = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 200, y: 0, r: R }, { x: 200, y: 200, r: 0 }]);
+  const senter = { x: 140, y: 60 };                 // kurvesenteret i 90°-svingen
+  const profil = new Vertikalprofil([{ s: 0, z: Z0, k: 0 }, { s: linje.lengde, z: Z0, k: 0 }]);
+  // kjegleterreng rundt kurvesenteret: stiger utover (+1) eller innover (-1)
+  const kjor = tegn => M.beregnMasser({
+    linje, profil,
+    terreng: { z: (x, y) => Z0 + tegn * G * (Math.hypot(x - senter.x, y - senter.y) - R) },
+    mal: {
+      vegbredde: 4.5, tverrfallType: 'tak', tverrfall: 0.05,
+      breddeIKurve: [], ensidigUnderRadius: 0, maksSokebredde: 60,
+      skjaeringLosmasse: 1.5, fylling: 1.5, renskDybde: 0.2
+    },
+    fjell: new M.Fjellmodell({ standarddybde: 50 }), profilAvstand: 5, bakkefaktor: 1
+  });
+  const ut = kjor(+1), inn = kjor(-1);
+
+  let verst = 0, iKurve = 0, ytreStorst = 0, formLik = true;
+  for (let i = 0; i < ut.profiler.length; i++) {
+    const a = ut.profiler[i], b = inn.profiler[i];
+    if (Math.abs(a.krumning) < 1e-9 || a.manglerData || b.manglerData) continue;
+    iKurve++;
+    if (Math.abs(a.areal.skjaering - b.areal.skjaering) > 1e-6) formLik = false;
+    const avvik = (a.vektet.skjaering + b.vektet.skjaering) - 2 * a.areal.skjaering;
+    verst = Math.max(verst, Math.abs(avvik) / Math.max(1e-9, a.areal.skjaering));
+    if (a.vektet.skjaering > a.areal.skjaering * 1.0001) ytreStorst++;
+  }
+  paastand('kurven gir profiler a male pa', iKurve >= 10);
+  paastand('speilvendt terreng gir samme tverrsnittform', formLik);
+  sjekk('ytre + indre vekt = 2 · uvektet', verst, 0, 1e-6);
+  paastand('ytre side gir mer volum enn uvektet i hele kurven', ytreStorst === iKurve);
+
+  // og uten krumning skal vekten vere nøyaktig 1
+  let rettAvvik = 0;
+  for (const p of ut.profiler) {
+    if (Math.abs(p.krumning) > 1e-9 || p.manglerData) continue;
+    rettAvvik = Math.max(rettAvvik, Math.abs(p.vektet.skjaering - p.areal.skjaering));
+  }
+  sjekk('rett strekning: vektet = uvektet', rettAvvik, 0, 1e-12);
+}
+
+/* ------------------------------------------------------------------ */
 console.log('\n4c. Tall som ikke lar seg regne med');
 {
   const linje = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 100, y: 0, r: 0 }]);

@@ -735,18 +735,35 @@ const App = {
          flytter en høyde, og det kan bryte stigningskravet et hakk unna. Derfor
          gjentas de til det ikke er flere brudd igjen som lar seg løse - eller
          til det slutter a bli bedre. */
+      /* Rettelykken trenger bare a vite om det ble faerre brudd, ikke det
+         endelige regnestykket. Med full beregning hver runde tok knappen 11,8
+         sekunder pa en veg med 172 profiler - atte runder a halvannet sekund -
+         og det ser ut som om den har hengt seg. Den grove beregningen svarer
+         pa det samme spørsmalet pa en brøkdel av tiden; den nøyaktige kjøres
+         en gang, til slutt. */
+      const bruddRaskt = () => {
+        try {
+          const r = this.beregnRaskt(this.P.vip);
+          let n = 0;
+          for (const m of r.merknader) if (this.BRUDDTYPER[m.type] === 'profil') n++;
+          return n;
+        } catch (e) { return Infinity; }
+      };
+      const frist = performance.now() + 25000;
       let forrige = Infinity;
       for (let runde = 0; runde < 8; runde++) {
+        if (performance.now() > frist) break;
         rettEnGang();
         this.vprofil = new Vertikalprofil(this.P.vip);
-        this.beregn();
-        const na = this.tellBrudd();
-        this.framdrift(true, 'Retter profilen…', 0.15 + 0.5 * (runde + 1) / 8);
-        if (!na || na.profil === 0) break;
-        if (na.profil >= forrige) break;          // ikke lenger fremgang
-        forrige = na.profil;
+        const na = bruddRaskt();
+        this.framdrift(true, `Retter profilen… ${na} brudd igjen`, 0.15 + 0.35 * (runde + 1) / 8);
+        if (na === 0) break;
+        if (na >= forrige) break;                 // ikke lenger fremgang
+        forrige = na;
         await pause();
       }
+      this.beregn();
+      this.framdrift(true, 'Finjusterer for minst mulig masse…', 0.5);
       await this.optimaliser(true, modus);
 
       /* Optimaliseringen leter etter billigere høyder, og kan i den jakten
@@ -1301,7 +1318,12 @@ const App = {
     let bestK = kostnad(best);
     let steg = 1.5;
     const runder = 4;
+    /* Tidsbudsjett. Søket er proporsjonalt med antall knekkpunkt ganger antall
+       runder, og pa en lang veg med tette høyder kan det bli langt. Bedre a
+       levere det beste man fant enn a la brukeren se pa en framdriftsboks. */
+    const oFrist = performance.now() + 30000;
     for (let runde = 0; runde < runder; runde++) {
+      if (performance.now() > oFrist) break;
       for (let i = 0; i < best.length; i++) {
         if (best[i].laast) continue;             // denne høyden er bestemt
         for (const d of [steg, -steg]) {
@@ -1329,6 +1351,7 @@ const App = {
       let sideSteg = Math.min(maksSide, 1.5);
 
       for (let runde = 0; runde < 3; runde++) {
+        if (performance.now() > oFrist + 15000) break;
         for (let i = 0; i < beste.length; i++) {
           for (const d of [sideSteg, -sideSteg]) {
             const forsok = beste.map(p => Object.assign({}, p));
@@ -1984,6 +2007,12 @@ const App = {
 
   planleggAutolagring() {
     clearTimeout(this._autolagring);
+    /* Star lagringen pa vent, skal det ikke planlegges noe heller. Ellers
+       overlever tidtakeren pausen og fyrer etterpa - med den tilstanden som
+       tilfeldigvis star da. Nettlesertesten laner prosjektet og legger det
+       tilbake, men en tidtaker fra midt i testen rakk a lagre mellomtilstanden
+       etterpa, og demoen endret seg uten at noen hadde rørt den. */
+    if (this.autolagringPause > 0) return;
     this._autolagring = setTimeout(() => this.autolagre(), 2000);
   },
 

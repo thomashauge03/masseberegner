@@ -48,6 +48,7 @@ const Nettlesertest = {
        prosjektet - demoen endte 921 m lang med 755 000 kubikk fylling. Derfor
        settes lagringen pa vent, og prosjektet legges tilbake slik det var. */
     App.autolagringPause++;
+    clearTimeout(App._autolagring);   // en tidtaker fra før pausen skal ikke fyre midt i testen
     const foerProsjekt = App.P ? JSON.stringify(App.P) : null;
     const foerNavn = App.P ? App.P.navn : null;
 
