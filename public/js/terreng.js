@@ -87,6 +87,22 @@ class Terreng {
       if (s >= linje.lengde) break;
     }
 
+    /* Ogsa litt utenfor endene. Den bilineære interpolasjonen slar opp i
+       nabocellen, sa et punkt i profil 0 leser en celle som ligger like før
+       linjens start - og den kan høre til en flis ingen har bedt om. Da ble
+       høyden i endene hentet fra faerre naboer enn den skulle. */
+    for (const [s, retning] of [[0, -1], [linje.lengde, 1]]) {
+      const p = linje.punktVed(s);
+      const dx = Math.cos(p.retning) * retning, dy = Math.sin(p.retning) * retning;
+      const nx = Math.sin(p.retning), ny = -Math.cos(p.retning);
+      for (let d = 0; d <= marg + 1e-9; d += marg) {
+        for (const tt of [-halvbredde - marg, 0, halvbredde + marg]) {
+          const x = p.x + dx * d + nx * tt, y = p.y + dy * d + ny * tt;
+          trengs.add(this.nøkkel(Math.floor(x / FLIS_M), Math.floor(y / FLIS_M)));
+        }
+      }
+    }
+
     /* Fliser som slo feil sist far en ny sjanse. En kortvarig nettfeil skal
        ikke gjøre at et omrade star tomt resten av økta.
 

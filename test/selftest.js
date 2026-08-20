@@ -537,12 +537,20 @@ console.log('\n4a. Feil som er funnet og rettet');
   sjekk('Tromsø havner i sone 33', Geo.sone(18.955), 33, 0);
   sjekk('Alta havner i sone 35', Geo.sone(23.271), 35, 0);
   sjekk('Lyngdal havner i sone 32', Geo.sone(7.070), 32, 0);
-  for (const lon of [5, 10, 14, 20, 25, 30]) {
-    const s = Geo.sone(lon);
-    const naermest = [32, 33, 35].reduce((a, b) =>
-      Math.abs(lon - Geo.midtmeridian(b)) < Math.abs(lon - Geo.midtmeridian(a)) ? b : a);
-    sjekk(`${lon} grader gir nærmeste sone`, s, naermest, 0);
+  /* Sonevalget avgjør ogsa OM DET FINNES DATA: de tre høydetjenestene dekker
+     ikke samme omrade. Malt pa tolv landpunkt dekker sone 33 hele landet,
+     mens 32 slutter rundt Røros og 35 begynner først i Finnmark. Derfor
+     ligger grensen mot 35 pa 23 grader, ikke pa 21 der nærmeste midtmeridian
+     ellers ville sagt. */
+  for (const [lon, venta, hvor] of [
+    [5.33, 32, 'Bergen'], [7.07, 32, 'Lyngdal'], [10.40, 32, 'Trondheim'], [11.38, 32, 'Røros'],
+    [14.14, 33, 'Mo i Rana'], [18.96, 33, 'Tromsø'], [21.20, 33, 'Nord-Troms'],
+    [23.27, 35, 'Alta'], [25.51, 35, 'Karasjok'], [29.75, 35, 'Vadsø']
+  ]) {
+    sjekk(`${hvor} (${lon}°) havner i sone ${venta}`, Geo.sone(lon), venta, 0);
   }
+  paastand('ingen del av landet havner i sone 35 før Finnmark',
+    [21, 22, 22.9].every(l => Geo.sone(l) === 33));
 }
 
 /* ------------------------------------------------------------------ */

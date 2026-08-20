@@ -51,15 +51,27 @@ const Geo = (() => {
    * et sted alltid havner i den sonen det ligger nærmest. Det er ogsa den
    * inndelingen fylkene bruker.
    *
-   * Valget avgjør ikke om det finnes terrengdata - Kartverket leverer hele
-   * landet i alle tre sonene, prøvd i Trondheim, Tromsø, Bodø, Alta og Vadsø.
-   * Det avgjør malestokksfaktoren, og hvor langt fra midtmeridianen
-   * koordinatregningen ma strekke seg. Med 18 grader som grense havnet Tromsø
-   * i sone 35, atte grader fra midtmeridianen der.
+   * Valget avgjør ogsa OM DET FINNES DATA. De tre høydetjenestene dekker
+   * ikke samme omrade - det gjør bare punkt-APIet, som regner om selv.
+   * Malt pa tolv landpunkt fra Egersund til Vadsø:
+   *
+   *            sone 32   sone 33   sone 35
+   *   Bergen      ja        ja        nei
+   *   Røros       ja        ja        nei
+   *   Mo i Rana   nei       ja        nei
+   *   Tromsø      nei       ja        nei
+   *   Alta        nei       ja        ja
+   *   Vadsø       nei       ja        ja
+   *
+   * Sone 33 dekker hele landet. Sone 32 slutter et sted rundt Røros, og
+   * sone 35 begynner først i Finnmark. Derfor ligger grensen mot 35 pa 23
+   * grader og ikke pa 21, der nærmeste midtmeridian ellers ville sagt: med
+   * 21 fikk et punkt i Nord-Troms sone 35, og der finnes det ingen fliser.
+   * Sone 33 er det trygge svaret i tvilstilfeller.
    */
   function sone(lon) {
     if (lon < 12) return 32;
-    if (lon < 21) return 33;
+    if (lon < 23) return 33;
     return 35;
   }
   // ETRS89 / UTM: EPSG 25832, 25833, 25835
