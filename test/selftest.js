@@ -873,6 +873,24 @@ console.log('\n4d. Retting av vertikalgeometrien');
   paastand('for skarpt brudd blir slakere', A1 < A0 * 0.8, `${(A0 * 100).toFixed(1)} % → ${(A1 * 100).toFixed(1)} %`);
   paastand('trangt brudd er løst', bruddene(trangt).length === 0);
 
+  /* Plassen er ikke bare avstanden til naboknekkpunktene: `_bygg` korter inn
+     en kurve sa den ikke tar over naboens, sa naboens kurve spiser av plassen
+     ogsa. Med avstanden alene trodde rettingen at det var rom der det ikke
+     var, satte K, og kom tilbake til samme brudd runde etter runde. */
+  {
+    const lag = () => {
+      const v = [];
+      for (let s = 0; s <= 200; s += 25) v.push({ s, z: 100 + 3 * Math.sin(s / 18), k: 0 });
+      return v;
+    };
+    const tett = lag();
+    const foer = bruddene(tett).length;
+    paastand('utgangspunktet har flere brudd som konkurrerer om plassen', foer >= 5, `${foer}`);
+    rettVertikalgeometri(tett, krav);
+    paastand('kurver som konkurrerer om plassen blir likevel løst',
+      bruddene(tett).length === 0, `${bruddene(tett).length} igjen av ${foer}`);
+  }
+
   // En last høyde skal ikke flyttes for a redde vertikalgeometrien
   const laast = [{ s: 0, z: 100, k: 0 }, { s: 10, z: 103, k: 0, laast: true }, { s: 20, z: 100, k: 0 }];
   const res = rettVertikalgeometri(laast, krav);

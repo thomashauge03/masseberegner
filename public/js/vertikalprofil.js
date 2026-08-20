@@ -334,6 +334,22 @@ function rettProfil(vip, opsjoner = {}) {
  *
  * @returns {{satt:number, glattet:number, laste:number}} hva som ble gjort
  */
+/**
+ * Lengden kurven i knekkpunkt `i` faktisk far nar profilen bygges.
+ *
+ * `_bygg` korter inn kurver som ellers ville tatt over naboens, sa den ønskede
+ * lengden K·A er ikke nødvendigvis den man far. Rettingen ma vite hva den har
+ * a ga pa, ellers setter den K i en plass som ikke finnes.
+ */
+function byggetLengde(vip, i) {
+  const vp = new Vertikalprofil(vip.map(v => ({ s: v.s, z: v.z, k: v.k })));
+  // knekkpunktene kan vaere ryddet i konstruktøren, sa finn igjen pa stasjon
+  const j = vp.vip.findIndex(v => Math.abs(v.s - vip[i].s) < 1e-6);
+  if (j < 0) return 0;
+  const c = (vp.kurver || []).find(x => x.vip === j);
+  return c ? c.L : 0;
+}
+
 function rettVertikalgeometri(vip, opsjoner = {}) {
   const kravLav = opsjoner.minVertikalLavbrekk || 0;
   const kravHoy = opsjoner.minVertikalHoybrekk || 0;
@@ -341,7 +357,7 @@ function rettVertikalgeometri(vip, opsjoner = {}) {
   if (!(kravLav > 0) && !(kravHoy > 0)) return { satt: 0, glattet: 0, laste: 0 };
 
   let satt = 0, glattet = 0, laste = 0;
-  for (let runde = 0; runde < 60; runde++) {
+  for (let runde = 0; runde < 400; runde++) {
     let endret = false;
     for (let i = 1; i < vip.length - 1; i++) {
       const dFor = vip[i].s - vip[i - 1].s;
@@ -355,17 +371,31 @@ function rettVertikalgeometri(vip, opsjoner = {}) {
       if (!(krav > 0)) continue;
 
       const kreves = krav * Math.abs(A);
-      const plass = Math.min(dFor, dEtter);
+      /* Plassen er ikke bare avstanden til naboknekkpunktene. `_bygg` korter
+         inn en kurve sa den ikke tar over naboens, sa naboens kurve spiser av
+         plassen ogsa. Med `min(dFør, dEtter)` alene trodde rettingen at det
+         var rom der det ikke var, satte K, og kom tilbake til samme brudd
+         runde etter runde: to av sju brudd ble aldri borte.
+
+         Her leses den lengden profilen faktisk bygger, sa rettingen vet hva
+         den har a gaa pa. */
+      const bygd = byggetLengde(vip, i);
+      const plass = Math.max(bygd, Math.min(dFor, dEtter) * 0.5);
 
       if (kreves <= plass + 1e-9) {
         const trengsK = krav / 100;
-        if (vip[i].k >= trengsK - 1e-9) continue;
-        // avviket kurven far fra selve knekkpunktet
-        const avvik = Math.abs(A) * kreves / 8;
-        if (vip[i].laast && avvik > maksAvvikLast) { laste++; continue; }
-        vip[i].k = trengsK;
-        satt++; endret = true;
-        continue;
+        if (vip[i].k >= trengsK - 1e-9 && bygd >= kreves - 1e-6) continue;
+        if (vip[i].k >= trengsK - 1e-9) {
+          /* K er høy nok, men kurven blir likevel for kort - naboene tar
+             plassen. Da ma knekken bli mindre, som under. */
+        } else {
+          // avviket kurven far fra selve knekkpunktet
+          const avvik = Math.abs(A) * kreves / 8;
+          if (vip[i].laast && avvik > maksAvvikLast) { laste++; continue; }
+          vip[i].k = trengsK;
+          satt++; endret = true;
+          continue;
+        }
       }
 
       /* For skarpt for avstanden: knekken selv ma bli mindre. Med plass
