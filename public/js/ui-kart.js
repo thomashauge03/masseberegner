@@ -46,6 +46,16 @@ const Kart = {
     setTimeout(() => kart.invalidateSize(), 60);
     new ResizeObserver(() => kart.invalidateSize()).observe(document.getElementById('kart'));
 
+    /* Et klikk pa selve linjen setter inn et knekkpunkt der, ogsa nar man
+       star i Flytt. Da slipper man a bytte verktøy for a legge til en sving
+       man har glemt. */
+    this.lag.linje.on('click', e => {
+      if (this.modus === 'sondering') return;
+      L.DomEvent.stop(e);
+      const plass = this.settInnPunkt(e.latlng, 40);
+      if (plass >= 0) this.app.status(`Satte inn knekkpunkt ${plass + 1} – dra det dit du vil ha svingen`);
+    });
+
     kart.on('click', e => this.klikk(e));
     kart.on('mousemove', e => this.visInfo(e));
     kart.on('dblclick', () => { if (this.modus === 'tegn') this.settModus('rediger'); });
@@ -59,9 +69,8 @@ const Kart = {
     p('verktoyTegn').onclick = () => this.settModus('tegn');
     p('verktoyFlytt').onclick = () => this.settModus('rediger');
     p('verktoySondering').onclick = () => this.settModus('sondering');
-    p('knappAngre').onclick = () => {
-      if (this.app.P.ip.length) { this.app.P.ip.pop(); this.app.linjeEndret(); }
-    };
+    p('knappAngre').onclick = () => this.app.angre();
+    if (p('knappGjorOm')) p('knappGjorOm').onclick = () => this.app.gjorOm();
     p('bakgrunnskart').onchange = e => {
       this.kart.removeLayer(this.bakgrunner[this.gjeldendeBakgrunn]);
       this.gjeldendeBakgrunn = e.target.value;
@@ -109,12 +118,58 @@ const Kart = {
     document.getElementById('kart').style.cursor = (m === 'rediger') ? '' : 'crosshair';
   },
 
+  /**
+   * Setter inn et knekkpunkt der klikket traff linjen.
+   *
+   * Har man glemt en sving, eller vil ha mer sving pa et strekk som alt er
+   * tegnet, er det ingen vei utenom a fa punktet inn pa riktig plass i
+   * rekkefølgen - a legge det til pa slutten gir en linje som gar tilbake
+   * dit den kom fra. Punktet havner mellom de to knekkpunktene strekket
+   * ligger mellom, og far prosjektets standardradius sa svingen blir myk med
+   * en gang.
+   *
+   * @returns {number} plassen punktet fikk, eller -1 om klikket var for langt unna
+   */
+  settInnPunkt(latlng, maksAvstand = 40) {
+    const app = this.app, P = app.P;
+    if (P.ip.length < 2 || !app.linje || app.linje.lengde <= 0) return -1;
+    const utm = Geo.tilUtm(latlng.lat, latlng.lng, app.sone);
+    const pr = app.linje.projiser(utm.x, utm.y);
+    if (!isFinite(pr.s) || pr.avstand > maksAvstand) return -1;
+
+    /* Hvilket strekk traff vi? Knekkpunktene har hvert sitt profilnummer
+       langs linjen, og punktet skal inn mellom de to som omslutter treffet.
+       Kurvene gjør at knekkpunktet ikke ligger pa linjen selv, sa det males
+       til tangentskjæringen - der punktet faktisk er. */
+    const ipUtm = app.ipTilUtm();
+    const langs = ipUtm.map((q, i) => {
+      if (i === 0) return 0;
+      if (i === ipUtm.length - 1) return app.linje.lengde;
+      const kurve = (app.linje.kurver || []).find(k => k.ip === i);
+      return kurve ? (kurve.sBC + kurve.sEC) / 2 : app.linje.projiser(q.x, q.y).s;
+    });
+    let plass = ipUtm.length - 1;
+    for (let i = 1; i < langs.length; i++) {
+      if (pr.s <= langs[i] + 1e-9) { plass = i; break; }
+    }
+    app.merk('sett inn knekkpunkt');
+    P.ip.splice(plass, 0, { lat: latlng.lat, lon: latlng.lng, r: P.standardRadius || 0 });
+    app.linjeEndret();
+    return plass;
+  },
+
   klikk(e) {
     const P = this.app.P;
     if (this.modus === 'tegn') {
+      /* Traff klikket linjen et sted mellom to knekkpunkt, er det en ny sving
+         som skal inn der - ikke et nytt punkt pa enden. Ellers er det ikke mulig
+         a fa mer sving pa et strekk uten a tegne hele linjen om igjen. */
+      if (P.ip.length >= 2 && this.settInnPunkt(e.latlng, 25) >= 0) return;
+      this.app.merk('nytt knekkpunkt');
       P.ip.push({ lat: e.latlng.lat, lon: e.latlng.lng, r: P.standardRadius || 0 });
       this.app.linjeEndret();
     } else if (this.modus === 'sondering') {
+      this.app.merk('ny fjellobservasjon');
       const punkt = { lat: e.latlng.lat, lon: e.latlng.lng, dybde: P.fjell.standarddybde };
       P.fjell.punkter.push(punkt);
       this.app.grunnEndret();
@@ -156,16 +211,24 @@ const Kart = {
         draggable: true,
         icon: L.divIcon({ className: '', html: '<div class="ip-markor"></div>', iconSize: [13, 13], iconAnchor: [6.5, 6.5] })
       }).addTo(this.kart);
+      // merket tas før flyttingen starter, sa Angre gar tilbake dit punktet la
+      m.on('dragstart', () => app.merk('flytt knekkpunkt ' + (i + 1)));
       m.on('drag', ev => { pt.lat = ev.latlng.lat; pt.lon = ev.latlng.lng; this.tegnLinjeRask(); });
       m.on('dragend', () => app.linjeEndret());
       m.bindPopup(() => {
         const d = document.createElement('div');
         d.innerHTML = `<b>Knekkpunkt ${i + 1}</b><br>Radius <input type="number" step="5" min="0" value="${pt.r || 0}"> m<br>`;
         const inp = d.querySelector('input');
-        inp.onchange = () => { pt.r = parseFloat(inp.value) || 0; app.linjeEndret(); };
+        inp.onchange = () => {
+          app.merk('radius i knekkpunkt ' + (i + 1));
+          pt.r = parseFloat(inp.value) || 0; app.linjeEndret();
+        };
         const b = document.createElement('button');
         b.className = 'knapp'; b.textContent = 'Slett punkt';
-        b.onclick = () => { P.ip.splice(i, 1); this.kart.closePopup(); app.linjeEndret(); };
+        b.onclick = () => {
+          app.merk('slett knekkpunkt ' + (i + 1));
+          P.ip.splice(i, 1); this.kart.closePopup(); app.linjeEndret();
+        };
         d.appendChild(b);
         return d;
       });

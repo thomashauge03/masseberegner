@@ -14,6 +14,79 @@ const App = {
   _tidsavbrudd: null,
   _terrengnokkel: '',
 
+  /* ---------------- angre og gjør om ----------------
+     Hele prosjektet tas vare pa som tekst før hver endring som er verdt a
+     kunne angre. Det er grovt, men et prosjekt er noen fa kilobyte, og det
+     som betyr noe er at man kommer helt tilbake - ikke bare halvveis.
+
+     Tidligere angret knappen ved a fjerne siste knekkpunkt. Det er ikke a
+     angre: hadde du nettopp flyttet et punkt eller endret en radius, slettet
+     «Angre» et helt annet punkt i stedet for a ta tilbake det du gjorde. */
+  historikk: { bakover: [], framover: [], grense: 60, _sist: '' },
+
+  /**
+   * Tar vare pa tilstanden slik den er akkurat na, før den endres.
+   * @param {string} hva kort beskrivelse, vises i knappens hjelpetekst
+   */
+  merk(hva) {
+    if (!this.P) return;
+    const tekst = JSON.stringify(this.P);
+    if (tekst === this.historikk._sist) return;     // ingenting har endret seg
+    this.historikk._sist = tekst;
+    this.historikk.bakover.push({ tekst, hva: hva || 'endring' });
+    if (this.historikk.bakover.length > this.historikk.grense) this.historikk.bakover.shift();
+    this.historikk.framover.length = 0;             // ny gren - det som la foran gjelder ikke lenger
+    this.visAngreknapper();
+  },
+
+  tomHistorikk() {
+    this.historikk.bakover.length = 0;
+    this.historikk.framover.length = 0;
+    this.historikk._sist = this.P ? JSON.stringify(this.P) : '';
+    this.visAngreknapper();
+  },
+
+  async _tilbakeTil(steg, fra, til) {
+    if (!fra.length) return false;
+    const na = JSON.stringify(this.P);
+    const forrige = fra.pop();
+    til.push({ tekst: na, hva: forrige.hva });
+    this.P = JSON.parse(forrige.tekst);
+    this.historikk._sist = forrige.tekst;
+    this.byggLinje();
+    this.vprofil = new Vertikalprofil(this.P.vip);
+    this.malTilSkjema();
+    Kart.tegn();
+    this.visSonderinger();
+    this.visLinjetabell();
+    this.visHoydetabell();
+    await this.oppdater();
+    this.visAngreknapper();
+    this.status(steg + ' «' + forrige.hva + '»');
+    return true;
+  },
+
+  async angre() {
+    if (!this.historikk.bakover.length) { this.status('Ingenting å angre'); return; }
+    await this._tilbakeTil('Angret', this.historikk.bakover, this.historikk.framover);
+  },
+
+  async gjorOm() {
+    if (!this.historikk.framover.length) { this.status('Ingenting å gjøre om'); return; }
+    await this._tilbakeTil('Gjorde om', this.historikk.framover, this.historikk.bakover);
+  },
+
+  visAngreknapper() {
+    const sett = (id, liste, ord) => {
+      const k = document.getElementById(id);
+      if (!k) return;
+      k.disabled = !liste.length;
+      k.title = liste.length ? ord + ' «' + liste[liste.length - 1].hva + '»' : 'Ingenting å ' + ord.toLowerCase();
+    };
+    sett('knappAngre', this.historikk.bakover, 'Angre');
+    sett('knappGjorOm', this.historikk.framover, 'Gjør om');
+  },
+
   nyttProsjekt() {
     return {
       navn: 'Nytt prosjekt',
@@ -528,7 +601,7 @@ const App = {
    */
   tellBrudd(res) {
     const r = res || this.resultat;
-    if (!r) return null;
+    if (!r || !Array.isArray(r.merknader)) return null;
     const ut = { profil: 0, linje: 0, annet: 0, totalt: 0, per: {} };
     for (const m of r.merknader) {
       // oppsummeringslinjen «N vertikalkurver til» teller det den sier
@@ -555,6 +628,7 @@ const App = {
    * bruddene i stedet for a finne noe billigere.
    */
   async rettOpp(modus) {
+    this.merk(modus === 'inngrep' ? 'minst inngrep' : 'rett opp');
     if (!this.vprofil || this.P.vip.length < 2 || !this.terrengProfil || !this.resultat) {
       this.status('Ingen profil å rette ennå.');
       return;
@@ -674,6 +748,7 @@ const App = {
   /* ---------------- optimalisering ---------------- */
 
   async balanser() {
+    this.merk('balanser massene');
     if (!this.terreng || !this.linje) return;
     if (this.P.vip.every(v => v.laast)) {
       this.status('Alle høyder er låst – lås opp noen for å kunne balansere massene');
@@ -713,6 +788,8 @@ const App = {
 
   async optimaliser(stille, modus) {
     if (!this.terreng || !this.linje) return;
+    // «Rett opp» kaller hit selv og har alt tatt sitt merke - ikke to for en handling
+    if (!stille) this.merk(modus === 'inngrep' ? 'minst inngrep' : 'optimaliser');
     const V = this.P.vip;
     if (V.length < 2) return;
     if (V.every(v => v.laast)) {
@@ -1443,6 +1520,8 @@ const App = {
     document.getElementById('prosjektnavn').value = this.P.navn;
     document.getElementById('dialog').classList.add('skjult');
     this._terrengnokkel = '';
+    // historikken hører til ett prosjekt - Angre skal ikke føre deg til det forrige
+    this.tomHistorikk();
     this.malTilSkjema();
     await this.oppdater();
     Kart.zoomTilLinje();
@@ -1470,6 +1549,7 @@ const App = {
       this.P = this.nyttProsjekt();
       this.P.mal = mal;
       this.tomPaneler();
+      this.tomHistorikk();
       Kart.tegn();
       id('prosjektnavn').value = this.P.navn;
       id('prosjektnavn').select();
@@ -1602,6 +1682,14 @@ const App = {
     document.addEventListener('keydown', e => {
       // Ctrl+S skal virke ogsa rett etter at man har skrevet prosjektnavnet
       if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); this.lagre(); return; }
+      /* Angre og gjør om ma ogsa virke rett etter at man har skrevet i et felt -
+         det er som regel akkurat da man vil ha tilbake det som sto der. */
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
+        e.preventDefault();
+        if (e.shiftKey) this.gjorOm(); else this.angre();
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')) { e.preventDefault(); this.gjorOm(); return; }
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
       if (e.key === 'Escape') { Kart.settModus('rediger'); if (this._nullstillVisning) this._nullstillVisning(); }
       if (e.key === 'ArrowRight') Tverrprofil.flytt(1);

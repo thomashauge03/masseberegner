@@ -53,6 +53,7 @@ const Nettlesertest = {
       await this.tverrprofil();
       await this.grenser();
       await this.eksport();
+      await this.linjeredigering();
       await this.pdfavlesning();
       await this.rapport();
       await this.paneler();
@@ -127,7 +128,7 @@ const Nettlesertest = {
 
   /* ---------------- 4. profilverktøyene ---------------- */
   async profilverktoy() {
-    const brudd = () => { const b = App.tellBrudd(App.vprofil); return b ? b.totalt : 0; };
+    const brudd = () => { const b = App.tellBrudd(); return b ? b.totalt : 0; };
 
     App.lagProfilforslag(); App.beregn();
     this.sjekk('«Foreslå profil» gir en profil', App.P.vip.length >= 2);
@@ -306,6 +307,64 @@ const Nettlesertest = {
   },
 
   /* ---------------- 10. rapport ---------------- */
+  /* ---------------- a sette inn punkt, og a angre ---------------- */
+  async linjeredigering() {
+    const app = App;
+    if (!app.linje || app.P.ip.length < 2) {
+      this.sjekk('ingen linje å redigere – hopper over', true);
+      return;
+    }
+
+    /* Har man glemt en sving, ma punktet inn mellom de to knekkpunktene
+       strekket ligger mellom. Legges det til pa slutten gar linjen tilbake
+       dit den kom fra. */
+    // merket vi startet pa, sa opprydningen bare tar tilbake det denne prøven gjorde
+    const merkeVedStart = app.historikk.bakover.length;
+    const forIp = app.P.ip.length, forLengde = app.linje.lengde;
+    const p = app.linje.punktVed(app.linje.lengde * 0.4);
+    const ll = Geo.fraUtm(p.x, p.y, app.sone);
+    const plass = Kart.settInnPunkt({ lat: ll.lat, lng: ll.lon }, 40);
+    await this.vent(250);
+    this.sjekk('klikk på linja setter inn et knekkpunkt', app.P.ip.length === forIp + 1,
+      `${forIp} → ${app.P.ip.length}`);
+    this.sjekk('punktet havner mellom naboene, ikke på slutten',
+      plass > 0 && plass < app.P.ip.length - 1, `plass ${plass}`);
+    this.sjekk('linjen beholder lengden når punktet legges på den',
+      Math.abs(app.linje.lengde - forLengde) < 2,
+      `${forLengde.toFixed(1)} → ${app.linje.lengde.toFixed(1)}`);
+
+    const langt = Kart.settInnPunkt({ lat: ll.lat + 0.03, lng: ll.lon + 0.03 }, 40);
+    this.sjekk('et klikk langt fra linja setter ikke inn noe', langt === -1);
+
+    /* Angre skal ta tilbake det du gjorde - ikke fjerne siste punkt.
+       Med det gamle oppsettet slettet «Angre» et helt annet punkt hvis du
+       nettopp hadde endret en radius. */
+    const forRadius = app.P.ip[1].r;
+    app.merk('prøve: radius');
+    app.P.ip[1].r = (forRadius || 0) + 37;
+    app.linjeEndret();
+    await this.vent(250);
+
+    await app.angre();
+    this.sjekk('angre tar tilbake radiusendringen', app.P.ip[1].r === forRadius,
+      `${app.P.ip[1].r} mot ${forRadius}`);
+    await app.gjorOm();
+    this.sjekk('gjør om setter den tilbake igjen', app.P.ip[1].r === (forRadius || 0) + 37);
+    await app.angre();
+    await app.angre();
+    this.sjekk('angre nummer to tar bort det innsatte punktet',
+      app.P.ip.length === forIp, `${app.P.ip.length} mot ${forIp}`);
+
+    this.sjekk('knappene følger med på hva som er mulig',
+      document.getElementById('knappGjorOm').disabled === false);
+
+    // rydd opp: bare tilbake til der denne prøven startet, ikke lenger
+    while (app.historikk.bakover.length > merkeVedStart) await app.angre();
+    this.sjekk('alt er tilbake der prøven startet', app.P.ip.length === forIp
+      && Math.abs(app.linje.lengde - forLengde) < 2,
+      `${app.P.ip.length} punkt mot ${forIp}, ${app.linje.lengde.toFixed(1)} m mot ${forLengde.toFixed(1)}`);
+  },
+
   /* ---------------- avlesning av PDF ----------------
      Strømmene i en PDF slutter der `/Length` sier, ikke der `endstream` star.
      Mellom dem ligger det et linjeskift eller to, og `DecompressionStream`
