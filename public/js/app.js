@@ -656,7 +656,10 @@ const App = {
       fjell: this.resultat.sum.skjaeringFjell,
       skjaering: this.resultat.sum.skjaering,
       fylling: this.resultat.sum.fylling,
-      rensk: this.resultat.sum.rensk
+      rensk: this.resultat.sum.rensk,
+      // det som ma kjøres inn eller bort er ogsa masse man betaler for
+      maaInn: this.resultat.balanse.manglerTotalt,
+      tilDeponi: this.resultat.balanse.tilDeponi
     };
 
     this.framdrift(true, modus === 'inngrep' ? 'Legger veien tettest mulig på terrenget…' : 'Retter profilen…', 0.15);
@@ -710,19 +713,40 @@ const App = {
         this.beregn();
       }
 
-      /* Og hjelper ikke det, skal ikke resultatet bli varre enn det man
-         startet med. Rettingen kan gjøre et brudd større et sted mens den
-         fjerner to andre, og optimaliseringen etterpa er et lokalt søk som
-         ikke lover noe. Har brudd-tallet gatt opp, legges den opprinnelige
-         profilen tilbake - da har knappen i det minste ikke ødelagt noe. */
+      /* Knappen skal aldri levere noe darligere enn det den fikk.
+         Rettingen tvinger profilen mot kravene, og optimaliseringen etterpa
+         er et lokalt søk som ikke lover noe. La veien høyt og tørt uten et
+         eneste brudd, kunne den ende med a bli dratt ned i fjellet:
+         22 m³ sprengning ble til 432, med null brudd bade før og etter.
+
+         Derfor sammenlignes svaret med utgangspunktet, i den rekkefølgen
+         dette faktisk koster: først antall brudd, sa sprengning, sa det som
+         ellers ma flyttes. Er utgangspunktet bedre, er utgangspunktet svaret. */
       const etterAlt = this.tellBrudd();
-      if (bruddFor && etterAlt && etterAlt.profil > bruddFor.profil) {
+      const bedreFor = (() => {
+        if (!bruddFor || !etterAlt) return false;
+        if (etterAlt.profil !== bruddFor.profil) return etterAlt.profil > bruddFor.profil;
+        /* Malt pa det som faktisk koster: sprengning er dyrest, og deretter
+           hver kubikk som ma kjøres inn eller kjøres bort. Fyllingsvolumet
+           alene er ikke et mal - en veg pa tre meters fylling har null
+           sprengning, men ni tusen kubikk fylling og ti tusen som ma kjøres
+           inn. Uten importleddet sa sammenligningen den som «bedre». */
+        const s = this.resultat.sum, b = this.resultat.balanse;
+        const na = s.skjaeringFjell * 3 + s.skjaeringLosmasse
+          + b.manglerTotalt * 1.5 + b.tilDeponi;
+        const før = volumFor.fjell * 3 + (volumFor.skjaering - volumFor.fjell)
+          + volumFor.maaInn * 1.5 + volumFor.tilDeponi;
+        return na > før * 1.01 + 1;
+      })();
+      if (bedreFor) {
         this.P.vip = vipFor.map(v => Object.assign({}, v));
         this.vprofil = new Vertikalprofil(this.P.vip);
         this.beregn();
         this.framdrift(false);
-        this.status(`Fant ingen bedre profil – ${bruddFor.profil} brudd står som før. `
-          + 'Prøv å slakke et krav, låse opp flere høyder, eller endre linjen i planet.');
+        this.status(bruddFor.profil > 0
+          ? `Fant ingen bedre profil – ${bruddFor.profil} brudd står som før. `
+            + 'Prøv å slakke et krav, låse opp flere høyder, eller endre linjen i planet.'
+          : 'Profilen du hadde var allerede best – den er beholdt som den var.');
         return;
       }
     } catch (e) {
@@ -748,6 +772,13 @@ const App = {
     } else {
       if (Math.abs(volumFor.fjell - s.skjaeringFjell) > 5) deler.push(`sprengning ${endring(volumFor.fjell, s.skjaeringFjell)} m³`);
       if (Math.abs(volumFor.fylling - s.fylling) > 5) deler.push(`fylling ${endring(volumFor.fylling, s.fylling)} m³`);
+      /* Masse som ma kjøres inn er ogsa penger. Uten den i meldingen sa det ut
+         som en darlig handel a bytte 500 m³ sprengning mot 9 500 m³ mindre
+         innkjørt fylling - som er en svaert god handel. */
+      const b = this.resultat.balanse;
+      if (Math.abs(volumFor.maaInn - b.manglerTotalt) > 5) {
+        deler.push(`må kjøres inn ${endring(volumFor.maaInn, b.manglerTotalt)} m³`);
+      }
     }
     /* Star det noe igjen, skal det sta nøyaktig hva og hvorfor rettingen ikke
        kunne ta det. «3 brudd står igjen» uten mer er ubrukelig - da vet man
