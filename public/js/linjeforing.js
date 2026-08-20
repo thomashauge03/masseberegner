@@ -19,11 +19,31 @@ class Linjeforing {
    * @param {Array<{x:number,y:number,r:number}>} ip Knekkpunkt i UTM. r = ønsket radius (0 = skarp knekk).
    */
   constructor(ip) {
-    this.ip = (ip || []).map(p => ({ x: p.x, y: p.y, r: Math.max(0, p.r || 0) }));
+    const alle = (ip || [])
+      .filter(p => p && isFinite(p.x) && isFinite(p.y))
+      .map(p => ({ x: p.x, y: p.y, r: Math.max(0, isFinite(p.r) ? p.r : 0) }));
+
+    /* To knekkpunkt pa nøyaktig samme sted er ikke to punkt. Retningen inn i
+       det andre lar seg ikke regne, avbøyningen blir null, og kurven forsvant
+       helt - uten kurve og uten et ord om hvorfor. En linje som skulle vaere
+       87 m med en 30-metersving ble 100 m med et skarpt hjørne. Det skjer
+       lettere enn man tror: et dobbeltklikk i kartet holder. */
+    this.advarsler = [];
+    this.ip = alle.filter((p, i) => {
+      if (i === 0) return true;
+      const f = alle[i - 1];
+      if (Math.hypot(p.x - f.x, p.y - f.y) > 1e-6) return true;
+      // behold den største radien av de to, sa svingen ikke forsvinner
+      if (p.r > f.r) f.r = p.r;
+      this.advarsler.push({
+        ip: i, tekst: `Knekkpunkt ${i + 1} lå oppå knekkpunkt ${i} og er slått sammen med det.`
+      });
+      return false;
+    });
+
     this.elementer = [];
     this.kurver = [];
     this.lengde = 0;
-    this.advarsler = [];
     this._bygg();
   }
 
@@ -65,6 +85,26 @@ class Linjeforing {
         }
       }
       if (!endret) break;
+    }
+
+    /* Nedskaleringen har ingen bunn. En radius pa 200 m klemt inn mellom to
+       knekkpunkt som star to meter fra hverandre ble til 0,22 m - det er ikke
+       en kurve, det er en avrundingsrest, og den ga en veg ingen kan kjøre.
+       Under et par meter er en skarp knekk et ærligere svar, og da sies det
+       hva som skjedde. */
+    const MINSTE_KURVE = 2.0;
+    for (let i = 1; i < nP - 1; i++) {
+      if (!data[i] || tangent[i] <= 1e-9) continue;
+      const r = tangent[i] / Math.tan(Math.abs(data[i].avbøy) / 2);
+      if (r >= MINSTE_KURVE) continue;
+      tangent[i] = 0;
+      data[i] = null;
+      this.advarsler = this.advarsler.filter(a => a.ip !== i);
+      this.advarsler.push({
+        ip: i,
+        tekst: `Knekkpunkt ${i + 1}: det er ikke plass til en kurve her `
+          + `(bare ${r.toFixed(2)} m ble igjen av radien) – punktet er satt som skarp knekk.`
+      });
     }
 
     // 3) Bygg elementlisten

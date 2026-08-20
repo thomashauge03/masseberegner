@@ -546,6 +546,44 @@ console.log('\n4a. Feil som er funnet og rettet');
 }
 
 /* ------------------------------------------------------------------ */
+console.log('\n4i. Linjeføring som ikke lar seg tegne slik den står');
+{
+  /* To knekkpunkt pa nøyaktig samme sted er ikke to punkt. Retningen inn i det
+     andre lar seg ikke regne, avbøyningen blir null, og kurven forsvant helt -
+     uten kurve og uten et ord. Et dobbeltklikk i kartet holder. */
+  const medDobbel = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 50, y: 0, r: 30 },
+    { x: 50, y: 0, r: 30 }, { x: 50, y: 50, r: 0 }]);
+  const uten = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 50, y: 0, r: 30 }, { x: 50, y: 50, r: 0 }]);
+  sjekk('et duplikatpunkt gir samme linje som uten', medDobbel.lengde, uten.lengde, 1e-9);
+  sjekk('og kurven blir stående', medDobbel.kurver.length, uten.kurver.length, 0);
+  paastand('sammenslåingen blir meldt', medDobbel.advarsler.length > 0);
+
+  // den største radien av de to skal overleve sammenslåingen
+  const ulikRadius = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 50, y: 0, r: 5 },
+    { x: 50, y: 0, r: 30 }, { x: 50, y: 50, r: 0 }]);
+  paastand('den største radien overlever sammenslåingen',
+    ulikRadius.kurver.length === 1 && Math.abs(ulikRadius.kurver[0].r - 30) < 1e-9,
+    ulikRadius.kurver.length ? String(ulikRadius.kurver[0].r) : 'ingen kurve');
+
+  /* Nedskaleringen hadde ingen bunn. En radius pa 200 m klemt inn mellom to
+     knekkpunkt to meter fra hverandre ble til 0,22 m - en avrundingsrest, ikke
+     en kurve, og en veg ingen kan kjøre. */
+  const trangt = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 20, y: 0, r: 5 },
+    { x: 22, y: 0.5, r: 400 }, { x: 60, y: 20, r: 0 }]);
+  paastand('ingen kurve blir liggende under to meter',
+    trangt.kurver.every(k => k.r >= 2), trangt.kurver.map(k => k.r.toFixed(2)).join(', '));
+  paastand('og det sies at punktet ble en skarp knekk',
+    trangt.advarsler.some(a => /skarp knekk/.test(a.tekst)));
+  paastand('linjen går fortsatt gjennom knekkpunktet',
+    trangt.projiser(20, 0).avstand < 0.5, `${trangt.projiser(20, 0).avstand.toFixed(3)} m unna`);
+
+  // en romslig kurve skal ikke røres av noen av delene
+  const romslig = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 200, y: 0, r: 60 }, { x: 200, y: 200, r: 0 }]);
+  sjekk('en romslig kurve står urørt', romslig.kurver[0].r, 60, 1e-9);
+  sjekk('og gir ingen advarsler', romslig.advarsler.length, 0, 0);
+}
+
+/* ------------------------------------------------------------------ */
 console.log('\n4h. Rensk der fjellet ligger høyt');
 {
   /* Rensk er avdekking - matjord, torv og stubber. Ligger fjellet i dagen,
