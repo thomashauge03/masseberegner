@@ -23,8 +23,11 @@ const FLIS_M = 256;
  *
  *   2: fliser pakket som centimeter over et nullniva
  *   3: egen adresse for overflatemodellen (modell=dom)
+ *   4: fliser som er nøyaktig null over alt regnes som manglende dekning.
+ *      Utenfor dekningen svarer høydetjenesten 0,00 for hver eneste piksel,
+ *      og de flisene la bufret som havflate.
  */
-const FLIS_VERSJON = 3;
+const FLIS_VERSJON = 4;
 
 /**
  * Pakker ut en flis fra serveren.
@@ -85,9 +88,11 @@ class Terreng {
     }
 
     /* Fliser som slo feil sist far en ny sjanse. En kortvarig nettfeil skal
-       ikke gjøre at et omrade star tomt resten av økta - og fordi tjenesten
-       svarer med gyldige data ogsa utenfor Norge (bare uten verdier), er en
-       feil her alltid en teknisk feil og aldri "her finnes det ingenting". */
+       ikke gjøre at et omrade star tomt resten av økta.
+
+       Merk at «ingen dekning» ikke kommer hit som en feil: da svarer tjenesten
+       pent med en flis der hver eneste piksel er null, og serveren gjør den om
+       til manglende data. En feil pa dette stedet er derfor alltid teknisk. */
     this.mangler.clear();
     const liste = [...trengs].filter(k => !this.fliser.has(k));
     let ferdig = 0;

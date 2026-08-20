@@ -1094,8 +1094,31 @@ console.log('\n6c. Avlesning av PDF');
     });
     console.log(`  ${m} kontrollpunkt, snitt ${(sum / m).toFixed(4)} m, største ${maks.toFixed(4)} m`);
     paastand('terrenghøydene stemmer med Kartverket (< 1 cm)', m > 20 && maks < 0.01);
+
+    /* Utenfor dekningen svarer høydetjenesten 0,00 for hver eneste piksel -
+       ikke en nodata-verdi, ikke en feilmelding. Uten at det fanges opp blir
+       et hull i terrengmodellen lest som havflaten, og en veg pa kote 260 far
+       en skjæring pa 260 meter uten en eneste merknad. */
+    const utenfor = [['Nordsjøen', 58.0, 3.0], ['Sverige', 59.8, 13.5]];
+    for (const [navn, lat, lon] of utenfor) {
+      const s2 = Geo.sone(lon);
+      const p2 = Geo.tilUtm(lat, lon, s2);
+      const flis = H.pakkOpp(await H.hentFlis(Geo.epsg(s2), Math.floor(p2.x / 256), Math.floor(p2.y / 256), 1)).data;
+      const gyldige = [...flis].filter(v => !Number.isNaN(v)).length;
+      paastand(`${navn}: uten dekning gir manglende data, ikke kote 0`, gyldige === 0,
+        `${gyldige} av ${flis.length} celler har verdi`);
+    }
+    const paaLand = H.pakkOpp(await H.hentFlis(sr, tx, ty, 1)).data;
+    paastand('en flis med dekning blir ikke kastet som tom',
+      [...paaLand].filter(v => !Number.isNaN(v)).length > paaLand.length * 0.9);
   } catch (e) {
-    console.log('  HOPPET OVER (ingen nettforbindelse?): ' + e.message);
+    /* Bare nettfeil er en gyldig grunn til a hoppe over. Alt annet er en feil
+       i prøven eller i koden, og skal telle - ellers rapporterer denne
+       seksjonen «0 feil» uansett hva som gikk galt. */
+    const nettfeil = /ENOTFOUND|ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket|network|fetch failed|getaddrinfo/i.test(
+      e.message + ' ' + (e.code || ''));
+    if (nettfeil) console.log('  HOPPET OVER (ingen nettforbindelse): ' + e.message);
+    else paastand('seksjon 8 kom seg gjennom', false, e.message);
   }
 
   console.log(`\n${ok} tester ok, ${feil} feil\n`);
