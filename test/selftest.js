@@ -546,6 +546,63 @@ console.log('\n4a. Feil som er funnet og rettet');
 }
 
 /* ------------------------------------------------------------------ */
+console.log('\n4e. Fjellflaten på tvers av snittet');
+{
+  const linje = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 100, y: 0, r: 0 }]);
+  const mal = Object.assign({}, M.StandardMal, { maksSokebredde: 40 });
+  const terreng = { z: (x, y) => 100 - 0.35 * y };
+
+  /* Dybden til fjell ble malt ett sted - i senterlinjen - og brukt over hele
+     tverrsnittet. Setter man en sondering pa hver side, forventer man at
+     fjellflaten legger seg skratt mellom dem. */
+  const fjell = new M.Fjellmodell({
+    standarddybde: 3, rekkevidde: 30,
+    punkter: [{ x: 50, y: 8, dybde: 6 }, { x: 50, y: -8, dybde: 0.3 }]
+  });
+  const pr = M.beregnTverrprofil({
+    linje, terreng, mal, fjell, s: 50, vegnivaa: 94, utvidelse: 0,
+    tverrfall: { venstre: 0.05, hoyre: 0.05 }, integrasjonssteg: 0.1
+  });
+  const naer = (liste, t) => liste.reduce((a, p) => Math.abs(p[0] - t) < Math.abs(a[0] - t) ? p : a);
+  const dybdeVed = t => naer(pr.geometri.terreng, t)[1] - naer(pr.geometri.fjell, t)[1];
+  const venstre = dybdeVed(-8), hoyre = dybdeVed(8);
+  paastand('fjellet ligger dypere der sonderingen sier det er dypt',
+    venstre > 4 && hoyre < 1.5, `venstre ${venstre.toFixed(2)} m, høyre ${hoyre.toFixed(2)} m`);
+  paastand('og flaten heller jevnt mellom dem',
+    dybdeVed(-4) > dybdeVed(0) && dybdeVed(0) > dybdeVed(4));
+
+  // uten sonderinger skal flaten ligge parallelt med terrenget
+  const jamt = M.beregnTverrprofil({
+    linje, terreng, mal, fjell: new M.Fjellmodell({ standarddybde: 2 }),
+    s: 50, vegnivaa: 94, utvidelse: 0, tverrfall: { venstre: 0.05, hoyre: 0.05 }, integrasjonssteg: 0.1
+  });
+  const d = t => naer(jamt.geometri.terreng, t)[1] - naer(jamt.geometri.fjell, t)[1];
+  paastand('uten sonderinger ligger fjellflaten parallelt med terrenget',
+    Math.abs(d(-8) - 2) < 0.05 && Math.abs(d(8) - 2) < 0.05, `${d(-8).toFixed(2)} / ${d(8).toFixed(2)}`);
+
+  /* Marsjen ut mot skraningsfoten skal bytte helning nøyaktig der den krysser
+     fjelloverflaten - ikke et halvt steg for tidlig eller for sent. */
+  const bratt = { z: (x, y) => 100 - 0.9 * y };
+  const p2 = M.beregnTverrprofil({
+    linje, terreng: bratt, mal: Object.assign({}, mal, { maksSokebredde: 60 }),
+    fjell: new M.Fjellmodell({ standarddybde: 2 }), s: 50, vegnivaa: 94, utvidelse: 0,
+    tverrfall: { venstre: 0.05, hoyre: 0.05 }, integrasjonssteg: 0.1
+  });
+  const k = p2.sider[1].knekk;
+  let gale = 0, prøvd = 0;
+  for (let i = 1; i < k.length; i++) {
+    const dt = k[i].t - k[i - 1].t, dz = k[i].z - k[i - 1].z;
+    if (dt < 1e-9 || dz < 1e-12) continue;
+    prøvd++;
+    const fjelltopp = bratt.z(50, -k[i - 1].t) - 2;
+    const venta = k[i - 1].z < fjelltopp - 1e-9 ? mal.skjaeringFjell : mal.skjaeringLosmasse;
+    if (Math.abs(dt / dz - venta) > 0.05) gale++;
+  }
+  paastand('skråningen bruker riktig helning på hvert eneste steg',
+    gale === 0 && prøvd > 100, `${gale} av ${prøvd} steg feil`);
+}
+
+/* ------------------------------------------------------------------ */
 console.log('\n4d. Retting av vertikalgeometrien');
 {
   const krav = { minVertikalLavbrekk: 200, minVertikalHoybrekk: 150 };

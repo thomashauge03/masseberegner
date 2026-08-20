@@ -342,8 +342,22 @@ function beregnTverrprofil(o) {
     return vegnivaa - (tt < 0 ? fall.venstre * -tt : fall.hoyre * tt);
   };
 
+  /* Dybden til fjell ble malt ett sted - i senterlinjen - og brukt over hele
+     tverrsnittet. Setter man en sondering pa hver side av veien, forventer man
+     at modellen legger fjellflaten skratt mellom dem; i stedet ble begge to
+     veid sammen til ett tall i midten, og fjellflaten ble liggende parallelt
+     med terrenget hele veien ut.
+
+     Na males dybden der man star. Det koster et oppslag per punkt, men
+     Fjellmodell.dybde er noen fa avstandsregninger, og dybden til fjell er den
+     største usikkerheten i hele regnestykket - den er verdt oppslaget.
+
+     Senterverdien tas vare pa som `fjelldybde`, for den er det rapporten
+     oppgir som dybden pa profilet. */
   const fjelldybde = fjell ? fjell.dybde(p.x, p.y, s) : 0.5;
-  const fjellflate = t => terrRå(t) - fjelldybde;
+  const fjellflate = fjell
+    ? t => terrRå(t) - fjell.dybde(p.x + nx * t, p.y + ny * t, s)
+    : t => terrRå(t) - 0.5;
 
   // --- Bygg jordarbeidsflaten for hver side --------------------------
   const sider = {};
