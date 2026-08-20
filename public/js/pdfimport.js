@@ -14,7 +14,16 @@
 
 const PdfImport = {
 
-  /** Pakker ut alle strømmene i filen. Bruker nettleserens egen deflate. */
+  /**
+   * Pakker ut alle strømmene i filen. Bruker nettleserens egen deflate.
+   *
+   * Lengden ma tas fra `/Length` i objektordboken, ikke males til `endstream`.
+   * Mellom siste databyte og `endstream` star det et linjeskift eller to, og
+   * de er ikke en del av strømmen. `DecompressionStream` kaster pa alt som
+   * ligger etter at zlib-strømmen er slutt, sa de to ekstra bytene var nok
+   * til at ingen innholdsstrøm i noen ekte PDF noen gang pakket ut - hele
+   * avlesningen fant null kurver uten a si ifra om hvorfor.
+   */
   async lesStrommer(bytes) {
     const ut = [];
     const tekst = new TextDecoder('latin1').decode(bytes);
@@ -22,14 +31,28 @@ const PdfImport = {
     while (true) {
       const s = tekst.indexOf('stream', idx);
       if (s === -1) break;
+      // «endstream» inneholder ogsa «stream» - hopp over de treffene
+      if (tekst.slice(s - 3, s) === 'end') { idx = s + 6; continue; }
       let start = s + 6;
       if (bytes[start] === 0x0d) start++;
       if (bytes[start] === 0x0a) start++;
       const e = tekst.indexOf('endstream', start);
       if (e === -1) break;
       idx = e + 9;
-      const rå = bytes.subarray(start, e);
-      const pakket = await this.pakkUt(rå);
+
+      /* /Length kan sta som et tall eller som en henvisning til et annet
+         objekt («/Length 12 0 R»). Bare tallformen kan brukes direkte; ellers
+         faller vi tilbake pa a trimme linjeskiftene bakerst. */
+      const hode = tekst.slice(Math.max(0, s - 400), s);
+      const lengdeTreff = /\/Length\s+(\d+)(?!\s+\d+\s+R)/.exec(hode);
+      let slutt = e;
+      if (lengdeTreff) {
+        const n = parseInt(lengdeTreff[1], 10);
+        if (n > 0 && start + n <= e) slutt = start + n;
+      }
+      while (slutt > start && (bytes[slutt - 1] === 0x0a || bytes[slutt - 1] === 0x0d)) slutt--;
+
+      const pakket = await this.pakkUt(bytes.subarray(start, slutt));
       if (pakket) ut.push(pakket);
     }
     return ut;
@@ -37,11 +60,14 @@ const PdfImport = {
 
   async pakkUt(rå) {
     if (typeof DecompressionStream === 'undefined') return null;
-    for (const format of ['deflate', 'deflate-raw']) {
+    if (!rå.length) return null;
+    // 0x78 er zlib-hodet; uten det er strømmen enten raa deflate eller noe annet
+    const rekkefolge = rå[0] === 0x78 ? ['deflate', 'deflate-raw'] : ['deflate-raw', 'deflate'];
+    for (const format of rekkefolge) {
       try {
         const str = new Blob([rå]).stream().pipeThrough(new DecompressionStream(format));
         const buf = await new Response(str).arrayBuffer();
-        return new TextDecoder('latin1').decode(buf);
+        if (buf.byteLength) return new TextDecoder('latin1').decode(buf);
       } catch (e) { /* prøv neste */ }
     }
     return null;

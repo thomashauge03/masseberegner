@@ -53,6 +53,7 @@ const Nettlesertest = {
       await this.tverrprofil();
       await this.grenser();
       await this.eksport();
+      await this.pdfavlesning();
       await this.rapport();
       await this.paneler();
       await this.opprydding();
@@ -305,6 +306,64 @@ const Nettlesertest = {
   },
 
   /* ---------------- 10. rapport ---------------- */
+  /* ---------------- avlesning av PDF ----------------
+     Strømmene i en PDF slutter der `/Length` sier, ikke der `endstream` star.
+     Mellom dem ligger det et linjeskift eller to, og `DecompressionStream`
+     kaster pa alt som følger etter at zlib-strømmen er slutt. De to bytene
+     var nok til at ingen innholdsstrøm i noen ekte PDF noen gang pakket ut -
+     avlesningen fant null kurver, uten a si ifra om hvorfor. Her bygges en
+     liten PDF med akkurat den fellen i. */
+  async pdfavlesning() {
+    if (typeof CompressionStream === 'undefined') {
+      this.sjekk('nettleseren kan pakke – hopper over PDF-prøven', true);
+      return;
+    }
+    const innhold = '1 0 0 1 0 0 cm 100 100 m 200 150 l 300 120 l S';
+    const pakk = async (tekst) => {
+      const str = new Blob([tekst]).stream().pipeThrough(new CompressionStream('deflate'));
+      return new Uint8Array(await new Response(str).arrayBuffer());
+    };
+    const komprimert = await pakk(innhold);
+
+    const bit = s => new TextEncoder().encode(s);
+    const sett = (...deler) => {
+      const n = deler.reduce((a, d) => a + d.length, 0);
+      const ut = new Uint8Array(n);
+      let i = 0; for (const d of deler) { ut.set(d, i); i += d.length; }
+      return ut;
+    };
+    // linjeskiftet før «endstream» er fella: det er ikke en del av strømmen
+    const pdf = sett(
+      bit('%PDF-1.7\n4 0 obj <</Filter/FlateDecode/Length ' + komprimert.length + '>>\nstream\r\n'),
+      komprimert,
+      bit('\r\nendstream\nendobj\n%%EOF\n')
+    );
+
+    const strommer = await PdfImport.lesStrommer(pdf);
+    this.sjekk('strømmen i en PDF pakkes ut', strommer.length === 1,
+      `fant ${strommer.length}`);
+    this.sjekk('innholdet kom helt fram',
+      strommer.length === 1 && strommer[0].includes('200 150 l'));
+
+    const baner = strommer.flatMap(s => PdfImport.tolkBaner(s));
+    this.sjekk('kurven i strømmen blir tolket', baner.length === 1 && baner[0].length === 3,
+      `${baner.length} baner`);
+
+    // en lengre, stigende kurve skal bli plukket ut som kandidat
+    let lang = '1 0 0 1 0 0 cm 0 0 m';
+    for (let i = 1; i <= 40; i++) lang += ` ${i * 5} ${20 + 10 * Math.sin(i / 4)} l`;
+    lang += ' S';
+    const langStrom = sett(
+      bit('%PDF-1.7\n5 0 obj <</Filter/FlateDecode/Length '),
+      bit(String((await pakk(lang)).length)),
+      bit('>>\nstream\r\n'), await pakk(lang), bit('\r\nendstream\n%%EOF\n')
+    );
+    const kand = PdfImport.kandidater(
+      (await PdfImport.lesStrommer(langStrom)).flatMap(s => PdfImport.tolkBaner(s)));
+    this.sjekk('en lang kurve som gar framover blir kandidat', kand.length === 1,
+      `${kand.length} kandidater`);
+  },
+
   async rapport() {
     let html = '';
     const origOpen = window.open;
