@@ -70,6 +70,7 @@ const Nettlesertest = {
       await this.pdfavlesning();
       await this.rapport();
       await this.paneler();
+      await this.framdrift();
       await this.opprydding();
     } catch (e) {
       this.sjekk('testen kom seg gjennom uten å kaste', false, e.message + ' — ' + (e.stack || '').split('\n')[1]);
@@ -783,7 +784,55 @@ const Nettlesertest = {
     document.querySelector('.fane').click();
   },
 
-  /* ---------------- 12. opprydding ---------------- */
+  /* ---------------- 12. framdriftsvisningen ---------------- */
+  async framdrift() {
+    const boks = document.getElementById('framdrift');
+    const stolpe = document.getElementById('framdriftStolpe');
+    const skjult = () => boks.classList.contains('skjult');
+    const pst = () => parseInt(stolpe.style.width) || 0;
+
+    App.framdrift(false);
+    this.sjekk('boksen er borte når ingenting går', skjult());
+
+    // en enkel operasjon eier hele stolpen
+    App.framdrift(true, 'prøve', 0.4);
+    this.sjekk('boksen kommer fram', !skjult());
+    this.sjekk('og stolpen står der den skal', pst() === 40);
+
+    /* Stolpen skal ikke ga bakover innenfor samme visning. En indre operasjon
+       som meldte sin egen andel fikk linja til a hoppe tilbake til null. */
+    App.framdrift(true, 'prøve', 0.1);
+    this.sjekk('stolpen går ikke bakover', pst() === 40);
+
+    /* Og en indre operasjon far ikke lukke boksen. Terrenghentingen inne i
+       Rett opp gjorde nettopp det: boksen forsvant, og resten av operasjonen
+       gikk uten et eneste tegn pa skjermen. */
+    let saaSkjult = false, saaTilbake = 0, forrige = 0;
+    await App.iFramdriftVindu(0.5, 0.95, async () => {
+      forrige = pst();
+      for (const a of [0, 0.5, 1]) {
+        App.framdrift(true, 'indre', a);
+        if (skjult()) saaSkjult = true;
+        if (pst() < forrige - 1) saaTilbake++;
+        forrige = pst();
+      }
+      App.framdrift(false);                        // slik terrenghentingen gjorde
+      if (skjult()) saaSkjult = true;
+    });
+    this.sjekk('en indre operasjon skjuler ikke boksen', !saaSkjult);
+    this.sjekk('og den kan ikke dra stolpen bakover', saaTilbake === 0);
+    this.sjekk('den indre holder seg innenfor vinduet sitt', pst() <= 95);
+    this.sjekk('og kommer helt opp til toppen av det', pst() === 95);
+
+    /* Terrenghenting som star for seg selv skal fortsatt rydde etter seg. */
+    App.framdrift(false);
+    this.sjekk('boksen lar seg lukke utenfra', skjult());
+    App.framdrift(true, 'ny operasjon', 0.05);
+    this.sjekk('en ny visning starter forfra', pst() === 5);
+    App.framdrift(false);
+  },
+
+  /* ---------------- 13. opprydding ---------------- */
   async opprydding() {
     if (this._testnavn) await Lager.slett(this._testnavn);
     const liste = await Lager.liste();

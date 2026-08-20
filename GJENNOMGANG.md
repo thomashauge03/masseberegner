@@ -8,7 +8,23 @@ som skulle avgjøre om det kan skje for et anleggsfirma i praksis.
 Motprøvingen var ikke ferdig da denne fila ble skrevet, så funnene under er
 granskernes egne og ikke endelig sortert.
 
-> Ingenting her er rettet ennå. Dette er lista over hva som skal gjennomgås.
+> **Oppdatert 20. august 2026.** Setningen som sto her — «ingenting er rettet
+> ennå» — stemmer ikke lenger, og den er verre enn ingen status: den får lista
+> til å se ubehandlet ut når den ikke er det.
+>
+> **Alle 15 kritiske funn er gjennomgått.** 14 er rettet i koden, hver med en
+> kommentar på stedet som forklarer hva som gikk galt. Funn 9
+> («skjæringsskråningen marsjerer rett forbi fjelloverflaten») er **ikke**
+> rettet: det lot seg ikke reprodusere. Målt over 1120 marsjsteg med fjell på
+> alle dyp traff skråningen riktig flate i 1120 av 1120. To tidligere
+> «bekreftelser» av funnet var feil i min egen prøvemodell, ikke i programmet.
+>
+> De alvorlige, moderate og små funnene er delvis rettet og ikke systematisk
+> ettergått ett for ett. Regn med at noen av dem allerede er borte, og at
+> beskrivelsen av koden i dem kan være utdatert.
+>
+> Selvtesten er nå på 368 prøver, nettlesertesten på 184. Nitten innførte feil i
+> volum-, geometri- og koordinatregningen ble alle fanget av testene.
 
 | Alvor | Antall |
 |---|---|

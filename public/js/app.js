@@ -236,16 +236,33 @@ const App = {
 
   framdrift(vis, tekst, andel) {
     const boks = document.getElementById('framdrift');
+    /* Nar en operasjon kaller en annen, tok den indre over stolpen som om den
+       var alene om den. To ting gikk galt under Rett opp, som varer et titalls
+       sekunder:
+
+       1. Den indre skrev sin egen andel rett i stolpen, sa linja gikk til
+          hundre, hoppet tilbake til null og begynte pa nytt - to ganger.
+       2. Verre: nar sidelengs flytting førte linjen utenfor de nedlastede
+          flisene, hentet den terreng, og terrenghenteren avsluttet med
+          `framdrift(false)`. Da forsvant hele boksen, og de siste fire
+          sekundene av Rett opp gikk uten et eneste tegn pa skjermen.
+
+       Nummer to er det som ble meldt som at knappen "laster i evigheten": det
+       sto ingenting der, sa det sa ut som om ingenting skjedde.
+
+       Derfor: et vindu sier hvilken del av stolpen en indre operasjon far rade
+       over, den far ikke lukke boksen sa lenge noen utenfor eier den, og
+       stolpen kan ikke ga bakover innenfor samme visning. */
+    if (!vis && this._framdriftEier > 0) return;   // en indre operasjon lukker ikke boksen
+    const varSkjult = boks.classList.contains('skjult');
     boks.classList.toggle('skjult', !vis);
+    if (!vis) { this._framdriftGulv = 0; return; }
+    if (varSkjult) this._framdriftGulv = 0;
     if (tekst) document.getElementById('framdriftTekst').textContent = tekst;
-    /* Nar en operasjon kaller en annen, skrev den indre sin egen andel rett i
-       stolpen: linja gikk til hundre, hoppet tilbake til null og begynte pa
-       nytt - to ganger under Rett opp, som varer et titalls sekunder. Det ser
-       ut som om ingenting skjer, og det var nettopp det som ble meldt som
-       "laster i evigheten". Et vindu lar den ytre operasjonen si hvilken del
-       av stolpen den indre far rade over, sa linja bare gar én vei. */
     const [fra, til] = this._framdriftVindu || [0, 1];
-    const a = fra + (til - fra) * Math.max(0, Math.min(1, andel || 0));
+    const a = Math.max(this._framdriftGulv || 0,
+      fra + (til - fra) * Math.max(0, Math.min(1, andel || 0)));
+    this._framdriftGulv = a;
     document.getElementById('framdriftStolpe').style.width = Math.round(a * 100) + '%';
   },
 
@@ -254,8 +271,9 @@ const App = {
     const forrige = this._framdriftVindu;
     const [f0, t0] = forrige || [0, 1];
     this._framdriftVindu = [f0 + (t0 - f0) * fra, f0 + (t0 - f0) * til];
+    this._framdriftEier = (this._framdriftEier || 0) + 1;
     try { return await arbeid(); }
-    finally { this._framdriftVindu = forrige; }
+    finally { this._framdriftVindu = forrige; this._framdriftEier--; }
   },
 
   /* ---------------- geometri ---------------- */
@@ -292,16 +310,21 @@ const App = {
     }
     const nokkel = this.P.ip.map(p => `${p.lat.toFixed(6)},${p.lon.toFixed(6)},${p.r}`).join('|') + '#' + this.korridorbredde();
     if (nokkel === this._terrengnokkel) return;
-    /* Framdriftsboksen dekker hele skjermen. Blir den staende fordi noe
-       kastet underveis, er programmet last til man laster pa nytt - derfor
-       ryddes den i finally, ikke etter kallet. */
+    /* Framdriftsboksen dekker hele skjermen. Blir den staende fordi noe kastet
+       underveis, er programmet last til man laster pa nytt - derfor ryddes den
+       i finally, ikke etter kallet.
+       Men bare dersom det var vi som apnet den. Sto den apen fra før, er det en
+       større operasjon som eier den: sidelengs flytting under Rett opp førte
+       linjen utenfor de nedlastede flisene og hentet mer terreng, og da forsvant
+       boksen midt i - de siste fire sekundene gikk uten et tegn pa skjermen. */
+    const varSynlig = !document.getElementById('framdrift').classList.contains('skjult');
     this.framdrift(true, 'Henter terrengdata fra Kartverket…', 0);
     try {
       await this.terreng.lastKorridor(this.linje, this.korridorbredde(), (f, t) => {
         this.framdrift(true, `Henter terrengdata fra Kartverket… ${f}/${t}`, t ? f / t : 1);
       });
     } finally {
-      this.framdrift(false);
+      if (!varSynlig) this.framdrift(false);
     }
     this._terrengnokkel = nokkel;
     if (this.terreng.mangler.size) {
@@ -517,13 +540,14 @@ const App = {
     if (!this._dom || this._dom.sone !== this.sone) {
       this._dom = new Terreng(this.sone, this.terreng.res, 'dom');
     }
+    const varSynlig = !document.getElementById('framdrift').classList.contains('skjult');
     this.framdrift(true, 'Henter overflatemodellen…', 0.2);
     try {
       await this._dom.lastKorridor(this.linje, this.korridorbredde(), (f, t) => {
         this.framdrift(true, `Henter overflatemodellen… ${f}/${t}`, t ? f / t : 1);
       });
     } finally {
-      this.framdrift(false);
+      if (!varSynlig) this.framdrift(false);
     }
 
     let sum = 0, n = 0, over2 = 0, over5 = 0, maks = 0;
@@ -781,16 +805,25 @@ const App = {
       }
       this.beregn();
       this.framdrift(true, 'Finjusterer for minst mulig masse…', 0.5);
+      await pause();
       await this.iFramdriftVindu(0.5, 0.95, () => this.optimaliser(true, modus));
 
       /* Optimaliseringen leter etter billigere høyder, og kan i den jakten
          havne pa noe som bryter et krav igjen. Da rettes det en siste gang -
          reglene skal holde nar brukeren slipper knappen. */
+      /* Det som følger er tre fulle beregninger pa rad, over et sekund hver pa
+         en lang veg. Uten teksten sto det «flytter linjen sidelengs» i fire
+         sekunder etter at flyttingen var ferdig - stolpen sto stille, og det
+         sa ut som om den hadde satt seg fast. */
+      this.framdrift(true, 'Kontrollerer at kravene holder…', 0.96);
+      await pause();
       if (this.tellBrudd().profil > 0) {
         rettEnGang();
         this.vprofil = new Vertikalprofil(this.P.vip);
         this.beregn();
       }
+      this.framdrift(true, 'Sammenligner med profilen du hadde…', 0.98);
+      await pause();
 
       /* Knappen skal aldri levere noe darligere enn det den fikk.
          Rettingen tvinger profilen mot kravene, og optimaliseringen etterpa
@@ -836,6 +869,8 @@ const App = {
         this.P.ip = ipFor.map(p => Object.assign({}, p));
         this.flyttingsliste = [];
         this._ipForFlytting = null;
+        this.framdrift(true, 'Legger tilbake profilen du hadde…', 0.99);
+        await pause();
         this.byggLinje();
         this.vprofil = new Vertikalprofil(this.P.vip);
         this.beregn();
