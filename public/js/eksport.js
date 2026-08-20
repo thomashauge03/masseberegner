@@ -90,8 +90,23 @@ const Eksport = {
         </Curve>`;
     }).join('\n');
 
-    const pvi = app.P.vip.map(v =>
-      `          <PVI>${v.s.toFixed(4)} ${v.z.toFixed(4)}</PVI>`).join('\n');
+    /* Lengdeprofilen ma ha vertikalkurvene med.
+       Her sto det bare `<PVI>` for hvert knekkpunkt, og da leser mottakeren
+       lengdeprofilen som en kjede rette strekk med skarpe brekk. Forskjellen
+       er ikke liten: en kurve med K=2 over et stigningsbrudd pa 20 % er 40 m
+       lang, og veien ligger da 1,0 m lavere i høybrekket enn de rene
+       knekkpunktene sier. Det tallet gar rett inn i maskinstyringen.
+
+       LandXML uttrykker en parabolsk vertikalkurve som <ParaCurve> i stedet
+       for <PVI> pa selve knekkpunktet, med kurvelengden som attributt. */
+    const vp = app.vprofil && Array.isArray(app.vprofil.kurver)
+      ? app.vprofil : new Vertikalprofil(app.P.vip);
+    const pvi = vp.vip.map((v, i) => {
+      const kurve = (vp.kurver || []).find(c => c.vip === i);
+      return kurve && kurve.L > 1e-6
+        ? `          <ParaCurve length="${kurve.L.toFixed(4)}">${v.s.toFixed(4)} ${v.z.toFixed(4)}</ParaCurve>`
+        : `          <PVI>${v.s.toFixed(4)} ${v.z.toFixed(4)}</PVI>`;
+    }).join('\n');
 
     return `<?xml version="1.0" encoding="UTF-8"?>
 <LandXML xmlns="http://www.landxml.org/schema/LandXML-1.2" version="1.2" date="${nå.slice(0, 10)}" time="${nå.slice(11, 19)}">
@@ -137,6 +152,10 @@ ${pvi}
     rader.push('..TEGNSETT UTF-8');
     rader.push('..TRANSPAR');
     rader.push('...KOORDSYS ' + (app.sone === 32 ? 22 : app.sone === 33 ? 23 : 25));
+    /* Høydene er NN2000. Star det ingenting, tolker mottakeren dem etter sin
+       egen forvalgte referanse - og er den NN54, forskyves hele profilen med
+       et par desimeter uten at noen ser det. */
+    rader.push('...VERT-DATUM NN2000');
     rader.push('...ORIGO-NØ 0 0');
     rader.push('...ENHET 0.01');
     rader.push('..OMRÅDE');

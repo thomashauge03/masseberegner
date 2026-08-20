@@ -546,6 +546,99 @@ console.log('\n4a. Feil som er funnet og rettet');
 }
 
 /* ------------------------------------------------------------------ */
+console.log('\n4f. Eksportformatene');
+{
+  /* Eksporten hadde ingen dekning i det hele tatt, verken her eller i
+     nettlesertesten. Den skriver tallene som gar rett i maskinstyringen. */
+  global.Geo = Geo;
+  global.Vertikalprofil = Vertikalprofil;
+  const Eksport = require(path.join(__dirname, '..', 'public', 'js', 'eksport.js'));
+
+  const linje = new Linjeforing([{ x: 500000, y: 6500000, r: 0 },
+    { x: 500100, y: 6500000, r: 40 }, { x: 500100, y: 6500200, r: 0 }]);
+  const vp = new Vertikalprofil([{ s: 0, z: 100, k: 2 }, { s: 150, z: 110, k: 2 }, { s: 300, z: 100, k: 2 }]);
+  const res = M.beregnMasser({
+    linje, profil: vp, terreng: { z: () => 104 }, mal: {},
+    fjell: new M.Fjellmodell({ standarddybde: 2 }), profilAvstand: 10, bakkefaktor: 1
+  });
+  const app = {
+    P: { navn: 'Prøvevei «test»', vip: vp.vip, mal: M.StandardMal, fjell: { punkter: [] } },
+    vprofil: vp, sone: 32, linje,
+    fallVed: () => ({ venstre: 0.05, hoyre: 0.05 })
+  };
+
+  /* Lengdeprofilen ma ha vertikalkurvene med. Uten dem leser mottakeren en
+     kjede rette strekk: en kurve med K=2 over et brudd pa 13 % gjør veien
+     nesten en halv meter lavere i høybrekket enn de rene knekkpunktene sier. */
+  const xml = Eksport.landxml(app, res);
+  paastand('LandXML har vertikalkurvene med',
+    (xml.match(/<ParaCurve length="[\d.]+">/g) || []).length === vp.kurver.length,
+    `${(xml.match(/ParaCurve/g) || []).length / 2} av ${vp.kurver.length}`);
+  paastand('LandXML har både linjer og kurver i planet',
+    xml.includes('<Line ') && xml.includes('<Curve '));
+  paastand('LandXML oppgir koordinatsystemet', xml.includes('epsgCode="25832"'));
+  paastand('LandXML har enhetene som kreves',
+    xml.includes('temperatureUnit') && xml.includes('pressureUnit'));
+  paastand('anførselstegn i prosjektnavnet blir escapet', !/name="[^"]*«/.test(xml)
+    || xml.includes('&quot;') || !xml.includes('name="Prøvevei "'));
+
+  /* PI er tangentskjæringspunktet. Med buens midtpunkt ble geometrien flere
+     meter feil for lesere som bygger linjen opp fra PI. */
+  const pi = /<PI>([\d.]+) ([\d.]+)<\/PI>/.exec(xml);
+  paastand('PI er selve knekkpunktet',
+    !!pi && Math.hypot(+pi[1] - 6500000, +pi[2] - 500100) < 0.01,
+    pi ? `${pi[1]} ${pi[2]}` : 'ingen PI');
+
+  const sos = Eksport.sosi(app, res);
+  paastand('SOSI oppgir høydereferansen', sos.includes('...VERT-DATUM NN2000'));
+  paastand('SOSI har riktig koordinatsystem for sone 32', sos.includes('...KOORDSYS 22'));
+  paastand('SOSI slutter der den skal', sos.trim().endsWith('.SLUTT'));
+  {
+    const min = /MIN-NØ (-?\d+) (-?\d+)/.exec(sos);
+    const maks = /MAX-NØ (-?\d+) (-?\d+)/.exec(sos);
+    const koord = sos.split('\r\n').filter(l => /^-?\d+ -?\d+ -?\d+$/.test(l)).map(l => l.split(' ').map(Number));
+    paastand('SOSI-området dekker alle koordinatene i filen',
+      koord.length > 10 && koord.every(k => k[0] >= +min[1] && k[0] <= +maks[1]
+        && k[1] >= +min[2] && k[1] <= +maks[2]));
+  }
+
+  const kof = Eksport.kof(app, res);
+  const kofRader = kof.split('\r\n').filter(l => l.startsWith(' 05'));
+  paastand('KOF har tre punkt per profil', kofRader.length === res.profiler.length * 3,
+    `${kofRader.length} mot ${res.profiler.length * 3}`);
+  paastand('KOF-koordinatene er nord, øst, høyde i den rekkefølgen', (() => {
+    const tall = kofRader[0].trim().split(/\s+/).slice(-3).map(Number);
+    return Math.abs(tall[0] - 6500000) < 400 && Math.abs(tall[1] - 500000) < 400
+      && Math.abs(tall[2] - 100) < 20;
+  })(), kofRader[0]);
+
+  const dxf = Eksport.dxf(app, res);
+  paastand('DXF har senterlinje, vegkant og fotavtrykk',
+    dxf.includes('SENTERLINJE') && dxf.includes('VEGKANT') && dxf.includes('FOTAVTRYKK'));
+  paastand('DXF er et helt par-oppsett',
+    dxf.split('\r\n').filter(l => l !== '').length % 2 === 0);
+  paastand('DXF slutter med EOF', dxf.trim().endsWith('EOF'));
+
+  /* Vegkanthøydene i alle formatene skal stemme med tverrsnittsberegningen -
+     det er de tallene som blir stukket ut i felt. */
+  const punkter = Eksport.punkter(app, res);
+  let verst = 0;
+  for (const p of punkter) {
+    const pr = res.profiler.find(q => Math.abs(q.s - p.s) < 1e-6);
+    verst = Math.max(verst,
+      Math.abs(p.senter.z - pr.vegnivaa),
+      Math.abs(p.venstre.z - (pr.vegnivaa - 0.05 * pr.halvbredde)),
+      Math.abs(p.hoyre.z - (pr.vegnivaa - 0.05 * pr.halvbredde)));
+  }
+  sjekk('vegkanthøydene stemmer med tverrsnittet', verst, 0, 1e-9);
+
+  for (const [navn, tekst] of [['KOF', kof], ['LandXML', xml], ['SOSI', sos], ['DXF', dxf]]) {
+    paastand(`${navn} inneholder verken NaN eller undefined`,
+      !/NaN|undefined|Infinity/.test(tekst));
+  }
+}
+
+/* ------------------------------------------------------------------ */
 console.log('\n4e. Fjellflaten på tvers av snittet');
 {
   const linje = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 100, y: 0, r: 0 }]);
