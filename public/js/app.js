@@ -921,18 +921,46 @@ const App = {
       return n;
     };
     /* Hvor langt flytter linjen seg?
+
        Males mot den opprinnelige LINJEN, ikke mot knekkpunktene. Kurvene
        kutter hjørnene, sa en linje ligger alt titalls meter fra sine egne
        knekkpunkt i en hairnal - males det mot punktene, ser selv den
-       uforandrede linjen ut til a ha flyttet seg ti meter, og ingenting
-       kommer innenfor budsjettet. */
-    const avvikFra = (l, foer) => {
+       uforandrede linjen ut til a ha flyttet seg ti meter.
+
+       Malingen ma vaere billig. Søket prøver hvert knekkpunkt i hver runde, og
+       med `projiser` - som gar gjennom hele elementlisten for hvert punkt -
+       tok en enkelt maling 34 ms. Ganger noen og tretti kandidater ganger noen
+       og tretti runder ble det nesten et minutt, og knappen sto og malte.
+       Her legges begge linjene ut som punktrekker en gang, og avstanden males
+       punkt mot linjestykke. Samme svar, under et halvt millisekund. */
+    const somPunkter = (l, antall = 120) => {
+      const ut = [];
+      const steg = l.lengde / antall;
+      for (let i = 0; i <= antall; i++) {
+        const p = l.punktVed(Math.min(i * steg, l.lengde));
+        ut.push(p.x, p.y);
+      }
+      return ut;
+    };
+    let foerPunkter = null;
+    const avvikFra = (l) => {
+      if (!foerPunkter) foerPunkter = somPunkter(forLinje, 120);
+      const b = somPunkter(l, 120);
       let verst = 0;
-      const steg = Math.max(1, foer.lengde / 300);
-      for (let s = 0; s <= foer.lengde + 1e-9; s += steg) {
-        const q = foer.punktVed(Math.min(s, foer.lengde));
-        const p = l.projiser(q.x, q.y);
-        if (isFinite(p.avstand)) verst = Math.max(verst, p.avstand);
+      for (let i = 0; i < foerPunkter.length; i += 2) {
+        const px = foerPunkter[i], py = foerPunkter[i + 1];
+        let naermest = Infinity;
+        for (let j = 0; j + 3 < b.length; j += 2) {
+          const ax = b[j], ay = b[j + 1], bx = b[j + 2], by = b[j + 3];
+          const dx = bx - ax, dy = by - ay;
+          const len2 = dx * dx + dy * dy;
+          let t = len2 > 1e-12 ? ((px - ax) * dx + (py - ay) * dy) / len2 : 0;
+          t = t < 0 ? 0 : (t > 1 ? 1 : t);
+          const qx = ax + t * dx - px, qy = ay + t * dy - py;
+          const d2 = qx * qx + qy * qy;
+          if (d2 < naermest) naermest = d2;
+        }
+        if (naermest < Infinity) verst = Math.max(verst, Math.sqrt(naermest));
       }
       return verst;
     };
@@ -971,7 +999,15 @@ const App = {
             der veien begynner og slutter. Massen males en gang per runde, pa
             det forslaget som ser best ut geometrisk - a male hvert forsøk
             ville kostet hundrevis av beregninger. */
+      /* Hardt tidsbudsjett. Massemalingen er den dyre delen - den kaller hele
+         beregningen - og pa en lang veg med mange knekkpunkt kan søket ellers
+         bli staende. Bedre a levere det beste man fant pa tjue sekunder enn a
+         la brukeren se pa en framdriftsboks. */
+      const frist = performance.now() + 20000;
+      let gikkTomtForTid = false;
+
       for (let runde = 0; runde < opprinnelig.length; runde++) {
+        if (performance.now() > frist) { gikkTomtForTid = true; break; }
         const l = new Linjeforing(na);
         if (!ulovlige(l)) break;
         let beste = null;
@@ -981,7 +1017,7 @@ const App = {
           const lf = new Linjeforing(forsok);
           if (lf.lengde <= 1) continue;
           const u = ulovlige(lf);
-          const a = avvikFra(lf, forLinje);
+          const a = avvikFra(lf);
           if (a > maksAvvik) continue;
           // færrest ulovlige først, sa minst avvik fra det tegnede
           if (!beste || u < beste.u || (u === beste.u && a < beste.a)) beste = { i, u, a, forsok };
@@ -1030,13 +1066,13 @@ const App = {
       /* 2) Sett radiene opp igjen mot det som ble bedt om, sa langt de far
             plass. Etter at punkt er fjernet er det ofte rom for mer. */
       const ønsket = this.P.standardRadius || 30;
-      for (let i = 1; i < na.length - 1; i++) {
+      for (let i = 1; i < na.length - 1 && performance.now() < frist + 5000; i++) {
         const start = na[i].r;
         for (const r of [ønsket, ønsket * 0.75, ønsket * 0.5, Math.max(minR, 10)]) {
           if (r <= start + 1e-9) continue;
           const forsok = na.map((p, j) => j === i ? Object.assign({}, p, { r }) : p);
           const lf = new Linjeforing(forsok);
-          if (ulovlige(lf) === 0 && avvikFra(lf, forLinje) <= maksAvvik) {
+          if (ulovlige(lf) === 0 && avvikFra(lf) <= maksAvvik) {
             na = forsok; hevet++; break;
           }
         }
@@ -1044,7 +1080,7 @@ const App = {
 
       const etterLinje = new Linjeforing(na);
       const etterUlovlige = ulovlige(etterLinje);
-      verstAvvik = avvikFra(etterLinje, forLinje);
+      verstAvvik = avvikFra(etterLinje);
 
       if (etterUlovlige >= forUlovlige) {
         this.framdrift(false);
