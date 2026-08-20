@@ -20,47 +20,65 @@ Nettlesertesten kjøres ved å åpne programmet med `?test=1`, eller fra konsoll
 med `Nettlesertest.kjor()`. Utviklingstjeneren startes med `node server.js`
 (port 5178). Programmet ligger også på https://masseberegner.vercel.app.
 
-Ved siste lagring: **254 prøver i selvtesten, 179 i nettlesertesten, alle
+Ved siste lagring: **298 prøver i selvtesten, 184 i nettlesertesten, alle
 grønne.**
 
 ## Det som skal gjøres nå
 
 `GJENNOMGANG.md` er lista. 18 uavhengige granskere gikk gjennom hver sin del av
-programmet, og hvert funn ble forsøkt motbevist av to andre. Resultatet er
+programmet, og hvert funn ble forsøkt motbevist av to andre — én som skulle
+vise at det var feil, én som skulle avgjøre om det kan skje i praksis. **70 funn
+overlevde begge: 12 kritiske, 31 alvorlige, 23 moderate, 4 små.** 16 ble felt.
 
-| Alvor | Antall |
-|---|---|
-| kritisk | 15 |
-| alvorleg | 49 |
-| moderat | 66 |
-| liten | 36 |
+### Rettet så langt
 
-**Ingenting av dette er rettet ennå.** Rekkefølgen bør være: kritisk først, og
-innenfor hver retting en prøve som ville vært rød før.
+Hver retting har en prøve som ville vært rød før, og hver ligger i sin egen
+commit med målingen som bekreftet den.
 
-De tyngste, slik de ser ut ved første lesning:
+- **Et hull i terrengmodellen ble lest som havflaten.** Høydetjenesten svarer
+  0,00 m for hver eneste piksel utenfor dekningen. En veg på kote 260 ville
+  fått 260 m skjæring uten en eneste merknad. *(kritisk)*
+- **`isFinite(null)` er sant** — en tom fjelldybde gjorde hele skjæringen til
+  fjell: 2 991 m³ sprengning i stedet for 1. Samme hull traff hele
+  klem-vakten. *(tre kritiske, ett alvorlig)*
+- **Et hull i terrenget la hele veien på kote null** — NaN spredte seg fra
+  glattingen gjennom `rettProfil` til hvert eneste knekkpunkt. *(kritisk)*
+- **LandXML kastet vertikalkurvene** — 1,0 m avvik i høybrekket mot det
+  maskinstyringen får. SOSI manglet `VERT-DATUM`. *(kritisk + alvorlig)*
+- **Lagring skrev over andre prosjekter uten å spørre**, reservelageret ble
+  skrevet til men aldri lest fra, og demoprosjektet kunne overskrive ditt
+  eget. *(kritisk + tre alvorlige)*
+- **«Angre» på sidelengs flytting slettet arbeid du gjorde etterpå.**
+  *(kritisk)*
+- **Sju funn i grensesnittet** — tverrfallsfeltet kunne ikke settes, «Skjæring
+  her» målte fra feil flate, hull ga oppdiktede tall, K skrev over låste
+  høyder, innsatt punkt kollapset kurver, dobbeltklikk la inn et punkt for
+  mye, veiklassen hang på rekkefølgen. *(alvorlige)*
+- **Fjelldybden måles nå der man står**, ikke bare i senterlinja. Ikke et funn,
+  men det kom fram under etterprøvingen, og det angår den største usikkerheten
+  i hele regnestykket.
+- **Eksporten hadde ingen prøver i det hele tatt.** Tjue nye.
 
-- **`lib/hoydedata.js` og `public/js/terreng.js`** — høydetjenesten svarer
-  `0.00 m` der det ikke finnes data, ikke NaN. Hele NaN-håndteringen kan være
-  død kode, og et hull i terrengmodellen kan bli lest som havnivå. Dette må
-  etterprøves mot tjenesten før noe rettes, og det er det viktigste punktet på
-  hele lista: det angår tallene brukeren priser på.
-- **`public/js/masser.js:381`** — skjæringsskråningen marsjerer forbi
-  fjelloverflaten, så løsmassen over fjellet kan få fjellhelning.
-- **`public/js/masser.js` rettInngang** — `null` og tom streng slipper forbi
-  klem-vakten fordi `isFinite(null)` er sant. Skråningsfeltene blir aldri
-  reparert, bare kommentert.
-- **`public/js/eksport.js:93`** — LandXML skriver knekkpunktene uten
-  vertikalkurvene.
-- **`public/js/lager.js:102`** — lagring overskriver et eksisterende prosjekt
-  uten å spørre, og autolagringen gjør det av seg selv.
-- **`public/js/geo.js:60`** — sonevalget kan sende deler av landet til en
-  høydemodell uten data der.
-- **`test/selftest.js`** — flere prøver kan aldri feile. Fjellmodellen er
-  utestet, og seksjon 8 svelger enhver feil og rapporterer likevel «0 feil».
+Ett meldt funn holdt ikke: skjæringsskråningen marsjerer *ikke* forbi
+fjelloverflaten. Prøvd tre ganger; 1120 av 1120 steg bruker riktig helning.
 
-Bruk `GJENNOMGANG.md` for detaljene — hvert funn har fil, linje, hva som er
-galt, når det slår til, og hva følgen blir.
+### Igjen på lista
+
+Bruk `GJENNOMGANG.md` for detaljene. De tyngste som står igjen:
+
+- **`public/js/pdfimport.js`** — to kritiske: veglinja faller ut av
+  kandidatlista fordi den har for få knekkpunkt, og kontrollpunktene i
+  Bézier-kurver kastes så en vertikalkurve leses som en rett korde.
+- **`public/js/geo.js:60`** — sonevalget. Nå synlig i stedet for stille, siden
+  manglende dekning blir oppdaget, men bør fortsatt vurderes.
+- **`public/js/vertikalprofil.js`** — `_bygg` kan slette lovlige
+  vertikalkurver, og `rettVertikalgeometri` setter K opp men aldri ned.
+- **`public/js/app.js`** — kostnadsfunksjonen måler stigningskravet mot feil
+  radius og straffer ikke vertikalkurvebrudd.
+- **`public/js/ui-pdfrapport.js`** — bolkmerkingen og stikningstabellen tåler
+  ikke en profilavstand som ikke går opp i 20 eller 5.
+- **`test/selftest.js`** — flere prøver kan aldri feile, og fjellmodellen er
+  fortsatt tynt dekket. *(Seksjon 8 svelget enhver feil; det er rettet.)*
 
 ## Kjør gjennomgangen på nytt
 
