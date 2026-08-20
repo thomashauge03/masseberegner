@@ -1450,12 +1450,35 @@ const App = {
   /* ---------------- lagring ---------------- */
 
   async lagre() {
-    this.P.navn = document.getElementById('prosjektnavn').value.trim() || 'Uten navn';
+    const navn = document.getElementById('prosjektnavn').value.trim() || 'Uten navn';
+
+    /* Skriver man et navn som alt er i bruk av et ANNET prosjekt, er det som
+       regel ikke meningen a slette det. Uten dette spørsmalet forsvant det
+       gamle prosjektet i det øyeblikket noen skrev navnet - og med
+       autolagringen kunne det skje uten at noen trykket pa noe.
+
+       Det er bare navnebyttet som spørres om. A lagre prosjektet under det
+       navnet det alt har, er nettopp det man vil. */
+    if (navn !== this._aapnetSom) {
+      let finnes = null;
+      try { finnes = await Lager.hent(navn); } catch (e) { /* da far det staa */ }
+      if (finnes) {
+        const ja = await this.bekreft(
+          `Det finnes allerede et prosjekt som heter «${navn}». Skrive over det?`,
+          'Skriv over');
+        if (!ja) { this.status('Lagringen ble avbrutt – velg et annet navn'); return; }
+      }
+    }
+
+    this.P.navn = navn;
     try {
-      await Lager.lagre(this.P.navn, this.P);
+      const rad = await Lager.lagre(this.P.navn, this.P);
       this._lagretSom = JSON.stringify(this.P);
+      this._aapnetSom = this.P.navn;
       this.visLagretMerke();
-      this.status('Lagret «' + this.P.navn + '»');
+      this.status(rad && rad.reserve
+        ? `Lagret «${this.P.navn}» – men bare i nettleserens reservelager. Ta en eksport til fil.`
+        : 'Lagret «' + this.P.navn + '»');
     } catch (e) {
       this.status('Kunne ikke lagre: ' + e.message);
     }
@@ -1472,6 +1495,7 @@ const App = {
      blir man spurt før det byttes. */
 
   _lagretSom: '',
+  _aapnetSom: null,          // navnet prosjektet ligger lagret under
   _autolagring: null,
   /* Teller opp mens noe annet enn brukeren rører prosjektet - nettlesertesten
      legger inn punkt og fjerner dem igjen, og de skal ikke bli lagret
@@ -1497,12 +1521,30 @@ const App = {
     const navn = (document.getElementById('prosjektnavn').value || '').trim();
     if (!navn || navn === 'Nytt prosjekt') return;
     if (!(this.P.ip || []).length) return;
+
+    /* Autolagringen skal aldri skrive over noe annet enn seg selv. Skriver
+       brukeren et navn som alt er i bruk, ma det gaa om Lagre-knappen, der det
+       blir spurt. Ellers kunne et prosjekt forsvinne uten at noen trykket pa
+       noe i det hele tatt. */
+    if (navn !== this._aapnetSom) {
+      let finnes = null;
+      try { finnes = await Lager.hent(navn); } catch (e) { /* da lar vi det staa */ }
+      if (finnes) {
+        this.status(`«${navn}» finnes fra før – trykk Lagre for å skrive over`);
+        return;
+      }
+    }
+
     try {
       this.P.navn = navn;
-      await Lager.lagre(navn, this.P);
+      const rad = await Lager.lagre(navn, this.P);
       this._lagretSom = JSON.stringify(this.P);
+      this._aapnetSom = navn;
       this.visLagretMerke();
-    } catch (e) { /* stille - den manuelle knappen sier fra */ }
+      if (rad && rad.reserve) {
+        this.status('Databasen tok ikke imot – lagret i reservelageret. Ta en eksport til fil.');
+      }
+    } catch (e) { this.status('Klarte ikke lagre automatisk: ' + e.message); }
   },
 
   visLagretMerke() {
@@ -1598,6 +1640,7 @@ const App = {
     document.getElementById('dialog').classList.add('skjult');
     this._terrengnokkel = '';
     this._lagretSom = JSON.stringify(this.P);   // nettopp hentet - alt er lagret
+    this._aapnetSom = this.P.navn;              // navnet det ligger lagret under
     this.visLagretMerke();
     // historikken hører til ett prosjekt - Angre skal ikke føre deg til det forrige
     this.tomHistorikk();
@@ -1629,6 +1672,8 @@ const App = {
       this.P.mal = mal;
       this.tomPaneler();
       this.tomHistorikk();
+      this._lagretSom = '';
+      this._aapnetSom = null;             // et nytt prosjekt eier ingen navn enna
       Kart.tegn();
       id('prosjektnavn').value = this.P.navn;
       id('prosjektnavn').select();

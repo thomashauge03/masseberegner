@@ -63,6 +63,7 @@ const Nettlesertest = {
       await this.eksport();
       await this.linjeredigering();
       await this.autolagring();
+      await this.overskriving();
       await this.tverrsnittAvlesning();
       await this.pdfrapport();
       await this.pdfavlesning();
@@ -494,6 +495,54 @@ const Nettlesertest = {
     App._lagretSom = JSON.stringify(App.P);
     App.linjeEndret();
     this.sjekk('testprosjektet er ryddet bort', !(await Lager.hent(navn)));
+  },
+
+  /* ---------------- ingenting skal skrives over i stillhet ---------------- */
+  async overskriving() {
+    if (!App.P || !App.P.ip.length) { this.sjekk('ikke noe prosjekt – hopper over', true); return; }
+    const annet = 'Massekalk prøve annet';
+    const gammeltFelt = document.getElementById('prosjektnavn').value;
+    const gammeltAapnet = App._aapnetSom;
+
+    await Lager.lagre(annet, { navn: annet, ip: [{ lat: 58, lon: 7, r: 0 }, { lat: 58.001, lon: 7.001, r: 0 }], vip: [] });
+
+    /* Autolagringen skal aldri skrive over noe annet enn seg selv. Uten dette
+       kunne et prosjekt forsvinne uten at noen trykket pa noe. */
+    document.getElementById('prosjektnavn').value = annet;
+    App.merk('prøve: overskriving');
+    App.P.ip[0].r = (App.P.ip[0].r || 0) + 1;
+    App.autolagringPause--;
+    await App.autolagre();
+    App.autolagringPause++;
+    const etterAuto = await Lager.hent(annet);
+    this.sjekk('autolagringen skriver ikke over et annet prosjekt',
+      !!etterAuto && etterAuto.ip.length === 2 && etterAuto.ip[0].lat === 58);
+
+    // og Lagre-knappen skal spørre først
+    let spurt = false;
+    const gammelBekreft = App.bekreft;
+    App.bekreft = async (t) => { spurt = /finnes allerede/i.test(t); return false; };
+    await App.lagre();
+    App.bekreft = gammelBekreft;
+    const etterNei = await Lager.hent(annet);
+    this.sjekk('Lagre spør før den skriver over', spurt);
+    this.sjekk('og lar det være når svaret er nei',
+      !!etterNei && etterNei.ip[0].lat === 58);
+
+    /* Demoprosjektet skal ikke kunne skrive over noe som alt finnes. */
+    const førSaaing = await Lager.hent(annet);
+    await Lager.saFrø();
+    const etterSaaing = await Lager.hent(annet);
+    this.sjekk('såing av demoprosjektet rører ikke det som finnes',
+      JSON.stringify(førSaaing) === JSON.stringify(etterSaaing));
+
+    // rydd opp
+    App.P.ip[0].r = (App.P.ip[0].r || 1) - 1;
+    document.getElementById('prosjektnavn').value = gammeltFelt;
+    App.P.navn = gammeltFelt;
+    App._aapnetSom = gammeltAapnet;
+    await Lager.slett(annet);
+    this.sjekk('prøveprosjektet er ryddet bort', !(await Lager.hent(annet)));
   },
 
   /* ---------------- avlesning i tverrsnittet ----------------

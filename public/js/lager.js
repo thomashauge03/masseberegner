@@ -77,33 +77,76 @@ const Lager = {
 
   /* ---------------- felles grensesnitt ---------------- */
 
+  /**
+   * Alle prosjekter, fra begge lagrene.
+   *
+   * Reservelageret ma leses hver gang, ikke bare nar databasen svarer med
+   * feil. En skriving kan slaa feil - full kvote er det vanligste - selv om
+   * lesing gaar fint. Da havnet prosjektet i localStorage, mens listen ble
+   * hentet fra databasen som svarte pent at der var det ingenting. Brukeren
+   * fikk «Lagret», og prosjektet kom aldri fram igjen.
+   */
   async liste() {
-    let rader;
-    try { rader = await this._kjør('readonly', s => s.getAll()); }
-    catch (e) { rader = this._reserveRader(); }
-    return (rader || [])
+    let rader = null, dbSvarte = false;
+    try { rader = await this._kjør('readonly', s => s.getAll()); dbSvarte = true; }
+    catch (e) { rader = null; }
+
+    const samlet = new Map();
+    for (const r of (rader || [])) if (r && r.navn) samlet.set(r.navn, r);
+    // det som ligger i reserven vinner bare nar det er nyere
+    for (const r of this._reserveRader()) {
+      if (!r || !r.navn) continue;
+      const før = samlet.get(r.navn);
+      if (!før || String(r.endret) > String(før.endret)) samlet.set(r.navn, r);
+    }
+    this._dbSvarte = dbSvarte;
+    return [...samlet.values()]
       .map(r => ({ navn: r.navn, endret: r.endret, storrelse: JSON.stringify(r.data || {}).length }))
       .sort((a, b) => String(b.endret).localeCompare(String(a.endret)));
   },
 
   async hent(navn) {
+    let fraDb = null;
     try {
       const rad = await this._kjør('readonly', s => s.get(navn));
-      return rad ? rad.data : null;
-    } catch (e) {
-      // en ødelagt oppføring skal gi null, ikke kaste videre og stoppe apningen
-      try {
-        const rå = localStorage.getItem(this.NOKKEL + navn);
-        return rå ? JSON.parse(rå).data : null;
-      } catch (e2) { return null; }
+      fraDb = rad || null;
+    } catch (e) { /* reserven under kan ha det */ }
+
+    let fraReserve = null;
+    try {
+      const rå = localStorage.getItem(this.NOKKEL + navn);
+      if (rå) fraReserve = JSON.parse(rå);
+    } catch (e) { /* ødelagt oppføring skal gi null, ikke kaste */ }
+
+    if (fraDb && fraReserve) {
+      // begge har den: den nyeste gjelder
+      return String(fraReserve.endret) > String(fraDb.endret) ? fraReserve.data : fraDb.data;
     }
+    if (fraDb) return fraDb.data;
+    return fraReserve ? fraReserve.data : null;
   },
 
+  /**
+   * @returns {Promise<{navn,endret,data,reserve:boolean}>} reserve er sant nar
+   *   det bare ble lagret i localStorage, sa den som kaller kan si fra.
+   */
   async lagre(navn, data) {
     const rad = { navn, endret: new Date().toISOString(), data };
-    try { await this._kjør('readwrite', s => s.put(rad)); }
-    catch (e) { localStorage.setItem(this.NOKKEL + navn, JSON.stringify(rad)); }
-    return rad;
+    try {
+      await this._kjør('readwrite', s => s.put(rad));
+      /* Kom prosjektet i databasen, skal ikke en gammel reservekopi bli
+         liggende og seire pa dato senere. */
+      try { localStorage.removeItem(this.NOKKEL + navn); } catch (e) { /* ingen reserve */ }
+      return rad;
+    } catch (e) {
+      try {
+        localStorage.setItem(this.NOKKEL + navn, JSON.stringify(rad));
+        return Object.assign({}, rad, { reserve: true });
+      } catch (e2) {
+        // begge lagrene sa nei - da ma den som kaller fa vite det
+        throw new Error('Klarte ikke lagre: ' + (e2.message || e.message));
+      }
+    }
   },
 
   async slett(navn) {
@@ -111,15 +154,25 @@ const Lager = {
     catch (e) { localStorage.removeItem(this.NOKKEL + navn); }
   },
 
-  /** Legger inn demoprosjektet første gang programmet apnes. */
+  /**
+   * Legger inn demoprosjektet første gang programmet apnes.
+   *
+   * «Ingen prosjekter» og «klarte ikke lese» er ikke det samme. Svarte
+   * databasen med feil, ga listen null rader, og demoen ble skrevet inn - rett
+   * over brukerens eget prosjekt om det tilfeldigvis het det samme. Derfor
+   * saas det bare nar lageret svarte, og svarte at det var tomt.
+   */
   async saFrø() {
     const nå = await this.liste();
     if (nå.length) return nå;
+    if (!this._dbSvarte) return nå;             // vi vet ikke om det er tomt
     try {
       const r = await fetch('demo/ydestad-demo.json');
       if (r.ok) {
         const p = await r.json();
-        await this.lagre(p.navn || 'Ydestad demo', p);
+        const navn = p.navn || 'Ydestad demo';
+        // en siste kontroll: ingenting skal overskrives av et demoprosjekt
+        if (!await this.hent(navn)) await this.lagre(navn, p);
       }
     } catch (e) { /* uten demo gar det ogsa */ }
     return this.liste();
