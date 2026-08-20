@@ -156,7 +156,7 @@
         <tbody></tbody>
       </table>
       <div class="knapperad hoydeverktoy">
-        <label class="minitall">Profil <input type="number" id="h_nyS" step="1" placeholder="0"></label>
+        <label class="minitall">Profil <input type="number" id="h_nyS" step="1" placeholder="0" min="0"></label>
         <label class="minitall">Høyde <input type="number" id="h_nyZ" step="0.01" placeholder="fra terreng"></label>
         <button id="h_nyRad" class="knapp primaer">Legg til</button>
       </div>
@@ -171,28 +171,28 @@
       <div id="veiklasseinfo" class="klasseboks"></div>
 
       <h3>Vegkropp</h3>
-      <div class="felt"><label>Vegbredde inkl. skulder</label><input type="number" id="m_vegbredde" step="0.1" value="4.5"><span>m</span></div>
-      <div class="felt"><label>Tverrfall (kuv)</label><input type="number" id="m_tverrfall" step="0.5" value="5"><span>%</span></div>
+      <div class="felt"><label>Vegbredde inkl. skulder</label><input type="number" id="m_vegbredde" step="0.1" value="4.5" min="0.5" max="30"><span>m</span></div>
+      <div class="felt"><label>Tverrfall (kuv)</label><input type="number" id="m_tverrfall" step="0.5" value="5" min="0" max="0.3"><span>%</span></div>
       <div class="felt"><label>Tverrfallstype</label>
         <select id="m_tverrfallType"><option value="tak">Tosidig (takfall)</option><option value="ensidig">Ensidig</option></select><span></span></div>
-      <div class="felt"><label>Slitelag, tykkelse</label><input type="number" id="m_slitelagTykkelse" step="0.01" value="0.10"><span>m</span></div>
-      <div class="felt"><label>Slitelag, bredde</label><input type="number" id="m_slitelagBredde" step="0.1" value="4.0"><span>m</span></div>
-      <div class="felt"><label>Bærelag, tykkelse</label><input type="number" id="m_baerelagTykkelse" step="0.05" value="0.60"><span>m</span></div>
+      <div class="felt"><label>Slitelag, tykkelse</label><input type="number" id="m_slitelagTykkelse" step="0.01" value="0.10" min="0" max="1"><span>m</span></div>
+      <div class="felt"><label>Slitelag, bredde</label><input type="number" id="m_slitelagBredde" step="0.1" value="4.0" min="0" max="30"><span>m</span></div>
+      <div class="felt"><label>Bærelag, tykkelse</label><input type="number" id="m_baerelagTykkelse" step="0.05" value="0.60" min="0" max="3"><span>m</span></div>
 
       <h3>Grøft</h3>
-      <div class="felt"><label>Grøftedybde under planum</label><input type="number" id="m_grofteDybdePlanum" step="0.05" value="0.20"><span>m</span></div>
-      <div class="felt"><label>Grøftebunn, bredde</label><input type="number" id="m_grofteBunn" step="0.05" value="0.30"><span>m</span></div>
-      <div class="felt"><label>Indre grøfteskråning</label><input type="number" id="m_grofteInnerHelning" step="0.1" value="1.0"><span>1:x</span></div>
+      <div class="felt"><label>Grøftedybde under planum</label><input type="number" id="m_grofteDybdePlanum" step="0.05" value="0.20" min="0" max="3"><span>m</span></div>
+      <div class="felt"><label>Grøftebunn, bredde</label><input type="number" id="m_grofteBunn" step="0.05" value="0.30" min="0" max="5"><span>m</span></div>
+      <div class="felt"><label>Indre grøfteskråning</label><input type="number" id="m_grofteInnerHelning" step="0.1" value="1.0" min="0" max="10"><span>1:x</span></div>
 
       <h3>Skråninger</h3>
-      <div class="felt"><label>Skjæring i løsmasse</label><input type="number" id="m_skjaeringLosmasse" step="0.1" value="1.5"><span>1:x</span></div>
-      <div class="felt"><label>Skjæring i fjell</label><input type="number" id="m_skjaeringFjell" step="0.05" value="0.2"><span>1:x</span></div>
-      <div class="felt"><label>Fyllingsskråning</label><input type="number" id="m_fylling" step="0.1" value="1.5"><span>1:x</span></div>
+      <div class="felt"><label>Skjæring i løsmasse</label><input type="number" id="m_skjaeringLosmasse" step="0.1" value="1.5" min="0.02" max="10"><span>1:x</span></div>
+      <div class="felt"><label>Skjæring i fjell</label><input type="number" id="m_skjaeringFjell" step="0.05" value="0.2" min="0.02" max="10"><span>1:x</span></div>
+      <div class="felt"><label>Fyllingsskråning</label><input type="number" id="m_fylling" step="0.1" value="1.5" min="0.02" max="10"><span>1:x</span></div>
 
       <h3>Rensk og utvidelse</h3>
-      <div class="felt"><label>Renskedybde (avdekking)</label><input type="number" id="m_renskDybde" step="0.05" value="0.20"><span>m</span></div>
-      <div class="felt"><label>Rensk utenfor skråning</label><input type="number" id="m_renskUtenfor" step="0.1" value="1.0"><span>m</span></div>
-      <div class="felt"><label>Overgang breddeutvidelse</label><input type="number" id="m_utvidelseOvergang" step="1" value="15"><span>m</span></div>
+      <div class="felt"><label>Renskedybde (avdekking)</label><input type="number" id="m_renskDybde" step="0.05" value="0.20" min="0" max="3"><span>m</span></div>
+      <div class="felt"><label>Rensk utenfor skråning</label><input type="number" id="m_renskUtenfor" step="0.1" value="1.0" min="0" max="20"><span>m</span></div>
+      <div class="felt"><label>Overgang breddeutvidelse</label><input type="number" id="m_utvidelseOvergang" step="1" value="15" min="0" max="100"><span>m</span></div>
 
       <h3>Krav fra veiklassen</h3>
       <p class="notis">Minste totale veibredde i kurver, og største stigning med og uten lass.
@@ -212,10 +212,10 @@
         ser billig ut på papiret, men fyllingen i praksis stikker titalls meter ut. 0 slår grensen av.
         Der terrenget gjør det umulig å holde både stigningskravet og grensen – for eksempel over
         en trang kløft – blir profilen dratt så nær som mulig, og resten kommer som merknad.</p>
-      <div class="felt"><label>Største fyllingshøyde</label><input type="number" id="m_maksFyllingshoyde" step="0.5" value="4"><span>m</span></div>
-      <div class="felt"><label>Største skjæringsdybde</label><input type="number" id="m_maksSkjaeringsdybde" step="0.5" value="8"><span>m</span></div>
-      <div class="felt"><label>Største utslag fra vegkant</label><input type="number" id="m_maksUtslag" step="1" value="15"><span>m</span></div>
-      <div class="felt"><label>Regn bare ut til</label><input type="number" id="m_beregningsbredde" step="1" value="0"><span>m</span></div>
+      <div class="felt"><label>Største fyllingshøyde</label><input type="number" id="m_maksFyllingshoyde" step="0.5" value="4" min="0" max="50"><span>m</span></div>
+      <div class="felt"><label>Største skjæringsdybde</label><input type="number" id="m_maksSkjaeringsdybde" step="0.5" value="8" min="0" max="50"><span>m</span></div>
+      <div class="felt"><label>Største utslag fra vegkant</label><input type="number" id="m_maksUtslag" step="1" value="15" min="0" max="100"><span>m</span></div>
+      <div class="felt"><label>Regn bare ut til</label><input type="number" id="m_beregningsbredde" step="1" value="0" min="0" max="500"><span>m</span></div>
       <p class="notis">«Regn bare ut til» stopper regnestykket et gitt antall meter fra vegkanten.
         Da får du massene for det du faktisk har tenkt å gjøre, i stedet for en skråning som
         forsvinner nedover lia. Profilene det gjelder blir merket. 0 = ingen grense.</p>
@@ -224,18 +224,18 @@
       <p class="notis">«Optimaliser» kan flytte senterlinjen sidelengs for å treffe billigere terreng –
         typisk litt inn i skjæringen for å slippe en høy fylling. Knekkpunktene i kartet blir flyttet,
         så du ser hvor den nye linjen går. 0 = linjen står som du har tegnet den.</p>
-      <div class="felt"><label>Kan flytte linjen inntil</label><input type="number" id="m_sideforskyvning" step="0.5" value="0"><span>m</span></div>
+      <div class="felt"><label>Kan flytte linjen inntil</label><input type="number" id="m_sideforskyvning" step="0.5" value="0" min="0" max="50"><span>m</span></div>
 
       <h3>Beregning</h3>
-      <div class="felt"><label>Profilavstand</label><input type="number" id="m_profilAvstand" step="1" value="5"><span>m</span></div>
-      <div class="felt"><label>Søkebredde tverrprofil</label><input type="number" id="m_maksSokebredde" step="5" value="45"><span>m</span></div>
+      <div class="felt"><label>Profilavstand</label><input type="number" id="m_profilAvstand" step="1" value="5" min="1" max="100"><span>m</span></div>
+      <div class="felt"><label>Søkebredde tverrprofil</label><input type="number" id="m_maksSokebredde" step="5" value="45" min="1" max="500"><span>m</span></div>
       <div class="felt avkryssfelt"><label><input type="checkbox" id="m_bakkekorreksjon" checked> Korriger UTM-lengder til virkelig bakkelengde</label></div>
 
       <h3>Omregningsfaktorer</h3>
-      <div class="felt"><label>Sprengningsfaktor (fast → løs)</label><input type="number" id="f_sprengningsfaktor" step="0.05" value="1.50"><span></span></div>
-      <div class="felt"><label>Fjell → ferdig fylling</label><input type="number" id="f_fjellIFylling" step="0.05" value="1.30"><span></span></div>
-      <div class="felt"><label>Løsmasse → ferdig fylling</label><input type="number" id="f_losmasseIFylling" step="0.05" value="0.95"><span></span></div>
-      <div class="felt"><label>Brukbar andel løsmasse</label><input type="number" id="f_brukbarLosmasse" step="0.05" value="0.50"><span></span></div>
+      <div class="felt"><label>Sprengningsfaktor (fast → løs)</label><input type="number" id="f_sprengningsfaktor" step="0.05" value="1.50" min="1" max="3"><span></span></div>
+      <div class="felt"><label>Fjell → ferdig fylling</label><input type="number" id="f_fjellIFylling" step="0.05" value="1.30" min="0.5" max="2"><span></span></div>
+      <div class="felt"><label>Løsmasse → ferdig fylling</label><input type="number" id="f_losmasseIFylling" step="0.05" value="0.95" min="0.5" max="1.5"><span></span></div>
+      <div class="felt"><label>Brukbar andel løsmasse</label><input type="number" id="f_brukbarLosmasse" step="0.05" value="0.50" min="0" max="1"><span></span></div>
 
       <button id="knappNullstillMal" class="knapp bred">Tilbakestill til standard</button>
     </div>
@@ -243,8 +243,8 @@
     <!-- Grunnforhold -->
     <div class="faneinnhold" id="fane-grunn">
       <p class="notis">Dybden til fjell avgjør hvor mye som må sprenges. Legg inn det du vet – observasjoner i kartet overstyrer standardverdien i nærheten.</p>
-      <div class="felt"><label>Standard dybde til fjell</label><input type="number" id="g_standarddybde" step="0.1" value="0.5"><span>m</span></div>
-      <div class="felt"><label>Rekkevidde for observasjon</label><input type="number" id="g_rekkevidde" step="10" value="60"><span>m</span></div>
+      <div class="felt"><label>Standard dybde til fjell</label><input type="number" id="g_standarddybde" step="0.1" value="0.5" min="0" max="50"><span>m</span></div>
+      <div class="felt"><label>Rekkevidde for observasjon</label><input type="number" id="g_rekkevidde" step="10" value="60" min="1" max="500"><span>m</span></div>
       <h3>Strekninger med kjent dybde</h3>
       <table class="minitabell" id="strekningTabell">
         <thead><tr><th>Fra</th><th>Til</th><th>Dybde</th><th></th></tr></thead>

@@ -108,10 +108,9 @@ class Fjellmodell {
 
   dybde(x, y, s) {
     if (this.punkter.length) {
-      let sumV = 0, sumW = 0, naermest = Infinity;
+      let sumV = 0, sumW = 0;
       for (const p of this.punkter) {
         const d = Math.hypot(p.x - x, p.y - y);
-        if (d < naermest) naermest = d;
         if (d > this.rekkevidde) continue;
         if (d < 0.05) return p.dybde;
         const w = 1 / (d * d);
