@@ -658,6 +658,49 @@ console.log('\n4c. Tall som ikke lar seg regne med');
       JSON.stringify(r.balanse));
   }
 
+  /* `isFinite` gjør om argumentet til tall før den svarer, sa isFinite(null),
+     isFinite('') og isFinite([]) er alle sanne. Null blir til null - et gyldig
+     tall, bare ikke det brukeren mente. En tom fjelldybde ble slik lest som
+     «fjell i dagen», og hele skjæringen ble bokført som sprengning uten et ord. */
+  const fasit = med({});
+  for (const [navn, endring] of [
+    ['vegbredde = null', { mal: { vegbredde: null } }],
+    ['vegbredde = tom streng', { mal: { vegbredde: '' } }],
+    ['renskDybde = tom streng', { mal: { renskDybde: '' } }],
+    ['fyllingsskråning = null', { mal: { fylling: null } }],
+    ['fyllingsskråning = NaN', { mal: { fylling: NaN } }],
+    ['sprengstein i fylling = null', { faktorer: { fjellIFylling: null } }]
+  ]) {
+    const r = med(endring);
+    paastand(`${navn} blir rettet og meldt`,
+      r.merknader.some(m => m.type === 'inngang')
+      && Math.abs(r.sum.skjaering - fasit.sum.skjaering) < 1
+      && Object.values(r.sum).every(v => isFinite(v) && v >= -1e-9),
+      `${r.merknader.filter(m => m.type === 'inngang').length} merknader, skjæring ${r.sum.skjaering.toFixed(0)}`);
+  }
+
+  for (const tom of [null, '']) {
+    const r = med({ fjell: new M.Fjellmodell({ standarddybde: tom }) });
+    paastand(`fjelldybde ${JSON.stringify(tom)} gir ikke fjell i dagen`,
+      r.merknader.some(m => m.type === 'inngang' && /fjell/i.test(m.tekst))
+      && r.sum.skjaeringFjell < r.sum.skjaering * 0.99,
+      `fjell ${r.sum.skjaeringFjell.toFixed(0)} av ${r.sum.skjaering.toFixed(0)}`);
+  }
+  paastand('en fjelldybde som ikke er oppgitt får standardverdien uten oppstyr',
+    Math.abs(new M.Fjellmodell({}).standarddybde - 0.5) < 1e-9);
+
+  const utenDybde = med({ fjell: new M.Fjellmodell({ standarddybde: 5, punkter: [{ x: 50, y: 0 }] }) });
+  paastand('en fjellobservasjon uten dybde blir meldt',
+    utenDybde.merknader.some(m => m.type === 'inngang' && /observasjon/i.test(m.tekst)));
+
+  /* Bakkefaktoren gar i andre potens pa hvert volum. I Norge ligger den mellom
+     0,999 og 1,001 - kommer det noe utenfor et par prosent, er det ikke en
+     malestokk. */
+  const stor = med({ bakkefaktor: 3 });
+  paastand('en urimelig bakkefaktor blir avvist',
+    stor.merknader.some(m => m.type === 'inngang')
+    && Math.abs(stor.sum.skjaering - fasit.sum.skjaering) < 1);
+
   // Bakkefaktor under null ga negativ veglengde i rapporten
   const negBf = med({ bakkefaktor: -1 });
   paastand('negativ bakkefaktor gir positiv lengde og merknad',

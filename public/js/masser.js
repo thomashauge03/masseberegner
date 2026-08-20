@@ -100,7 +100,12 @@ class Fjellmodell {
    *   rekkevidde     hvor langt en observasjon far virke (meter)
    */
   constructor(o = {}) {
-    this.standarddybde = o.standarddybde == null ? 0.5 : o.standarddybde;
+    /* Bare et felt som ikke er oppgitt i det hele tatt far standardverdien.
+       Star det noe der som ikke er et tall - null, tom streng - skal det bli
+       staende, sa `rettInngang` far se det og si fra. Med `== null` her ble
+       en tom fjelldybde stille til 0,5 m, og brukeren fikk aldri vite at
+       tallet han skrev inn ikke ble brukt. */
+    this.standarddybde = o.standarddybde === undefined ? 0.5 : o.standarddybde;
     this.strekninger = o.strekninger || [];
     this.punkter = o.punkter || [];
     this.rekkevidde = o.rekkevidde || 60;
@@ -713,14 +718,34 @@ const FAKTORGRENSER = {
  * skriver i det - en fil som lastes gar rett inn. Derfor ma kontrollen ligge
  * her, der alle veiene inn møtes.
  */
+/**
+ * Er dette et tall det gar an a regne med?
+ *
+ * `isFinite` alene duger ikke: den gjør om argumentet til tall først, og da er
+ * `isFinite(null)`, `isFinite('')` og `isFinite([])` alle sanne. Null blir til
+ * null, og null er et gyldig tall - bare ikke det brukeren mente. En tom
+ * fjelldybde ble slik til «fjell i dagen», og hele skjæringen ble bokført som
+ * sprengning uten en eneste merknad.
+ */
+function erTall(v) {
+  return typeof v === 'number' && Number.isFinite(v);
+}
+
 function rettInngang(mal, faktorer, fjell, dS, bf) {
   const merknader = [];
   const klem = (obj, grenser, hva) => {
     for (const felt of Object.keys(grenser)) {
       const [lav, høy, navn] = grenser[felt];
       const v = obj[felt];
-      if (v == null) continue;
-      if (typeof v !== 'number' || !isFinite(v)) {
+      /* Et felt som ikke finnes i det hele tatt skal fa standardverdien uten
+         merknad - det er slik eldre prosjektfiler ser ut. Men star det noe der
+         som ikke er et tall, er det en verdi pa avveie, og da ma det sies. */
+      if (v === undefined) {
+        if (obj[felt] === undefined && StandardMal[felt] !== undefined && hva === 'mal') obj[felt] = StandardMal[felt];
+        else if (obj[felt] === undefined && hva !== 'mal' && StandardFaktorer[felt] !== undefined) obj[felt] = StandardFaktorer[felt];
+        continue;
+      }
+      if (!erTall(v)) {
         merknader.push({ s: 0, type: 'inngang', tekst: `${navn} er ikke et tall – bruker ${StandardMal[felt] != null ? StandardMal[felt] : lav}` });
         obj[felt] = (hva === 'mal' ? StandardMal[felt] : StandardFaktorer[felt]);
         continue;
@@ -737,12 +762,23 @@ function rettInngang(mal, faktorer, fjell, dS, bf) {
   klem(mal, MALGRENSER, 'mal');
   klem(faktorer, FAKTORGRENSER, 'faktor');
 
-  // skraningene normaliseres allerede, men si ifra nar inngangen var ugyldig
-  for (const [felt, navn] of [['skjaeringLosmasse', 'Skjæring i løsmasse'],
-    ['skjaeringFjell', 'Skjæring i fjell'], ['fylling', 'Fyllingsskråning']]) {
+  /* Skraningene. Her sto det bare en merknad, og verdien ble aldri rettet -
+     merknaden lovte «regnet med 0.02», men malen beholdt det som sto der.
+     Math.max(0.02, null) er 0.02, sa det gikk bra sa lenge verdien var null;
+     var den NaN, ble Math.max(0.02, NaN) til NaN, og hele volumet med den. */
+  const SKRAANING = [
+    ['skjaeringLosmasse', 'Skjæring i løsmasse', 0.02, 10],
+    ['skjaeringFjell', 'Skjæring i fjell', 0.02, 10],
+    ['fylling', 'Fyllingsskråning', 0.02, 10]
+  ];
+  for (const [felt, navn, lav, høy] of SKRAANING) {
     const v = mal[felt];
-    if (typeof v !== 'number' || !isFinite(v) || v < 0.02) {
-      merknader.push({ s: 0, type: 'inngang', tekst: `${navn} var ${v} – regnet med 0.02 (nesten loddrett)` });
+    if (!erTall(v)) {
+      merknader.push({ s: 0, type: 'inngang', tekst: `${navn} er ikke et tall – regnet med ${StandardMal[felt]}` });
+      mal[felt] = StandardMal[felt];
+    } else if (v < lav || v > høy) {
+      mal[felt] = Math.min(høy, Math.max(lav, v));
+      merknader.push({ s: 0, type: 'inngang', tekst: `${navn} var ${v} – regnet med ${mal[felt]}` });
     }
   }
 
@@ -750,22 +786,44 @@ function rettInngang(mal, faktorer, fjell, dS, bf) {
      det uten et eneste tegn: skjæringen blir riktig, men fjell, løsmasse og
      alt som bygger pa dem blir NaN. */
   if (fjell) {
-    if (!isFinite(fjell.standarddybde)) {
-      merknader.push({ s: 0, type: 'inngang', tekst: `Fjelldybden er ikke et tall – regnet uten fjell` });
+    /* Her sto det `isFinite`, som gjør om argumentet til tall først. En tom
+       fjelldybde - null eller tom streng - ble derfor lest som null meter, og
+       da ligger fjellet i dagen: hele skjæringen ble bokført som sprengning.
+       Prøvd: 2 991 m³ sprengning i stedet for 1, uten en eneste merknad. */
+    if (!erTall(fjell.standarddybde)) {
+      /* Ikke null her. Null dybde betyr fjell i dagen, og da blir hele
+         skjæringen bokført som sprengning - den dyreste posten i hele
+         regnestykket, satt av en tom rute. Den vanlige standarddybden er
+         riktigere, og merknaden sier hva som skjedde. */
+      merknader.push({
+        s: 0, type: 'inngang',
+        tekst: `Dybden til fjell er ikke et tall (${JSON.stringify(fjell.standarddybde)}) – regnet med 0.5 m`
+      });
+      fjell.standarddybde = 0.5;
+    } else if (fjell.standarddybde < 0) {
+      merknader.push({ s: 0, type: 'inngang', tekst: `Dybden til fjell var ${fjell.standarddybde} – regnet med 0` });
       fjell.standarddybde = 0;
     }
+    let daarlege = 0;
     for (const p of (fjell.punkter || [])) {
-      if (!isFinite(p.dybde)) { p.dybde = fjell.standarddybde; }
-      }
+      if (!erTall(p.dybde) || p.dybde < 0) { p.dybde = fjell.standarddybde; daarlege++; }
+    }
     for (const st of (fjell.strekninger || [])) {
-      if (!isFinite(st.dybde)) st.dybde = fjell.standarddybde;
+      if (!erTall(st.dybde) || st.dybde < 0) { st.dybde = fjell.standarddybde; daarlege++; }
+    }
+    if (daarlege) {
+      merknader.push({
+        s: 0, type: 'inngang',
+        tekst: `${daarlege} fjellobservasjon${daarlege === 1 ? '' : 'er'} mangler dybde – `
+          + `regnet med standarddybden ${fjell.standarddybde} m`
+      });
     }
   }
 
   /* Profilavstanden er den farligste av dem alle: null eller negativ gir en
      løkke som aldri kommer ut, og fana henger. */
   let dSut = dS;
-  if (!isFinite(dSut) || dSut <= 0) {
+  if (!erTall(dSut) || dSut <= 0) {
     merknader.push({ s: 0, type: 'inngang', tekst: `Profilavstanden var ${dS} – regnet med 5 m` });
     dSut = 5;
   } else if (dSut > 100) {
@@ -774,7 +832,13 @@ function rettInngang(mal, faktorer, fjell, dS, bf) {
   }
 
   let bfUt = bf;
-  if (!isFinite(bfUt) || bfUt <= 0) {
+  if (!erTall(bfUt) || bfUt <= 0) {
+    merknader.push({ s: 0, type: 'inngang', tekst: `Bakkefaktoren var ${bf} – regnet med 1` });
+    bfUt = 1;
+  } else if (bfUt < 0.9 || bfUt > 1.1) {
+    /* Bakkefaktoren gar i andre potens pa hvert volum. I Norge ligger den
+       mellom 0,999 og 1,001; kommer det noe utenfor et par prosent, er det
+       ikke en malestokk, det er et tall pa avveie. */
     merknader.push({ s: 0, type: 'inngang', tekst: `Bakkefaktoren var ${bf} – regnet med 1` });
     bfUt = 1;
   }
