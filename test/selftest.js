@@ -546,6 +546,52 @@ console.log('\n4a. Feil som er funnet og rettet');
 }
 
 /* ------------------------------------------------------------------ */
+console.log('\n4h. Rensk der fjellet ligger høyt');
+{
+  /* Rensk er avdekking - matjord, torv og stubber. Ligger fjellet i dagen,
+     finnes det ingenting a skrape av, og da er det sprengning. Her sto det en
+     flat `renskDybde * bredde` uten et blikk pa hva som la under, sa fast
+     fjell ble bokført som avdekket løsmasse. */
+  const linje = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 100, y: 0, r: 0 }]);
+  const profil = new Vertikalprofil([{ s: 0, z: 96, k: 0 }, { s: 100, z: 96, k: 0 }]);
+  const rensk = d => M.beregnMasser({
+    linje, profil, terreng: { z: () => 100 }, mal: {},
+    fjell: new M.Fjellmodell({ standarddybde: d }), profilAvstand: 5, bakkefaktor: 1
+  }).sum.rensk;
+
+  const dyp = rensk(2);
+  paastand('med fjell langt nede renskes det som før', dyp > 100, `${dyp.toFixed(0)} m³`);
+  sjekk('med fjell i dagen renskes det ingenting', rensk(0), 0, 1e-9);
+
+  /* Er fjellet halvveis oppe i renskelaget, skal halve renskevolumet bli
+     igjen - resten er fjell. */
+  const full = rensk(M.StandardMal.renskDybde);
+  const halv = rensk(M.StandardMal.renskDybde / 2);
+  paastand('halv dybde til fjell gir halv rensk',
+    Math.abs(halv - full / 2) < full * 0.02, `${halv.toFixed(0)} mot ${(full / 2).toFixed(0)}`);
+  /* Ligger fjellet dypere enn renskelaget, skal rensken vaere nøyaktig
+     renskedybden ganger bredden - det gamle flate regnestykket. Volumene for
+     ulike fjelldybder kan ikke sammenlignes direkte, for et dypere fjell gir
+     slakere skjæring og dermed bredere rensk. */
+  {
+    const pr = M.beregnTverrprofil({
+      linje, terreng: { z: () => 100 }, mal: M.StandardMal,
+      fjell: new M.Fjellmodell({ standarddybde: 5 }), s: 50, vegnivaa: 96, utvidelse: 0,
+      tverrfall: { venstre: 0.05, hoyre: 0.05 }, integrasjonssteg: 0.1
+    });
+    const bredde = (pr.fotHoyre - pr.fotVenstre) + 2 * M.StandardMal.renskUtenfor;
+    sjekk('med fjellet dypt er rensken dybde ganger bredde',
+      pr.areal.rensk, M.StandardMal.renskDybde * bredde, 0.01);
+  }
+
+  // og rensken skal fortsatt være null der terrengmodellen mangler data
+  sjekk('ingen rensk uten terrengdata', M.beregnMasser({
+    linje, profil, terreng: { z: () => NaN }, mal: {},
+    fjell: new M.Fjellmodell({ standarddybde: 2 }), profilAvstand: 5, bakkefaktor: 1
+  }).sum.rensk, 0, 1e-9);
+}
+
+/* ------------------------------------------------------------------ */
 console.log('\n4g. Hull i terrenget skal ikke velte lengdeprofilen');
 {
   /* Er hullet bredere enn glattevinduet, finner glattingen ingen verdier a

@@ -620,14 +620,38 @@ function beregnTverrprofil(o) {
     geometri.veg.push([hb, vegflate(hb)]);
   }
 
-  // --- Rensk og overbygning -----------------------------------------
+  /* --- Rensk og overbygning -----------------------------------------
+
+     Rensk er avdekking: matjord, torv og stubber som skrapes av før veien
+     bygges. Ligger fjellet i dagen, finnes det ingenting a skrape av - da er
+     det sprengning, ikke rensk.
+
+     Her sto `renskDybde * bredde`, en flat multiplikasjon uten et blikk pa hva
+     som ligger under. Med fjell i dagen ble det bokført 189 m³ rensk pa 100 m
+     veg: fast fjell, ført som avdekket løsmasse. Na males dybden mot
+     fjelloverflaten pa hvert punkt, og der fjellet er nærmere overflaten enn
+     renskedybden, er det fjellet som bestemmer. */
   const tR0 = tV - mal.renskUtenfor, tR1 = tH + mal.renskUtenfor;
   const renskBredde = tR1 - tR0;
-  // samme klemme som over: vekten kan ikke bli negativ
-  const renskVekt = Math.max(0, renskBredde + kr * (tR1 * tR1 - tR0 * tR0) / 2);
-  // ingen rensk der terrengmodellen ikke har data
-  const arealRensk = manglerData ? 0 : mal.renskDybde * renskBredde;
-  const vRensk = manglerData ? 0 : mal.renskDybde * renskVekt;
+  let arealRensk = 0, vRensk = 0;
+  if (!manglerData && renskBredde > 0 && mal.renskDybde > 0) {
+    const nR = Math.min(400, Math.max(8, Math.ceil(renskBredde / Math.max(0.05, dt))));
+    const dtR = renskBredde / nR;
+    for (let i = 0; i < nR; i++) {
+      const tA = tR0 + i * dtR, tB = tA + dtR;
+      const dybdeVed = (tt) => {
+        const zRaa = terrRå(tt);
+        if (!isFinite(zRaa)) return 0;
+        const tilFjell = zRaa - fjellflate(tt);
+        return Math.max(0, Math.min(mal.renskDybde, tilFjell));
+      };
+      const dA = dybdeVed(tA), dB = dybdeVed(tB);
+      arealRensk += (dA + dB) / 2 * dtR;
+      // samme Pappus-vekting som resten av snittet, og vekten kan ikke bli negativ
+      const wA = Math.max(0, 1 + tA * kr), wB = Math.max(0, 1 + tB * kr);
+      vRensk += (dA * wA + dB * wB) / 2 * dtR;
+    }
+  }
 
   /* Slitelaget ligger bare over kjørebanen. Utenfor - pa skuldrene - er det
      bærelaget som gar helt opp til veinivaet. Uten dette ble den øverste
