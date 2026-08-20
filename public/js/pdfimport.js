@@ -105,8 +105,42 @@ const PdfImport = {
         ];
       }
       else if (op === 'm' && n >= 2) { avslutt(); bane = [bruk(tall[n - 2], tall[n - 1])]; }
-      else if ((op === 'l' || op === 'c' || op === 'v' || op === 'y') && n >= 2) {
-        bane.push(bruk(tall[n - 2], tall[n - 1]));
+      else if (op === 'l' && n >= 2) { bane.push(bruk(tall[n - 2], tall[n - 1])); }
+      /* Bézier-kurvene ma følges, ikke bare avsluttes.
+         Her sto `c`, `v` og `y` sammen med `l`, og bare endepunktet ble tatt
+         med - kontrollpunktene ble kastet. En vertikalkurve tegnet som en
+         Bézier ble da lest som en rett korde mellom endene, og pilhøyden -
+         som for en vertikalkurve er A·L/8 - forsvant. Det er nøyaktig det
+         tallet man leser av profilen for.
+
+           c x1 y1 x2 y2 x3 y3   to kontrollpunkt, sa endepunktet
+           v x2 y2 x3 y3         første kontrollpunkt er startpunktet
+           y x1 y1 x3 y3         andre kontrollpunkt er endepunktet */
+      else if ((op === 'c' || op === 'v' || op === 'y') && n >= 4) {
+        const p0 = bane.length ? bane[bane.length - 1] : null;
+        let k1, k2, p3;
+        if (op === 'c' && n >= 6) {
+          const a = tall.slice(n - 6);
+          k1 = bruk(a[0], a[1]); k2 = bruk(a[2], a[3]); p3 = bruk(a[4], a[5]);
+        } else if (op === 'v') {
+          const a = tall.slice(n - 4);
+          k1 = p0; k2 = bruk(a[0], a[1]); p3 = bruk(a[2], a[3]);
+        } else {
+          const a = tall.slice(n - 4);
+          k1 = bruk(a[0], a[1]); p3 = bruk(a[2], a[3]); k2 = p3;
+        }
+        if (!p0 || !k1 || !k2) { bane.push(p3); }
+        else {
+          // atte steg gjør en kurve til en polylinje som følger den innenfor
+          // en brøkdel av en tegningsenhet
+          for (let i = 1; i <= 8; i++) {
+            const u = i / 8, v = 1 - u;
+            bane.push({
+              x: v * v * v * p0.x + 3 * v * v * u * k1.x + 3 * v * u * u * k2.x + u * u * u * p3.x,
+              y: v * v * v * p0.y + 3 * v * v * u * k1.y + 3 * v * u * u * k2.y + u * u * u * p3.y
+            });
+          }
+        }
       }
       else if (op === 're' && n >= 4) {
         const [rx, ry, rw, rh] = tall.slice(n - 4);
@@ -152,7 +186,17 @@ const PdfImport = {
   kandidater(baner) {
     const ut = [];
     for (const b of baner) {
-      if (b.length < 15) continue;
+      /* Her sto det femten punkt. En veglinje tegnet som noen fa rette
+         tangenter har ikke femten punkt - i Ydestad-planen ligger den med
+         fire, og strekker seg over 1166 enheter. Femtenkravet kastet 5541 av
+         5556 baner, og veglinjen var blant dem: brukeren fikk terrenglinjen a
+         velge, og trodde det var veien.
+
+         Det som skiller en profillinje fra alt annet i en tegning er ikke
+         antall punkt, men at den gar én vei og strekker seg over hele
+         tegningen. Rammer og rutenett gar fram og tilbake, og faller pa
+         framover-kravet under. */
+      if (b.length < 3) continue;
       let minX = Infinity, maksX = -Infinity, minY = Infinity, maksY = -Infinity, framover = 0;
       for (let i = 0; i < b.length; i++) {
         if (b[i].x < minX) minX = b[i].x; if (b[i].x > maksX) maksX = b[i].x;
@@ -161,10 +205,24 @@ const PdfImport = {
       }
       const andel = framover / (b.length - 1);
       if (andel < 0.9 || maksX - minX < 50) continue;
-      ut.push({ bane: b, minX, maksX, minY, maksY, punkt: b.length, bredde: maksX - minX });
+      /* En profillinje stiger og faller. En rutenettlinje, en ramme eller en
+         understrekning gar rett bortover uten høydevariasjon i det hele tatt -
+         og de er det mange av. Grensen er satt lavt med vilje: den skal skille
+         ut det som er nøyaktig flatt, ikke gjette pa hva som er en veg. */
+      if (maksY - minY < 1) continue;
+      ut.push({ bane: b, minX, maksX, minY, maksY, punkt: b.length, bredde: maksX - minX,
+        hoyde: maksY - minY });
     }
-    ut.sort((a, b) => b.bredde - a.bredde || b.punkt - a.punkt);
-    return ut;
+    /* Samme strek kan vaere tegnet flere ganger oppa seg selv. To kandidater
+       med samme utstrekning og samme antall punkt er samme strek. */
+    const sett = new Set();
+    const unike = ut.filter(k => {
+      const n = [k.minX, k.maksX, k.minY, k.maksY].map(v => Math.round(v * 10)).join('_') + '_' + k.punkt;
+      if (sett.has(n)) return false;
+      sett.add(n); return true;
+    });
+    unike.sort((a, b) => b.bredde - a.bredde || b.hoyde - a.hoyde || b.punkt - a.punkt);
+    return unike;
   },
 
   /**

@@ -1235,6 +1235,46 @@ console.log('\n6c. Avlesning av PDF');
 {
   const Pdf = require(path.join(__dirname, '..', 'public', 'js', 'pdfimport.js'));
 
+  /* Bézier-kurvene ma følges, ikke bare avsluttes. Her ble bare endepunktet
+     tatt med, sa en vertikalkurve tegnet som en Bézier ble lest som en rett
+     korde mellom endene - og pilhøyden, det tallet man leser av profilen for,
+     forsvant. */
+  {
+    const kurve = Pdf.tolkBaner('1 0 0 1 0 0 cm 0 0 m 100 100 200 100 300 0 c S')[0];
+    const ys = kurve.map(p => p.y);
+    sjekk('en Bézier gir maks pilhøyde 75, ikke 0', Math.max(...ys), 75, 0.01);
+    sjekk('kurven starter der den skal', kurve[0].x, 0, 1e-9);
+    sjekk('og ender der den skal', kurve[kurve.length - 1].x, 300, 1e-9);
+    paastand('kurven blir flere punkt enn to', kurve.length >= 5, `${kurve.length} punkt`);
+
+    // `v` bruker startpunktet som første kontrollpunkt, `y` endepunktet som andre
+    const v = Pdf.tolkBaner('1 0 0 1 0 0 cm 0 0 m 200 100 300 0 v S')[0];
+    const y = Pdf.tolkBaner('1 0 0 1 0 0 cm 0 0 m 100 100 300 0 y S')[0];
+    paastand('v-kurven bøyer av fra korden', Math.max(...v.map(p => p.y)) > 20);
+    paastand('y-kurven bøyer av fra korden', Math.max(...y.map(p => p.y)) > 20);
+  }
+
+  /* Kandidatutvalget kastet alt med under femten punkt. En veglinje tegnet som
+     noen fa rette tangenter har ikke femten punkt - i Ydestad-planen ligger
+     den med fire, over 1166 enheter - og falt derfor ut. Brukeren fikk
+     terrenglinjen a velge, og trodde det var veien. */
+  {
+    const linje = [];
+    for (const [x, y] of [[0, 0], [400, 60], [800, 20], [1200, 90]]) linje.push({ x, y });
+    const rutenett = [];
+    for (const x of [0, 400, 800, 1200]) rutenett.push({ x, y: 50 });   // flat strek
+    const ramme = [{ x: 0, y: 0 }, { x: 1200, y: 0 }, { x: 0, y: 300 }]; // gar tilbake
+    const k = Pdf.kandidater([linje, rutenett, ramme]);
+    paastand('en veglinje med fire punkt blir kandidat', k.some(x => x.punkt === 4 && x.bredde > 1000),
+      `${k.length} kandidater`);
+    paastand('en flat rutenettstrek blir det ikke', !k.some(x => x.hoyde < 1));
+    paastand('og en ramme som går tilbake heller ikke', k.length === 1, `${k.length}`);
+
+    // samme strek tegnet to ganger skal bare telle en gang
+    const to = Pdf.kandidater([linje, linje.map(p => ({ x: p.x, y: p.y }))]);
+    sjekk('samme strek to ganger gir én kandidat', to.length, 1, 0);
+  }
+
   // Transformasjonsmatrisen ma sla inn pa punktene
   const baner = Pdf.tolkBaner('q 1 0 0 1 100 200 cm 0 0 m 10 5 l 20 3 l S Q 50 50 m 60 60 l S');
   sjekk('to baner tolket', baner.length, 2, 0);
