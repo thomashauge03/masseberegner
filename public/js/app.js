@@ -588,6 +588,21 @@ const App = {
   /* ---------------- retting ---------------- */
 
   /**
+   * Høydene som ligger naer et brudd profilen kan rette.
+   *
+   * Brukes nar alt er last: da er det disse som ma slippes løs for at
+   * rettingen skal ha noe a arbeide med, og resten kan bli staende.
+   */
+  hoyderVedBrudd(marg = 60) {
+    if (!this.resultat) return [];
+    const steder = this.resultat.merknader
+      .filter(m => this.BRUDDTYPER[m.type] === 'profil' && isFinite(m.s))
+      .map(m => m.s);
+    if (!steder.length) return [];
+    return this.P.vip.filter(v => steder.some(s => Math.abs(v.s - s) <= marg));
+  },
+
+  /**
    * Bruddtypene, og hva som skal til for a fa dem bort.
    *
    * «profil» betyr at rettingen kan løse det ved a flytte høyder eller sette
@@ -644,9 +659,30 @@ const App = {
       this.status('Ingen profil å rette ennå.');
       return;
     }
+    /* Er alt last, er det ingenting a flytte - og da gjorde knappen ingenting,
+       med én linje i statuslinjen som er lett a overse. Er det brudd a rette,
+       er det bedre a tilby seg a lase opp nøyaktig de høydene som star i
+       veien, og la resten sta. */
     if (this.P.vip.every(v => v.laast)) {
-      this.status('Alle høyder er låst – lås opp noen for at profilen skal kunne rettes.');
-      return;
+      const brudd = this.tellBrudd();
+      if (!brudd || brudd.profil === 0) {
+        this.status('Alle høyder er låst, og det er ingen brudd å rette.');
+        return;
+      }
+      const rammet = this.hoyderVedBrudd();
+      if (!rammet.length) {
+        this.status(`Alle høyder er låst. ${brudd.profil} brudd står igjen – `
+          + 'lås opp noen høyder for at profilen skal kunne rettes.');
+        return;
+      }
+      const ja = await this.bekreft(
+        `Alle høyder er låst, så det er ingenting å flytte. Vil du at ${rammet.length} `
+        + `høyde${rammet.length === 1 ? '' : 'r'} ved bruddene låses opp, så de kan rettes? `
+        + 'De andre blir stående.', 'Lås opp og rett');
+      if (!ja) { this.status('Rettingen ble avbrutt – høydene står som de var'); return; }
+      this.merk('lås opp høyder ved brudd');
+      for (const v of rammet) v.laast = false;
+      this.visHoydetabell();
     }
 
     const bruddFor = this.tellBrudd();
@@ -726,6 +762,19 @@ const App = {
       const bedreFor = (() => {
         if (!bruddFor || !etterAlt) return false;
         if (etterAlt.profil !== bruddFor.profil) return etterAlt.profil > bruddFor.profil;
+
+        /* Like mange brudd som før. Da skal sprengningen ikke opp - det er den
+           dyreste posten, og var det ingenting a rette, er det ingen grunn til
+           a betale mer for den. */
+        const s0 = this.resultat.sum;
+        if (s0.skjaeringFjell > volumFor.fjell * 1.01 + 1) return true;
+
+        /* Og resultatet skal vaere stabilt: trykker man knappen to ganger,
+           skal det andre trykket ikke flytte pa noe. Optimaliseringen er et
+           lokalt søk som alltid finner en litt annen vei, og uten denne
+           grensen drev tallene sakte av garde - sprengningen gikk fra 520 til
+           543 bare av a trykke en gang til. Er forbedringen under en prosent,
+           er den ikke verdt a bytte profil for. */
         /* Malt pa det som faktisk koster: sprengning er dyrest, og deretter
            hver kubikk som ma kjøres inn eller kjøres bort. Fyllingsvolumet
            alene er ikke et mal - en veg pa tre meters fylling har null
@@ -736,7 +785,8 @@ const App = {
           + b.manglerTotalt * 1.5 + b.tilDeponi;
         const før = volumFor.fjell * 3 + (volumFor.skjaering - volumFor.fjell)
           + volumFor.maaInn * 1.5 + volumFor.tilDeponi;
-        return na > før * 1.01 + 1;
+        // behold det man hadde hvis det nye ikke er minst en prosent bedre
+        return na > før * 0.99 - 1;
       })();
       if (bedreFor) {
         this.P.vip = vipFor.map(v => Object.assign({}, v));
@@ -789,6 +839,26 @@ const App = {
         .sort((a, b) => b[1] - a[1]).map(([t, n]) => `${n} ${t}`).join(', ');
       deler.push(`${bruddEtter.profil} brudd står igjen (${verste})`
         + (laasteIVeien ? ` – ${laasteIVeien} av dem sitter fast i låste høyder` : ''));
+
+      /* Star det stigningsbrudd igjen, er det ett av tre som binder: laste
+         høyder, kravet i en kurve, eller terrenget selv. Uten a si hvilket
+         star brukeren igjen med «det virket ikke». */
+      const stign = this.resultat.merknader.filter(m => m.type === 'stigning');
+      if (stign.length) {
+        const laasteNaer = this.P.vip.filter(v => v.laast
+          && stign.some(m => Math.abs(v.s - m.s) <= 60)).length;
+        const iKurve = stign.filter(m => /radius/.test(m.tekst)).length;
+        if (laasteNaer) {
+          deler.push(`${laasteNaer} låste høyder ligger ved stigningsbruddene – `
+            + 'lås dem opp, så kan profilen flyttes der');
+        } else if (iKurve > stign.length / 2) {
+          deler.push('det er kurvene som setter grensen – en slakkere radius '
+            + 'tillater brattere veg (se merknadene for hvilken)');
+        } else {
+          deler.push('terrenget er for bratt for veiklassen på disse strekkene – '
+            + 'her må linjen legges om i planet, eller veiklassen endres');
+        }
+      }
     }
     if (bruddEtter && bruddEtter.linje > 0) {
       const hva = Object.entries(bruddEtter.per)
