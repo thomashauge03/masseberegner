@@ -963,14 +963,44 @@ const App = {
   },
 
   /** Setter senterlinjen tilbake dit den la før optimaliseringen flyttet den. */
+  /**
+   * Setter sidelengs flytting tilbake.
+   *
+   * Her sto det `this.P.ip = <bildet fra før flyttingen>`. Det byttet ut hele
+   * punktlisten, sa alt du hadde gjort etterpa - lagt inn en sving, slettet et
+   * punkt, endret en radius - forsvant med det samme. Og fordi handlingen ikke
+   * gikk om historikken, kunne den ikke angres.
+   *
+   * Na settes bare de punktene tilbake som faktisk ble flyttet, og bare de som
+   * fortsatt star der de sto. Har listen endret seg sa mye at punktene ikke
+   * lar seg kjenne igjen, sies det ifra i stedet for a rydde vekk arbeid.
+   */
   async angreFlytting() {
     if (!this._ipForFlytting) return;
-    this.P.ip = this._ipForFlytting.map(p => ({ lat: p.lat, lon: p.lon, r: p.r }));
+    const før = this._ipForFlytting;
+
+    if (this.P.ip.length !== før.length) {
+      this.status('Linjen har fått eller mistet knekkpunkt siden flyttingen – '
+        + 'sett dem tilbake for hånd, eller bruk Angre');
+      return;
+    }
+
+    this.merk('angre sidelengs flytting');
+    let satt = 0;
+    for (const f of (this.flyttingsliste || [])) {
+      const i = f.nr - 1;
+      if (i < 0 || i >= this.P.ip.length || !før[i]) continue;
+      this.P.ip[i].lat = før[i].lat;
+      this.P.ip[i].lon = før[i].lon;
+      satt++;
+    }
     this._ipForFlytting = null;
     this.flyttingsliste = [];
     this._terrengnokkel = '';
     await this.oppdater();
-    this.status('Senterlinjen er satt tilbake dit du tegnet den');
+    this.status(satt
+      ? `${satt} knekkpunkt satt tilbake dit du tegnet dem`
+      : 'Fant ingen flyttede punkt å sette tilbake');
   },
 
   /* ---------------- kontroll mot Kartverket ---------------- */
