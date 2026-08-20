@@ -686,8 +686,17 @@ const App = {
     }
 
     const bruddFor = this.tellBrudd();
-    // profilen slik den sto, sa knappen kan legge den tilbake om den ikke fant noe bedre
+    /* Bade profilen og linjen slik de sto, sa knappen kan legge dem tilbake om
+       den ikke fant noe bedre.
+
+       Linjen ma vaere med: er `sideforskyvning` satt, flytter optimaliseringen
+       ogsa senterlinjen sidelengs. Uten den i bildet la knappen tilbake
+       høydene, men beholdt en linje som var flyttet - en helt annen veg enn
+       den man startet med, og med darligere tall enn begge. Malt pa en ekte
+       trase: statuslinjen sa «beholdt profilen», mens merknadene gikk fra 63
+       til 73. */
     const vipFor = this.P.vip.map(v => Object.assign({}, v));
+    const ipFor = this.P.ip.map(p => Object.assign({}, p));
     const volumFor = {
       fjell: this.resultat.sum.skjaeringFjell,
       skjaering: this.resultat.sum.skjaering,
@@ -758,38 +767,42 @@ const App = {
          Derfor sammenlignes svaret med utgangspunktet, i den rekkefølgen
          dette faktisk koster: først antall brudd, sa sprengning, sa det som
          ellers ma flyttes. Er utgangspunktet bedre, er utgangspunktet svaret. */
+      /* Er svaret bedre enn det vi fikk?
+
+         Alt males i én sum, sa det ikke finnes en vei rundt. Volumene males
+         pa det som faktisk koster: sprengning er dyrest, deretter hver kubikk
+         som ma kjøres inn eller bort. Fyllingsvolumet alene er ikke et mal -
+         en veg pa tre meters fylling har null sprengning, men ti tusen kubikk
+         som ma kjøres inn.
+
+         Og et brudd har en pris. Ikke uendelig: her sto det at faerre brudd
+         alltid vant, og da kunne knappen bruke 8 700 ekstra kubikk sprengning
+         pa a fjerne 54 stigningsmerknader - malt pa en ekte trase. For en
+         skogsbilveg er det feil handel; da er det bedre a beholde bruddene og
+         heller slake ut en kurve. Prisen er satt sa et brudd svarer til
+         omtrent hundre og femti kubikk masse: nok til at knappen retter der
+         det er billig, og ikke der det er dyrt. */
+      const BRUDDPRIS = 150;
       const etterAlt = this.tellBrudd();
       const bedreFor = (() => {
         if (!bruddFor || !etterAlt) return false;
-        if (etterAlt.profil !== bruddFor.profil) return etterAlt.profil > bruddFor.profil;
-
-        /* Like mange brudd som før. Da skal sprengningen ikke opp - det er den
-           dyreste posten, og var det ingenting a rette, er det ingen grunn til
-           a betale mer for den. */
-        const s0 = this.resultat.sum;
-        if (s0.skjaeringFjell > volumFor.fjell * 1.01 + 1) return true;
-
-        /* Og resultatet skal vaere stabilt: trykker man knappen to ganger,
-           skal det andre trykket ikke flytte pa noe. Optimaliseringen er et
-           lokalt søk som alltid finner en litt annen vei, og uten denne
-           grensen drev tallene sakte av garde - sprengningen gikk fra 520 til
-           543 bare av a trykke en gang til. Er forbedringen under en prosent,
-           er den ikke verdt a bytte profil for. */
-        /* Malt pa det som faktisk koster: sprengning er dyrest, og deretter
-           hver kubikk som ma kjøres inn eller kjøres bort. Fyllingsvolumet
-           alene er ikke et mal - en veg pa tre meters fylling har null
-           sprengning, men ni tusen kubikk fylling og ti tusen som ma kjøres
-           inn. Uten importleddet sa sammenligningen den som «bedre». */
         const s = this.resultat.sum, b = this.resultat.balanse;
         const na = s.skjaeringFjell * 3 + s.skjaeringLosmasse
-          + b.manglerTotalt * 1.5 + b.tilDeponi;
+          + b.manglerTotalt * 1.5 + b.tilDeponi + etterAlt.profil * BRUDDPRIS;
         const før = volumFor.fjell * 3 + (volumFor.skjaering - volumFor.fjell)
-          + volumFor.maaInn * 1.5 + volumFor.tilDeponi;
-        // behold det man hadde hvis det nye ikke er minst en prosent bedre
+          + volumFor.maaInn * 1.5 + volumFor.tilDeponi + bruddFor.profil * BRUDDPRIS;
+        /* Behold det man hadde hvis det nye ikke er minst en prosent bedre.
+           Uten denne terskelen drev tallene av garde nar man trykket flere
+           ganger - optimaliseringen er et lokalt søk som alltid finner en litt
+           annen vei, og sprengningen gikk fra 520 til 543 bare av et trykk til. */
         return na > før * 0.99 - 1;
       })();
       if (bedreFor) {
         this.P.vip = vipFor.map(v => Object.assign({}, v));
+        this.P.ip = ipFor.map(p => Object.assign({}, p));
+        this.flyttingsliste = [];
+        this._ipForFlytting = null;
+        this.byggLinje();
         this.vprofil = new Vertikalprofil(this.P.vip);
         this.beregn();
         this.framdrift(false);
