@@ -632,6 +632,40 @@ console.log('\n4k. Merknadene, og masser som brukes om igjen');
   paastand('og ingen post er negativ',
     Object.values(b).every(v => v >= -1e-9), JSON.stringify(b));
 
+  /* Hele regnskapet, post for post.
+     Her sto det bare tre-fire løse pastander, og resten av balansen kunne
+     drive fra hverandre uten at noe sa fra. Postene henger sammen med faste
+     regnestykker, og hvert eneste et av dem skal ga opp pa kubikken.
+
+     Merk at fjell teller med to forskjellige faktorer, og at det er meningen:
+     1,50 er hva den faste kubikken blir til pa et lass, 1,30 er hva den fyller
+     nar den er lagt ut og komprimert i fyllingen. Det første tallet brukes til
+     transport, det andre til balansen - blandes de, blir svaret feil begge
+     veier. */
+  {
+    const f = midt.faktorer, s = midt.sum;
+    const id = (navn, a, b2) => sjekk('  ' + navn, a, b2, 1e-6);
+    id('sprengt løsvolum = fast fjell × sprengningsfaktor',
+      b.fjellSprengtLos, b.fjellFast * f.sprengningsfaktor);
+    id('fast fjell i regnskapet = skjæring i fjell',
+      b.fjellFast, s.skjaeringFjell);
+    id('fjell tilgjengelig for fylling = fast × fjellIFylling',
+      b.fraFjell, b.fjellFast * f.fjellIFylling);
+    id('brukbar løsmasse = løs × andel brukbar × losmasseIFylling',
+      b.brukbarLos, b.losFast * f.brukbarLosmasse * f.losmasseIFylling);
+    id('tilgjengelig = fjell + løsmasse',
+      b.tilgjengelig, b.fraFjell + b.brukbarLos);
+    id('balanse = tilgjengelig − fyllingsbehov',
+      b.balanse, b.tilgjengelig - b.fyllingBehov);
+    id('til deponi = rensk + ubrukbar løsmasse',
+      b.tilDeponi, s.rensk + b.losFast * (1 - f.brukbarLosmasse));
+    id('manglerTotalt = manglerFylling + manglerBaerelag',
+      b.manglerTotalt, b.manglerFylling + b.manglerBaerelag);
+    paastand('  overskudd og underskudd kan ikke begge være positive',
+      b.overskudd < 1e-6 || b.underskudd < 1e-6,
+      `overskudd ${b.overskudd.toFixed(1)}, underskudd ${b.underskudd.toFixed(1)}`);
+  }
+
   /* Faktorene ble bare kontrollert for at negative verdier klemmes - aldri
      for at de brukes riktig. En sprengningsfaktor som ikke gjør noe ville
      sluppet gjennom. */
