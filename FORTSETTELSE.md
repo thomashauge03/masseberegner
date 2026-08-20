@@ -20,7 +20,7 @@ Nettlesertesten kjøres ved å åpne programmet med `?test=1`, eller fra konsoll
 med `Nettlesertest.kjor()`. Utviklingstjeneren startes med `node server.js`
 (port 5178). Programmet ligger også på https://masseberegner.vercel.app.
 
-Ved siste lagring: **308 prøver i selvtesten, 184 i nettlesertesten, alle
+Ved siste lagring: **363 prøver i selvtesten, 184 i nettlesertesten, alle
 grønne.** Massene på demoen er uendret gjennom hele runden: 1 548 m³ skjæring,
 1 015 m³ fjell, 135 m³ fylling — rettingene gjelder feilmåter, ikke normalveien.
 
@@ -65,7 +65,11 @@ commit med målingen som bekreftet den.
 Ett meldt funn holdt ikke: skjæringsskråningen marsjerer *ikke* forbi
 fjelloverflaten. Prøvd tre ganger; 1120 av 1120 steg bruker riktig helning.
 
-**Alle tolv kritiske funn er nå gjennomgått.**
+**Alle femten kritiske funn er nå gjennomgått**, og de fleste alvorlige.
+
+De fire funnene som aldri fikk dom fordi motprøveren stanset på bruksgrensen,
+er etterprøvd for hånd. To var alt rettet; de to andre — sonedekningen og
+fliser i endene av linja — er rettet nå.
 
 ### Igjen på lista
 
