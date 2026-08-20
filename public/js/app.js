@@ -888,6 +888,217 @@ const App = {
     this.status(deler.length ? tittel + ': ' + deler.join(' · ') : 'Fant ingenting å rette.');
   },
 
+  /**
+   * Gjør linjen lovlig i planet, sa naer det tegnede som mulig.
+   *
+   * «Rett opp» flytter høyder. Men star knekkpunktene for tett, er det ikke
+   * høydene som er problemet: da far ikke kurvene plass, og linjeføringen ma
+   * korte dem inn - en radius pa 30 m kan ende pa fire. Og en firemetersving
+   * tillater bare 12 % stigning etter normalen, uansett hvor mye man flytter
+   * pa profilen. Malt pa en ekte trase med 40 knekkpunkt pa 850 m: fjorten
+   * kurver innkortet, fem under minstekravet, minste radius 3,9 m.
+   *
+   * Her fjernes de knekkpunktene som star i veien, ett om gangen, og hver gang
+   * det som koster minst - malt som hvor langt linjen da flytter seg fra det
+   * du tegnet. Sa langt det gar settes radiene tilbake opp mot det du ba om.
+   *
+   * @param {number} [maksAvvik] hvor langt linjen far flytte seg, i meter
+   */
+  async gjorLovlig(maksAvvik = 8) {
+    if (!this.linje || this.P.ip.length < 3) {
+      this.status('Tegn en senterlinje først.');
+      return;
+    }
+    const mal = this.P.mal;
+    const minR = mal.minRadius || 0;
+
+    /* Et forslag er ulovlig sa lenge en kurve ligger under minstekravet eller
+       en kurve matte kortes inn for a fa plass. */
+    const ulovlige = (l) => {
+      let n = 0;
+      for (const k of l.kurver) if (minR && k.r < minR - 1e-6) n++;
+      n += (l.advarsler || []).filter(a => /kortet inn|skarp knekk/.test(a.tekst)).length;
+      return n;
+    };
+    /* Hvor langt flytter linjen seg?
+       Males mot den opprinnelige LINJEN, ikke mot knekkpunktene. Kurvene
+       kutter hjørnene, sa en linje ligger alt titalls meter fra sine egne
+       knekkpunkt i en hairnal - males det mot punktene, ser selv den
+       uforandrede linjen ut til a ha flyttet seg ti meter, og ingenting
+       kommer innenfor budsjettet. */
+    const avvikFra = (l, foer) => {
+      let verst = 0;
+      const steg = Math.max(1, foer.lengde / 300);
+      for (let s = 0; s <= foer.lengde + 1e-9; s += steg) {
+        const q = foer.punktVed(Math.min(s, foer.lengde));
+        const p = l.projiser(q.x, q.y);
+        if (isFinite(p.avstand)) verst = Math.max(verst, p.avstand);
+      }
+      return verst;
+    };
+
+    const opprinnelig = this.ipTilUtm();
+    let na = opprinnelig.map(p => Object.assign({}, p));
+    const forLinje = new Linjeforing(opprinnelig);
+    const forUlovlige = ulovlige(forLinje);
+    if (!forUlovlige) {
+      this.status('Linjen er allerede lovlig i planet – bruk «Rett opp» for høydene.');
+      return;
+    }
+
+    this.framdrift(true, 'Finner nærmeste lovlige linje…', 0.1);
+    let fjernet = 0, hevet = 0, verstAvvik = 0;
+    try {
+      await pause();
+      /* Hva et forslag koster. Lovlighet er ikke nok: fjerner man knekkpunkt
+         uten a se pa massene, flytter linjen seg inn i en annen li og
+         sprengningen kan mangedobles - malt pa en ekte trase gikk den fra
+         6 161 til 14 737 kubikk for a rette opp planet. Da er ikke veien
+         bedre, bare lovlig. */
+      const massekost = (liste) => {
+        try {
+          const r = this.beregnRaskt(this.P.vip, new Linjeforing(liste));
+          const s = r.sum, b = r.balanse;
+          return s.skjaeringFjell * 3 + s.skjaeringLosmasse
+            + b.manglerTotalt * 1.5 + b.tilDeponi;
+        } catch (e) { return Infinity; }
+      };
+      const ULOVLIGPRIS = 400;      // hva ett problem i planet er verdt i masse
+      let besteTilstand = { liste: na, poeng: ulovlige(forLinje) * ULOVLIGPRIS + massekost(na), fjernet: 0 };
+      let lovligste = null;   // den som kom lengst i a gjøre planet lovlig, uansett masse
+
+      /* 1) Fjern knekkpunkt til kurvene far plass. Endepunktene star: de er
+            der veien begynner og slutter. Massen males en gang per runde, pa
+            det forslaget som ser best ut geometrisk - a male hvert forsøk
+            ville kostet hundrevis av beregninger. */
+      for (let runde = 0; runde < opprinnelig.length; runde++) {
+        const l = new Linjeforing(na);
+        if (!ulovlige(l)) break;
+        let beste = null;
+        for (let i = 1; i < na.length - 1; i++) {
+          const forsok = na.filter((_, j) => j !== i);
+          if (forsok.length < 2) continue;
+          const lf = new Linjeforing(forsok);
+          if (lf.lengde <= 1) continue;
+          const u = ulovlige(lf);
+          const a = avvikFra(lf, forLinje);
+          if (a > maksAvvik) continue;
+          // færrest ulovlige først, sa minst avvik fra det tegnede
+          if (!beste || u < beste.u || (u === beste.u && a < beste.a)) beste = { i, u, a, forsok };
+        }
+        if (!beste) break;                       // ingenting mer a fjerne innenfor avviket
+        na = beste.forsok;
+        fjernet++;
+        verstAvvik = beste.a;
+
+        if (!lovligste || beste.u < lovligste.u) lovligste = { liste: na, u: beste.u, fjernet, avvik: beste.a };
+        const poeng = beste.u * ULOVLIGPRIS + massekost(na);
+        if (poeng < besteTilstand.poeng) besteTilstand = { liste: na, poeng, fjernet, avvik: beste.a };
+
+        this.framdrift(true, 'Finner nærmeste lovlige linje…', 0.1 + 0.6 * runde / opprinnelig.length);
+        if (runde % 2 === 0) await pause();
+      }
+
+      /* Behold den tilstanden som kom best ut samlet - ikke bare den siste.
+         Greedy-søket kan gaa forbi det beste punktet og fortsette a fjerne. */
+      na = besteTilstand.liste;
+      fjernet = besteTilstand.fjernet;
+
+      /* Kom den beste ut som «gjør ingenting», har vi likevel sett alternativer
+         underveis. Da er svaret ikke «fant ingen lovlig linje» - det er at de
+         lovlige koster mer masse enn de er verdt. Det er en avveining
+         brukeren skal ta, ikke programmet. */
+      if (fjernet === 0 && lovligste && lovligste.u < ulovlige(forLinje)) {
+        const naKost = massekost(opprinnelig);
+        const daKost = massekost(lovligste.liste);
+        const ja = await this.bekreft(
+          `Linjen kan bli lovligere ved å fjerne ${lovligste.fjernet} knekkpunkt: `
+          + `${ulovlige(forLinje) - lovligste.u} av ${ulovlige(forLinje)} problemer i planet forsvinner, `
+          + `og den flytter seg inntil ${lovligste.avvik.toFixed(1)} m. `
+          + `Men det koster masse: regnestykket går fra ${Math.round(naKost).toLocaleString('nb-NO')} `
+          + `til ${Math.round(daKost).toLocaleString('nb-NO')} i vektet volum. Vil du det likevel?`,
+          'Gjør lovlig likevel');
+        if (ja) { na = lovligste.liste; fjernet = lovligste.fjernet; verstAvvik = lovligste.avvik; }
+        else {
+          this.framdrift(false);
+          this.status('Linjen står som du tegnet den. '
+            + 'Færre knekkpunkt i svingene, eller lavere minsteradius i vegmalen, gir en billigere lovlig linje.');
+          return;
+        }
+      }
+
+      /* 2) Sett radiene opp igjen mot det som ble bedt om, sa langt de far
+            plass. Etter at punkt er fjernet er det ofte rom for mer. */
+      const ønsket = this.P.standardRadius || 30;
+      for (let i = 1; i < na.length - 1; i++) {
+        const start = na[i].r;
+        for (const r of [ønsket, ønsket * 0.75, ønsket * 0.5, Math.max(minR, 10)]) {
+          if (r <= start + 1e-9) continue;
+          const forsok = na.map((p, j) => j === i ? Object.assign({}, p, { r }) : p);
+          const lf = new Linjeforing(forsok);
+          if (ulovlige(lf) === 0 && avvikFra(lf, forLinje) <= maksAvvik) {
+            na = forsok; hevet++; break;
+          }
+        }
+      }
+
+      const etterLinje = new Linjeforing(na);
+      const etterUlovlige = ulovlige(etterLinje);
+      verstAvvik = avvikFra(etterLinje, forLinje);
+
+      if (etterUlovlige >= forUlovlige) {
+        this.framdrift(false);
+        this.status(`Fant ingen lovlig linje innenfor ${maksAvvik} m fra den du tegnet. `
+          + 'Prøv å tegne færre knekkpunkt i svingene, eller senk minsteradiusen i vegmalen.');
+        return;
+      }
+
+      const ja = await this.bekreft(
+        `Linjen kan gjøres lovlig ved å fjerne ${fjernet} knekkpunkt`
+        + (hevet ? ` og sette opp radien i ${hevet}` : '')
+        + `. Den flytter seg da inntil ${verstAvvik.toFixed(1)} m fra der du tegnet den, `
+        + `og ${forUlovlige - etterUlovlige} av ${forUlovlige} problemer i planet forsvinner. `
+        + 'Vil du det?', 'Gjør lovlig');
+      if (!ja) { this.framdrift(false); this.status('Linjen står som du tegnet den'); return; }
+
+      this.merk('gjør linjen lovlig');
+      this.P.ip = na.map(p => {
+        const g = Geo.fraUtm(p.x, p.y, this.sone);
+        return { lat: g.lat, lon: g.lon, r: p.r };
+      });
+      this._terrengnokkel = '';
+      this.byggLinje();
+      await this.oppdater();
+    } catch (e) {
+      this.status('Klarte ikke gjøre linjen lovlig: ' + e.message);
+      return;
+    } finally {
+      this.framdrift(false);
+    }
+
+    // og sa høydene, sa hele veien er lovlig og ikke bare planet
+    await this.rettOpp();
+    const igjen = this.tellBrudd();
+    this.status(`Linjen er gjort lovlig: ${fjernet} knekkpunkt fjernet`
+      + (hevet ? `, radien satt opp i ${hevet}` : '')
+      + `, inntil ${verstAvvik.toFixed(1)} m fra den tegnede. `
+      + (igjen && igjen.totalt ? `${igjen.totalt} brudd står igjen.` : 'Ingen brudd igjen.'));
+  },
+
+  /**
+   * Hvor mye linjen svinger til sammen, i grader.
+   *
+   * En rett veg har null. Hver sving legger til graden sin, sa en linje som
+   * gar fram og tilbake far et høyt tall selv om hver enkelt sving er liten.
+   * Brukes til a hindre at sidelengs flytting kjøper noen kubikk masse for en
+   * veg i sikksakk - den er dyrere a bygge og verre a kjøre.
+   */
+  samletAvboyning(linje) {
+    let sum = 0;
+    for (const k of ((linje || this.linje || {}).kurver || [])) sum += Math.abs(k.avbøy);
+    return sum * 180 / Math.PI;
+  },
+
   /* ---------------- optimalisering ---------------- */
 
   async balanser() {
@@ -1077,7 +1288,8 @@ const App = {
     if (maksSide > 0 && this.P.ip.length >= 2) {
       const start = this.ipTilUtm();
       let beste = start.map(p => Object.assign({}, p));
-      let besteK = kostnad(best, new Linjeforing(beste));
+      let besteK = kostnad(best, new Linjeforing(beste))
+        + this.samletAvboyning(new Linjeforing(beste)) * 40;
       let sideSteg = Math.min(maksSide, 1.5);
 
       for (let runde = 0; runde < 3; runde++) {
@@ -1091,7 +1303,13 @@ const App = {
             forsok[i] = flytta;
             const linje2 = new Linjeforing(forsok);
             if (linje2.lengde <= 1) continue;
-            const kk = kostnad(best, linje2);
+            /* En veg som svinger fram og tilbake er ikke en bedre veg, selv om
+               den treffer litt billigere terreng. Uten dette leddet kunne
+               sidelengs flytting kjøpe noen kubikk for en linje i sikksakk -
+               den er dyrere a bygge, verre a kjøre, og ikke det noen ba om.
+               Malt som samlet avbøyning: en rett veg har null, og hver sving
+               legger til graden sin. */
+            const kk = kostnad(best, linje2) + this.samletAvboyning(linje2) * 40;
             if (kk < besteK - 1e-6) { beste = forsok; besteK = kk; }
           }
           this.framdrift(true, 'Prøver å flytte linjen sidelengs…', (runde + i / beste.length) / 3);
@@ -1911,6 +2129,7 @@ const App = {
       this.beregn();
     };
     id('knappRettOpp').onclick = () => this.rettOpp();
+    id('knappGjorLovlig').onclick = () => this.gjorLovlig();
     id('knappBalanser').onclick = () => this.balanser();
     id('knappOptimaliser').onclick = () => this.optimaliser();
     /* K settes pa knekkpunktene som far bestemme seg selv - ikke pa de laste.
