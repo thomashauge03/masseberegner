@@ -281,6 +281,86 @@ function rettProfil(vip, opsjoner = {}) {
 }
 
 /**
+ * Retter vertikalgeometrien slik at kravet til vertikalkurveradius holder.
+ *
+ * `rettProfil` flytter høyder, men rører aldri K - og et knekkpunkt med K=0
+ * far ingen kurve i det hele tatt. Alle laste høyder far K=0, sa hele
+ * arbeidsmaten med innlagte høyder kom gjennom rettingen med
+ * vertikalgeometrien urørt.
+ *
+ * To ting kan gjøres, og de trengs begge:
+ *
+ *   1. Sette K høyt nok. Kravet er en radius, og radien er hundre ganger K,
+ *      sa K = krav/100. Dette holder sa lenge kurven far plass mellom
+ *      naboknekkpunktene.
+ *
+ *   2. Er bruddet for skarpt til at kurven far plass, hjelper ingen K -
+ *      da ma selve knekken bli mindre. Høyden dras mot der de to tangentene
+ *      ville møttes med et slakere brudd.
+ *
+ * Kurven ligger symmetrisk om knekkpunktet, sa veien havner A·L/8 unna
+ * høyden som star der. For en last høyde er det en forskyvning bort fra det
+ * brukeren har bestemt, og da settes K bare nar avviket blir under en
+ * centimeter. Resten meldes fra om.
+ *
+ * @returns {{satt:number, glattet:number, laste:number}} hva som ble gjort
+ */
+function rettVertikalgeometri(vip, opsjoner = {}) {
+  const kravLav = opsjoner.minVertikalLavbrekk || 0;
+  const kravHoy = opsjoner.minVertikalHoybrekk || 0;
+  const maksAvvikLast = opsjoner.maksAvvikLast != null ? opsjoner.maksAvvikLast : 0.01;
+  if (!(kravLav > 0) && !(kravHoy > 0)) return { satt: 0, glattet: 0, laste: 0 };
+
+  let satt = 0, glattet = 0, laste = 0;
+  for (let runde = 0; runde < 60; runde++) {
+    let endret = false;
+    for (let i = 1; i < vip.length - 1; i++) {
+      const dFor = vip[i].s - vip[i - 1].s;
+      const dEtter = vip[i + 1].s - vip[i].s;
+      if (dFor < 1e-6 || dEtter < 1e-6) continue;
+      const g1 = (vip[i].z - vip[i - 1].z) / dFor;
+      const g2 = (vip[i + 1].z - vip[i].z) / dEtter;
+      const A = g2 - g1;
+      if (Math.abs(A) < 5e-3) continue;
+      const krav = A > 0 ? kravLav : kravHoy;
+      if (!(krav > 0)) continue;
+
+      const kreves = krav * Math.abs(A);
+      const plass = Math.min(dFor, dEtter);
+
+      if (kreves <= plass + 1e-9) {
+        const trengsK = krav / 100;
+        if (vip[i].k >= trengsK - 1e-9) continue;
+        // avviket kurven far fra selve knekkpunktet
+        const avvik = Math.abs(A) * kreves / 8;
+        if (vip[i].laast && avvik > maksAvvikLast) { laste++; continue; }
+        vip[i].k = trengsK;
+        satt++; endret = true;
+        continue;
+      }
+
+      /* For skarpt for avstanden: knekken selv ma bli mindre. Med plass
+         meter tilgjengelig er største brudd som lar seg runde av
+         plass/krav - høyden dras mot den tangentskjæringen. */
+      if (vip[i].laast) { laste++; continue; }
+      const maksA = plass / krav;
+      const ønsketA = Math.sign(A) * maksA;
+      /* Holder naboene i ro og løser for høyden som gir ønsket brudd:
+         (z2-z)/dEtter - (z-z1)/dFor = ønsketA  */
+      const z1 = vip[i - 1].z, z2 = vip[i + 1].z;
+      const nyZ = (z2 / dEtter + z1 / dFor - ønsketA) / (1 / dEtter + 1 / dFor);
+      if (!isFinite(nyZ)) continue;
+      // halvveis hver runde, sa naboknekkpunktene far følge med
+      vip[i].z += (nyZ - vip[i].z) * 0.5;
+      vip[i].k = Math.max(vip[i].k, krav / 100);
+      glattet++; endret = true;
+    }
+    if (!endret) break;
+  }
+  return { satt, glattet, laste };
+}
+
+/**
  * Leser en tabell med profilnummer og høyder, slik den kan limes inn fra
  * en veiplan eller et regneark. Tar bade mellomrom, semikolon, komma og
  * tabulator, bade punktum og komma som desimalskille, og bade "250" og
@@ -333,5 +413,8 @@ function naermesteIndeks(arr, v) {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { Vertikalprofil, foreslaProfil, rettProfil, lagTerrengoppslag, lesHoydetabell };
+  module.exports = {
+    Vertikalprofil, foreslaProfil, rettProfil, rettVertikalgeometri,
+    lagTerrengoppslag, lesHoydetabell
+  };
 }

@@ -12,7 +12,7 @@
 const path = require('path');
 const Geo = require(path.join(__dirname, '..', 'public', 'js', 'geo.js'));
 const { Linjeforing } = require(path.join(__dirname, '..', 'public', 'js', 'linjeforing.js'));
-const { Vertikalprofil, foreslaProfil, lesHoydetabell } = require(path.join(__dirname, '..', 'public', 'js', 'vertikalprofil.js'));
+const { Vertikalprofil, foreslaProfil, lesHoydetabell, rettVertikalgeometri } = require(path.join(__dirname, '..', 'public', 'js', 'vertikalprofil.js'));
 const M = require(path.join(__dirname, '..', 'public', 'js', 'masser.js'));
 const VK = require(path.join(__dirname, '..', 'public', 'js', 'veiklasser.js'));
 const H = require(path.join(__dirname, '..', 'lib', 'hoydedata.js'));
@@ -543,6 +543,70 @@ console.log('\n4a. Feil som er funnet og rettet');
       Math.abs(lon - Geo.midtmeridian(b)) < Math.abs(lon - Geo.midtmeridian(a)) ? b : a);
     sjekk(`${lon} grader gir nærmeste sone`, s, naermest, 0);
   }
+}
+
+/* ------------------------------------------------------------------ */
+console.log('\n4d. Retting av vertikalgeometrien');
+{
+  const krav = { minVertikalLavbrekk: 200, minVertikalHoybrekk: 150 };
+  const bruddene = (vip) => {
+    const vp = new Vertikalprofil(vip);
+    const ut = [];
+    for (let i = 1; i < vp.vip.length - 1; i++) {
+      const A = vp.stigninger[i] - vp.stigninger[i - 1];
+      if (Math.abs(A) < 5e-3) continue;
+      const k = A > 0 ? krav.minVertikalLavbrekk : krav.minVertikalHoybrekk;
+      const kurve = vp.kurver.find(c => c.vip === i);
+      if ((kurve ? kurve.L : 0) < k * Math.abs(A) - 1e-6) ut.push(vp.vip[i].s);
+    }
+    return ut;
+  };
+
+  /* Alle laste høyder far K=0, og da lages det ingen vertikalkurve. rettProfil
+     flytter høyder men rører aldri K, sa disse bruddene sto igjen etter en
+     retting som ellers tok bort alt annet. */
+  const lag = () => {
+    const v = [];
+    for (let s = 0; s <= 400; s += 20) v.push({ s, z: 100 + 3 * Math.sin(s / 23), k: 0 });
+    return v;
+  };
+  const for_ = bruddene(lag());
+  paastand('utgangspunktet bryter kravet flere steder', for_.length >= 5, `${for_.length} brudd`);
+
+  const rettet = lag();
+  const gjort = rettVertikalgeometri(rettet, krav);
+  paastand('rettingen fjerner alle vertikalkurvebrudd', bruddene(rettet).length === 0,
+    `${bruddene(rettet).length} igjen, satt K ${gjort.satt}, glattet ${gjort.glattet}`);
+
+  // Der kurven far plass skal K settes, ikke høyden flyttes
+  const romslig = [{ s: 0, z: 100, k: 0 }, { s: 200, z: 104, k: 0 }, { s: 400, z: 104, k: 0 }];
+  const forHoyde = romslig[1].z;
+  rettVertikalgeometri(romslig, krav);
+  sjekk('romslig brudd løses med K, ikke ved å flytte høyden', romslig[1].z, forHoyde, 1e-9);
+  paastand('K ble satt høyt nok', romslig[1].k >= krav.minVertikalHoybrekk / 100 - 1e-9);
+
+  /* Er bruddet for skarpt for avstanden mellom høydene, hjelper ingen K -
+     da ma selve knekken bli mindre. */
+  const trangt = [{ s: 0, z: 100, k: 0 }, { s: 10, z: 103, k: 0 }, { s: 20, z: 100, k: 0 }];
+  const A0 = Math.abs((100 - 103) / 10 - (103 - 100) / 10);
+  rettVertikalgeometri(trangt, krav);
+  const A1 = Math.abs((trangt[2].z - trangt[1].z) / (trangt[2].s - trangt[1].s)
+    - (trangt[1].z - trangt[0].z) / (trangt[1].s - trangt[0].s));
+  paastand('for skarpt brudd blir slakere', A1 < A0 * 0.8, `${(A0 * 100).toFixed(1)} % → ${(A1 * 100).toFixed(1)} %`);
+  paastand('trangt brudd er løst', bruddene(trangt).length === 0);
+
+  // En last høyde skal ikke flyttes for a redde vertikalgeometrien
+  const laast = [{ s: 0, z: 100, k: 0 }, { s: 10, z: 103, k: 0, laast: true }, { s: 20, z: 100, k: 0 }];
+  const res = rettVertikalgeometri(laast, krav);
+  sjekk('last høyde star i ro', laast[1].z, 103, 1e-9);
+  paastand('og det blir meldt fra om den', res.laste > 0);
+
+  // En jevn profil skal ikke røres i det hele tatt
+  const jevn = [];
+  for (let s = 0; s <= 200; s += 20) jevn.push({ s, z: 100 - 0.04 * s, k: 0 });
+  const kopi = jevn.map(v => Object.assign({}, v));
+  rettVertikalgeometri(jevn, krav);
+  paastand('jevn profil star urørt', jevn.every((v, i) => Math.abs(v.z - kopi[i].z) < 1e-12));
 }
 
 /* ------------------------------------------------------------------ */

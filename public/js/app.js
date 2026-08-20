@@ -503,23 +503,43 @@ const App = {
 
   /* ---------------- retting ---------------- */
 
-  /** Teller brudd pa kravene, sa man ser hva en retting faktisk gjorde. */
-  tellBrudd(vp) {
-    if (!vp || !this.linje || !this.terrengProfil) return null;
-    const mal = this.P.mal;
-    let stigning = 0, fylling = 0, skjaering = 0, verstStigning = 0;
-    const slutt = this.linje.lengde;
-    for (let s = 0; s <= slutt; s += Math.max(1, this.P.profilAvstand)) {
-      const g = vp.stigning(s);
-      const tillatt = maksStigningFraRadius(mal, this.linje.radiusVed(s), g, mal.lassretning);
-      if (Math.abs(g) > tillatt + 1e-4) stigning++;
-      verstStigning = Math.max(verstStigning, Math.abs(g));
-      const t = this.terrengHoyde(s);
-      if (!isFinite(t)) continue;
-      if (mal.maksFyllingshoyde > 0 && vp.hoyde(s) - t > mal.maksFyllingshoyde) fylling++;
-      if (mal.maksSkjaeringsdybde > 0 && t - vp.hoyde(s) > mal.maksSkjaeringsdybde) skjaering++;
+  /**
+   * Bruddtypene, og hva som skal til for a fa dem bort.
+   *
+   * «profil» betyr at rettingen kan løse det ved a flytte høyder eller sette
+   * K. «linje» betyr at det ma gjøres noe med linjen i planet, og det er
+   * ikke rettingen sin jobb - den flytter ikke veien brukeren har tegnet.
+   * «annet» er ting som verken profil eller linje kan gjøre noe med.
+   */
+  BRUDDTYPER: {
+    stigning: 'profil', fylling: 'profil', skjaering: 'profil',
+    utslag: 'profil', vertikalkurve: 'profil', geometri: 'profil',
+    kurvatur: 'linje', linje: 'linje',
+    data: 'annet', inngang: 'annet', avkortet: 'annet'
+  },
+
+  /**
+   * Teller brudd pa kravene, sa man ser hva en retting faktisk gjorde.
+   *
+   * Tallene tas fra merknadene i beregningen, ikke fra et eget overslag her.
+   * Med to steder som malte hver sin sak kunne rettingen melde «0 brudd»
+   * mens rapporten ved siden av viste tjue - og da er ingen av dem til a
+   * stole pa. Nar dette sier null, er merknadslisten tom.
+   */
+  tellBrudd(res) {
+    const r = res || this.resultat;
+    if (!r) return null;
+    const ut = { profil: 0, linje: 0, annet: 0, totalt: 0, per: {} };
+    for (const m of r.merknader) {
+      // oppsummeringslinjen «N vertikalkurver til» teller det den sier
+      const flere = /^(\d+) (vertikalkurver|profiler) til/.exec(m.tekst || '');
+      const antall = flere ? 1 + parseInt(flere[1], 10) : 1;
+      const gruppe = this.BRUDDTYPER[m.type] || 'annet';
+      ut[gruppe] += antall;
+      ut.per[m.type] = (ut.per[m.type] || 0) + antall;
     }
-    return { stigning, fylling, skjaering, verstStigning, totalt: stigning + fylling + skjaering };
+    ut.totalt = ut.profil + ut.linje;      // «annet» er ikke noe rettingen kan løse
+    return ut;
   },
 
   /**
@@ -544,7 +564,7 @@ const App = {
       return;
     }
 
-    const bruddFor = this.tellBrudd(this.vprofil);
+    const bruddFor = this.tellBrudd();
     const volumFor = {
       fjell: this.resultat.sum.skjaeringFjell,
       skjaering: this.resultat.sum.skjaering,
@@ -553,17 +573,55 @@ const App = {
     };
 
     this.framdrift(true, modus === 'inngrep' ? 'Legger veien tettest mulig på terrenget…' : 'Retter profilen…', 0.15);
+    let laasteIVeien = 0;
     try {
       await pause();
       const mal = this.P.mal;
-      rettProfil(this.P.vip, {
-        maksStigningFor: (sA, sB, g) => this.tillattStigning(sA, sB, g),
-        maksOverTerreng: mal.maksFyllingshoyde > 0 ? mal.maksFyllingshoyde : null,
-        maksUnderTerreng: mal.maksSkjaeringsdybde > 0 ? mal.maksSkjaeringsdybde : null,
-        terrengVed: lagTerrengoppslag(this.terrengProfil.s, this.terrengProfil.z)
-      });
-      this.beregn();
+      const terrengVed = lagTerrengoppslag(this.terrengProfil.s, this.terrengProfil.z);
+      const rettEnGang = () => {
+        rettProfil(this.P.vip, {
+          maksStigningFor: (sA, sB, g) => this.tillattStigning(sA, sB, g),
+          maksOverTerreng: mal.maksFyllingshoyde > 0 ? mal.maksFyllingshoyde : null,
+          maksUnderTerreng: mal.maksSkjaeringsdybde > 0 ? mal.maksSkjaeringsdybde : null,
+          terrengVed
+        });
+        /* Vertikalgeometrien ma rettes for seg. rettProfil flytter høyder,
+           men rører aldri K - og et knekkpunkt med K=0 far ingen kurve i det
+           hele tatt. Uten dette sto alle vertikalkurvebruddene igjen etter
+           en retting som ellers tok bort alt annet. */
+        const v = rettVertikalgeometri(this.P.vip, {
+          minVertikalLavbrekk: mal.minVertikalLavbrekk,
+          minVertikalHoybrekk: mal.minVertikalHoybrekk
+        });
+        laasteIVeien = Math.max(laasteIVeien, v.laste);
+      };
+
+      /* De to rettingene drar i hver sin retning: a slake ut et vertikalbrudd
+         flytter en høyde, og det kan bryte stigningskravet et hakk unna. Derfor
+         gjentas de til det ikke er flere brudd igjen som lar seg løse - eller
+         til det slutter a bli bedre. */
+      let forrige = Infinity;
+      for (let runde = 0; runde < 8; runde++) {
+        rettEnGang();
+        this.vprofil = new Vertikalprofil(this.P.vip);
+        this.beregn();
+        const na = this.tellBrudd();
+        this.framdrift(true, 'Retter profilen…', 0.15 + 0.5 * (runde + 1) / 8);
+        if (!na || na.profil === 0) break;
+        if (na.profil >= forrige) break;          // ikke lenger fremgang
+        forrige = na.profil;
+        await pause();
+      }
       await this.optimaliser(true, modus);
+
+      /* Optimaliseringen leter etter billigere høyder, og kan i den jakten
+         havne pa noe som bryter et krav igjen. Da rettes det en siste gang -
+         reglene skal holde nar brukeren slipper knappen. */
+      if (this.tellBrudd().profil > 0) {
+        rettEnGang();
+        this.vprofil = new Vertikalprofil(this.P.vip);
+        this.beregn();
+      }
     } catch (e) {
       this.status('Rettingen feilet: ' + e.message);
       return;
@@ -571,14 +629,14 @@ const App = {
       this.framdrift(false);
     }
 
-    const bruddEtter = this.tellBrudd(this.vprofil);
+    const bruddEtter = this.tellBrudd();
     const igjen = bruddEtter ? bruddEtter.totalt : 0;
     const s = this.resultat.sum;
     const tall = v => Math.round(Math.abs(v)).toLocaleString('nb-NO');
     const endring = (fra, til) => (fra - til > 0 ? '−' : '+') + tall(fra - til);
 
     const deler = [];
-    if (bruddFor.totalt > igjen) deler.push(`rettet ${bruddFor.totalt - igjen} brudd`);
+    if (bruddFor.totalt > igjen && igjen > 0) deler.push(`rettet ${bruddFor.totalt - igjen} brudd`);
     if (modus === 'inngrep') {
       const flyttetFor = volumFor.skjaering + volumFor.fylling;
       const flyttetNa = s.skjaering + s.fylling;
@@ -588,8 +646,28 @@ const App = {
       if (Math.abs(volumFor.fjell - s.skjaeringFjell) > 5) deler.push(`sprengning ${endring(volumFor.fjell, s.skjaeringFjell)} m³`);
       if (Math.abs(volumFor.fylling - s.fylling) > 5) deler.push(`fylling ${endring(volumFor.fylling, s.fylling)} m³`);
     }
-    if (igjen > 0) deler.push(`${igjen} brudd står igjen – se «Hva må til» i merknadene`);
+    /* Star det noe igjen, skal det sta nøyaktig hva og hvorfor rettingen ikke
+       kunne ta det. «3 brudd står igjen» uten mer er ubrukelig - da vet man
+       ikke om man skal endre linjen, lase opp en høyde eller slakke et krav. */
+    if (bruddEtter && bruddEtter.profil > 0) {
+      const verste = Object.entries(bruddEtter.per)
+        .filter(([t]) => this.BRUDDTYPER[t] === 'profil')
+        .sort((a, b) => b[1] - a[1]).map(([t, n]) => `${n} ${t}`).join(', ');
+      deler.push(`${bruddEtter.profil} brudd står igjen (${verste})`
+        + (laasteIVeien ? ` – ${laasteIVeien} av dem sitter fast i låste høyder` : ''));
+    }
+    if (bruddEtter && bruddEtter.linje > 0) {
+      const hva = Object.entries(bruddEtter.per)
+        .filter(([t]) => this.BRUDDTYPER[t] === 'linje')
+        .map(([t, n]) => `${n} ${t}`).join(', ');
+      deler.push(`${hva} må løses i planet – rettingen flytter ikke linjen du har tegnet`);
+    }
+    if (bruddEtter && bruddEtter.per.data) {
+      deler.push(`${bruddEtter.per.data} profiler mangler terrengdata`);
+    }
     const tittel = modus === 'inngrep' ? 'Minst inngrep' : 'Rettet opp';
+    const alt = bruddFor.totalt > 0 && igjen === 0 ? `alle ${bruddFor.totalt} brudd er borte` : null;
+    if (alt) deler.unshift(alt);
     this.status(deler.length ? tittel + ': ' + deler.join(' · ') : 'Fant ingenting å rette.');
   },
 
