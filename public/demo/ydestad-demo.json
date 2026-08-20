@@ -152,6 +152,7 @@
    ]
   ],
   "utvidelseOvergang": 15,
+  "utflatingForKurve": 10,
   "stigningIKurve": [
    [
     14,
@@ -199,7 +200,12 @@
    "fyllingshoyde": 2,
    "stigning": 0.14,
    "tillegg": 0.5
-  }
+  },
+  "maksFyllingshoyde": 4,
+  "maksSkjaeringsdybde": 8,
+  "maksUtslag": 15,
+  "beregningsbredde": 0,
+  "sideforskyvning": 0
  },
  "faktorer": {
   "sprengningsfaktor": 1.5,
