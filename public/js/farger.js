@@ -36,6 +36,7 @@ const Farger = {
   get flate() { return this.hent('flate'); },
   get blekk() { return this.hent('blekk'); },
   get blekkSvak() { return this.hent('blekk-svak'); },
+  get kantSterk() { return this.hent('kant-sterk'); },
 
   /**
    * Skravur for fjell i skjæringen.

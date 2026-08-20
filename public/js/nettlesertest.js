@@ -54,6 +54,9 @@ const Nettlesertest = {
       await this.grenser();
       await this.eksport();
       await this.linjeredigering();
+      await this.autolagring();
+      await this.tverrsnittAvlesning();
+      await this.pdfrapport();
       await this.pdfavlesning();
       await this.rapport();
       await this.paneler();
@@ -336,6 +339,7 @@ const Nettlesertest = {
     const langt = Kart.settInnPunkt({ lat: ll.lat + 0.03, lng: ll.lon + 0.03 }, 40);
     this.sjekk('et klikk langt fra linja setter ikke inn noe', langt === -1);
 
+
     /* Angre skal ta tilbake det du gjorde - ikke fjerne siste punkt.
        Med det gamle oppsettet slettet «Angre» et helt annet punkt hvis du
        nettopp hadde endret en radius. */
@@ -363,6 +367,218 @@ const Nettlesertest = {
     this.sjekk('alt er tilbake der prøven startet', app.P.ip.length === forIp
       && Math.abs(app.linje.lengde - forLengde) < 2,
       `${app.P.ip.length} punkt mot ${forIp}, ${app.linje.lengde.toFixed(1)} m mot ${forLengde.toFixed(1)}`);
+
+    /* Mens man tegner skal punktet alltid pa enden. Her lot innsettingen seg
+       utløse av et vanlig tegneklikk, og fulgte man en veg som svinger tilbake
+       mot seg selv, havnet neste punkt midt i rekken - linjen gikk i sikksakk
+       uten at noen hadde bedt om det. */
+    const gammelModus = Kart.modus;
+    const merkeForTegn = app.historikk.bakover.length;
+    Kart.settModus('tegn');
+    const forTegn = app.P.ip.length;
+    const nye = [];
+    for (const f of [0.3, 0.55, 0.32, 0.8]) {      // 0,32 ligger like ved 0,30
+      const q = app.linje.punktVed(app.linje.lengde * f);
+      const l2 = Geo.fraUtm(q.x, q.y, app.sone);
+      nye.push({ lat: l2.lat + 0.00002, lng: l2.lon + 0.00002 });
+    }
+    for (const punkt of nye) Kart.klikk({ latlng: punkt });
+    const feilPlass = nye.findIndex((punkt, i) => {
+      const q = app.P.ip[forTegn + i];
+      return !q || Math.abs(q.lat - punkt.lat) > 1e-9 || Math.abs(q.lon - punkt.lng) > 1e-9;
+    });
+    this.sjekk('tegning legger punktene bakerst, alltid', feilPlass === -1,
+      feilPlass === -1 ? `${forTegn} → ${app.P.ip.length}`
+        : `punkt ${feilPlass + 1} havnet ikke bakerst (${forTegn} → ${app.P.ip.length})`);
+
+    const forLinjeklikk = app.P.ip.length;
+    Kart.lag.linje.fire('click', { latlng: L.latLng(ll.lat, ll.lon), originalEvent: new MouseEvent('click') });
+    this.sjekk('klikk på linja setter ikke inn noe mens man tegner',
+      app.P.ip.length === forLinjeklikk);
+
+    /* Rydd bort punktene direkte. A angre seg tilbake gar ikke: `merk` hopper
+       over et merke nar ingenting har endret seg, sa antall merker er ikke
+       det samme som antall klikk. */
+    Kart.settModus(gammelModus);
+    app.P.ip.length = forTegn;
+    app.historikk.bakover.length = merkeForTegn;
+    app.historikk.framover.length = 0;
+    app.historikk._sist = JSON.stringify(app.P);
+    app.linjeEndret();
+    await this.vent(250);
+    this.sjekk('tegneprøven ryddet opp etter seg', app.P.ip.length === forTegn,
+      `${app.P.ip.length} mot ${forTegn}`);
+  },
+
+  /* ---------------- lagres av seg selv ----------------
+     En prosjektfil holder det som ble lagret - den kan ikke holde det man
+     glemte a lagre. Og det var lett a glemme: bade «Apne» og «Ny» byttet
+     prosjekt uten a spørre. */
+  async autolagring() {
+    if (!App.P || App.P.ip.length < 2) { this.sjekk('ikke noe prosjekt å lagre – hopper over', true); return; }
+
+    /* Prøven star pa egne ben: den lagrer det som ligger der na under et eget
+       navn, sa den ikke henger pa hva de foregaende prøvene gjorde. */
+    const navn = 'Massekalk prøve autolagring';
+    const gammeltNavn = App.P.navn;
+    const felt = document.getElementById('prosjektnavn');
+    const gammeltFelt = felt.value;
+    felt.value = navn;
+    await App.lagre();
+    this.sjekk('rett etter lagring er alt lagret', !App.harUlagret());
+
+    const forRadius = App.P.ip[1].r;
+    App.merk('prøve: autolagring');
+    App.P.ip[1].r = (forRadius || 0) + 15;
+    App.linjeEndret();
+    await this.vent(300);
+    this.sjekk('en endring blir merket som ulagret', App.harUlagret());
+    this.sjekk('og lagreknappen sier fra',
+      document.getElementById('knappLagre').classList.contains('ulagret'));
+
+    await App.autolagre();
+    this.sjekk('autolagringen tar den', !App.harUlagret());
+
+    const lagra = await Lager.hent(navn);
+    this.sjekk('og lageret har den nye verdien', !!lagra && lagra.ip[1].r === (forRadius || 0) + 15,
+      lagra ? String(lagra.ip[1].r) : 'fant ikke prosjektet');
+
+    /* Et prosjekt som ikke har fatt navn skal ikke lagres av seg selv - da
+       ville listen fylles opp av halvferdige forsøk. */
+    felt.value = 'Nytt prosjekt';
+    App.P.ip[1].r = (forRadius || 0) + 16;
+    await App.autolagre();
+    this.sjekk('et prosjekt uten navn lagres ikke av seg selv',
+      !(await Lager.hent('Nytt prosjekt')));
+
+    // rydd opp
+    App.P.ip[1].r = forRadius;
+    App.P.navn = gammeltNavn;
+    felt.value = gammeltFelt;
+    await Lager.slett(navn);
+    App._lagretSom = JSON.stringify(App.P);
+    App.linjeEndret();
+    this.sjekk('testprosjektet er ryddet bort', !(await Lager.hent(navn)));
+  },
+
+  /* ---------------- avlesning i tverrsnittet ----------------
+     Helningen skal leses av der pekeren star. Malen sier hva den skal vaere
+     pa vegen og i skraningen, sa avlesningen kan prøves mot den. */
+  async tverrsnittAvlesning() {
+    const pr = Tverrprofil.profil;
+    if (!pr || !pr.geometri) { this.sjekk('ingen tverrsnitt å lese av – hopper over', true); return; }
+    const g = pr.geometri, mal = App.P.mal;
+
+    const paaVegen = Tverrprofil._helning(g.jord, pr.halvbredde * 0.5);
+    this.sjekk('helningen på vegen er tverrfallet fra malen',
+      paaVegen != null && Math.abs(Math.abs(paaVegen) - mal.tverrfall) < 5e-3,
+      `${paaVegen} mot ${mal.tverrfall}`);
+
+    // ytterst i snittet skal skraningen kjennes igjen fra malen
+    const ytterst = Tverrprofil._helning(g.jord, pr.fotHoyre * 0.99);
+    const venta = [1 / mal.skjaeringLosmasse, 1 / mal.skjaeringFjell, 1 / mal.fylling];
+    this.sjekk('helningen ytterst er en av skråningene i malen',
+      ytterst != null && venta.some(v => Math.abs(Math.abs(ytterst) - v) < 0.25),
+      `${ytterst}`);
+
+    /* Punktene i geometrien kan ligge oppa hverandre. Ga avlesningen rett pa
+       naboene, ga hver avlesning nær kanten ingen helning i det hele tatt. */
+    let tomme = 0, prov = 0;
+    for (let t = pr.fotVenstre; t <= pr.fotHoyre; t += (pr.fotHoyre - pr.fotVenstre) / 40) {
+      prov++;
+      if (Tverrprofil._helning(g.jord, t) == null) tomme++;
+    }
+    this.sjekk('helningen kan leses av overalt i snittet', tomme === 0, `${tomme} av ${prov} tomme`);
+
+    this.sjekk('forholdstallet skrives som en skråning',
+      Tverrprofil._somForhold(1 / 1.5) === '1:1,5' && Tverrprofil._somForhold(0) === 'flatt',
+      Tverrprofil._somForhold(1 / 1.5));
+
+    // og selve tegningen skal ikke kaste nar pekeren star et sted
+    const B = Tverrprofil.lerret.clientWidth, H = Tverrprofil.lerret.clientHeight;
+    let kastet = null;
+    for (const f of [0.2, 0.5, 0.9]) {
+      Tverrprofil.peker = { x: B * f, y: H * 0.5 };
+      try { Tverrprofil.tegn(); } catch (e) { kastet = e.message; }
+    }
+    Tverrprofil.peker = null;
+    Tverrprofil.tegn();
+    this.sjekk('avlesningen tegnes uten å kaste', !kastet, kastet || '');
+  },
+
+  /* ---------------- PDF-rapporten ----------------
+     Fila skrives for hand, sa den ma kontrolleres som en fil og ikke bare
+     som et objekt: krysstabellen ma peke pa de objektene den sier, og hver
+     /Length ma stemme med det som faktisk star mellom stream og endstream.
+     Bommer en av delene apner ingen leser fila. */
+  async pdfrapport() {
+    if (!App.resultat) { this.sjekk('ingen beregning å lage PDF av – hopper over', true); return; }
+    const bytes = await Pdfrapport.lag(false);
+    this.sjekk('PDF-en ble laget', !!bytes && bytes.length > 2000, bytes ? bytes.length + ' byte' : 'ingen');
+    if (!bytes) return;
+
+    const tekst = new TextDecoder('latin1').decode(bytes);
+    this.sjekk('fila starter som en PDF', tekst.startsWith('%PDF-1.'));
+    this.sjekk('og slutter der den skal', tekst.trimEnd().endsWith('%%EOF'));
+
+    const sider = (tekst.match(/\/Type \/Page[^s]/g) || []).length;
+    this.sjekk('rapporten har flere sider', sider >= 2, `${sider} sider`);
+    this.sjekk('tegningene er med', (tekst.match(/\/Subtype \/Image/g) || []).length >= 3,
+      `${(tekst.match(/\/Subtype \/Image/g) || []).length} bilder`);
+
+    // krysstabellen: hver oppføring skal peke pa «N 0 obj»
+    const xref = +/startxref\s+(\d+)/.exec(tekst)[1];
+    const hode = /^xref\s*\n0 (\d+)\s*\n/.exec(tekst.slice(xref));
+    this.sjekk('krysstabellen står der tilhengeren sier', !!hode);
+    if (hode) {
+      const antall = +hode[1];
+      const rader = tekst.slice(xref + hode[0].length).split('\n');
+      let gale = 0;
+      for (let i = 1; i < antall; i++) {
+        const m = /^(\d{10}) \d{5} n/.exec(rader[i]);
+        if (!m || !new RegExp('^' + i + ' 0 obj').test(tekst.slice(+m[1], +m[1] + 20))) gale++;
+      }
+      this.sjekk('alle objektene ligger der krysstabellen sier', gale === 0,
+        `${gale} av ${antall - 1} feil`);
+    }
+
+    // /Length mot det som faktisk star i strømmen
+    let idx = 0, sjekka = 0, gale = 0;
+    while (true) {
+      const st = tekst.indexOf('stream', idx);
+      if (st === -1) break;
+      if (tekst.slice(st - 3, st) === 'end') { idx = st + 6; continue; }
+      let start = st + 6;
+      if (bytes[start] === 0x0d) start++;
+      if (bytes[start] === 0x0a) start++;
+      const e = tekst.indexOf('endstream', start);
+      if (e === -1) break;
+      idx = e + 9;
+      const L = /\/Length (\d+)/.exec(tekst.slice(Math.max(0, st - 300), st));
+      if (L) { sjekka++; if (Math.abs((e - start) - +L[1]) > 2) gale++; }
+    }
+    this.sjekk('hver strøm er så lang som den sier', gale === 0 && sjekka >= 3,
+      `${sjekka} strømmer, ${gale} feil`);
+
+    /* Programmets egen PDF-leser brukes til a apne rapporten det selv skrev.
+       Klarer den det, er strømmene virkelig gyldige - ikke bare riktige i
+       tellingen. */
+    const strommer = await PdfImport.lesStrommer(bytes);
+    const alt = strommer.join('\n');
+    this.sjekk('vår egen PDF-leser åpner rapporten', strommer.length >= 2,
+      `${strommer.length} strømmer`);
+    this.sjekk('overskriftene står i fila', alt.includes('MASSEBEREGNING') && alt.includes('SAMMENDRAG'));
+    this.sjekk('stikningsdataene er med', alt.includes('STIKNINGSDATA'));
+    this.sjekk('norske bokstaver er kodet som WinAnsi', /\\346|\\370|\\345|\\306|\\330|\\305/.test(alt));
+
+    // bredden pa en tekst ma vaere kjent, ellers kan ingenting høyrestilles
+    const P = new PdfSkriver();
+    this.sjekk('bokstavbredder gir fornuftige mål',
+      P.bredteAv('1 234,567', 9) > 30 && P.bredteAv('1 234,567', 9) < 60
+      && P.bredteAv('W', 9, true) > P.bredteAv('i', 9, true),
+      P.bredteAv('1 234,567', 9).toFixed(1) + ' pt');
+    this.sjekk('parenteser i teksten blir unnsluppet',
+      P._pdfstreng('Rensk (0,2 m)').includes('\\(') && P._pdfstreng('Rensk (0,2 m)').includes('\\)'));
   },
 
   /* ---------------- avlesning av PDF ----------------

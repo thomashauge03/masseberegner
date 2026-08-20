@@ -46,11 +46,15 @@ const Kart = {
     setTimeout(() => kart.invalidateSize(), 60);
     new ResizeObserver(() => kart.invalidateSize()).observe(document.getElementById('kart'));
 
-    /* Et klikk pa selve linjen setter inn et knekkpunkt der, ogsa nar man
-       star i Flytt. Da slipper man a bytte verktøy for a legge til en sving
-       man har glemt. */
+    /* Et klikk pa selve linjen i Rediger setter inn et knekkpunkt der. Har man
+       glemt en sving, eller vil ha mer sving pa et strekk som alt er tegnet,
+       er det denne veien.
+
+       Bare i Rediger. Mens man tegner skal punktet alltid pa enden - ellers
+       havner et klikk som tilfeldigvis ligger nær et tidligere strekk midt i
+       rekken, og linjen gar i sikksakk. */
     this.lag.linje.on('click', e => {
-      if (this.modus === 'sondering') return;
+      if (this.modus !== 'rediger') return;
       L.DomEvent.stop(e);
       const plass = this.settInnPunkt(e.latlng, 40);
       if (plass >= 0) this.app.status(`Satte inn knekkpunkt ${plass + 1} – dra det dit du vil ha svingen`);
@@ -161,10 +165,18 @@ const Kart = {
   klikk(e) {
     const P = this.app.P;
     if (this.modus === 'tegn') {
-      /* Traff klikket linjen et sted mellom to knekkpunkt, er det en ny sving
-         som skal inn der - ikke et nytt punkt pa enden. Ellers er det ikke mulig
-         a fa mer sving pa et strekk uten a tegne hele linjen om igjen. */
-      if (P.ip.length >= 2 && this.settInnPunkt(e.latlng, 25) >= 0) return;
+      /* Nar man tegner, skal punktet pa enden. Alltid.
+
+         Her sto det et forsøk pa a vaere hjelpsom: traff klikket linjen, ble
+         punktet satt inn der i stedet. Det ødela tegningen fullstendig. Følger
+         man en veg som svinger tilbake mot seg selv, havner neste klikk ofte
+         nær et tidligere strekk - og da ble punktet lagt inn midt i rekken.
+         Rekkefølgen ble stokket om, og linjen gikk i sikksakk uten at noen
+         hadde bedt om det.
+
+         Vil man sette inn et punkt pa et strekk som alt er tegnet, klikker
+         man pa selve linjen i Rediger. Det er en egen handling, og den skal
+         ikke skje ved et uhell. */
       this.app.merk('nytt knekkpunkt');
       P.ip.push({ lat: e.latlng.lat, lon: e.latlng.lng, r: P.standardRadius || 0 });
       this.app.linjeEndret();

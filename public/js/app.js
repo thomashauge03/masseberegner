@@ -37,6 +37,7 @@ const App = {
     if (this.historikk.bakover.length > this.historikk.grense) this.historikk.bakover.shift();
     this.historikk.framover.length = 0;             // ny gren - det som la foran gjelder ikke lenger
     this.visAngreknapper();
+    this.planleggAutolagring();
   },
 
   tomHistorikk() {
@@ -134,6 +135,7 @@ const App = {
     Lengdeprofil.init(this);
     Tverrprofil.init(this);
     Rapport.init(this);
+    Pdfrapport.init(this);
     PdfUI.init(this);
     this.koblingerUI();
     this.malTilSkjema();
@@ -385,6 +387,10 @@ const App = {
     this.visLinjetabell();
     this.visHoydetabell();
     this.status(`Beregnet ${this.resultat.profiler.length} profiler på ${tid.toFixed(0)} ms`);
+    /* Alt som er verdt a regne pa er verdt a ta vare pa. Beregningen kjøres
+       etter hver endring, sa dette fanger ogsa det som ikke gar om `merk`. */
+    this.visLagretMerke();
+    this.planleggAutolagring();
   },
 
   /**
@@ -1447,10 +1453,58 @@ const App = {
     this.P.navn = document.getElementById('prosjektnavn').value.trim() || 'Uten navn';
     try {
       await Lager.lagre(this.P.navn, this.P);
+      this._lagretSom = JSON.stringify(this.P);
+      this.visLagretMerke();
       this.status('Lagret «' + this.P.navn + '»');
     } catch (e) {
       this.status('Kunne ikke lagre: ' + e.message);
     }
+  },
+
+  /* ---------------- lagres av seg selv ----------------
+     En prosjektfil holder det som ble lagret. Den kan ikke holde det man
+     glemte a lagre - og det var lett a glemme: bade «Apne» og «Ny» byttet
+     prosjekt uten a spørre, sa alt siden forrige lagring var borte. Det sa
+     ut som om fila ikke tok vare pa punktene.
+
+     Na lagres det av seg selv et par sekunder etter siste endring, sa lenge
+     prosjektet har fatt et navn. Og skulle noe likevel ikke vaere lagret,
+     blir man spurt før det byttes. */
+
+  _lagretSom: '',
+  _autolagring: null,
+
+  harUlagret() {
+    if (!this.P) return false;
+    if (!this._lagretSom) return (this.P.ip || []).length > 0;
+    return JSON.stringify(this.P) !== this._lagretSom;
+  },
+
+  planleggAutolagring() {
+    clearTimeout(this._autolagring);
+    this._autolagring = setTimeout(() => this.autolagre(), 2000);
+  },
+
+  async autolagre() {
+    if (!this.P || !this.harUlagret()) return;
+    // et prosjekt uten navn har brukeren ikke bestemt seg for enna
+    const navn = (document.getElementById('prosjektnavn').value || '').trim();
+    if (!navn || navn === 'Nytt prosjekt') return;
+    if (!(this.P.ip || []).length) return;
+    try {
+      this.P.navn = navn;
+      await Lager.lagre(navn, this.P);
+      this._lagretSom = JSON.stringify(this.P);
+      this.visLagretMerke();
+    } catch (e) { /* stille - den manuelle knappen sier fra */ }
+  },
+
+  visLagretMerke() {
+    const k = document.getElementById('knappLagre');
+    if (!k) return;
+    const ulagret = this.harUlagret();
+    k.classList.toggle('ulagret', ulagret);
+    k.title = ulagret ? 'Det er endringer som ikke er lagret' : 'Alt er lagret';
   },
 
   async apneDialog() {
@@ -1512,6 +1566,19 @@ const App = {
       return;
     }
     if (!d) { this.status('Fant ikke prosjektet «' + navn + '»'); return; }
+
+    /* Star det igjen noe ulagret, ma det bli lagret eller uttrykkelig
+       forkastet. Uten dette forsvant alt siden forrige lagring i det
+       øyeblikket man apnet et annet prosjekt. */
+    if (navn !== (this.P && this.P.navn) && this.harUlagret()) {
+      await this.autolagre();
+      if (this.harUlagret()) {
+        const ja = await this.bekreft(
+          `«${this.P.navn}» har endringer som ikke er lagret. Åpne «${navn}» likevel?`,
+          'Åpne uten å lagre');
+        if (!ja) return;
+      }
+    }
     this.tomPaneler();       // alt fra forrige prosjekt ma bort først
     this.P = this.moderniserProsjekt(Object.assign(this.nyttProsjekt(), d));
     this.P.mal = Object.assign({}, StandardMal, this.P.mal || {});
@@ -1520,6 +1587,8 @@ const App = {
     document.getElementById('prosjektnavn').value = this.P.navn;
     document.getElementById('dialog').classList.add('skjult');
     this._terrengnokkel = '';
+    this._lagretSom = JSON.stringify(this.P);   // nettopp hentet - alt er lagret
+    this.visLagretMerke();
     // historikken hører til ett prosjekt - Angre skal ikke føre deg til det forrige
     this.tomHistorikk();
     this.malTilSkjema();
@@ -1560,6 +1629,7 @@ const App = {
       this.status('Nytt prosjekt – klikk i kartet for å tegne senterlinjen. Dobbeltklikk for å avslutte.');
     };
     id('knappRapport').onclick = () => Rapport.apneRapport();
+    id('knappPdf').onclick = () => Pdfrapport.lag();
 
     id('knappForeslaProfil').onclick = () => {
       if (!this.terrengProfil) return;

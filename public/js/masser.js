@@ -400,7 +400,12 @@ function beregnTverrprofil(o) {
         t = nyT; z = nyZ;
         knekk.push({ t, z });
       }
-      knekk.push({ t, z });
+      /* Sluttpunktet ma med, men ikke to ganger: gikk marsjen helt ut uten a
+         treffe terrenget, sto det siste punktet allerede i listen. To punkt pa
+         samme sted gir et strekk uten lengde, og en helning som ikke lar seg
+         regne - avlesningen i tverrsnittet fikk ingen helning nær kanten. */
+      const sistKnekk = knekk[knekk.length - 1];
+      if (!sistKnekk || Math.abs(sistKnekk.t - t) > 1e-9) knekk.push({ t, z });
       tFot = t;
       sider[side] = { type, knekk, tFot, truffet, zKant, planumKant };
     } else {
@@ -442,7 +447,12 @@ function beregnTverrprofil(o) {
         t = nyT; z = nyZ;
         knekk.push({ t, z });
       }
-      knekk.push({ t, z });
+      /* Sluttpunktet ma med, men ikke to ganger: gikk marsjen helt ut uten a
+         treffe terrenget, sto det siste punktet allerede i listen. To punkt pa
+         samme sted gir et strekk uten lengde, og en helning som ikke lar seg
+         regne - avlesningen i tverrsnittet fikk ingen helning nær kanten. */
+      const sistKnekk = knekk[knekk.length - 1];
+      if (!sistKnekk || Math.abs(sistKnekk.t - t) > 1e-9) knekk.push({ t, z });
       tFot = t;
       sider[side] = { type, knekk, tFot, truffet, zKant, planumKant };
     }

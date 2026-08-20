@@ -188,6 +188,16 @@ body {
 .knapp.primaer:hover { background: var(--hm-raud-hover); border-color: var(--hm-raud-hover); }
 .knapp.primaer:active { transform: translate(3px, 3px); box-shadow: 0 0 0 0 var(--kant-sterk); }
 .knapp.bred { width: 100%; margin-top: 6px; }
+
+/* Lagreknappen sier fra om det star noe igjen som ikke er lagret. Prosjektet
+   lagres av seg selv et par sekunder etter siste endring, sa prikken star
+   sjelden lenge - men star den, er det noe a vite om. */
+.knapp.ulagret { position: relative; }
+.knapp.ulagret::after {
+  content: ''; position: absolute; top: -3px; right: -3px;
+  width: 8px; height: 8px; border-radius: 50%;
+  background: #fff; border: 2px solid var(--kant-sterk);
+}
 .knappekolonne { display: flex; flex-direction: column; }
 
 /* ── rutenett ──────────────────────────────────────────── */

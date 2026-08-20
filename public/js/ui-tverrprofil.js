@@ -19,7 +19,84 @@ const Tverrprofil = {
     document.getElementById('tverrForrige').onclick = () => this.flytt(-1);
     document.getElementById('tverrNeste').onclick = () => this.flytt(1);
     new ResizeObserver(() => this.tegn()).observe(this.lerret);
+
+    /* Musepekeren leser av snittet der den star: avstand fra senterlinjen,
+       høyder, hvor dypt det skal graves eller fylles - og helningen bade
+       pa tvers og pa langs. En skraning er lettest a kjenne igjen som 1:n,
+       sa den star slik ved siden av prosentene. */
+    this.lerret.addEventListener('mousemove', e => {
+      const r = this.lerret.getBoundingClientRect();
+      this.peker = { x: e.clientX - r.left, y: e.clientY - r.top };
+      this.tegn();
+    });
+    this.lerret.addEventListener('mouseleave', () => { this.peker = null; this.tegn(); });
     return this;
+  },
+
+  /** Tekst med bakgrunn under, sa den leses uansett hva den ligger oppa. */
+  _merkelapp(c, tekst, x, y, o = {}) {
+    const b = c.measureText(tekst).width;
+    const h = o.hoyde || 12;
+    const midt = c.textAlign === 'center';
+    const venstre = midt ? x - b / 2 : (c.textAlign === 'right' ? x - b : x);
+    const topp = c.textBaseline === 'bottom' ? y - h + 2 : (c.textBaseline === 'middle' ? y - h / 2 : y);
+    c.save();
+    c.fillStyle = Farger.flate;
+    c.globalAlpha = o.gjennomsikt != null ? o.gjennomsikt : 0.82;
+    c.fillRect(venstre - 3, topp - 1, b + 6, h + 1);
+    c.restore();
+    c.fillStyle = o.farge || Farger.blekk;
+    c.fillText(tekst, x, y);
+  },
+
+  /**
+   * Helningen til en tegnet linje der pekeren star.
+   * @param {Array<[number,number]>} liste punktene [avstand, høyde]
+   * @returns {number|null} stigning som forhold, positiv oppover mot høyre
+   */
+  _helning(liste, t) {
+    if (!liste || liste.length < 2) return null;
+    let i = 0;
+    for (let j = 1; j < liste.length; j++) {
+      if (Math.abs(liste[j][0] - t) < Math.abs(liste[i][0] - t)) i = j;
+    }
+    /* To nabopunkt rundt treffet gir en jevnere avlesning enn ett steg. Men
+       punktene kan ligge oppa hverandre - knekkpunktene i malen legges inn
+       med en brøkdel av en millimeter mellom seg, og siste punkt star to
+       ganger - sa det ma søkes utover til det er en virkelig avstand a dele
+       pa. Uten det ga hver avlesning nær kanten ingen helning i det hele
+       tatt. */
+    let lav = Math.max(0, i - 1), hoy = Math.min(liste.length - 1, i + 1);
+    while (liste[hoy][0] - liste[lav][0] < 1e-6) {
+      if (lav > 0) lav--;
+      else if (hoy < liste.length - 1) hoy++;
+      else return null;
+    }
+    return (liste[hoy][1] - liste[lav][1]) / (liste[hoy][0] - liste[lav][0]);
+  },
+
+  /** Høyden til en tegnet linje der pekeren star. */
+  _hoydeVed(liste, t) {
+    if (!liste || !liste.length) return NaN;
+    if (t <= liste[0][0]) return liste[0][1];
+    if (t >= liste[liste.length - 1][0]) return liste[liste.length - 1][1];
+    for (let i = 0; i < liste.length - 1; i++) {
+      if (t >= liste[i][0] && t <= liste[i + 1][0]) {
+        const d = liste[i + 1][0] - liste[i][0];
+        if (d < 1e-9) return liste[i][1];
+        const f = (t - liste[i][0]) / d;
+        return liste[i][1] + f * (liste[i + 1][1] - liste[i][1]);
+      }
+    }
+    return NaN;
+  },
+
+  /** «1:1,5» ved siden av prosenten – det malet en maskinfører kjenner. */
+  _somForhold(helning) {
+    const a = Math.abs(helning);
+    if (a < 1e-4) return 'flatt';
+    if (a > 20) return 'nesten loddrett';
+    return '1:' + (1 / a).toFixed(a > 1 ? 2 : 1).replace('.', ',');
   },
 
   flytt(retning) {
@@ -96,8 +173,16 @@ const Tverrprofil = {
     const px = t => m.v + bruksB / 2 + (t - midtT) * skala;
     const py = z => m.o + bruksH / 2 - (z - midtZ) * skala;
 
-    // rutenett
-    c.strokeStyle = Farger.rutenett; c.lineWidth = 1; c.fillStyle = Farger.blekkSvak; c.font = '10px system-ui';
+    // tatt vare pa, sa musepekeren kan regne seg tilbake til meter
+    this._kart = { px, py, tMin, tMax, zMin, zMax, m, B, H, pr };
+
+    /* rutenett
+       Tallene stod i den svake blekkfargen. Pa aksene gar det, men de samme
+       tallene havner ogsa oppa tegningen - og vegoverflaten er hvit. Gratt pa
+       hvitt er under to i kontrast, og da er tallet borte. Aksetallene far
+       full blekkfarge, og de som star inne i tegningen far en bakgrunn under
+       seg sa de leses uansett hva de ligger over. */
+    c.strokeStyle = Farger.rutenett; c.lineWidth = 1; c.fillStyle = Farger.blekk; c.font = '10px system-ui';
     const zSteg = velgSteg(zMax - zMin, 5);
     c.textAlign = 'right'; c.textBaseline = 'middle';
     for (let z = Math.ceil(zMin / zSteg) * zSteg; z <= zMax; z += zSteg) {
@@ -108,6 +193,7 @@ const Tverrprofil = {
     c.textAlign = 'center'; c.textBaseline = 'top';
     for (let t = Math.ceil(tMin / tSteg) * tSteg; t <= tMax; t += tSteg) {
       c.beginPath(); c.moveTo(px(t), m.o); c.lineTo(px(t), H - m.u); c.stroke();
+      c.fillStyle = Farger.blekk;
       c.fillText(t.toFixed(0), px(t), H - m.u + 3);
     }
     c.strokeStyle = Farger.akse;
@@ -175,10 +261,11 @@ const Tverrprofil = {
     // terrenglinje
     c.strokeStyle = Farger.terreng; c.lineWidth = 1.7; bane(terr); c.stroke();
 
-    // malsetting
-    c.fillStyle = Farger.blekkSvak; c.font = '10px system-ui'; c.textAlign = 'center'; c.textBaseline = 'bottom';
-    c.fillText(`${(mal.vegbredde + pr.utvidelse).toFixed(2)} m`, px(0), py(pr.vegnivaa) - 5);
-    c.strokeStyle = Farger.blekkSvak; c.lineWidth = 1;
+    /* Malsetting. Breddemalet ligger rett over vegoverflaten, som er hvit -
+       derfor med bakgrunn under, ellers forsvinner det. */
+    c.font = '10px system-ui'; c.textAlign = 'center'; c.textBaseline = 'bottom';
+    this._merkelapp(c, `${(mal.vegbredde + pr.utvidelse).toFixed(2)} m`, px(0), py(pr.vegnivaa) - 5);
+    c.strokeStyle = Farger.blekk; c.lineWidth = 1;
     c.beginPath(); c.moveTo(px(-hb), py(pr.vegnivaa) - 3); c.lineTo(px(hb), py(pr.vegnivaa) - 3); c.stroke();
 
     // tegnforklaring
@@ -217,5 +304,106 @@ const Tverrprofil = {
       c.fillStyle = Farger.skjaering; c.textAlign = 'right'; c.textBaseline = 'top';
       c.fillText('⚠ ' + pr.advarsel, B - m.h, m.o + 4);
     }
+
+    this._tegnAvlesning(c, pr, terr, jord, { px, py, tMin, tMax, m, B, H });
+  },
+
+  /**
+   * Avlesningen under musepekeren.
+   *
+   * Det som er verdt a vite pa et punkt i snittet er hvor langt ute man star,
+   * hvor høyt terrenget og jordarbeidsflaten ligger der, hvor mye som skal
+   * graves eller fylles - og helningen. Helningen pa tvers er den man ser i
+   * snittet; stigningen langs veien star ved siden av, for det er den som er
+   * bundet av veiklassen og radien i kurven.
+   */
+  _tegnAvlesning(c, pr, terr, jord, k) {
+    if (!this.peker) return;
+    const { px, py, tMin, tMax, m, B, H } = k;
+    const { x, y } = this.peker;
+    if (x < m.v || x > B - m.h || y < m.o || y > H - m.u) return;
+
+    // fra piksel tilbake til meter fra senterlinjen
+    const t = tMin + (x - px(tMin)) / (px(tMax) - px(tMin)) * (tMax - tMin);
+    if (!isFinite(t)) return;
+
+    /* Utenfor snittet finnes det ingen avlesning. Uten dette gjentok den
+       verdien fra ytterste punkt sa langt ut man dro musen, og et tall som
+       star stille nar man beveger seg ser ut som en malt verdi. */
+    const utenfor = t < pr.fotVenstre - 1e-6 || t > pr.fotHoyre + 1e-6;
+    const zT = utenfor ? NaN : this._hoydeVed(terr, t);
+    const zJ = utenfor ? NaN : this._hoydeVed(jord, t);
+    const hTerr = utenfor ? null : this._helning(terr, t);
+    const hJord = utenfor ? null : this._helning(jord, t);
+
+    // loddrett hjelpelinje der pekeren star
+    c.save();
+    c.strokeStyle = Farger.blekk; c.globalAlpha = 0.45; c.lineWidth = 1;
+    c.setLineDash([3, 3]);
+    c.beginPath(); c.moveTo(x, m.o); c.lineTo(x, H - m.u); c.stroke();
+    c.restore();
+
+    // prikker der linjene krysser
+    for (const [z, farge] of [[zT, Farger.terreng], [zJ, Farger.planum]]) {
+      if (!isFinite(z)) continue;
+      c.fillStyle = farge;
+      c.beginPath(); c.arc(x, py(z), 3, 0, Math.PI * 2); c.fill();
+    }
+
+    const rader = [];
+    rader.push(['Avstand fra senter', `${t >= 0 ? '+' : '−'}${Math.abs(t).toFixed(2)} m`]);
+    if (utenfor) rader.push(['', 'utenfor snittet']);
+    if (isFinite(zT)) rader.push(['Terreng', zT.toFixed(2) + ' moh']);
+    if (isFinite(zJ)) rader.push(['Jordarbeid', zJ.toFixed(2) + ' moh']);
+    if (isFinite(zT) && isFinite(zJ)) {
+      const d = zT - zJ;
+      rader.push([d >= 0 ? 'Skjæring her' : 'Fylling her', Math.abs(d).toFixed(2) + ' m']);
+    }
+    if (hJord != null) {
+      rader.push(['Helning på tvers', `${(Math.abs(hJord) * 100).toFixed(1)} %  ${this._somForhold(hJord)}`]);
+    }
+    if (hTerr != null) {
+      rader.push(['Terrenget på tvers', `${(Math.abs(hTerr) * 100).toFixed(1)} %  ${this._somForhold(hTerr)}`]);
+    }
+
+    /* Stigningen langs veien, og hva veiklassen tillater der. Kravet henger
+       av radien i kurven, sa det er ikke det samme tallet hele veien. */
+    const app = this.app;
+    if (app && app.vprofil && app.linje) {
+      const g = app.vprofil.stigning(pr.s);
+      const tillatt = app.tillattStigning ? app.tillattStigning(pr.s, pr.s, g) : null;
+      const over = tillatt != null && Math.abs(g) > tillatt + 1e-4;
+      rader.push(['Stigning langs vegen',
+        `${(g * 100).toFixed(1)} %` + (tillatt != null ? `  (maks ${(tillatt * 100).toFixed(0)} %)` : ''),
+        over]);
+      if (isFinite(pr.radius)) rader.push(['Radius her', pr.radius.toFixed(0) + ' m']);
+    }
+
+    // boksen legges pa den siden av pekeren det er plass
+    c.font = '10px system-ui';
+    let bredde = 0;
+    for (const [a, b] of rader) bredde = Math.max(bredde, c.measureText(a).width + c.measureText(b).width + 22);
+    const hoyde = rader.length * 13 + 8;
+    const bx = (x + 12 + bredde < B - m.h) ? x + 12 : x - 12 - bredde;
+    const by = Math.max(m.o + 2, Math.min(y - hoyde / 2, H - m.u - hoyde - 2));
+
+    c.save();
+    c.globalAlpha = 0.94;
+    c.fillStyle = Farger.flate;
+    c.fillRect(bx, by, bredde, hoyde);
+    c.restore();
+    c.strokeStyle = Farger.kantSterk || Farger.blekk; c.lineWidth = 1;
+    c.strokeRect(bx + 0.5, by + 0.5, bredde - 1, hoyde - 1);
+
+    c.textBaseline = 'middle';
+    rader.forEach(([venstre, hoyre, uthevet], i) => {
+      const ly = by + 10 + i * 13;
+      c.textAlign = 'left';
+      c.fillStyle = Farger.blekkSvak;
+      c.fillText(venstre, bx + 7, ly);
+      c.textAlign = 'right';
+      c.fillStyle = uthevet ? Farger.skjaering : Farger.blekk;
+      c.fillText(hoyre, bx + bredde - 7, ly);
+    });
   }
 };
