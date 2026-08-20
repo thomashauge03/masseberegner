@@ -20,8 +20,9 @@ Nettlesertesten kjøres ved å åpne programmet med `?test=1`, eller fra konsoll
 med `Nettlesertest.kjor()`. Utviklingstjeneren startes med `node server.js`
 (port 5178). Programmet ligger også på https://masseberegner.vercel.app.
 
-Ved siste lagring: **298 prøver i selvtesten, 184 i nettlesertesten, alle
-grønne.**
+Ved siste lagring: **308 prøver i selvtesten, 184 i nettlesertesten, alle
+grønne.** Massene på demoen er uendret gjennom hele runden: 1 548 m³ skjæring,
+1 015 m³ fjell, 135 m³ fylling — rettingene gjelder feilmåter, ikke normalveien.
 
 ## Det som skal gjøres nå
 
@@ -58,17 +59,18 @@ commit med målingen som bekreftet den.
   men det kom fram under etterprøvingen, og det angår den største usikkerheten
   i hele regnestykket.
 - **Eksporten hadde ingen prøver i det hele tatt.** Tjue nye.
+- **Veglinja falt ut av PDF-avlesningen** fordi den hadde færre enn femten
+  punkt, og Bézier-kurver ble lest som rette korder. *(to kritiske)*
 
 Ett meldt funn holdt ikke: skjæringsskråningen marsjerer *ikke* forbi
 fjelloverflaten. Prøvd tre ganger; 1120 av 1120 steg bruker riktig helning.
+
+**Alle tolv kritiske funn er nå gjennomgått.**
 
 ### Igjen på lista
 
 Bruk `GJENNOMGANG.md` for detaljene. De tyngste som står igjen:
 
-- **`public/js/pdfimport.js`** — to kritiske: veglinja faller ut av
-  kandidatlista fordi den har for få knekkpunkt, og kontrollpunktene i
-  Bézier-kurver kastes så en vertikalkurve leses som en rett korde.
 - **`public/js/geo.js:60`** — sonevalget. Nå synlig i stedet for stille, siden
   manglende dekning blir oppdaget, men bør fortsatt vurderes.
 - **`public/js/vertikalprofil.js`** — `_bygg` kan slette lovlige
