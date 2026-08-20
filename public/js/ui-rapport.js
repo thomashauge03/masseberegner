@@ -161,7 +161,12 @@ const Rapport = {
     const u = res.usikkerhet;
     if (!u) return '';
     const t = (v, d = 0) => this.tall(v, d);
-    const andel = u.skjaeringTotalt > 0 ? (u.spenn / u.skjaeringTotalt * 100) : 0;
+    /* `spenn` er avstanden fra 0,5 m grunnere til 0,5 m dypere - altsa over en
+       hel meter. Teksten sa «et halvmetersbom flytter», og viste dermed
+       omtrent dobbelt sa mye som den lovte. Her males ett bom, den veien som
+       slar hardest ut. */
+    const enVei = Math.max(Math.abs(u.fjellGrunnere - u.fjellNa), Math.abs(u.fjellDypere - u.fjellNa));
+    const andelEnVei = u.skjaeringTotalt > 0 ? (enVei / u.skjaeringTotalt * 100) : 0;
     const antallObs = this.app.P.fjell.punkter.length;
     return `
       <div class="sumkort">
@@ -193,10 +198,11 @@ const Rapport = {
         <div class="strek"></div>
         <div class="sumrad stor">
           <span>Et halvmetersbom flytter</span>
-          <span class="verdi ${andel > 15 ? 'merke-varsel' : ''}">${t(u.spenn)} m³</span>
+          <span class="verdi ${andelEnVei > 15 ? 'merke-varsel' : ''}">${t(enVei)} m³</span>
         </div>
-        <div class="sumrad"><small>Det er ${andel.toFixed(0)} % av hele skjæringsvolumet.
-          ${antallObs ? 'Flere observasjoner i kartet strammer inn anslaget.'
+        <div class="sumrad"><small>Det er ${andelEnVei.toFixed(0)} % av hele skjæringsvolumet.
+          Bommer dere en halvmeter hver vei, er spennet ${t(u.spenn)} m³.</small></div>
+        <div class="sumrad"><small>${antallObs ? 'Flere observasjoner i kartet strammer inn anslaget.'
         : 'Registrer fjellpunkt i kartet der dere vet hva som ligger under.'}</small></div>
       </div>`;
   },
