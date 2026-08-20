@@ -3,3 +3,4 @@ prosjekter/
 node_modules/
 .vercel/
 *.log
+public/_prove/
