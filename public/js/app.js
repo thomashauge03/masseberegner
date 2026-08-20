@@ -238,7 +238,24 @@ const App = {
     const boks = document.getElementById('framdrift');
     boks.classList.toggle('skjult', !vis);
     if (tekst) document.getElementById('framdriftTekst').textContent = tekst;
-    document.getElementById('framdriftStolpe').style.width = Math.round((andel || 0) * 100) + '%';
+    /* Nar en operasjon kaller en annen, skrev den indre sin egen andel rett i
+       stolpen: linja gikk til hundre, hoppet tilbake til null og begynte pa
+       nytt - to ganger under Rett opp, som varer et titalls sekunder. Det ser
+       ut som om ingenting skjer, og det var nettopp det som ble meldt som
+       "laster i evigheten". Et vindu lar den ytre operasjonen si hvilken del
+       av stolpen den indre far rade over, sa linja bare gar én vei. */
+    const [fra, til] = this._framdriftVindu || [0, 1];
+    const a = fra + (til - fra) * Math.max(0, Math.min(1, andel || 0));
+    document.getElementById('framdriftStolpe').style.width = Math.round(a * 100) + '%';
+  },
+
+  /** Kjører et arbeid som far rade over stolpen fra `fra` til `til`. */
+  async iFramdriftVindu(fra, til, arbeid) {
+    const forrige = this._framdriftVindu;
+    const [f0, t0] = forrige || [0, 1];
+    this._framdriftVindu = [f0 + (t0 - f0) * fra, f0 + (t0 - f0) * til];
+    try { return await arbeid(); }
+    finally { this._framdriftVindu = forrige; }
   },
 
   /* ---------------- geometri ---------------- */
@@ -764,7 +781,7 @@ const App = {
       }
       this.beregn();
       this.framdrift(true, 'Finjusterer for minst mulig masse…', 0.5);
-      await this.optimaliser(true, modus);
+      await this.iFramdriftVindu(0.5, 0.95, () => this.optimaliser(true, modus));
 
       /* Optimaliseringen leter etter billigere høyder, og kan i den jakten
          havne pa noe som bryter et krav igjen. Da rettes det en siste gang -
@@ -1331,7 +1348,8 @@ const App = {
           const kk = kostnad(forsok);
           if (kk < bestK - 1e-6) { best = forsok; bestK = kk; }
         }
-        this.framdrift(true, 'Optimaliserer lengdeprofilen…', (runde + i / best.length) / runder);
+        // profilsøket eier første del av stolpen, sidelengs flytting resten
+        this.framdrift(true, 'Optimaliserer lengdeprofilen…', 0.6 * (runde + i / best.length) / runder);
         if (i % 4 === 0) await pause();
       }
       steg /= 2;
@@ -1371,7 +1389,7 @@ const App = {
             const kk = kostnad(best, linje2) + this.samletAvboyning(linje2) * 40;
             if (kk < besteK - 1e-6) { beste = forsok; besteK = kk; }
           }
-          this.framdrift(true, 'Prøver å flytte linjen sidelengs…', (runde + i / beste.length) / 3);
+          this.framdrift(true, 'Prøver å flytte linjen sidelengs…', 0.6 + 0.4 * (runde + i / beste.length) / 3);
           if (i % 3 === 0) await pause();
         }
         sideSteg /= 2;
