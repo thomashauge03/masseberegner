@@ -314,7 +314,12 @@ const App = {
     if (!V.length) return;
     const siste = V[V.length - 1];
     if (Math.abs(siste.s - L) > 0.5) {
-      const g = V.length > 1 ? (siste.z - V[V.length - 2].z) / (siste.s - V[V.length - 2].s) : 0;
+      /* Star de to siste knekkpunktene pa samme profilnummer, blir dette en
+         deling pa null: stigningen blir uendelig, endepunktets høyde blir
+         Infinity eller NaN, og volumene blir stille feil. Da videreføres
+         høyden vannrett i stedet - det er ingenting a regne en stigning av. */
+      const dl = V.length > 1 ? (siste.s - V[V.length - 2].s) : 0;
+      const g = Math.abs(dl) > 1e-9 ? (siste.z - V[V.length - 2].z) / dl : 0;
       V.push({ s: L, z: siste.z + g * (L - siste.s), k: siste.k });
     }
   },
@@ -785,12 +790,18 @@ const App = {
       // Laste høyder blir liggende; bare de andre løftes eller senkes
       const flytt = (liste, d) => liste.map(v => ({ s: v.s, z: v.laast ? v.z : v.z + d, k: v.k }));
       const verdi = d => this.beregnRaskt(flytt(grunn, d)).balanse.balanse;
+      this._balanseTraffIkke = null;
       let lo = -8, hi = 8;
       let vLo = verdi(lo), vHi = verdi(hi);
       let d;
       if (vLo * vHi > 0) {
-        // ingen fortegnsskifte - velg endepunktet nærmest balanse
+        /* Ingen fortegnsskifte innenfor atte meter opp eller ned: balansen
+           lar seg ikke treffe ved a flytte profilen loddrett. Da velges
+           endepunktet som kommer nærmest - men det ma sies, ellers ser det ut
+           som om programmet fant balansen, og profilen har i stillhet flyttet
+           seg atte meter. */
         d = Math.abs(vLo) < Math.abs(vHi) ? lo : hi;
+        this._balanseTraffIkke = Math.abs(Math.abs(vLo) < Math.abs(vHi) ? vLo : vHi);
       } else {
         for (let i = 0; i < 26; i++) {
           const midt = (lo + hi) / 2;
@@ -803,6 +814,13 @@ const App = {
       }
       this.P.vip.forEach(v => { if (!v.laast) v.z += d; });
       this.beregn();
+      if (this._balanseTraffIkke != null) {
+        const rest = Math.round(this._balanseTraffIkke);
+        this._balanseTraffIkke = null;
+        this.status(`Fant ingen høyde som gir balanse innenfor åtte meter. `
+          + `Profilen er flyttet ${d > 0 ? '+' : ''}${d.toFixed(1)} m, og det står `
+          + `${Math.abs(rest).toLocaleString('nb-NO')} m³ igjen i ubalanse.`);
+      }
     } catch (e) {
       this.status('Massebalanseringen feilet: ' + e.message);
     } finally {
@@ -1449,22 +1467,38 @@ const App = {
     const k = document.getElementById('h_retteLinjer').checked ? 0 : (parseFloat(document.getElementById('kVerdi').value) || 1);
     const gammel = this.vprofil;
     const ny = [];
+    let utenHoyde = 0;
     for (let s = 0; s <= this.linje.lengde + 1e-6; s += steg) {
       const ss = Math.min(s, this.linje.lengde);
       const fanns = this.P.vip.find(v => Math.abs(v.s - ss) < steg / 2 && v.laast);
       if (fanns) { ny.push(fanns); continue; }
       const z = gammel && this.P.vip.length > 1 ? gammel.hoyde(ss) : this.terrengHoyde(ss);
-      ny.push({ s: +ss.toFixed(2), z: isFinite(z) ? +z.toFixed(3) : 0, k, laast: false });
+      /* Uten høyde ble punktet lagt inn pa kote 0 - havflaten, midt i en veg
+         som ligger pa to hundre. Da er det bedre a la vaere: profilen gar rett
+         mellom knekkpunktene den har, og det er et ærligere svar enn et tall
+         som ser ut som en mailing. */
+      if (!isFinite(z)) { utenHoyde++; if (ss >= this.linje.lengde) break; continue; }
+      ny.push({ s: +ss.toFixed(2), z: +z.toFixed(3), k, laast: false });
       if (ss >= this.linje.lengde) break;
     }
     const slutt = +this.linje.lengde.toFixed(2);
     if (!ny.some(v => Math.abs(v.s - slutt) < 1e-6)) {
       const z = gammel ? gammel.hoyde(slutt) : this.terrengHoyde(slutt);
-      ny.push({ s: slutt, z: isFinite(z) ? +z.toFixed(3) : 0, k, laast: false });
+      if (isFinite(z)) ny.push({ s: slutt, z: +z.toFixed(3), k, laast: false });
+      else utenHoyde++;
     }
+    if (ny.length < 2) {
+      this.status('Fant ingen høyder å fylle inn – terrengmodellen mangler data her');
+      return;
+    }
+    this.merk('fyll inn høyder');
     this.P.vip = ny.sort((a, b) => a.s - b.s);
     this.profilEndret(false);
     this.visHoydetabell();
+    if (utenHoyde) {
+      this.status(`${ny.length} høyder fylt inn. ${utenHoyde} punkt ble hoppet over – ` +
+        'terrengmodellen mangler data der.');
+    }
   },
 
   limInnHoyder() {
