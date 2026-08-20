@@ -60,9 +60,23 @@ const Kart = {
       if (plass >= 0) this.app.status(`Satte inn knekkpunkt ${plass + 1} – dra det dit du vil ha svingen`);
     });
 
-    kart.on('click', e => this.klikk(e));
+    /* Et dobbeltklikk gir to click-hendelser før dblclick kommer. Mens man
+       tegnet ble derfor det siste punktet lagt inn to ganger: ett for klikket
+       man mente, og ett til for det som bare skulle avslutte tegningen.
+       Derfor holdes klikket igjen et øyeblikk, sa dblclick rekker a stanse
+       det. Utenfor tegnemodus er det ingen grunn til a vente. */
+    kart.on('click', e => {
+      if (this.modus !== 'tegn') { this.klikk(e); return; }
+      clearTimeout(this._klikkVent);
+      const kopi = { latlng: e.latlng };
+      this._klikkVent = setTimeout(() => { this._klikkVent = null; this.klikk(kopi); }, 220);
+    });
     kart.on('mousemove', e => this.visInfo(e));
-    kart.on('dblclick', () => { if (this.modus === 'tegn') this.settModus('rediger'); });
+    kart.on('dblclick', () => {
+      clearTimeout(this._klikkVent);            // det andre klikket skal ikke bli et punkt
+      this._klikkVent = null;
+      if (this.modus === 'tegn') this.settModus('rediger');
+    });
 
     this.koblingerUI();
     return this;
@@ -136,7 +150,13 @@ const Kart = {
    */
   settInnPunkt(latlng, maksAvstand = 40) {
     const app = this.app, P = app.P;
-    if (P.ip.length < 2 || !app.linje || app.linje.lengde <= 0) return -1;
+    if (P.ip.length < 2) return -1;
+    /* Bygg linjen pa nytt først. `linjeEndret` er utsatt noen hundredels
+       sekund, sa rett etter at et punkt er slettet eller flyttet kan
+       `app.linje` fortsatt vaere den gamle - og da regnes plassen i rekken ut
+       fra en linje som ikke finnes lenger. */
+    app.byggLinje();
+    if (!app.linje || app.linje.lengde <= 0) return -1;
     const utm = Geo.tilUtm(latlng.lat, latlng.lng, app.sone);
     const pr = app.linje.projiser(utm.x, utm.y);
     if (!isFinite(pr.s) || pr.avstand > maksAvstand) return -1;
@@ -157,8 +177,32 @@ const Kart = {
       if (pr.s <= langs[i] + 1e-9) { plass = i; break; }
     }
     app.merk('sett inn knekkpunkt');
-    P.ip.splice(plass, 0, { lat: latlng.lat, lon: latlng.lng, r: P.standardRadius || 0 });
+    const nytt = { lat: latlng.lat, lon: latlng.lng, r: P.standardRadius || 0 };
+    P.ip.splice(plass, 0, nytt);
+
+    /* Settes punktet inn midt i en kurve som alt finnes, far tre kurver
+       plutselig dele pa den samme strekningen. Linjeføringen korter dem inn
+       for a fa dem til a passe, og resultatet kan bli en radius pa under en
+       meter - en sving ingen kjører. Da er det bedre a gi det nye punktet en
+       radius som faktisk far plass. */
+    const passer = () => {
+      const l = app.byggLinje();
+      if (!l) return true;
+      const kurve = (l.kurver || []).find(k => k.ip === plass);
+      // ingen kurve i det hele tatt er greit ved radius 0
+      if (!kurve) return !nytt.r;
+      return kurve.r >= nytt.r * 0.75;
+    };
+    let kortet = false;
+    while (nytt.r > 5 && !passer()) { nytt.r = Math.round(nytt.r / 2); kortet = true; }
+    if (nytt.r <= 5 && !passer()) { nytt.r = 0; kortet = true; }
+
     app.linjeEndret();
+    if (kortet) {
+      app.status(nytt.r
+        ? `Satte inn knekkpunkt ${plass + 1} med radius ${nytt.r} m – det var ikke plass til mer`
+        : `Satte inn knekkpunkt ${plass + 1} uten kurve – det var ikke plass til en radius her`);
+    }
     return plass;
   },
 

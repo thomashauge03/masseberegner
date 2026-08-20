@@ -91,6 +91,24 @@ const Tverrprofil = {
     return NaN;
   },
 
+  /**
+   * Er det et hull i terrengmodellen her?
+   *
+   * Punkt uten terrengdata blir hoppet over nar snittet regnes, sa de star
+   * ikke i listene i det hele tatt. Et hull ser derfor ut som to nabopunkt
+   * med uvanlig stor avstand mellom seg - og interpolasjonen imellom dem er
+   * ren oppdikting.
+   */
+  _erHull(liste, t, grense = 1.0) {
+    if (!liste || liste.length < 2) return false;
+    for (let i = 0; i < liste.length - 1; i++) {
+      if (t >= liste[i][0] && t <= liste[i + 1][0]) {
+        return liste[i + 1][0] - liste[i][0] > grense;
+      }
+    }
+    return false;
+  },
+
   /** «1:1,5» ved siden av prosenten – det malet en maskinfører kjenner. */
   _somForhold(helning) {
     const a = Math.abs(helning);
@@ -305,7 +323,7 @@ const Tverrprofil = {
       c.fillText('⚠ ' + pr.advarsel, B - m.h, m.o + 4);
     }
 
-    this._tegnAvlesning(c, pr, terr, jord, { px, py, tMin, tMax, m, B, H });
+    this._tegnAvlesning(c, pr, terr, jord, pr.geometri.rensk, { px, py, tMin, tMax, m, B, H });
   },
 
   /**
@@ -317,7 +335,7 @@ const Tverrprofil = {
    * snittet; stigningen langs veien star ved siden av, for det er den som er
    * bundet av veiklassen og radien i kurven.
    */
-  _tegnAvlesning(c, pr, terr, jord, k) {
+  _tegnAvlesning(c, pr, terr, jord, etterRensk, k) {
     if (!this.peker) return;
     const { px, py, tMin, tMax, m, B, H } = k;
     const { x, y } = this.peker;
@@ -331,10 +349,17 @@ const Tverrprofil = {
        verdien fra ytterste punkt sa langt ut man dro musen, og et tall som
        star stille nar man beveger seg ser ut som en malt verdi. */
     const utenfor = t < pr.fotVenstre - 1e-6 || t > pr.fotHoyre + 1e-6;
-    const zT = utenfor ? NaN : this._hoydeVed(terr, t);
-    const zJ = utenfor ? NaN : this._hoydeVed(jord, t);
-    const hTerr = utenfor ? null : this._helning(terr, t);
-    const hJord = utenfor ? null : this._helning(jord, t);
+    /* Hull i terrengmodellen star ikke i listene i det hele tatt - de blir
+       hoppet over nar snittet regnes. `_hoydeVed` interpolerer da rett over
+       hullet og finner pa en høyde som ser like troverdig ut som de andre.
+       Er det mer enn et par steg mellom nabopunktene, er det et hull. */
+    const hull = this._erHull(terr, t);
+    const zT = (utenfor || hull) ? NaN : this._hoydeVed(terr, t);
+    const zJ = (utenfor || hull) ? NaN : this._hoydeVed(jord, t);
+    // volumene males fra terrenget ETTER rensk, ikke fra det ratt terrenget
+    const zR = (utenfor || hull) ? NaN : this._hoydeVed(etterRensk, t);
+    const hTerr = (utenfor || hull) ? null : this._helning(terr, t);
+    const hJord = (utenfor || hull) ? null : this._helning(jord, t);
 
     // loddrett hjelpelinje der pekeren star
     c.save();
@@ -353,10 +378,15 @@ const Tverrprofil = {
     const rader = [];
     rader.push(['Avstand fra senter', `${t >= 0 ? '+' : '−'}${Math.abs(t).toFixed(2)} m`]);
     if (utenfor) rader.push(['', 'utenfor snittet']);
+    if (hull) rader.push(['', 'terrengmodellen mangler data her']);
     if (isFinite(zT)) rader.push(['Terreng', zT.toFixed(2) + ' moh']);
     if (isFinite(zJ)) rader.push(['Jordarbeid', zJ.toFixed(2) + ' moh']);
-    if (isFinite(zT) && isFinite(zJ)) {
-      const d = zT - zJ;
+    if (isFinite(zR) && isFinite(zJ)) {
+      /* Males fra terrenget etter rensk - det er den flaten volumene regnes
+         mot. Mot ratt terreng ble tallet en renskedybde for stort, og helt
+         nær nullpunktet fikk det til og med feil fortegn: «skjæring 0,05 m»
+         der det i virkeligheten skulle fylles. */
+      const d = zR - zJ;
       rader.push([d >= 0 ? 'Skjæring her' : 'Fylling her', Math.abs(d).toFixed(2) + ' m']);
     }
     if (hJord != null) {

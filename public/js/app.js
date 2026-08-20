@@ -1724,9 +1724,19 @@ const App = {
     id('knappRettOpp').onclick = () => this.rettOpp();
     id('knappBalanser').onclick = () => this.balanser();
     id('knappOptimaliser').onclick = () => this.optimaliser();
+    /* K settes pa knekkpunktene som far bestemme seg selv - ikke pa de laste.
+       En last høyde har K=0 nettopp fordi veglinjen skal ga nøyaktig gjennom
+       den, slik det ogsa star i teksten over høydetabellen. Med K=2 pa et last
+       punkt bøyer kurven av fra høyden brukeren har bestemt, og avviket blir
+       A·L/8 - fort en halv meter. */
     id('kVerdi').onchange = e => {
       const k = parseFloat(e.target.value);
-      if (isFinite(k)) { this.P.vip.forEach(v => v.k = k); this.profilEndret(false); }
+      if (!isFinite(k)) return;
+      this.merk('K-verdi');
+      let laste = 0;
+      this.P.vip.forEach(v => { if (v.laast) laste++; else v.k = k; });
+      this.profilEndret(false);
+      if (laste) this.status(`${laste} låste høyder beholder K=0 – veglinjen går nøyaktig gjennom dem`);
     };
 
     // Alle malfeltene
@@ -1773,7 +1783,9 @@ const App = {
     }
     id('h_retteLinjer').onchange = e => {
       const k = e.target.checked ? 0 : (parseFloat(id('kVerdi').value) || 1);
-      this.P.vip.forEach(v => v.k = k);
+      this.merk(e.target.checked ? 'rette linjer mellom høydene' : 'vertikalkurver på');
+      // laste høyder star med K=0 - de skal treffes nøyaktig
+      this.P.vip.forEach(v => { if (!v.laast) v.k = k; });
       this.profilEndret(false); this.visHoydetabell();
     };
 

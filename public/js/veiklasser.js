@@ -200,7 +200,12 @@ function malFraVeiklasse(klasse, gjeldende) {
   m.utvidelseOvergang = k.utvidelseOvergang;
   // normalen skiller disse to; se kommentaren øverst i filen
   m.utflatingForKurve = k.stigningsovergang != null ? k.stigningsovergang : k.utvidelseOvergang;
-  m.slitelagBredde = Math.min(m.slitelagBredde || k.kjorebane, k.vegbredde);
+  /* Slitelagsbredden hentes fra klassen, ikke fra det som sto der før.
+     Med `Math.min(m.slitelagBredde || …, …)` kunne den bare ga nedover: sa du
+     først pa K8 med 2,5 m og deretter valgte K1, ble slitelaget staende pa
+     2,5 m i stedet for K1 sine 4,0. Resultatet hang pa hvilken klasse du
+     tilfeldigvis apnet først. */
+  m.slitelagBredde = Math.min(k.kjorebane != null ? k.kjorebane : k.vegbredde, k.vegbredde);
   m.breddeIKurve = (k.breddeIKurve || []).map(r => r.slice());
   m.stigningIKurve = (k.stigningIKurve || []).map(r => r.slice());
   m.minRadius = k.minRadius;
