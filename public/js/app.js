@@ -645,6 +645,8 @@ const App = {
     }
 
     const bruddFor = this.tellBrudd();
+    // profilen slik den sto, sa knappen kan legge den tilbake om den ikke fant noe bedre
+    const vipFor = this.P.vip.map(v => Object.assign({}, v));
     const volumFor = {
       fjell: this.resultat.sum.skjaeringFjell,
       skjaering: this.resultat.sum.skjaering,
@@ -701,6 +703,22 @@ const App = {
         rettEnGang();
         this.vprofil = new Vertikalprofil(this.P.vip);
         this.beregn();
+      }
+
+      /* Og hjelper ikke det, skal ikke resultatet bli varre enn det man
+         startet med. Rettingen kan gjøre et brudd større et sted mens den
+         fjerner to andre, og optimaliseringen etterpa er et lokalt søk som
+         ikke lover noe. Har brudd-tallet gatt opp, legges den opprinnelige
+         profilen tilbake - da har knappen i det minste ikke ødelagt noe. */
+      const etterAlt = this.tellBrudd();
+      if (bruddFor && etterAlt && etterAlt.profil > bruddFor.profil) {
+        this.P.vip = vipFor.map(v => Object.assign({}, v));
+        this.vprofil = new Vertikalprofil(this.P.vip);
+        this.beregn();
+        this.framdrift(false);
+        this.status(`Fant ingen bedre profil – ${bruddFor.profil} brudd står som før. `
+          + 'Prøv å slakke et krav, låse opp flere høyder, eller endre linjen i planet.');
+        return;
       }
     } catch (e) {
       this.status('Rettingen feilet: ' + e.message);
@@ -853,23 +871,46 @@ const App = {
          inn som svaert dyre brudd. Uten dette ville optimaliseringen valgt
          den løsningen som er billigst pa papiret - gjerne en 20 % bakke i en
          30-meterskurve, eller en fylling som stikker 40 m ut. */
-      for (const m of r.merknader) if (m.type === 'kurvatur') k += 200000;
+      for (const m of r.merknader) {
+        if (m.type === 'kurvatur') k += 200000;
+        /* Vertikalkurvene hadde ingen straff. «Rett opp» retter dem, og sa
+           kjører optimaliseringen etterpa og star fritt til a lage dem pa
+           nytt - den merket dem ikke som noe a unnga. */
+        if (m.type === 'vertikalkurve') k += 60000;
+      }
+      /* Bruddene telles per profil, men optimaliseringen regner med grovere
+         profilavstand enn rapporten - femten meter mot fem. Da ser den bare en
+         tredjedel sa mange brudd, og straffen ble tilsvarende for liten:
+         malt pa en prøvevei sa rapporten 46 skjæringsbrudd der
+         optimaliseringen sa 15.
+
+         Løsningen er ikke a regne finere - det ville tredoblet arbeidet - men
+         a male straffen per meter veg i stedet for per profil. Da veier et
+         brudd like tungt uansett hvor tett profilene star, og
+         volumleddene over er allerede uavhengige av oppløsningen. */
+      const perMeter = r.stasjoner.length > 1 ? (r.stasjoner[1] - r.stasjoner[0]) : 5;
       for (const pr of r.profiler) {
         const g = vpKost.stigning(pr.s);
-        const tillatt = maksStigningFraRadius(mal, pr.radius, g, mal.lassretning);
-        if (Math.abs(g) > tillatt) k += (Math.abs(g) - tillatt) * 400000;
+        /* Kravet males mot den effektive radien, slik det gjøres overalt
+           ellers: normalen sier at stigningen skal flates ut ogsa pa
+           innkjøringen til en knapp kurve. Med `pr.radius` siktet
+           optimaliseringen mot en slakkere regel enn den rapporten handhever,
+           og kunne lande pa en løsning som straks ble meldt som brudd. */
+        const kravRadius = effektivRadius(this.linje, mal, pr.s);
+        const tillatt = maksStigningFraRadius(mal, kravRadius, g, mal.lassretning);
+        if (Math.abs(g) > tillatt) k += (Math.abs(g) - tillatt) * 80000 * perMeter;
 
         if (mal.maksFyllingshoyde > 0 && pr.maksFylling > mal.maksFyllingshoyde) {
-          k += (pr.maksFylling - mal.maksFyllingshoyde) * 3000;
+          k += (pr.maksFylling - mal.maksFyllingshoyde) * 600 * perMeter;
         }
         if (mal.maksSkjaeringsdybde > 0 && pr.maksSkjaering > mal.maksSkjaeringsdybde) {
-          k += (pr.maksSkjaering - mal.maksSkjaeringsdybde) * 3000;
+          k += (pr.maksSkjaering - mal.maksSkjaeringsdybde) * 600 * perMeter;
         }
         if (mal.maksUtslag > 0) {
           const utslag = Math.max(-pr.fotVenstre, pr.fotHoyre) - pr.halvbredde;
-          if (utslag > mal.maksUtslag) k += (utslag - mal.maksUtslag) * 2000;
+          if (utslag > mal.maksUtslag) k += (utslag - mal.maksUtslag) * 400 * perMeter;
         }
-        if (pr.advarsel) k += 50000;             // skraningen fant ikke terrenget
+        if (pr.advarsel) k += 10000 * perMeter;   // skraningen fant ikke terrenget
       }
       return k;
     };
