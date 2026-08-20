@@ -1473,6 +1473,11 @@ const App = {
 
   _lagretSom: '',
   _autolagring: null,
+  /* Teller opp mens noe annet enn brukeren rører prosjektet - nettlesertesten
+     legger inn punkt og fjerner dem igjen, og de skal ikke bli lagret
+     underveis. Uten dette skrev testen sine egne endringer inn i prosjektet
+     den lante. */
+  autolagringPause: 0,
 
   harUlagret() {
     if (!this.P) return false;
@@ -1486,6 +1491,7 @@ const App = {
   },
 
   async autolagre() {
+    if (this.autolagringPause > 0) return;
     if (!this.P || !this.harUlagret()) return;
     // et prosjekt uten navn har brukeren ikke bestemt seg for enna
     const navn = (document.getElementById('prosjektnavn').value || '').trim();
@@ -1569,8 +1575,12 @@ const App = {
 
     /* Star det igjen noe ulagret, ma det bli lagret eller uttrykkelig
        forkastet. Uten dette forsvant alt siden forrige lagring i det
-       øyeblikket man apnet et annet prosjekt. */
-    if (navn !== (this.P && this.P.navn) && this.harUlagret()) {
+       øyeblikket man apnet et annet prosjekt.
+
+       Bare nar det er brukeren som apner. Er det programmet selv - som under
+       nettlesertesten - er det ingen a spørre, og spørsmalet ble staende og
+       vente pa et klikk som aldri kom. */
+    if (this.autolagringPause === 0 && navn !== (this.P && this.P.navn) && this.harUlagret()) {
       await this.autolagre();
       if (this.harUlagret()) {
         const ja = await this.bekreft(

@@ -43,6 +43,14 @@ const Nettlesertest = {
     const gammelFeil = window.onerror;
     window.onerror = (m) => { feilILoggen.push(String(m)); };
 
+    /* Testen laner prosjektet som star apent, legger inn punkt og fjerner dem
+       igjen. Med autolagring pa ble de mellomtilstandene skrevet inn i
+       prosjektet - demoen endte 921 m lang med 755 000 kubikk fylling. Derfor
+       settes lagringen pa vent, og prosjektet legges tilbake slik det var. */
+    App.autolagringPause++;
+    const foerProsjekt = App.P ? JSON.stringify(App.P) : null;
+    const foerNavn = App.P ? App.P.navn : null;
+
     try {
       await this.modulene();
       await this.lagring();
@@ -66,6 +74,27 @@ const Nettlesertest = {
     }
 
     window.onerror = gammelFeil;
+
+    /* Legg prosjektet tilbake slik det sto, ogsa i lageret dersom det var
+       lagret der fra før. Testen skal ikke etterlate seg spor i noe brukeren
+       har jobbet med. */
+    if (foerProsjekt) {
+      const naa = JSON.stringify(App.P);
+      if (naa !== foerProsjekt) {
+        App.P = JSON.parse(foerProsjekt);
+        App.byggLinje();
+        App.vprofil = new Vertikalprofil(App.P.vip);
+        try {
+          if (foerNavn && await Lager.hent(foerNavn)) await Lager.lagre(foerNavn, App.P);
+        } catch (e) { /* lageret sier fra selv */ }
+        App._lagretSom = foerProsjekt;
+        try { await App.oppdater(); } catch (e) { /* tegningen kommer uansett */ }
+      }
+      this.sjekk('prosjektet står igjen slik det var før testen',
+        JSON.stringify(App.P) === foerProsjekt);
+    }
+    App.autolagringPause--;
+
     this.sjekk('ingen feil i konsollen underveis', feilILoggen.length === 0, feilILoggen.join(' | '));
     return this.rapporter(Math.round(performance.now() - t0));
   },
@@ -436,7 +465,11 @@ const Nettlesertest = {
     this.sjekk('og lagreknappen sier fra',
       document.getElementById('knappLagre').classList.contains('ulagret'));
 
+    /* Prøven ma slippe pausen som resten av testen kjører med - det er jo
+       nettopp autolagringen som skal kontrolleres her. */
+    App.autolagringPause--;
     await App.autolagre();
+    App.autolagringPause++;
     this.sjekk('autolagringen tar den', !App.harUlagret());
 
     const lagra = await Lager.hent(navn);
@@ -447,7 +480,9 @@ const Nettlesertest = {
        ville listen fylles opp av halvferdige forsøk. */
     felt.value = 'Nytt prosjekt';
     App.P.ip[1].r = (forRadius || 0) + 16;
+    App.autolagringPause--;
     await App.autolagre();
+    App.autolagringPause++;
     this.sjekk('et prosjekt uten navn lagres ikke av seg selv',
       !(await Lager.hent('Nytt prosjekt')));
 
