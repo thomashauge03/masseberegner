@@ -26,6 +26,15 @@ const Nettlesertest = {
   },
   vent(ms) { return new Promise(r => setTimeout(r, ms)); },
 
+  /* Prosjektfila lagrer anlegg, ikke løse felt. Leser man fila rett - som
+     provene under gjør nar de kontrollerer at lagringen faktisk skrev noe -
+     ma man ga veien om anlegget. */
+  vegenI(fil) {
+    if (!fil) return { ip: [], vip: [], mal: {} };
+    if (Array.isArray(fil.anlegg)) return fil.anlegg.find(a => a.type === 'veg') || fil.anlegg[0];
+    return fil;                      // fil fra før tomtemodus
+  },
+
   /** Venter til beregningen har landet, i stedet for a gjette pa en tid. */
   async ventPaBeregning(tid = 15000) {
     const start = Date.now();
@@ -70,6 +79,7 @@ const Nettlesertest = {
       await this.pdfavlesning();
       await this.rapport();
       await this.paneler();
+      await this.tomt();
       await this.framdrift();
       await this.opprydding();
     } catch (e) {
@@ -123,9 +133,17 @@ const Nettlesertest = {
     const liste = await Lager.liste();
     this.sjekk('prosjektet kom inn i listen', liste.some(p => p.navn === navn));
 
+    /* Knekkpunktene ligger i anlegget i fila, ikke pa toppniva. `P.ip` er et
+       vindu inn i det aktive anlegget, og det vinduet er ikke-tellbart - sa det
+       blir hverken lagret eller lest tilbake. Leser man fila rett, ma man ga
+       veien om anlegget. */
     const hentet = await Lager.hent(navn);
+    const vegen = hentet && hentet.anlegg && hentet.anlegg.find(a => a.type === 'veg');
+    this.sjekk('fila lagrer anlegg, ikke løse felt',
+      !!vegen && !Object.prototype.hasOwnProperty.call(hentet, 'ip'),
+      hentet ? Object.keys(hentet).join(',') : 'ingen fil');
     this.sjekk('hentet prosjekt har samme knekkpunkt',
-      hentet && hentet.ip.length === 2 && Math.abs(hentet.ip[1].r - 30) < 1e-9);
+      !!vegen && vegen.ip.length === 2 && Math.abs(vegen.ip[1].r - 30) < 1e-9);
 
     const fil = new File([JSON.stringify(hentet)], 't.json', { type: 'application/json' });
     const lagt = await Lager.importer(fil);
@@ -476,8 +494,8 @@ const Nettlesertest = {
     this.sjekk('autolagringen tar den', !App.harUlagret());
 
     const lagra = await Lager.hent(navn);
-    this.sjekk('og lageret har den nye verdien', !!lagra && lagra.ip[1].r === (forRadius || 0) + 15,
-      lagra ? String(lagra.ip[1].r) : 'fant ikke prosjektet');
+    this.sjekk('og lageret har den nye verdien', !!lagra && this.vegenI(lagra).ip[1].r === (forRadius || 0) + 15,
+      lagra ? String(this.vegenI(lagra).ip[1].r) : 'fant ikke prosjektet');
 
     /* Et prosjekt som ikke har fatt navn skal ikke lagres av seg selv - da
        ville listen fylles opp av halvferdige forsøk. */
@@ -518,7 +536,7 @@ const Nettlesertest = {
     App.autolagringPause++;
     const etterAuto = await Lager.hent(annet);
     this.sjekk('autolagringen skriver ikke over et annet prosjekt',
-      !!etterAuto && etterAuto.ip.length === 2 && etterAuto.ip[0].lat === 58);
+      !!etterAuto && this.vegenI(etterAuto).ip.length === 2 && this.vegenI(etterAuto).ip[0].lat === 58);
 
     // og Lagre-knappen skal spørre først
     let spurt = false;
@@ -529,7 +547,7 @@ const Nettlesertest = {
     const etterNei = await Lager.hent(annet);
     this.sjekk('Lagre spør før den skriver over', spurt);
     this.sjekk('og lar det være når svaret er nei',
-      !!etterNei && etterNei.ip[0].lat === 58);
+      !!etterNei && this.vegenI(etterNei).ip[0].lat === 58);
 
     /* Demoprosjektet skal ikke kunne skrive over noe som alt finnes. */
     const førSaaing = await Lager.hent(annet);
@@ -782,6 +800,105 @@ const Nettlesertest = {
         document.getElementById('fane-' + f.dataset.fane).classList.contains('aktiv'));
     }
     document.querySelector('.fane').click();
+  },
+
+  /* ---------------- 11b. tomtemodus ---------------- */
+  async tomt() {
+    const foer = JSON.stringify(App.P);
+
+    App.P = App.nyttProsjekt();
+    App.P.navn = '__test_tomt';
+    this.sjekk('nytt prosjekt har ett veganlegg',
+      App.P.anlegg.length === 1 && App.P.anlegg[0].type === 'veg');
+    this.sjekk('P.ip er fortsatt en liste', Array.isArray(App.P.ip));
+
+    App.leggTilAnlegg('tomt');
+    this.sjekk('tomta ble lagt til', App.P.anlegg.length === 2 && App.erTomt());
+    this.sjekk('tomta har sin egen mal',
+      App.P.mal.veggHelning === 0.1 && App.P.mal.vegbredde === undefined);
+    /* En tomt har ingen senterlinje, men ma likevel ha tomme lister - ellers
+       faller alt som gar gjennom P.ip og P.vip, og det er over to hundre
+       oppslag som ikke har noen grunn til a vite hva slags anlegg de star i. */
+    this.sjekk('tomta har tomme lister, ikke undefined',
+      Array.isArray(App.P.ip) && Array.isArray(App.P.vip));
+    this.sjekk('vegmalen er urørt', App.P.anlegg[0].mal.vegbredde === 4.5);
+    this.sjekk('«Tegn tomt» kom fram',
+      !document.getElementById('verktoyTomt').classList.contains('skjult'));
+    this.sjekk('«Tegn senterlinje» ble borte',
+      document.getElementById('verktoyTegn').classList.contains('skjult'));
+
+    /* Tegn et rektangel pa 60 x 40 m. Fasiten kan regnes i hodet: 2400 m² og
+       200 m omkrets. En prøve uten fasit fanger bare at noe skjer, ikke at det
+       som skjer er riktig. */
+    const lat0 = 58.2958, lon0 = 7.2098;
+    const dLat = m => m / 111320;
+    const dLon = m => m / (111320 * Math.cos(lat0 * Math.PI / 180));
+    Kart.settModus('tegnTomt');
+    for (const [dx, dy] of [[0, 0], [60, 0], [60, 40], [0, 40]]) {
+      Kart.klikk({ latlng: { lat: lat0 + dLat(dy), lng: lon0 + dLon(dx) } });
+    }
+    this.sjekk('fire hjørner lagt inn', App.P.tomt.punkter.length === 4);
+    Kart.avsluttTomt();
+    this.sjekk('tegningen ble avsluttet', Kart.modus === 'rediger');
+
+    const t = App.tomtetall();
+    this.naer('arealet stemmer', Math.round(t.areal), 2400, 30);
+    this.naer('omkretsen stemmer', +t.omkrets.toFixed(1), 200, 3);
+    this.sjekk('ingen merknader på et rent rektangel', t.merknader.length === 0,
+      JSON.stringify(t.merknader));
+    this.sjekk('polygonet ble tegnet', Kart.lag.tomt.getLatLngs()[0].length === 4);
+    this.sjekk('hjørnene kan dras', Kart.lag.tomtHjorner.getLayers().length === 4);
+
+    /* Et polygon som krysser seg selv har ikke ett entydig areal -
+       skolisseformelen gir differansen mellom løkkene, ikke summen. Da blir
+       volumet feil uten at noe ser galt ut. */
+    const lovlig = App.P.tomt.punkter.map(p => ({ lat: p.lat, lon: p.lon }));
+    const bytt = App.P.tomt.punkter[1];
+    App.P.tomt.punkter[1] = App.P.tomt.punkter[2];
+    App.P.tomt.punkter[2] = bytt;
+    this.sjekk('selvkryssende tomt blir meldt',
+      App.tomtetall().merknader.some(m => /krysser/.test(m.tekst)));
+    App.P.tomt.punkter = lovlig;
+    this.sjekk('og merknaden går bort igjen', App.tomtetall().merknader.length === 0);
+
+    // lagring: tomta skal overleve en tur innom lageret
+    await Lager.lagre('__test_tomt', App.P);
+    const fil = await Lager.hent('__test_tomt');
+    this.sjekk('fila lagrer begge anleggene', !!fil && fil.anlegg.length === 2);
+    this.sjekk('fila har ingen løse felt på toppnivå',
+      !!fil && !Object.prototype.hasOwnProperty.call(fil, 'mal')
+      && !Object.prototype.hasOwnProperty.call(fil, 'ip'));
+    const lagretTomt = fil && fil.anlegg.find(a => a.type === 'tomt');
+    this.sjekk('tomta lagret med fire hjørner',
+      !!lagretTomt && lagretTomt.tomt.punkter.length === 4);
+    this.sjekk('tomta fikk ikke vegens felt', !!lagretTomt && lagretTomt.mal.vegbredde === undefined);
+
+    // bytte tilbake til vegen skal ikke røre tomta
+    App.byttAnlegg(App.P.anlegg[0].id);
+    this.sjekk('tilbake på vegen', !App.erTomt() && App.P.mal.vegbredde === 4.5);
+    this.sjekk('tomta ligger der fortsatt', App.P.anlegg[1].tomt.punkter.length === 4);
+    this.sjekk('tomtelaget ble tømt på vegen', Kart.lag.tomt.getLatLngs()[0].length === 0);
+
+    /* En fil fra før tomtemodus skal apne uendret. Blir den lest som et
+       prosjekt uten anlegg, star innholdet igjen pa toppniva og blir borte -
+       uten et eneste tegn pa at noe er galt. */
+    const gammel = {
+      navn: '__test_gammel',
+      ip: [{ lat: 58.29, lon: 7.20, r: 30 }, { lat: 58.30, lon: 7.21, r: 30 }],
+      vip: [{ s: 0, z: 100, k: 1 }, { s: 50, z: 105, k: 1 }],
+      mal: { vegbredde: 4.0 }, faktorer: { sprengningsfaktor: 1.6 },
+      fjell: { standarddybde: 1.2 }, profilAvstand: 5
+    };
+    const pakket = App.klargjorProsjekt(JSON.parse(JSON.stringify(gammel)));
+    this.sjekk('gammel fil blir ett veganlegg',
+      pakket.anlegg.length === 1 && pakket.anlegg[0].type === 'veg');
+    this.sjekk('knekkpunktene overlevde innpakkingen', pakket.ip.length === 2);
+    this.sjekk('høydene overlevde innpakkingen', pakket.vip.length === 2);
+    this.sjekk('vegbredden overlevde innpakkingen', pakket.mal.vegbredde === 4.0);
+
+    await Lager.slett('__test_tomt');
+    App.P = JSON.parse(foer);
+    App.byggLinje();
   },
 
   /* ---------------- 12. framdriftsvisningen ---------------- */

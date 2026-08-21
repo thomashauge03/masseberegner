@@ -216,7 +216,12 @@ const Lager = {
     const prosjekter = Array.isArray(data.prosjekter) ? data.prosjekter : [data];
     const lagt = [];
     for (const p of prosjekter) {
-      if (!p || !Array.isArray(p.ip)) continue;
+      /* Et prosjekt kan ha to former: den nye med `anlegg`, og den gamle med
+         `ip` rett pa toppniva. Her sto det bare kravet om `ip`, og da ble hver
+         eneste fil med en tomt i stille hoppet over - importen svarte at null
+         prosjekter ble lagt inn, uten a si hvorfor. */
+      const gyldig = p && (Array.isArray(p.anlegg) ? p.anlegg.length > 0 : Array.isArray(p.ip));
+      if (!gyldig) continue;
       let navn = (p.navn || 'Uten navn').trim();
       let n = 2;
       while (await this.hent(navn)) navn = `${p.navn || 'Uten navn'} (${n++})`;

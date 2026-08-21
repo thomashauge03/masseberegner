@@ -91,17 +91,212 @@ const App = {
   nyttProsjekt() {
     return {
       navn: 'Nytt prosjekt',
-      ip: [],
-      vip: [],
+      versjon: 2,
+      aktivt: 'a1',
+      anlegg: [this.nyttAnlegg('veg', 'Veg', 'a1')],
       standardRadius: 30,
-      mal: Object.assign({}, StandardMal),
       faktorer: Object.assign({}, StandardFaktorer),
-      fjell: { standarddybde: 0.5, rekkevidde: 60, strekninger: [], punkter: [] },
+      fjell: { standarddybde: 0.5, rekkevidde: 60, strekninger: [], punkter: [], soner: [] },
       tverrfall: [],            // egne fall per profil, satt i tverrprofilet
       profilAvstand: 5,
       bakkekorreksjon: true
     };
   },
+
+  /* ---------------- anlegg ---------------- *
+   *
+   * Et prosjekt er en beholder med anlegg. Hvert anlegg er enten en veg eller
+   * en tomt, og har sin egen mal. Det er dét som gjør at innstillingene ikke
+   * blir uoversiktlige: det finnes ingen felles mal a bli forvirret av -
+   * endrer man skjæringshelningen pa tomta, skjer ingenting med vegen.
+   *
+   * Fjellmodellen, faktorene og terrengdataene er felles. Fjellet ligger under
+   * begge, og en sondering tatt pa tomta sier noe om vegen tretti meter unna;
+   * to modeller ville gitt to forskjellige svar pa samme spørsmal.
+   *
+   * Massene holdes atskilt - hvert anlegg far sin egen oppstilling. Se
+   * TOMTEMODUS-INNSTILLINGER.md.
+   */
+
+  nyttAnlegg(type, navn, id) {
+    const a = {
+      id: id || 'a' + Date.now().toString(36) + Math.floor(Math.random() * 1000).toString(36),
+      type: type === 'tomt' ? 'tomt' : 'veg',
+      navn: navn || (type === 'tomt' ? 'Tomt' : 'Veg')
+    };
+    if (a.type === 'tomt') {
+      a.tomt = nyTomt();
+      a.mal = Object.assign({}, StandardTomtemal);
+      /* En tomt har ingen senterlinje, men den far tomme lister likevel.
+         Alternativet var a la `P.ip` og `P.vip` vaere undefined pa en tomt, og
+         da faller alt som gar gjennom dem - tegningen av kartet, lengde-
+         profilen, øyeblikksbildet til Angre. Det er over to hundre oppslag, og
+         ingen av dem har noen grunn til a vite hva slags anlegg de star i.
+         Tomme lister er det samme som en veg uten knekkpunkt: ingenting a
+         tegne, ingenting a regne, ingen feilmelding. */
+      a.ip = [];
+      a.vip = [];
+    } else {
+      a.ip = [];
+      a.vip = [];
+      a.mal = Object.assign({}, StandardMal);
+    }
+    return a;
+  },
+
+  /**
+   * Gjør et prosjekt klart til bruk: pakker inn gamle filer, og setter opp
+   * `ip`, `vip`, `mal` og `tomt` som vinduer inn i det aktive anlegget.
+   *
+   * De fire feltene slas opp over to hundre steder i programmet. A skrive om
+   * alle sammen ville vaert bade stort og risikabelt, og det er unødvendig:
+   * med aksessorer lander bade `P.ip.push(…)` og `P.vip = […]` riktig sted,
+   * uten at et eneste oppslag ma røres.
+   *
+   * `enumerable: false` er nøkkelen. Feltene finnes for koden, men ikke for
+   * lagringen - hverken JSON.stringify eller structuredClone tar dem med. Da
+   * inneholder fila bare `anlegg`, ikke to sett av samme data som kan komme i
+   * utakt.
+   *
+   * Merk: alt som gar gjennom Object.keys(P), for-in, Object.assign({}, P)
+   * eller spredning ville mistet feltene. Programmet gjør ikke noe av det
+   * noe sted, men det er verdt a huske om det endrer seg.
+   */
+  klargjorProsjekt(P) {
+    if (!P) return P;
+    /* Er `mal` eller `ip` en egen nøkkel pa prosjektet, er fila fra før
+       tomtemodus. I den nye forma finnes de bare som ikke-tellbare aksessorer,
+       og de blir aldri lagret - sa dette er et trygt kjennetegn.
+
+       Sjekken kan ikke vaere "mangler anlegg". Apningen setter prosjektet
+       sammen som Object.assign(nyttProsjekt(), fila), og da har resultatet
+       alltid et anlegg - det tomme fra nyttProsjekt(). En gammel fil ville
+       da fatt innholdet sitt kastet, uten et eneste tegn pa at noe var galt. */
+    const eier = k => Object.prototype.hasOwnProperty.call(P, k);
+    const gammelForm = eier('mal') || eier('ip') || eier('vip');
+    if (gammelForm || !Array.isArray(P.anlegg) || !P.anlegg.length) {
+      P.anlegg = [{
+        id: 'a1', type: 'veg', navn: P.navn || 'Veg',
+        ip: P.ip || [], vip: P.vip || [], mal: P.mal || Object.assign({}, StandardMal)
+      }];
+      P.aktivt = 'a1';
+      P.versjon = 2;
+    }
+    for (const a of P.anlegg) {
+      if (!a.type) a.type = a.tomt ? 'tomt' : 'veg';
+      if (a.type === 'tomt') {
+        a.mal = Object.assign({}, StandardTomtemal, a.mal || {});
+        a.tomt = Object.assign(nyTomt(), a.tomt || {});
+        if (!Array.isArray(a.tomt.punkter)) a.tomt.punkter = [];
+        if (!Array.isArray(a.tomt.kanter)) a.tomt.kanter = [];
+        a.ip = a.ip || [];      // se nyttAnlegg: tomme lister, ikke undefined
+        a.vip = a.vip || [];
+      } else {
+        // en vegmal fra en eldre fil kan ligge inne i anlegget ogsa
+        a.mal = Object.assign({}, StandardMal, this.moderniserMal(a.mal || {}));
+        a.ip = a.ip || [];
+        a.vip = a.vip || [];
+      }
+    }
+    if (!P.anlegg.some(a => a.id === P.aktivt)) P.aktivt = P.anlegg[0].id;
+
+    const aktivt = () => P.anlegg.find(a => a.id === P.aktivt) || P.anlegg[0];
+    for (const felt of ['ip', 'vip', 'mal', 'tomt']) {
+      delete P[felt];                       // fjern verdien fra den gamle forma
+      Object.defineProperty(P, felt, {
+        configurable: true,
+        enumerable: false,
+        get() { return aktivt()[felt]; },
+        set(v) { aktivt()[felt] = v; }
+      });
+    }
+    return P;
+  },
+
+  /** Anlegget som er oppe i skjermen. */
+  anlegg() { return this.P && this.P.anlegg ? this.P.anlegg.find(a => a.id === this.P.aktivt) || this.P.anlegg[0] : null; },
+
+  /** Er det en tomt vi jobber med na? */
+  erTomt() { const a = this.anlegg(); return !!a && a.type === 'tomt'; },
+
+  /** Bytter hvilket anlegg som er oppe. */
+  byttAnlegg(id) {
+    if (!this.P.anlegg.some(a => a.id === id)) return;
+    this.merk('bytt anlegg');
+    this.P.aktivt = id;
+    /* Terrengnøkkelen henger pa geometrien til det forrige anlegget. Uten a
+       nullstille den ville programmet trodd at terrenget allerede var lastet
+       for et helt annet sted pa kartet. */
+    this._terrengnokkel = '';
+    this.resultat = null;
+    if (this.erTomt()) Kart.settModus(this.P.tomt.punkter.length ? 'rediger' : 'tegnTomt');
+    else Kart.settModus('rediger');
+    this.visAnleggsvelger();
+    this.malTilSkjema();
+    this.tegnAlt();
+    if (this.erTomt()) this.tomtEndret();
+    else this.planlegg(60);
+  },
+
+  /**
+   * Legger til en tomt.
+   *
+   * Knappen spurte først om det skulle bli en veg eller en tomt, men den
+   * dialogen har bare Ja og Avbryt - og "Avbryt" som svar pa "veg eller tomt"
+   * betyr ingenting. Tomt er dessuten det man legger til; en veg til i samme
+   * prosjekt er sjeldnere, og den far sin egen vei inn nar anleggslisten
+   * kommer.
+   */
+  velgNyttAnlegg() { this.leggTilAnlegg('tomt'); },
+
+  /** Legger til et anlegg og gar rett til det. */
+  leggTilAnlegg(type) {
+    this.merk('nytt anlegg');
+    const brukt = this.P.anlegg.filter(a => a.type === type).length;
+    const a = this.nyttAnlegg(type, (type === 'tomt' ? 'Tomt ' : 'Veg ') + (brukt + 1));
+    this.P.anlegg.push(a);
+    this.byttAnlegg(a.id);
+    this.status(type === 'tomt'
+      ? 'Ny tomt. Klikk rundt den i kartet, dobbeltklikk for å lukke.'
+      : 'Ny veg. Velg «Tegn senterlinje» og klikk i kartet.');
+  },
+
+  /** Fyller anleggsvelgeren og viser de knappene som hører til typen. */
+  visAnleggsvelger() {
+    const v = document.getElementById('anleggsvelger');
+    if (!v || !this.P) return;
+    v.innerHTML = '';
+    for (const a of this.P.anlegg) {
+      const o = document.createElement('option');
+      o.value = a.id;
+      o.textContent = (a.type === 'tomt' ? '⬟ ' : '▬ ') + a.navn;
+      if (a.id === this.P.aktivt) o.selected = true;
+      v.appendChild(o);
+    }
+    const tomt = this.erTomt();
+    const bytt = (id, vis) => { const e = document.getElementById(id); if (e) e.classList.toggle('skjult', !vis); };
+    bytt('verktoyTegn', !tomt);
+    bytt('verktoyTomt', tomt);
+    /* Vegverktøyene skjules pa en tomt fordi de ikke betyr noe der - det finnes
+       ingen senterlinje a foresla en profil for. A la dem sta og ikke gjøre noe
+       er verre enn a fjerne dem: da tror man de er i stykker. */
+    for (const id of ['knappForeslaProfil', 'knappOptimaliser', 'knappRettOpp',
+      'knappGjorLovlig', 'knappBalanser']) bytt(id, !tomt);
+  },
+
+  /** Nøkkeltallene for tomta i statuslinjen mens man tegner. */
+  oppdaterTomtefelt() {
+    if (!this.erTomt()) return;
+    const t = this.tomtetall();
+    if (!t) return;
+    if (t.hjorner < 3) {
+      this.status(`Tomt: ${t.hjorner} hjørne${t.hjorner === 1 ? '' : 'r'} – minst tre trengs`);
+      return;
+    }
+    const feil = t.merknader.length ? ' · ⚠ ' + t.merknader[0].tekst : '';
+    this.status(`Tomt: ${t.areal.toFixed(0)} m² · omkrets ${t.omkrets.toFixed(1)} m · ${t.hjorner} hjørner${feil}`);
+  },
+
 
   /**
    * Eldre prosjektfiler hadde grøftedybden malt fra vegkanten og
@@ -109,7 +304,14 @@ const App = {
    * total bredde, sa gamle filer regnes om ved apning.
    */
   moderniserProsjekt(P) {
-    const m = P.mal || {};
+    this.moderniserMal(P.mal);
+    if (!Array.isArray(P.tverrfall)) P.tverrfall = [];
+    return P;
+  },
+
+  /** Samme omregning for én vegmal. Kalles ogsa per anlegg fra klargjøringen. */
+  moderniserMal(mal) {
+    const m = mal || {};
     if (m.grofteDybde != null && m.grofteDybdePlanum == null) {
       const overbygning = (m.slitelagTykkelse || 0.10) + (m.baerelagTykkelse || 0.60);
       m.grofteDybdePlanum = Math.max(0.05, +(m.grofteDybde - overbygning).toFixed(3));
@@ -125,11 +327,24 @@ const App = {
       m.stigningIKurve = m.maksStigning.map(r => [r[0], r[1], r[1]]);
       delete m.maksStigning;
     }
-    if (!Array.isArray(P.tverrfall)) P.tverrfall = [];
-    return P;
+    return m;
   },
 
   async start() {
+    /* Prosjektet settes fra fem forskjellige steder - nytt prosjekt, apning,
+       import, angre og nettlesertesten. Klargjøringen ma skje hver eneste
+       gang, ellers star koden med et prosjekt uten vinduene inn i anlegget,
+       og `P.mal` er plutselig undefined.
+
+       Fem kall er fem steder a glemme det. I stedet gar tilordningen gjennom
+       én port: `P` er en egenskap med en setter, og den klargjør. Da spiller
+       det ingen rolle hvor prosjektet kommer fra. */
+    Object.defineProperty(this, 'P', {
+      configurable: true,
+      get() { return this._P; },
+      set(v) { this._P = v ? this.klargjorProsjekt(v) : v; }
+    });
+
     this.P = this.nyttProsjekt();
     Kart.init(this);
     Lengdeprofil.init(this);
@@ -138,6 +353,7 @@ const App = {
     Pdfrapport.init(this);
     PdfUI.init(this);
     this.koblingerUI();
+    this.visAnleggsvelger();
     this.malTilSkjema();
     this.tegnAlt();
     this.status('Klar. Velg «Tegn senterlinje» og klikk i kartet.');
@@ -619,6 +835,52 @@ const App = {
   },
 
   linjeEndret() { this.planlegg(120); },
+
+  /**
+   * Tomta er endret - tegn den om og fortell hva den er blitt.
+   *
+   * Regner ikke masser enda. Første etappe er a fa tomta inn og synlig; volumet
+   * kommer nar kantbehandlingen er pa plass. Arealet og omkretsen males
+   * likevel med en gang, for det er de tallene man leser mens man tegner for a
+   * se om man har truffet det man mente.
+   */
+  tomtEndret() {
+    Kart.tegn();
+    this.oppdaterTomtefelt();
+    this.visLagretMerke();
+    this.planleggAutolagring();
+  },
+
+  /** Tomta i UTM, sa areal og lengder males i meter og ikke i grader. */
+  tomtIUtm(t) {
+    const tt = t || (this.erTomt() ? this.P.tomt : null);
+    if (!tt || !tt.punkter.length) return [];
+    if (!this.sone) this.sone = Geo.sone(tt.punkter[0].lon);
+    return tt.punkter.map(p => {
+      const u = Geo.tilUtm(p.lat, p.lon, this.sone);
+      return { x: u.x, y: u.y };
+    });
+  },
+
+  /** Nøkkeltallene for tomta, slik de vises mens man tegner. */
+  tomtetall() {
+    if (!this.erTomt()) return null;
+    const t = this.P.tomt;
+    const p = this.tomtIUtm(t);
+    if (p.length < 3) return { hjorner: t.punkter.length, areal: 0, omkrets: 0, merknader: [] };
+    /* Bakkefaktoren er en lengdefaktor. Et areal skalerer med kvadratet av den
+       - to lengder ganges sammen. Bruker man den rett pa arealet, blir feilen
+       dobbelt sa stor som den skulle vaert, og den er stille: 850 m² mot
+       850,3 m² ser like rimelig ut. */
+    const bf = this.bakkefaktor();
+    return {
+      hjorner: t.punkter.length,
+      areal: Tomt.areal(p) * bf * bf,
+      omkrets: Tomt.omkrets(p) * bf,
+      kanter: Tomt.kanter(p).length,
+      merknader: Tomt.sjekkTomt(t, p)
+    };
+  },
   grunnEndret() { Kart.tegn(); this.visSonderinger(); this.planlegg(60); },
   profilEndret(underDrag) {
     this.vprofil = new Vertikalprofil(this.P.vip);
@@ -1555,6 +1817,12 @@ const App = {
   malTilSkjema() {
     const m = this.P.mal, f = this.P.faktorer, g = this.P.fjell;
     const sett = (id, v) => { const e = document.getElementById(id); if (e) e.value = v; };
+    this.visMalfane();
+    /* Skjemaet er vegmalen. En tomt har sine egne felt, og a la vegskjemaet
+       lese en tomtemal ville fylt hvert felt med undefined - og verre: neste
+       gang noen rørte et felt, ville skjemaet skrevet vegverdier inn i tomtas
+       mal. Faktorene og grunnforholdene er felles og settes fortsatt. */
+    if (this.erTomt()) { this.grunnTilSkjema(f, g); return; }
     sett('m_vegbredde', m.vegbredde);
     sett('m_tverrfall', (m.tverrfall * 100).toFixed(1));
     sett('m_tverrfallType', m.tverrfallType);
@@ -1582,6 +1850,12 @@ const App = {
     sett('m_profilAvstand', this.P.profilAvstand);
     sett('m_maksSokebredde', m.maksSokebredde);
     document.getElementById('m_bakkekorreksjon').checked = !!this.P.bakkekorreksjon;
+    this.grunnTilSkjema(f, g);
+  },
+
+  /** Faktorene og grunnforholdene er felles for alle anlegg i prosjektet. */
+  grunnTilSkjema(f, g) {
+    const sett = (id, v) => { const e = document.getElementById(id); if (e) e.value = v; };
     sett('f_sprengningsfaktor', f.sprengningsfaktor);
     sett('f_fjellIFylling', f.fjellIFylling);
     sett('f_losmasseIFylling', f.losmasseIFylling);
@@ -1590,6 +1864,29 @@ const App = {
     sett('g_rekkevidde', g.rekkevidde);
     this.visStrekninger();
     this.visSonderinger();
+  },
+
+  /** Malfanen heter «Vegmal» eller «Tomtemal» etter hva som er oppe. */
+  visMalfane() {
+    const f = document.querySelector('.fane[data-fane="mal"]');
+    if (f) f.textContent = this.erTomt() ? 'Tomtemal' : 'Vegmal';
+    const boks = document.getElementById('fane-mal');
+    if (!boks) return;
+    let notis = document.getElementById('tomtemalNotis');
+    if (this.erTomt()) {
+      if (!notis) {
+        notis = document.createElement('p');
+        notis.id = 'tomtemalNotis';
+        notis.className = 'notis';
+        boks.insertBefore(notis, boks.firstChild);
+      }
+      notis.textContent = 'Feltene under hører til vegen. Tomta har sine egne '
+        + 'innstillinger – skråninger, sprengt vegg, mur og lag – og de kommer i neste '
+        + 'etappe. Endrer du noe her nå, treffer det vegen, ikke tomta.';
+      notis.classList.remove('skjult');
+    } else if (notis) {
+      notis.classList.add('skjult');
+    }
   },
 
   skjemaTilMal() {
@@ -1607,6 +1904,20 @@ const App = {
       felt.value = 0;
       return 0;
     };
+    /* Star en tomt oppe, peker `m` pa tomtas mal - og vegskjemaet ville da
+       skrevet vegbredde, tverrfall og grøftedybde rett inn i den. Tomta ville
+       fatt et dusin felt den ikke har bruk for, og de som heter det samme i
+       begge maler ville blitt overskrevet med vegens verdi uten at noe sa fra.
+       Faktorene og grunnforholdene er felles og leses fortsatt. */
+    if (this.erTomt()) {
+      f.sprengningsfaktor = tall('f_sprengningsfaktor');
+      f.fjellIFylling = tall('f_fjellIFylling');
+      f.losmasseIFylling = tall('f_losmasseIFylling');
+      f.brukbarLosmasse = tall('f_brukbarLosmasse');
+      g.standarddybde = tall('g_standarddybde');
+      g.rekkevidde = tall('g_rekkevidde');
+      return;
+    }
     m.vegbredde = tall('m_vegbredde');
     m.tverrfall = tall('m_tverrfall') / 100;
     m.tverrfallType = document.getElementById('m_tverrfallType').value;
@@ -2187,12 +2498,17 @@ const App = {
       }
     }
     this.tomPaneler();       // alt fra forrige prosjekt ma bort først
+    /* Setteren pa `P` klargjør prosjektet: pakker inn gamle filer som ett
+       veganlegg og setter opp vinduene inn i det aktive anlegget. Den fyller
+       ogsa ut malen med standardverdier per anlegg - en vegmal for en veg, en
+       tomtemal for en tomt. Derfor skal malen ikke slas sammen her; en tomt
+       ville da fatt vegens felt tredd nedover seg. */
     this.P = this.moderniserProsjekt(Object.assign(this.nyttProsjekt(), d));
-    this.P.mal = Object.assign({}, StandardMal, this.P.mal || {});
     this.P.faktorer = Object.assign({}, StandardFaktorer, d.faktorer || {});
-    this.P.fjell = Object.assign({ standarddybde: 0.5, rekkevidde: 60, strekninger: [], punkter: [] }, d.fjell || {});
+    this.P.fjell = Object.assign({ standarddybde: 0.5, rekkevidde: 60, strekninger: [], punkter: [], soner: [] }, d.fjell || {});
     document.getElementById('prosjektnavn').value = this.P.navn;
     document.getElementById('dialog').classList.add('skjult');
+    this.visAnleggsvelger();
     this._terrengnokkel = '';
     this._lagretSom = JSON.stringify(this.P);   // nettopp hentet - alt er lagret
     this._aapnetSom = this.P.navn;              // navnet det ligger lagret under
@@ -2384,6 +2700,8 @@ const App = {
       }
       if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')) { e.preventDefault(); this.gjorOm(); return; }
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
+      // Enter lukker tomta man holder pa a tegne - samme som dobbeltklikk
+      if (e.key === 'Enter' && Kart.modus === 'tegnTomt') { e.preventDefault(); Kart.avsluttTomt(); return; }
       if (e.key === 'Escape') { Kart.settModus('rediger'); if (this._nullstillVisning) this._nullstillVisning(); }
       if (e.key === 'ArrowRight') Tverrprofil.flytt(1);
       if (e.key === 'ArrowLeft') Tverrprofil.flytt(-1);

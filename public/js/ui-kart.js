@@ -38,6 +38,17 @@ const Kart = {
     this.lag.hjelpelinje = L.polyline([], { color: Farger.veg, weight: 1, dashArray: '4 4', opacity: .5 }).addTo(kart);
     this.lag.venstreFot = L.polyline([], { color: Farger.skjaering, weight: 1.8, opacity: .95 }).addTo(kart);
     this.lag.hoyreFot = L.polyline([], { color: Farger.skjaering, weight: 1.8, opacity: .95 }).addTo(kart);
+    /* Tomta. Fyllet er halvgjennomsiktig sa terrengskyggen under fortsatt
+       synes - det er den man leser tomta ut fra nar man velger hvor den skal
+       ligge. Hjørnene er en egen gruppe, sa de kan tegnes om for seg nar man
+       drar i ett av dem uten a bygge hele laget pa nytt. */
+    this.lag.tomt = L.polygon([], {
+      color: Farger.veg, weight: 2.5, fillColor: Farger.veg, fillOpacity: 0.18
+    }).addTo(kart);
+    this.lag.tomtHjelp = L.polyline([], {
+      color: Farger.veg, weight: 1.5, dashArray: '5 5', opacity: 0.7
+    }).addTo(kart);
+    this.lag.tomtHjorner = L.layerGroup().addTo(kart);
     this.lag.vegkant = L.layerGroup().addTo(kart);
     this.lag.stasjoner = L.layerGroup().addTo(kart);
     this.lag.markorPos = L.layerGroup().addTo(kart);
@@ -66,7 +77,7 @@ const Kart = {
        Derfor holdes klikket igjen et øyeblikk, sa dblclick rekker a stanse
        det. Utenfor tegnemodus er det ingen grunn til a vente. */
     kart.on('click', e => {
-      if (this.modus !== 'tegn') { this.klikk(e); return; }
+      if (this.modus !== 'tegn' && this.modus !== 'tegnTomt') { this.klikk(e); return; }
       clearTimeout(this._klikkVent);
       const kopi = { latlng: e.latlng };
       this._klikkVent = setTimeout(() => { this._klikkVent = null; this.klikk(kopi); }, 220);
@@ -76,6 +87,7 @@ const Kart = {
       clearTimeout(this._klikkVent);            // det andre klikket skal ikke bli et punkt
       this._klikkVent = null;
       if (this.modus === 'tegn') this.settModus('rediger');
+      else if (this.modus === 'tegnTomt') this.avsluttTomt();
     });
 
     this.koblingerUI();
@@ -85,8 +97,11 @@ const Kart = {
   koblingerUI() {
     const p = id => document.getElementById(id);
     p('verktoyTegn').onclick = () => this.settModus('tegn');
+    if (p('verktoyTomt')) p('verktoyTomt').onclick = () => this.settModus('tegnTomt');
     p('verktoyFlytt').onclick = () => this.settModus('rediger');
     p('verktoySondering').onclick = () => this.settModus('sondering');
+    if (p('anleggsvelger')) p('anleggsvelger').onchange = e => this.app.byttAnlegg(e.target.value);
+    if (p('knappNyttAnlegg')) p('knappNyttAnlegg').onclick = () => this.app.velgNyttAnlegg();
     p('knappAngre').onclick = () => this.app.angre();
     if (p('knappGjorOm')) p('knappGjorOm').onclick = () => this.app.gjorOm();
     p('bakgrunnskart').onchange = e => {
@@ -130,10 +145,34 @@ const Kart = {
 
   settModus(m) {
     this.modus = m;
-    for (const [id, navn] of [['verktoyTegn', 'tegn'], ['verktoyFlytt', 'rediger'], ['verktoySondering', 'sondering']]) {
-      document.getElementById(id).classList.toggle('aktiv', navn === m);
+    for (const [id, navn] of [['verktoyTegn', 'tegn'], ['verktoyFlytt', 'rediger'],
+      ['verktoySondering', 'sondering'], ['verktoyTomt', 'tegnTomt']]) {
+      const el = document.getElementById(id);
+      if (el) el.classList.toggle('aktiv', navn === m);
     }
     document.getElementById('kart').style.cursor = (m === 'rediger') ? '' : 'crosshair';
+    if (m === 'tegnTomt') {
+      this.app.status('Klikk rundt tomta. Dobbeltklikk eller Enter for å lukke den.');
+    }
+  },
+
+  /**
+   * Avslutter tegningen av en tomt.
+   *
+   * Polygonet lukkes av seg selv - siste hjørne henger sammen med det første -
+   * sa brukeren skal ikke klikke pa startpunktet igjen. Gjør man det, star to
+   * hjørner pa samme sted, og kanten mellom dem har ingen retning a marsjere
+   * skraningen langs.
+   */
+  avsluttTomt() {
+    if (this.modus !== 'tegnTomt') return;
+    const t = this.app.P.tomt;
+    if (t && t.punkter.length >= 3) {
+      this.settModus('rediger');
+      this.app.tomtEndret();
+    } else if (t) {
+      this.app.status(`Tomta trenger minst tre hjørner – du har ${t.punkter.length}.`);
+    }
   },
 
   /**
@@ -224,6 +263,15 @@ const Kart = {
       this.app.merk('nytt knekkpunkt');
       P.ip.push({ lat: e.latlng.lat, lon: e.latlng.lng, r: P.standardRadius || 0 });
       this.app.linjeEndret();
+    } else if (this.modus === 'tegnTomt') {
+      if (!this.app.erTomt()) { this.app.status('Bytt til et tomteanlegg først'); return; }
+      /* Samme regel som for veglinjen: nar man tegner, skal hjørnet pa enden.
+         Alltid. Et forsøk pa a vaere hjelpsom og sette punktet inn der klikket
+         traff en kant ville stokket om rekkefølgen, og polygonet ville krysset
+         seg selv uten at noen hadde bedt om det. */
+      this.app.merk('nytt tomtehjørne');
+      P.tomt.punkter.push({ lat: e.latlng.lat, lon: e.latlng.lng });
+      this.app.tomtEndret();
     } else if (this.modus === 'sondering') {
       this.app.merk('ny fjellobservasjon');
       const punkt = { lat: e.latlng.lat, lon: e.latlng.lng, dybde: P.fjell.standarddybde };
@@ -257,8 +305,80 @@ const Kart = {
   },
 
   /** Tegner linjeføring, knekkpunkt og fotavtrykk pa nytt. */
+  /**
+   * Tegner tomta: omriss, hjørner som kan dras, og en stiplet strek fra siste
+   * hjørne tilbake til det første mens man holder pa.
+   *
+   * Den stiplede streken er der fordi et polygon under tegning ellers ser ut
+   * som en apen linje. Man ser ikke hva man holder pa a lage før man lukker
+   * det, og da er det for sent a se at formen ble feil.
+   */
+  tegnTomt() {
+    const app = this.app;
+    this.lag.tomtHjorner.clearLayers();
+    const t = app.erTomt() ? app.P.tomt : null;
+    if (!t || !t.punkter.length) {
+      this.lag.tomt.setLatLngs([]);
+      this.lag.tomtHjelp.setLatLngs([]);
+      return;
+    }
+    const pkt = t.punkter.map(p => [p.lat, p.lon]);
+
+    if (pkt.length >= 3 && this.modus !== 'tegnTomt') {
+      this.lag.tomt.setLatLngs(pkt);
+      this.lag.tomtHjelp.setLatLngs([]);
+    } else {
+      // under tegning: hard strek langs det som er tegnet, stiplet tilbake til start
+      this.lag.tomt.setLatLngs([]);
+      this.lag.tomtHjelp.setLatLngs(pkt.length >= 3 ? pkt.concat([pkt[0]]) : pkt);
+    }
+
+    t.punkter.forEach((pt, i) => {
+      const m = L.marker([pt.lat, pt.lon], {
+        draggable: true,
+        icon: L.divIcon({ className: '', html: '<div class="ip-markor"></div>', iconSize: [13, 13], iconAnchor: [6.5, 6.5] })
+      });
+      m.on('dragstart', () => app.merk('flytt tomtehjørne ' + (i + 1)));
+      m.on('drag', ev => {
+        pt.lat = ev.latlng.lat; pt.lon = ev.latlng.lng;
+        const na = t.punkter.map(q => [q.lat, q.lon]);
+        if (this.lag.tomt.getLatLngs()[0] && this.lag.tomt.getLatLngs()[0].length) this.lag.tomt.setLatLngs(na);
+        else this.lag.tomtHjelp.setLatLngs(na.concat([na[0]]));
+      });
+      m.on('dragend', () => app.tomtEndret());
+      m.bindPopup(() => {
+        const d = document.createElement('div');
+        d.innerHTML = `<b>Hjørne ${i + 1}</b> av ${t.punkter.length}<br>`;
+        const knapp = document.createElement('button');
+        knapp.className = 'knapp';
+        knapp.textContent = 'Slett hjørnet';
+        knapp.onclick = () => {
+          if (t.punkter.length <= 3) { app.status('En tomt kan ikke ha færre enn tre hjørner'); return; }
+          app.merk('slett tomtehjørne');
+          t.punkter.splice(i, 1);
+          this.kart.closePopup();
+          app.tomtEndret();
+        };
+        d.appendChild(knapp);
+        return d;
+      });
+      m.addTo(this.lag.tomtHjorner);
+    });
+  },
+
   tegn() {
     const app = this.app, P = app.P;
+
+    this.tegnTomt();
+    if (app.erTomt()) {
+      // vegens lag skal ikke henge igjen fra forrige anlegg
+      this.ipMarkorer.forEach(m => this.kart.removeLayer(m));
+      this.ipMarkorer = [];
+      for (const n of ['linje', 'linjeSkygge', 'hjelpelinje', 'venstreFot', 'hoyreFot']) this.lag[n].setLatLngs([]);
+      this.lag.vegkant.clearLayers();
+      this.lag.stasjoner.clearLayers();
+      return;
+    }
 
     this.ipMarkorer.forEach(m => this.kart.removeLayer(m));
     this.ipMarkorer = [];

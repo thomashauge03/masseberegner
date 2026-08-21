@@ -39,7 +39,10 @@
       <span>Kart</span>
       <button class="utvidknapp" data-utvid="kart" title="Stor visning (skjuler de andre)">⤢</button>
       <div class="verktoy">
+        <select id="anleggsvelger" class="minivalg" title="Hvilket anlegg du jobber med. Veg og tomt har hver sine innstillinger og hver sin masseoppstilling."></select>
+        <button id="knappNyttAnlegg" class="verktoyknapp" title="Legg til en tomt i dette prosjektet">＋ Tomt</button>
         <button id="verktoyTegn" class="verktoyknapp" title="Klikk i kartet for å legge inn knekkpunkt. Dobbeltklikk for å avslutte.">✏️ Tegn senterlinje</button>
+        <button id="verktoyTomt" class="verktoyknapp skjult" title="Klikk rundt tomta i kartet. Dobbeltklikk for å lukke den.">⬟ Tegn tomt</button>
         <button id="verktoyFlytt" class="verktoyknapp aktiv" title="Flytt og rediger punkt">✥ Rediger</button>
         <button id="verktoySondering" class="verktoyknapp" title="Registrer observert dybde til fjell">⛏ Fjellpunkt</button>
         <button id="knappAngre" class="verktoyknapp" title="Angre (Ctrl+Z)" disabled>↶</button>
@@ -333,6 +336,7 @@
 <script src="js/vertikalprofil.js"></script>
 <script src="js/terreng.js"></script>
 <script src="js/masser.js"></script>
+<script src="js/tomt.js"></script>
 <script src="js/ui-kart.js"></script>
 <script src="js/ui-lengdeprofil.js"></script>
 <script src="js/ui-tverrprofil.js"></script>
