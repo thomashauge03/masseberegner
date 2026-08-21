@@ -554,5 +554,122 @@ console.log('\n19. Overberg er et volum, ikke en flate');
 }
 
 /* ------------------------------------------------------------------ */
+console.log('\n20. Søkebredden skal ikke lekke inn i geometrien');
+{
+  const lag = (kanter, sok) => ({
+    tomt: { punkter: rektangel(40, 60), kanter, nivaa: { modus: 'flat', kote: 98 } },
+    mal: Object.assign(grunnmal(), { skjaeringLosmasse: 2, fylling: 2, maksSokebredde: sok }),
+    terreng: { z: () => 100 }, fjell: new M.Fjellmodell({ standarddybde: 100 }),
+    rutestorrelse: 1, bakkefaktor: 1
+  });
+
+  /* En APEN kant krever ingen plass. Her marsjerte den likevel, og siden
+     skraningsflate() svarer NaN for 'apen', falt marsjen gjennom til
+     `traff = maksSokebredde` og meldte at skraningen gikk 45 m ut. innerflate
+     leste tallet og rykket den ferdige flaten 24,5 m inn: en 40 x 60 m tomt ble
+     362 m² i stedet for 1872. Ingen merknad - bare et gyldig, altfor lite areal
+     som hele masseberegningen sa kjørte pa. */
+  const apen = [{}, {}, {}, { type: 'apen' }];
+  const arealer = [12, 20, 45, 90].map(s => {
+    const r = T.innerflate(lag(apen, s));
+    return r.punkter ? Tomt.areal(r.punkter) : 0;
+  });
+  sjekk('åpen kant: tre sider rykker inn 4 m, den fjerde null', arealer[0], 36 * 52, 3);
+  paastand('og svaret henger ikke av søkebredden',
+    Math.max(...arealer) - Math.min(...arealer) < 1,
+    arealer.map(a => a.toFixed(0)).join(' · '));
+
+  const uten = [12, 45, 90].map(s => Tomt.areal(T.innerflate(lag([], s)).punkter));
+  sjekk('uten åpen kant er fasiten 32 x 52', uten[0], 32 * 52, 2);
+  paastand('også der uavhengig av søkebredden',
+    Math.max(...uten) - Math.min(...uten) < 1, uten.map(a => a.toFixed(0)).join(' · '));
+
+  /* Blandede kanttyper: hjørnet ma løses eksakt, ikke som gjennomsnittet av de
+     to nabokantene. Med sprengt vegg pa én side og slak skraning pa den andre
+     ga snittet et hjørne som verken lot veggen sta i ro eller ga skraningen
+     plassen sin - og skraningen gikk utenfor tomtegrensa, som er nettopp det
+     yttergrense-modus skal hindre. */
+  const blandet = {
+    tomt: { punkter: rektangel(40, 60), kanter: [{ type: 'fjellvegg' }, {}, {}, {}],
+      nivaa: { modus: 'flat', kote: 96 } },
+    mal: Object.assign(grunnmal(), { skjaeringLosmasse: 2, skjaeringFjell: 2,
+      veggHelning: 0.1, losmasseOverFjell: 2, maksSokebredde: 60 }),
+    terreng: { z: () => 100 }, fjell: new M.Fjellmodell({ standarddybde: 0 }),
+    rutestorrelse: 1, bakkefaktor: 1
+  };
+  const inn = T.innerflate(blandet);
+  paastand('blandede kanttyper gir en gyldig flate', !!inn.punkter);
+  const fot = T.skraningsfot(Object.assign({}, blandet,
+    { tomt: Object.assign({}, blandet.tomt, { punkter: inn.punkter }) }));
+  const utenfor = fot.filter(f => f.x < -0.2 || f.x > 40.2 || f.y < -0.2 || f.y > 60.2).length;
+  sjekk('og ingen skråning går utenfor det tegnede omrisset', utenfor, 0, 0);
+}
+
+/* ------------------------------------------------------------------ */
+console.log('\n21. Når skråningen ikke lander, må det sies fra');
+{
+  /* Møter skraningen aldri terrenget, blir volumet bestemt av søkebredden i
+     stedet for av bakken: samme tomt ga 21 788 m³ fylling med 45 m og
+     93 164 m³ med 90 - fire ganger sa mye, styrt av en innstilling.
+     `traff: false` ble skrevet i skraningsfot, men lest ingen steder. */
+  const lag = sok => T.beregnTomtemasser({
+    tomt: { punkter: rektangel(40, 60), kanter: [], nivaa: { modus: 'flat', kote: 100 } },
+    mal: Object.assign(grunnmal(), { fylling: 2, maksSokebredde: sok }),
+    terreng: { z: x => (x < 0 ? 99 + x / 1.5 : 99) },
+    fjell: new M.Fjellmodell({ standarddybde: 100 }), rutestorrelse: 1, bakkefaktor: 1
+  });
+  for (const sok of [45, 90]) {
+    const r = lag(sok);
+    paastand(`søkebredde ${sok}: skråningen som ikke lander blir meldt`,
+      r.merknader.some(m => m.type === 'utslag'),
+      JSON.stringify(r.merknader.map(m => m.type)));
+  }
+  // og en tomt der alt lander skal IKKE gi den merknaden
+  const fin = T.beregnTomtemasser({
+    tomt: { punkter: rektangel(40, 60), kanter: [], nivaa: { modus: 'flat', kote: 98 } },
+    mal: Object.assign(grunnmal(), { maksSokebredde: 60 }),
+    terreng: { z: () => 100 }, fjell: new M.Fjellmodell({ standarddybde: 100 }),
+    rutestorrelse: 1, bakkefaktor: 1
+  });
+  paastand('men en tomt der alt lander får ingen slik merknad',
+    !fin.merknader.some(m => m.type === 'utslag'),
+    JSON.stringify(fin.merknader.map(m => m.tekst.slice(0, 40))));
+
+  /* Mur og overgang har ingen egen geometri enna. Det er greit - men det ma
+     sies, ellers velger man «mur» og tror tallene gjelder en mur. */
+  const mur = T.beregnTomtemasser({
+    tomt: { punkter: rektangel(40, 60), kanter: [{ type: 'mur' }, {}, {}, {}],
+      nivaa: { modus: 'flat', kote: 98 } },
+    mal: grunnmal(), terreng: { z: () => 100 },
+    fjell: new M.Fjellmodell({ standarddybde: 100 }), rutestorrelse: 1, bakkefaktor: 1
+  });
+  paastand('mur blir meldt som regnet som skråning',
+    mur.merknader.some(m => m.type === 'kant' && /mur/.test(m.tekst)),
+    JSON.stringify(mur.merknader.map(m => m.tekst.slice(0, 50))));
+}
+
+/* ------------------------------------------------------------------ */
+console.log('\n22. Kantnummer: tabellen og motoren må være enige');
+{
+  /* Tomt.kanter() hopper over kanter uten lengde - to hjørner pa samme sted -
+     men beholder det opprinnelige nummeret i k.nr. Skjermbildet brukte plassen
+     i lista, mens motoren slar opp i kanter[] etter PUNKTnummer. Med én dublett
+     traff valget derfor feil side: man satte sprengt vegg pa den ene kanten og
+     fikk den pa en annen, uten at noe sa fra. */
+  const medDublett = [{ x: 0, y: 0 }, { x: 40, y: 0 }, { x: 40, y: 0 },
+    { x: 40, y: 60 }, { x: 0, y: 60 }];
+  const k = Tomt.kanter(medDublett);
+  sjekk('nullkanten hoppes over', k.length, 4, 0);
+  paastand('men nummeret følger punktene, ikke plassen i lista',
+    k.map(x => x.nr).join(',') === '0,2,3,4', k.map(x => x.nr).join(','));
+  /* Motorens egen nummerering ma stemme med den. */
+  const n = T.naermestePaOmriss(medDublett, 20, -5);
+  sjekk('motoren kaller sørkanten kant 0', n.kant, 0, 0);
+  const n2 = T.naermestePaOmriss(medDublett, 45, 30);
+  paastand('og østkanten er den samme i begge', k.some(x => x.nr === n2.kant),
+    `motoren sier ${n2.kant}, lista har ${k.map(x => x.nr).join(',')}`);
+}
+
+/* ------------------------------------------------------------------ */
 console.log(`\n${ok} tester ok, ${feil} feil`);
 process.exit(feil ? 1 : 0);

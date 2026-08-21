@@ -351,6 +351,39 @@ function beregnTomtemasser(o) {
       tekst: `Bergveggen blir ${hoyesteVegg.toFixed(1)} m høy. Over ${mal.maksVeggHoyde} m `
         + 'krever N200 geoteknisk kategori 3, og det bør legges inn en hylle (berme).' });
   }
+  /* Naar skraningen aldri møter terrenget, blir volumet bestemt av
+     søkebredden i stedet for av bakken. Samme tomt ga 21 788 m³ fylling med
+     45 m søkebredde og 93 164 m³ med 90 - fire ganger sa mye, styrt av en
+     innstilling og ikke av virkeligheten.
+     `traff: false` ble skrevet i skraningsfot, men lest ingen steder. Na
+     kontrolleres det, og brukeren far vite at tallet ikke star pa egne ben. */
+  if (o.terreng && p.length >= 3) {
+    const fot = skraningsfot(o);
+    const bom = fot.filter(f => !f.traff).length;
+    if (bom > 0) {
+      const andel = Math.round(100 * bom / fot.length);
+      merknader.push({ type: 'utslag',
+        tekst: `Skråningen når ikke terrenget på ${andel} % av omkretsen – den er `
+          + `kuttet ved søkebredden (${Math.round(maksUt)} m). Volumet er da bestemt av `
+          + 'den innstillingen, ikke av terrenget. Øk søkebredden, eller flytt nivået '
+          + 'nærmere bakken.' });
+    }
+  }
+  /* Mur og overgang har ingen egen geometri enna - de regnes som en vanlig
+     planert skraning. Det er en rimelig midlertidig løsning, men den ma SIES:
+     en mur tar ingen plass utover, har fundamentgrøft og drenerende bakfylling,
+     og gir et helt annet volum. Uten merknaden ville man valgt «mur» i lista og
+     trodd at tallene gjaldt en mur. */
+  const utenGeometri = new Set();
+  for (const k of (o.tomt.kanter || [])) {
+    if (k && (k.type === 'mur' || k.type === 'overgang')) utenGeometri.add(k.type);
+  }
+  if (utenGeometri.size) {
+    merknader.push({ type: 'kant',
+      tekst: `${[...utenGeometri].join(' og ')} er regnet som planert skråning – `
+        + 'egen geometri for dem er ikke bygget ennå. Fundamentgrøft og bakfylling '
+        + 'bak en mur er ikke med i tallene.' });
+  }
   if (forNaerBerg > 0) {
     merknader.push({ type: 'berg',
       tekst: `${forNaerBerg} ruter har mindre enn ${(mal.minAvstandTilBerg || 0.75)} m fra ferdig `
@@ -452,13 +485,18 @@ function skraningsfot(o) {
       if (!Number.isFinite(zK)) continue;
       const zT = o.terreng.z(x, y);
       if (!Number.isFinite(zT)) continue;
+      /* En apen kant har ingen skraning. Her marsjerte den likevel, og siden
+         skraningsflate() svarer NaN for 'apen', falt marsjen rett gjennom til
+         `traff = maksUt` og meldte at skraningen gikk 45 m ut. Kartet tegnet
+         streken dit, og verre: innerflate leste tallet og rykket den ferdige
+         flaten 24,5 m inn - en 40 x 60 m tomt ble 362 m² i stedet for 1872.
+         Ingen merknad, bare et gyldig og mye for lite areal. */
+      if ((kant.type || 'skraning') === 'apen') {
+        ut.push({ x, y, ut: 0, kant: k.i, type: 'apen', traff: true });
+        continue;
+      }
       const skjaerer = zT > zK;
       let traff = 0;
-      /* Halvering inn pa treffpunktet. Flaten stiger (eller faller) monotont
-         utover, og terrenget er det eneste den kan møte, sa halvering treffer.
-         Uten den matte man ga i sma steg hele veien ut - fire hundre oppslag
-         per punkt i stedet for tolv. */
-      let lav = 0, hoy = maksUt, funnet = false;
       const over = d => {
         const px = x + nx * d, py = y + ny * d;
         const zt = o.terreng.z(px, py);
@@ -469,16 +507,28 @@ function skraningsfot(o) {
         if (!Number.isFinite(z)) return null;
         return skjaerer ? z >= zt : z <= zt;
       };
-      if (over(maksUt) !== true) { traff = maksUt; }
+      /* Grovsøk før halveringen.
+         Halvering alene finner en vilkarlig kryssing, ikke den FØRSTE. Pa et
+         terreng som bølger - en liten rygg, sa en senkning - kunne fyllingsfoten
+         havne 6,7 m ut der fyllinga faktisk lander etter 4,0. Volumet regnes fra
+         den første kryssingen, sa linja og tallene ble uenige.
+         Derfor gas det først i grove steg til fortegnet snur, og halveringen
+         gjøres innenfor det ene steget. */
+      const grovSteg = Math.max(0.5, maksUt / 60);
+      let funnet = false, lav = 0, hoy = maksUt;
+      for (let d = grovSteg; d <= maksUt + 1e-9; d += grovSteg) {
+        if (over(d) === true) { lav = d - grovSteg; hoy = d; funnet = true; break; }
+      }
+      if (!funnet) { traff = maksUt; }
       else {
         for (let b = 0; b < 14; b++) {
           const midt = (lav + hoy) / 2;
           if (over(midt) === true) hoy = midt; else lav = midt;
         }
-        traff = hoy; funnet = true;
+        traff = hoy;
       }
       ut.push({ x: x + nx * traff, y: y + ny * traff, ut: traff, kant: k.i,
-        type: (kant.type || 'skraning') === 'apen' ? 'apen' : (skjaerer ? 'skjaering' : 'fylling'),
+        type: skjaerer ? 'skjaering' : 'fylling',
         traff: funnet });
     }
   }
@@ -511,9 +561,14 @@ function innerflate(o, runder = 3) {
   for (let r = 0; r < runder; r++) {
     const fot = skraningsfot(Object.assign({}, o, { tomt: Object.assign({}, o.tomt, { punkter: na }) }));
     if (!fot.length) break;
-    // hvor langt hver kant stakk ut, malt som det største pa kanten
+    /* Hvor langt hver kant stakk ut, malt som det største pa kanten.
+       Apne kanter gir 0 - de krever ingen plass, og skal derfor ikke rykke
+       noe inn. */
     const perKant = new Array(p.length).fill(0);
-    for (const f of fot) perKant[f.kant] = Math.max(perKant[f.kant], f.ut);
+    for (const f of fot) {
+      if (f.type === 'apen') continue;
+      perKant[f.kant] = Math.max(perKant[f.kant], f.ut);
+    }
     /* Innrykket males ALLTID fra det tegnede omrisset, aldri fra forrige runde.
        Her sto det motsatt, og da krympet flaten pa nytt for hver runde: 2400 m²
        ble til 1056 og sa til 576, i stedet for a lande pa 1664. Rundene finnes
@@ -521,19 +576,32 @@ function innerflate(o, runder = 3) {
        seg litt nar kanten flyttes - ikke fordi innrykket skal legges sammen. */
     const nye = [];
     for (let i = 0; i < p.length; i++) {
-      const foran = perKant[i], bak = perKant[(i - 1 + p.length) % p.length];
-      const inn = (foran + bak) / 2;
-      innrykk[i] = inn;
+      const bak = perKant[(i - 1 + p.length) % p.length];   // kanten inn i hjørnet
+      const foran = perKant[i];                              // kanten ut av hjørnet
+      innrykk[i] = Math.max(bak, foran);
       const a = p[(i - 1 + p.length) % p.length], b = p[i], c = p[(i + 1) % p.length];
       const n1 = normal(a, b, tegn), n2 = normal(b, c, tegn);
-      /* Hjørnet ma flyttes lenger enn kantene, ellers blir det ikke plass til
-         skraningen der de to møtes. For to enhetsnormaler er punktet som ligger
-         `inn` fra begge kantene gitt av (n1+n2)/(1+n1·n2). */
-      const prikk = n1.x * n2.x + n1.y * n2.y;
-      const naevner = 1 + prikk;
-      if (Math.abs(naevner) < 1e-6) { nye.push({ x: b.x, y: b.y }); continue; }
-      nye.push({ x: b.x - (n1.x + n2.x) / naevner * inn,
-        y: b.y - (n1.y + n2.y) / naevner * inn });
+      /* Hjørnet er skjæringspunktet mellom de to kantene forskjøvet HVER FOR
+         SEG innover med sitt eget krav.
+
+         Her ble de to kravene midlet først. Det gar bra sa lenge nabokantene
+         krever det samme, men ikke ellers: en apen kant krever null og naboen
+         fire meter, og gjennomsnittet to ga et hjørne som verken lot den ene
+         kanten sta i ro eller ga den andre plassen sin. Med sprengt vegg pa én
+         side og slak skraning pa den andre gikk skraningen rett utenfor
+         tomtegrensa - som er nettopp det yttergrense-modus skal hindre.
+
+         Lignings-settet er (P-b)·n1 = -bak og (P-b)·n2 = -foran. */
+      const det = n1.x * n2.y - n1.y * n2.x;
+      if (Math.abs(det) < 1e-9) {
+        // kantene er parallelle - da er det bare én retning a flytte i
+        const inn = Math.max(bak, foran);
+        nye.push({ x: b.x - n1.x * inn, y: b.y - n1.y * inn });
+        continue;
+      }
+      const vx = (-bak * n2.y + foran * n1.y) / det;
+      const vy = (-n1.x * foran + n2.x * bak) / det;
+      nye.push({ x: b.x + vx, y: b.y + vy });
     }
     na = nye;
     /* Gikk innrykket forbi midten, er det ikke plass til noen tomt.

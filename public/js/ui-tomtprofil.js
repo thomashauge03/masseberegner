@@ -163,18 +163,10 @@ const Tomteprofil = {
       return;
     }
 
-    const marg = { v: 52, h: 12, o: 14, u: 26 };
-    const bredde = b - marg.v - marg.h, hoyde = h - marg.o - marg.u;
-    let minZ = Infinity, maksZ = -Infinity;
-    for (const q of s.punkt) {
-      for (const v of [q.zT, q.zF, q.zN]) if (v != null) { minZ = Math.min(minZ, v); maksZ = Math.max(maksZ, v); }
-    }
-    if (!(maksZ > minZ)) { maksZ = minZ + 1; }
-    const spenn = maksZ - minZ;
-    minZ -= spenn * 0.08; maksZ += spenn * 0.08;
-    const d0 = s.punkt[0].d, d1 = s.punkt[s.punkt.length - 1].d;
-    const X = d => marg.v + (d - d0) / (d1 - d0) * bredde;
-    const Y = z => marg.o + (maksZ - z) / (maksZ - minZ) * hoyde;
+    // samme omregning som klikket bruker - se _omrade()
+    const omr = this._omrade(s, b, h);
+    if (!omr) return;
+    const { marg, minZ, maksZ, X, Y } = omr;
 
     // rutenett og kotetall
     g.strokeStyle = Farger.rutenett;
@@ -294,22 +286,64 @@ const Tomteprofil = {
     if (!s) return;
     const c = this.lerret;
     const b = c.clientWidth, h = c.clientHeight;
+    const omr = this._omrade(s, b, h);
+    if (!omr) return;
+    const r = c.getBoundingClientRect();
+    const z = omr.zVed(e.clientY - r.top);
+    if (!Number.isFinite(z)) return;
+
+    /* Nivaet skal havne der man peker - ogsa i bredden.
+       Her ble den klikkede høyden satt rett inn som `kote`, og kote er verdien
+       i TYNGDEPUNKTET. Med fall pa flaten betyr det at man klikker i den ene
+       enden av tomta og nivaet legger seg et helt annet sted: pa 60 m med 3 %
+       fall er avviket nesten en meter. Na regnes forskjellen mellom nivaet der
+       man pekte og koten, og den legges til. */
+    const t = app.P.tomt;
+    const d = omr.dVed(e.clientX - r.left);
+    let tillegg = 0;
+    if (Number.isFinite(d) && t.nivaa.kote != null) {
+      const rad = s.retning * Math.PI / 180;
+      const x = s.senter.x + Math.sin(rad) * d, y = s.senter.y + Math.cos(rad) * d;
+      const p = app.tomtIUtm(t);
+      const tp = Tomtmasser.tyngdepunktAv(p);
+      const her = Tomtmasser.nivaaVed(app.tomtenivaaIUtm(t), x, y, tp);
+      if (Number.isFinite(her)) tillegg = t.nivaa.kote - her;
+    }
+    app.merk('satte ferdig nivå i snittet');
+    t.nivaa.kote = +(z + tillegg).toFixed(2);
+    app.tomtTilSkjema();
+    app.beregnTomt();
+  },
+
+  /**
+   * Omregningen mellom lerret og virkelighet.
+   *
+   * Ett sted, brukt bade nar det tegnes og nar det klikkes. Her regnet klikket
+   * ut sitt eget spenn, og de to kunne drive fra hverandre - sarlig etter at
+   * skraningene kom med i tegningen og gjorde spennet større. Da traff klikket
+   * en annen høyde enn den man pekte pa.
+   */
+  _omrade(s, b, h) {
     const marg = { v: 52, h: 12, o: 14, u: 26 };
     let minZ = Infinity, maksZ = -Infinity;
     for (const q of s.punkt) {
-      for (const v of [q.zT, q.zF, q.zN]) if (v != null) { minZ = Math.min(minZ, v); maksZ = Math.max(maksZ, v); }
+      for (const v of [q.zT, q.zF, q.zN, q.zJord]) {
+        if (v != null && Number.isFinite(v)) { minZ = Math.min(minZ, v); maksZ = Math.max(maksZ, v); }
+      }
     }
-    if (!(maksZ > minZ)) return;
+    if (!(maksZ > minZ)) maksZ = minZ + 1;
+    if (!Number.isFinite(minZ)) return null;
     const spenn = maksZ - minZ;
     minZ -= spenn * 0.08; maksZ += spenn * 0.08;
-    const r = c.getBoundingClientRect();
-    const y = e.clientY - r.top;
-    const z = maksZ - (y - marg.o) / (h - marg.o - marg.u) * (maksZ - minZ);
-    if (!Number.isFinite(z)) return;
-    app.merk('satte ferdig nivå i snittet');
-    app.P.tomt.nivaa.kote = +z.toFixed(2);
-    app.tomtTilSkjema();
-    app.beregnTomt();
+    const d0 = s.punkt[0].d, d1 = s.punkt[s.punkt.length - 1].d;
+    const bredde = b - marg.v - marg.h, hoyde = h - marg.o - marg.u;
+    return {
+      marg, minZ, maksZ, d0, d1, bredde, hoyde,
+      X: d => marg.v + (d - d0) / (d1 - d0) * bredde,
+      Y: z => marg.o + (maksZ - z) / (maksZ - minZ) * hoyde,
+      zVed: y => maksZ - (y - marg.o) / hoyde * (maksZ - minZ),
+      dVed: x => d0 + (x - marg.v) / bredde * (d1 - d0)
+    };
   }
 };
 

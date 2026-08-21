@@ -511,7 +511,8 @@ const Kart = {
     const bf = app.bakkefaktor();
     const kort = Tomt.Kantkort;
 
-    kanter.forEach((k, i) => {
+    kanter.forEach(k => {
+      const i = k.nr;                 // punktnummer, ikke plass i lista
       const kant = (t.kanter && t.kanter[i]) || {};
       const type = kant.type || 'skraning';
       const midt = Geo.fraUtm((k.a.x + k.b.x) / 2, (k.a.y + k.b.y) / 2, app.sone);
@@ -644,6 +645,11 @@ const Kart = {
           if (t.punkter.length <= 3) { app.status('En tomt kan ikke ha færre enn tre hjørner'); return; }
           app.merk('slett tomtehjørne');
           t.punkter.splice(i, 1);
+          /* Kantbehandlingen ligger indeksert pa punktnummer. Sletter man et
+             hjørne uten a flytte lista med, blir alt etter det forskjøvet én
+             plass: sprengt vegg pa side 4 blir plutselig staende pa side 3.
+             Det synes ikke i tallene før noen ser pa kartet. */
+          if (Array.isArray(t.kanter) && t.kanter.length) t.kanter.splice(i, 1);
           this.kart.closePopup();
           app.tomtEndret();
         };

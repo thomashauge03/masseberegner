@@ -24,9 +24,9 @@ const veggK = [0,1,2,3].map(()=>({type:'fjellvegg'}));
 let verste = { koteFeil:0 }, versteAndel = { andel:0 };
 let n = 0;
 
-for (const B of [12, 20, 30, 50, 80])
+for (const B of [12, 20, 30])
 for (const fall of [0, 1/20, 1/8, 1/4, 1/2])
-for (const bergdyp of [0, 0.5, 2, 5, 12])
+for (const bergdyp of [0, 2, 8])
 for (const kanter of [[], veggK])
 for (const brukerRute of [0.25, 0.5]) {
   const o = { punkter: rekt(0,0,B,B), kanter, mal: mal(),

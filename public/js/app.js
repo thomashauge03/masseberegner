@@ -389,8 +389,21 @@ const App = {
     await pause();
     const maal = kote => {
       t.nivaa.kote = kote;
+      /* Er omrisset yttergrensen, ma den ferdige flaten regnes om for hver
+         prøvekote - den krymper nar nivaet flyttes lenger fra terrenget, fordi
+         skraningene tar mer plass. Her balanserte den arealet man hadde TEGNET,
+         som ikke er det som skal bygges, og landet derfor pa feil kote. */
+      let punkter = this.tomtIUtm(t);
+      if (t.omrissBetyr === 'yttergrense') {
+        const inn = Tomtmasser.innerflate({
+          tomt: { punkter, kanter: t.kanter, nivaa: this.tomtenivaaIUtm(t) },
+          mal: this.P.mal, terreng: this.terreng, fjell: this.fjellmodellIUtm()
+        });
+        if (!inn.punkter) return -Infinity;    // ingen plass: for høyt lagt
+        punkter = inn.punkter;
+      }
       const r = Tomtmasser.beregnTomtemasser({
-        tomt: { punkter: this.tomtIUtm(t), kanter: t.kanter, nivaa: this.tomtenivaaIUtm(t) },
+        tomt: { punkter, kanter: t.kanter, nivaa: this.tomtenivaaIUtm(t) },
         mal: this.P.mal, terreng: this.terreng, fjell: this.fjellmodellIUtm(),
         rutestorrelse: Math.max(1, this.P.mal.rutestorrelse), bakkefaktor: this.bakkefaktor()
       });
@@ -479,9 +492,9 @@ const App = {
     ut += rad('Omkrets', tall(t.omkrets, 1) + ' m');
     ut += rad('Hjørner', String(t.hjorner));
     ut += '<div class="strek"></div>';
-    kanter.forEach((k, i) => {
+    kanter.forEach(k => {
       const grader = ((90 - k.retning * 180 / Math.PI) % 360 + 360) % 360;
-      ut += rad(`Kant ${i + 1}`, `${tall(k.lengde * bf, 1)} m <small>${tall(grader, 0)}°</small>`);
+      ut += rad(`Side ${k.nr + 1}`, `${tall(k.lengde * bf, 1)} m <small>${tall(grader, 0)}°</small>`);
     });
     ut += '</div>';
 
@@ -579,9 +592,14 @@ const App = {
     if (p.length >= 3) {
       const kort = { skraning: 'skråning', fjellvegg: 'sprengt vegg', mur: 'mur', apen: 'åpen', overgang: 'overgang' };
       const t = this.P.tomt;
-      Tomt.kanter(p).forEach((k, i) => {
-        const type = ((t.kanter && t.kanter[i]) || {}).type || 'skraning';
-        ut += `<option value="kant${i}">Kant ${i + 1} – ${kort[type] || type}</option>`;
+      /* Nummeret ma vaere k.nr, ikke plassen i lista.
+         Tomt.kanter() hopper over kanter uten lengde - to hjørner pa samme sted
+         - mens motoren slar opp i kanter[] etter PUNKTnummer. Med én dublett i
+         omrisset traff valget derfor feil side: man satte sprengt vegg pa den
+         ene kanten og fikk den pa en annen, uten at noe sa fra. */
+      Tomt.kanter(p).forEach(k => {
+        const type = ((t.kanter && t.kanter[k.nr]) || {}).type || 'skraning';
+        ut += `<option value="kant${k.nr}">Side ${k.nr + 1} – ${kort[type] || type}</option>`;
       });
     }
     v.innerHTML = ut;
@@ -600,7 +618,11 @@ const App = {
     const bf = this.bakkefaktor();
 
     let ut = '<table><tr><th>Kant</th><th>Lengde</th><th>Behandling</th><th>Helning</th></tr>';
-    kanter.forEach((k, i) => {
+    /* k.nr, ikke plassen i lista - se visSnittvelger. Med to hjørner pa samme
+       sted hopper Tomt.kanter() over kanten mellom dem, mens motoren teller
+       alle, og da havner behandlingen pa feil side av tomta. */
+    kanter.forEach(k => {
+      const i = k.nr;
       const kant = (t.kanter && t.kanter[i]) || {};
       const type = kant.type || 'skraning';
       const valg = Object.entries(Tomt.Kanttyper).map(([v, n]) =>
