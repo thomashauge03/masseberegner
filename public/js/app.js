@@ -450,6 +450,7 @@ const App = {
        "sett et ferdig niva" etter at nivaet var satt, og gammel kanttype etter
        at den var byttet. */
     Kart.tegnTomtemal();
+    Kart.tegnSkraningslinje();
     const t = this.tomtetall();
     if (!t || t.hjorner < 3) {
       boks.innerHTML = '<span class="tomtekst">Tegn tomta i kartet – klikk rundt den, '
@@ -1254,8 +1255,28 @@ const App = {
     }
 
     const t0 = performance.now();
+    /* Tegnet man yttergrensen, er det ikke den flaten som skal planeres - den
+       er ytterkanten av inngrepet. Den ferdige flaten regnes innover, sa bunnen
+       av skraningen havner nøyaktig pa grensa. */
+    let bruktPolygon = p;
+    this._innerflate = null;
+    if (t.omrissBetyr === 'yttergrense') {
+      const inn = Tomtmasser.innerflate({
+        tomt: { punkter: p, kanter: t.kanter, nivaa: this.tomtenivaaIUtm(t) },
+        mal: this.P.mal, terreng: this.terreng, fjell: new Fjellmodell(this.P.fjell)
+      });
+      if (inn.punkter) { bruktPolygon = inn.punkter; this._innerflate = inn.punkter; }
+      else {
+        this.resultat = { sum: {}, merknader: [{ type: 'tomt',
+          tekst: 'Skråningene tar hele arealet – det blir ingen flate igjen innenfor '
+            + 'grensa. Legg nivået nærmere terrenget, sett en brattere skråning, '
+            + 'eller velg sprengt vegg på de bratteste kantene.' }], areal: 0 };
+        this.visTomtemasser();
+        return this.resultat;
+      }
+    }
     this.resultat = Tomtmasser.beregnTomtemasser({
-      tomt: { punkter: p, kanter: t.kanter, nivaa: this.tomtenivaaIUtm(t) },
+      tomt: { punkter: bruktPolygon, kanter: t.kanter, nivaa: this.tomtenivaaIUtm(t) },
       mal: this.P.mal,
       faktorer: this.P.faktorer,
       terreng: this.terreng,
@@ -2372,6 +2393,7 @@ const App = {
 
   /** Bytter fane i sidepanelet. */
   visFane(navn) {
+    if (navn === 'forklaring') Forklaring.vis(this);
     for (const f of document.querySelectorAll('.fane')) f.classList.toggle('aktiv', f.dataset.fane === navn);
     for (const d of document.querySelectorAll('.faneinnhold')) d.classList.toggle('aktiv', d.id === 'fane-' + navn);
   },
@@ -2558,6 +2580,7 @@ const App = {
     const boks = document.getElementById('tomtemalSkjema');
     if (!boks || !this.erTomt()) return;
     const m = this.P.mal;
+    const t = this.P.tomt;
     const F = [
       ['h3', 'Skråninger'],
       ['los', 'skjaeringLosmasse', 'Skjæring i løsmasse', 0.1, 5, 0.1],
@@ -2584,7 +2607,23 @@ const App = {
       ['m', 'maksSokebredde', 'Søkebredde for skråninger', 5, 200, 5],
       ['m', 'minAvstandTilBerg', 'Minst avstand til fast berg', 0, 3, 0.05]
     ];
-    let ut = '';
+    let ut = '<div class="knapperad"><button class="knapp" id="tm_standard" '
+      + 'title="Setter alle innstillingene under tilbake til det programmet leverer">'
+      + '↺ Tilbakestill til standard</button></div>';
+    ut += '<h3>Grunnlag</h3>';
+    ut += '<div class="felt"><label>Løsmassetype</label><select id="tm_jordart">'
+      + Object.entries(Tomt.Losmassetyper).map(([n, v]) =>
+        `<option value="${n}"${m.losmassetype === n ? ' selected' : ''}>${v.navn}</option>`).join('')
+      + '</select><span class="enhet"></span></div>';
+    ut += '<p class="notis">Velger du jordart, settes skjæring og fylling etter '
+      + 'N200 tabell 242.1 og 252.1. Tallene under kan overstyres etterpå.</p>';
+    ut += '<div class="felt"><label>Omrisset du tegner</label><select id="tm_omriss">'
+      + `<option value="planum"${t.omrissBetyr !== 'yttergrense' ? ' selected' : ''}>Er selve tomta – skråningene kommer utenpå</option>`
+      + `<option value="yttergrense"${t.omrissBetyr === 'yttergrense' ? ' selected' : ''}>Er yttergrensen – ingenting utenfor</option>`
+      + '</select><span class="enhet"></span></div>';
+    ut += '<p class="notis">Vet du hvor tomtegrensen går, tegner du den og velger '
+      + '<b>yttergrensen</b>. Da regnes den ferdige flaten innover, så bunnen av '
+      + 'skråningen havner nøyaktig på grensa.</p>';
     for (const rad of F) {
       if (rad[0] === 'h3') { ut += `<h3>${rad[1]}</h3>`; continue; }
       const [slag, felt, navn, min, maks, steg] = rad;
@@ -2613,6 +2652,42 @@ const App = {
         this.beregnTomt();
       };
     }
+    const jord = document.getElementById('tm_jordart');
+    jord.onchange = () => {
+      const v = Tomt.Losmassetyper[jord.value];
+      if (!v) return;
+      this.merk('valgte løsmassetype');
+      m.losmassetype = jord.value;
+      m.skjaeringLosmasse = v.skjaering;
+      m.fylling = v.fylling;
+      m.losmasseOverFjell = Math.max(v.skjaering, 2.0);
+      this.tomtemalTilSkjema();
+      this.beregnTomt();
+      this.status(`${v.navn}: skjæring 1:${v.skjaering}, fylling 1:${v.fylling} (N200)`);
+    };
+    const omr = document.getElementById('tm_omriss');
+    omr.onchange = () => {
+      this.merk('endret hva omrisset betyr');
+      t.omrissBetyr = omr.value;
+      this.tomtemalTilSkjema();
+      this.beregnTomt();
+    };
+    document.getElementById('tm_standard').onclick = async () => {
+      const ja = await this.bekreft(
+        'Sette alle tomteinnstillingene tilbake til standard? '
+        + 'Skråninger, sprengt vegg, lag og grenser blir som programmet leverer dem. '
+        + 'Tomta du har tegnet og det ferdige nivået blir stående.',
+        'Tilbakestill');
+      if (!ja) return;
+      this.merk('tilbakestilte tomtemalen');
+      /* Bare malen. Geometrien og nivaet er noe brukeren har lagt inn, og de
+         hører ikke til «standardinnstillinger» - a kaste dem her ville vaert en
+         overraskelse man ikke kan angre pa uten a tegne alt om igjen. */
+      Object.assign(m, StandardTomtemal);
+      this.tomtemalTilSkjema();
+      await this.beregnTomt();
+      this.status('Tomteinnstillingene er tilbake til standard');
+    };
   },
 
   skjemaTilMal() {

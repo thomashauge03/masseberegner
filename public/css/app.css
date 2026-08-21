@@ -631,3 +631,35 @@ body {
   .kantmal span, .tomtemal-areal span { color: #52525b; }
   .kantmal.valgt { background: var(--hm-raud); color: #fff; }
 }
+
+
+/* Kanttypen skal kjennes igjen pa farge, sa man ser med én gang hvilken side
+   som er sprengt vegg og hvilken som er skraning - uten a lese. */
+.kantmal.type-fjellvegg { border-color: var(--data-fjell); }
+.kantmal.type-fjellvegg span { color: var(--data-fjell); }
+.kantmal.type-mur span { color: #9ec5fe; }
+.kantmal.type-apen { opacity: .7; }
+.kantmal.type-apen span { font-style: italic; }
+.kantboks { min-width: 170px; }
+.kantboks .mal { color: var(--blekk-svak); font-size: 11px; margin-bottom: 6px; }
+.kantboks select { width: 100%; margin-bottom: 6px; }
+.kantboks .knapp { width: 100%; }
+
+/* Forklaringen */
+.forklaringsrad { display: flex; gap: 9px; align-items: flex-start; padding: 5px 0; }
+.forklaringsrad + .forklaringsrad { border-top: 1px solid var(--kant); }
+.forklaringsrad b { display: block; margin-bottom: 2px; }
+.forklaringsrad div { font-size: 12px; color: var(--blekk-svak); line-height: 1.45; }
+.forklaringsrad div b { color: var(--blekk); font-size: 13px; }
+.forklaringsrad .prove { flex: 0 0 22px; height: 12px; margin-top: 3px; position: relative; }
+.forklaringsrad .prove.strek::after,
+.forklaringsrad .prove.stipla::after {
+  content: ''; position: absolute; left: 0; right: 0; top: 5px;
+  border-top: 2px solid var(--f);
+}
+.forklaringsrad .prove.stipla::after { border-top-style: dashed; }
+.forklaringsrad .prove.flate { background: var(--f); }
+.forklaringsrad .prove.skravur {
+  background: var(--f);
+  background-image: repeating-linear-gradient(45deg, transparent 0 3px, rgba(255,120,128,.85) 3px 4px);
+}

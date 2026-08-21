@@ -427,6 +427,65 @@ const Kart = {
    * gang hvilken side som er sprengt vegg og hvilken som er planert skraning.
    * Klikk pa den, sa legger snittet seg vinkelrett pa nettopp den kanten.
    */
+  /**
+   * Skråningslinja - der skråningen møter terrenget.
+   *
+   * Det samme som fotavtrykket pa en veg, og like viktig: tomta er kanskje
+   * 50 x 70 m, men med fire meters skjæring i morene gar skraningen ti meter ut
+   * hele veien rundt, og da er det 70 x 90 m som blir berørt. Star naboen elleve
+   * meter unna, gar det - star han ni, gjør det ikke.
+   *
+   * Rød der det skjæres, grønn der det fylles, slik profilene er farget.
+   *
+   * Er den ferdige flaten regnet innover fra en yttergrense, tegnes ogsa den,
+   * sa man ser hvor mye plass som faktisk blir igjen.
+   */
+  tegnSkraningslinje() {
+    const app = this.app;
+    if (!this.lag.skraningsfot) this.lag.skraningsfot = L.layerGroup().addTo(this.kart);
+    this.lag.skraningsfot.clearLayers();
+    if (!app.erTomt() || !app.terreng) return;
+    const t = app.P.tomt;
+    const p = app.tomtIUtm(t);
+    if (p.length < 3 || t.nivaa.kote == null) return;
+
+    const indre = app._innerflate || p;
+    const fot = Tomtmasser.skraningsfot({
+      tomt: { punkter: indre, kanter: t.kanter, nivaa: app.tomtenivaaIUtm(t) },
+      mal: app.P.mal, terreng: app.terreng, fjell: new Fjellmodell(app.P.fjell)
+    });
+    if (!fot.length) return;
+    const hj = q => { const g = Geo.fraUtm(q.x, q.y, app.sone); return [g.lat, g.lon]; };
+
+    /* Tegnes i biter etter type, sa fargen skifter der skjæring gar over i
+       fylling. Én strek i én farge ville skjult nettopp det skiftet - og det er
+       der man ma se etter, for det er der de to skraningene møtes. */
+    let bit = [], forrige = null;
+    const tøm = () => {
+      if (bit.length > 1) {
+        L.polyline(bit, {
+          color: forrige === 'fylling' ? Farger.fylling : Farger.skjaering,
+          weight: 1.8, opacity: 0.95, dashArray: forrige === 'apen' ? '3 5' : null
+        }).addTo(this.lag.skraningsfot);
+      }
+      bit = [];
+    };
+    for (const f of fot.concat([fot[0]])) {
+      if (forrige !== null && f.type !== forrige) { bit.push(hj(f)); tøm(); }
+      forrige = f.type;
+      bit.push(hj(f));
+    }
+    tøm();
+
+    // den ferdige flaten, nar den er regnet innover fra yttergrensa
+    if (app._innerflate) {
+      L.polygon(app._innerflate.map(hj), {
+        color: Farger.veg, weight: 2, fillColor: Farger.veg, fillOpacity: 0.10,
+        dashArray: '6 4'
+      }).addTo(this.lag.skraningsfot);
+    }
+  },
+
   tegnTomtemal() {
     const app = this.app;
     if (!this.lag.tomtemal) this.lag.tomtemal = L.layerGroup().addTo(this.kart);
@@ -438,27 +497,55 @@ const Kart = {
     if (p.length < 3) return;
     const kanter = Tomt.kanter(p);
     const bf = app.bakkefaktor();
-    const kort = { skraning: 'skråning', fjellvegg: 'sprengt vegg', mur: 'mur', apen: 'åpen', overgang: 'overgang' };
+    const kort = Tomt.Kantkort;
 
     kanter.forEach((k, i) => {
       const kant = (t.kanter && t.kanter[i]) || {};
       const type = kant.type || 'skraning';
       const midt = Geo.fraUtm((k.a.x + k.b.x) / 2, (k.a.y + k.b.y) / 2, app.sone);
       const valgt = Tomteprofil.retning === 'kant' + i;
-      const html = `<div class="kantmal${valgt ? ' valgt' : ''}" data-kant="${i}">`
-        + `<b>${(k.lengde * bf).toFixed(1)} m</b><span>${kort[type] || type}</span></div>`;
+      const html = `<div class="kantmal type-${type}${valgt ? ' valgt' : ''}" data-kant="${i}">`
+        + `<b>Side ${i + 1} · ${(k.lengde * bf).toFixed(1)} m</b>`
+        + `<span>${kort[type] || type}</span></div>`;
       const m = L.marker([midt.lat, midt.lon], {
         interactive: true,
         icon: L.divIcon({ className: '', html, iconSize: [0, 0] })
       });
-      m.on('click', e => {
-        L.DomEvent.stop(e);
-        Tomteprofil.retning = 'kant' + i;
-        const velg = document.getElementById('tp_retning');
-        if (velg) velg.value = 'kant' + i;
-        Tomteprofil.tegn();
-        this.tegnTomtemal();
-        app.status(`Snitt vinkelrett på kant ${i + 1} – ${kort[type] || type}`);
+      /* Klikk pa etiketten apner en liten boks der behandlingen byttes.
+         Her sto det at et klikk bare valgte snittet, og da matte man ned i
+         tabellen for a bytte fra grøft til sprengt vegg - to steder for det som
+         er én tanke. Na gjøres begge deler der man peker. */
+      m.bindPopup(() => {
+        const d = document.createElement('div');
+        d.className = 'kantboks';
+        d.innerHTML = `<b>Side ${i + 1}</b><div class="mal">${(k.lengde * bf).toFixed(1)} m</div>`;
+        const velg = document.createElement('select');
+        velg.innerHTML = Object.entries(Tomt.Kanttyper).map(([v, n]) =>
+          `<option value="${v}"${v === type ? ' selected' : ''}>${n}</option>`).join('');
+        velg.onchange = () => {
+          app.merk('kantbehandling');
+          if (!Array.isArray(t.kanter)) t.kanter = [];
+          t.kanter[i] = Object.assign({}, t.kanter[i], { type: velg.value });
+          this.kart.closePopup();
+          app.visKanttabell();
+          app.visSnittvelger();
+          app.beregnTomt();
+        };
+        d.appendChild(velg);
+        const kn = document.createElement('button');
+        kn.className = 'knapp';
+        kn.textContent = 'Vis snitt her';
+        kn.onclick = () => {
+          Tomteprofil.retning = 'kant' + i;
+          const v2 = document.getElementById('tp_retning');
+          if (v2) v2.value = 'kant' + i;
+          Tomteprofil.tegn();
+          this.kart.closePopup();
+          this.tegnTomtemal();
+          app.status(`Snitt vinkelrett på side ${i + 1} – ${kort[type] || type}`);
+        };
+        d.appendChild(kn);
+        return d;
       });
       m.addTo(this.lag.tomtemal);
     });

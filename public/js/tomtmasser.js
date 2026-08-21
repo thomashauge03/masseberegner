@@ -360,9 +360,169 @@ function tyngdepunktAv(p) {
   return { x: cx / (6 * a), y: cy / (6 * a) };
 }
 
+/**
+ * Der skråningen møter terrenget - skjæringstopp og fyllingsfot.
+ *
+ * Det er denne linja som forteller hvor stort inngrepet faktisk blir. Tomta er
+ * kanskje 50 x 70 m, men med fire meters skjæring i morene gar skraningen ti
+ * meter ut hele veien rundt, og da er det 70 x 90 m som blir berørt. Star
+ * naboen elleve meter unna, gar det - star han ni, gjør det ikke.
+ *
+ * Marsjen er den samme som volumet regnes med, sa linja og tallene kan ikke
+ * komme i utakt.
+ *
+ * @returns {Array<{x,y,ut,type,kant}>} ett punkt per steg rundt omrisset
+ */
+function skraningsfot(o) {
+  const p = o.tomt.punkter || [];
+  const mal = o.mal || {};
+  if (p.length < 3) return [];
+  const senter = tyngdepunktAv(p);
+  const { planum } = nivaaFunksjon(o.tomt, mal, senter);
+  const maksUt = Math.max(1, mal.maksSokebredde || 45);
+  const kantFor = i => (o.tomt.kanter && o.tomt.kanter[i]) || {};
+  const kanter = [];
+  for (let i = 0; i < p.length; i++) {
+    const a = p[i], b = p[(i + 1) % p.length];
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 1e-9) continue;
+    kanter.push({ i, a, b, len, dx: dx / len, dy: dy / len });
+  }
+  // utoverrettet normal: samme regel som Tomt.kanter
+  let areal2 = 0;
+  for (let i = 0, j = p.length - 1; i < p.length; j = i++) areal2 += p[j].x * p[i].y - p[i].x * p[j].y;
+  const tegn = areal2 > 0 ? -1 : 1;
+
+  const ut = [];
+  const steg = Math.max(0.5, Math.min(3, (mal.rutestorrelse || 1) * 2));
+  for (const k of kanter) {
+    const kant = kantFor(k.i);
+    const nx = tegn * -k.dy, ny = tegn * k.dx;
+    const n = Math.max(2, Math.ceil(k.len / steg));
+    for (let s = 0; s <= n; s++) {
+      const f = s / n;
+      const x = k.a.x + k.dx * k.len * f, y = k.a.y + k.dy * k.len * f;
+      const zK = planum(x, y);
+      if (!Number.isFinite(zK)) continue;
+      const zT = o.terreng.z(x, y);
+      if (!Number.isFinite(zT)) continue;
+      const skjaerer = zT > zK;
+      let traff = 0;
+      /* Halvering inn pa treffpunktet. Flaten stiger (eller faller) monotont
+         utover, og terrenget er det eneste den kan møte, sa halvering treffer.
+         Uten den matte man ga i sma steg hele veien ut - fire hundre oppslag
+         per punkt i stedet for tolv. */
+      let lav = 0, hoy = maksUt, funnet = false;
+      const over = d => {
+        const px = x + nx * d, py = y + ny * d;
+        const zt = o.terreng.z(px, py);
+        if (!Number.isFinite(zt)) return null;
+        const dyp = o.fjell ? o.fjell.dybde(px, py) : 0.5;
+        const zF = zt - (Number.isFinite(dyp) ? dyp : 0.5);
+        const z = skjaerer ? skraningsflate(d, zK, zF, kant, mal) : fyllingsflate(d, zK, kant, mal);
+        if (!Number.isFinite(z)) return null;
+        return skjaerer ? z >= zt : z <= zt;
+      };
+      if (over(maksUt) !== true) { traff = maksUt; }
+      else {
+        for (let b = 0; b < 14; b++) {
+          const midt = (lav + hoy) / 2;
+          if (over(midt) === true) hoy = midt; else lav = midt;
+        }
+        traff = hoy; funnet = true;
+      }
+      ut.push({ x: x + nx * traff, y: y + ny * traff, ut: traff, kant: k.i,
+        type: (kant.type || 'skraning') === 'apen' ? 'apen' : (skjaerer ? 'skjaering' : 'fylling'),
+        traff: funnet });
+    }
+  }
+  return ut;
+}
+
+/**
+ * Den omvendte veien: omrisset er ytterkanten av inngrepet, og den ferdige
+ * flaten regnes innover.
+ *
+ * Slik tegner man nar man vet hvor tomtegrensen gar. Da er det ikke plassen som
+ * er gitt, men at ingenting skal utenfor grensa - og den ferdige flaten blir
+ * det som blir igjen nar skraningene har tatt sitt.
+ *
+ * Bredden pa skraningen henger av høydeforskjellen, som igjen henger av hvor
+ * den ferdige flaten ligger - sa det ma løses ved a gjenta. Tre runder holder:
+ * hver runde flytter kanten med det som var igjen av avviket forrige gang, og
+ * avviket halveres fort fordi høyden ved kanten endrer seg lite nar kanten
+ * flyttes en meter.
+ */
+function innerflate(o, runder = 3) {
+  const p = (o.tomt.punkter || []).map(q => ({ x: q.x, y: q.y }));
+  if (p.length < 3) return { punkter: p, innrykk: [] };
+  let areal2 = 0;
+  for (let i = 0, j = p.length - 1; i < p.length; j = i++) areal2 += p[j].x * p[i].y - p[i].x * p[j].y;
+  const tegn = areal2 > 0 ? -1 : 1;
+
+  let na = p.map(q => ({ x: q.x, y: q.y }));
+  let innrykk = new Array(p.length).fill(0);
+  for (let r = 0; r < runder; r++) {
+    const fot = skraningsfot(Object.assign({}, o, { tomt: Object.assign({}, o.tomt, { punkter: na }) }));
+    if (!fot.length) break;
+    // hvor langt hver kant stakk ut, malt som det største pa kanten
+    const perKant = new Array(p.length).fill(0);
+    for (const f of fot) perKant[f.kant] = Math.max(perKant[f.kant], f.ut);
+    /* Innrykket males ALLTID fra det tegnede omrisset, aldri fra forrige runde.
+       Her sto det motsatt, og da krympet flaten pa nytt for hver runde: 2400 m²
+       ble til 1056 og sa til 576, i stedet for a lande pa 1664. Rundene finnes
+       bare fordi skraningsbredden henger av høyden ved kanten, og den endrer
+       seg litt nar kanten flyttes - ikke fordi innrykket skal legges sammen. */
+    const nye = [];
+    for (let i = 0; i < p.length; i++) {
+      const foran = perKant[i], bak = perKant[(i - 1 + p.length) % p.length];
+      const inn = (foran + bak) / 2;
+      innrykk[i] = inn;
+      const a = p[(i - 1 + p.length) % p.length], b = p[i], c = p[(i + 1) % p.length];
+      const n1 = normal(a, b, tegn), n2 = normal(b, c, tegn);
+      /* Hjørnet ma flyttes lenger enn kantene, ellers blir det ikke plass til
+         skraningen der de to møtes. For to enhetsnormaler er punktet som ligger
+         `inn` fra begge kantene gitt av (n1+n2)/(1+n1·n2). */
+      const prikk = n1.x * n2.x + n1.y * n2.y;
+      const naevner = 1 + prikk;
+      if (Math.abs(naevner) < 1e-6) { nye.push({ x: b.x, y: b.y }); continue; }
+      nye.push({ x: b.x - (n1.x + n2.x) / naevner * inn,
+        y: b.y - (n1.y + n2.y) / naevner * inn });
+    }
+    na = nye;
+    /* Gikk innrykket forbi midten, er det ikke plass til noen tomt.
+       Fortegnet pa arealet duger ikke som prøve: et rektangel som rykkes inn
+       forbi midten vender BEGGE akser, og da er arealet positivt igjen - et
+       6 x 6 m omriss med 4 m skraning ble til en 2 x 2 m flate med riktig
+       fortegn og 4 m² areal, som om alt var i orden.
+       Kantretningen avslører det: snur en kant, har den passert seg selv. */
+    let snudd = false;
+    for (let i = 0; i < p.length; i++) {
+      const j = (i + 1) % p.length;
+      const gx = p[j].x - p[i].x, gy = p[j].y - p[i].y;
+      const nx2 = na[j].x - na[i].x, ny2 = na[j].y - na[i].y;
+      if (gx * nx2 + gy * ny2 <= 0) { snudd = true; break; }
+    }
+    let a2 = 0;
+    for (let i = 0, j = na.length - 1; i < na.length; j = i++) a2 += na[j].x * na[i].y - na[i].x * na[j].y;
+    if (snudd || Math.sign(a2) !== Math.sign(areal2) || Math.abs(a2) < 4) {
+      return { punkter: null, innrykk, forLiten: true };
+    }
+  }
+  return { punkter: na, innrykk };
+}
+
+function normal(a, b, tegn) {
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const l = Math.hypot(dx, dy);
+  if (l < 1e-9) return { x: 0, y: 0 };
+  return { x: tegn * -dy / l, y: tegn * dx / l };
+}
+
 const Tomtmasser = {
   beregnTomtemasser, naermestePaOmriss, skraningsflate, fyllingsflate,
-  nivaaVed, innenforPolygon, tyngdepunktAv
+  nivaaVed, innenforPolygon, tyngdepunktAv, skraningsfot, innerflate
 };
 
 if (typeof module !== 'undefined') module.exports = Tomtmasser;

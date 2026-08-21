@@ -64,10 +64,39 @@ const Nivaamoduser = {
 /** Hva som kan stå langs en kant. */
 const Kanttyper = {
   skraning: 'Planert skråning',
-  fjellvegg: 'Sprengt vegg',
+  fjellvegg: 'Sprengt bergvegg',
   mur: 'Støttemur',
-  apen: 'Åpen – ingenting regnes utenfor',
+  apen: 'Åpen – stopper her',
   overgang: 'Møter et annet anlegg'
+};
+
+/** Korte navn til kartet, der det ikke er plass til mer. */
+const Kantkort = {
+  skraning: 'skråning',
+  fjellvegg: 'sprengt vegg',
+  mur: 'mur',
+  apen: 'åpen',
+  overgang: 'overgang'
+};
+
+/**
+ * Ferdige skråningssett etter jordart.
+ *
+ * N200 tabell 242.1 (skjæring uten erosjonssikring) og tabell 252.1 (fylling).
+ * Tallene er vannrett utlegg per meter høyde, altsa 2,5 = 1:2,5.
+ *
+ * Grunnen til at dette ligger som ferdige sett og ikke som tre løse tall: det
+ * er jordarten man vet noe om ute pa tomta, ikke helningen. Skal man slaa opp i
+ * en tabell hver gang, blir det ikke gjort - og da star standardverdien igjen
+ * pa noe som ikke passer grunnen.
+ */
+const Losmassetyper = {
+  stein: { navn: 'Stein / sprengt masse', skjaering: 1.5, fylling: 1.25 },
+  grus: { navn: 'Grus', skjaering: 2.0, fylling: 1.5 },
+  sand: { navn: 'Sand', skjaering: 2.0, fylling: 2.0 },
+  morene: { navn: 'Morene', skjaering: 2.5, fylling: 2.0 },
+  silt: { navn: 'Finsand / silt', skjaering: 3.0, fylling: 3.0 },
+  leire: { navn: 'Leire (0–10 m)', skjaering: 3.0, fylling: 2.5 }
 };
 
 const StandardTomtemal = {
@@ -166,6 +195,16 @@ const StandardTomtemal = {
 function nyTomt() {
   return {
     form: 'polygon',         // polygon | rektangel | sirkel
+    /* Hva omrisset man tegner betyr.
+       'planum'      - det man tegner er selve tomta, og skraningene kommer
+                       utenpa. Slik man tegner nar man vet hvor plassen skal
+                       ligge.
+       'yttergrense' - det man tegner er ytterkanten av inngrepet, altsa der
+                       skraningen møter terrenget. Slik man tegner nar man vet
+                       hvor tomtegrensen gar og ingenting skal utenfor den. Da
+                       regnes den ferdige flaten INNOVER, og den blir mindre
+                       enn det man tegnet. */
+    omrissBetyr: 'planum',
     punkter: [],             // [{lat, lon}] ytterkant
     hull: [],                // [[{lat, lon}]] utsparinger som ikke røres
     kanter: [],              // overstyringer per kant, indeks = kantnummer
@@ -416,7 +455,7 @@ function segmenterKrysser(a, b, c, d) {
 /* Samlet under ett navn, sa resten av programmet kan skrive Tomt.areal(…)
    i stedet for a ha et dusin løse navn liggende i vinduet. */
 const Tomt = {
-  Arbeidstyper, Nivaamoduser, Kanttyper, StandardTomtemal, nyTomt,
+  Arbeidstyper, Nivaamoduser, Kanttyper, Kantkort, Losmassetyper, StandardTomtemal, nyTomt,
   signertAreal, areal, omkrets, tyngdepunkt, innenfor, kanter,
   hjorneErKonvekst, nivaaVed, sjekkTomt, selvkryssende
 };
