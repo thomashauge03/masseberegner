@@ -464,7 +464,7 @@ const Kart = {
     const indre = app._innerflate || p;
     const fot = Tomtmasser.skraningsfot({
       tomt: { punkter: indre, kanter: t.kanter, nivaa: app.tomtenivaaIUtm(t) },
-      mal: app.P.mal, terreng: app.terreng, fjell: new Fjellmodell(app.P.fjell)
+      mal: app.P.mal, terreng: app.terreng, fjell: app.fjellmodellIUtm()
     });
     if (!fot.length) return;
     const hj = q => { const g = Geo.fraUtm(q.x, q.y, app.sone); return [g.lat, g.lon]; };

@@ -482,5 +482,77 @@ console.log('\n17. En ny tomt er flat');
 }
 
 /* ------------------------------------------------------------------ */
+console.log('\n18. Matjord og rensk telles ikke to ganger');
+{
+  /* Skjæringen ble malt fra RATT terreng samtidig som matjord og rensk ble
+     ført som egne poster. Da la de samme kubikkene bade i skjæringen og i
+     deponiposten: 993 m³ matjord oppa en skjæring som ikke endret seg med én
+     kubikk nar matjorda ble slatt pa. Vegen har alltid gjort det riktig -
+     skjæringen der synker nar renskedybden økes. */
+  const lag = (mj, re, fjellDybde = 100) => T.beregnTomtemasser({
+    tomt: { punkter: rektangel(40, 60), kanter: [], nivaa: { modus: 'flat', kote: 97 } },
+    mal: Object.assign(grunnmal(), { matjordDybde: mj, renskDybde: re }),
+    terreng: { z: () => 100 }, fjell: new M.Fjellmodell({ standarddybde: fjellDybde }),
+    rutestorrelse: 1, bakkefaktor: 1
+  });
+  const uten = lag(0, 0), med = lag(0.25, 0);
+  paastand('matjord finnes som egen post', med.sum.matjord > 500, med.sum.matjord.toFixed(0));
+  /* Regnskapet ma ga opp EKSAKT: hver kubikk matjord som skrapes av er enten
+     en kubikk mindre a grave eller en kubikk mer a fylle.
+     A bare male at skjæringen synker holder ikke - der terrenget skraner, gar
+     en del av matjorda til fylling i stedet, og pa en ekte tomt var det 128 av
+     1024 m³. Identiteten under fanger begge veier. */
+  sjekk('matjorden går enten fra skjæringen eller til fyllingen – ingen kubikk forsvinner',
+    (uten.sum.skjaering - med.sum.skjaering) + (med.sum.fylling - uten.sum.fylling),
+    med.sum.matjord, 0.5);
+  paastand('summen av delene er hele skjæringen',
+    Math.abs(med.sum.skjaering - (med.sum.skjaeringFjell + med.sum.skjaeringLosmasse + med.sum.rensk)) < 1e-6,
+    `${med.sum.skjaering.toFixed(1)} mot ${(med.sum.skjaeringFjell + med.sum.skjaeringLosmasse + med.sum.rensk).toFixed(1)}`);
+
+  /* «Rensk mot fjell» skal bare komme der uttaket faktisk nar ned til berget.
+     Formelen spurte bare om det ble gravd i det hele tatt, sa en tomt med
+     berget femti meter under fikk full rensk over hele flaten. */
+  sjekk('ingen rensk når berget ligger 50 m under', lag(0, 0.2, 50).sum.rensk, 0, 1e-9);
+  sjekk('heller ikke 5 m under', lag(0, 0.2, 5).sum.rensk, 0, 1e-9);
+  paastand('men rensk når uttaket når berget', lag(0, 0.2, 0.5).sum.rensk > 100,
+    lag(0, 0.2, 0.5).sum.rensk.toFixed(0));
+  /* Og rensken er en DEL av løsmassen, ikke et tillegg - ellers telles den to
+     ganger nar deponiet regnes. */
+  const r05 = lag(0, 0.2, 0.5), u05 = lag(0, 0, 0.5);
+  sjekk('rensken tas ut av løsmasseskjæringen, ikke lagt oppå',
+    u05.sum.skjaeringLosmasse - r05.sum.skjaeringLosmasse, r05.sum.rensk, 1);
+  sjekk('og totalen er den samme', r05.sum.skjaering, u05.sum.skjaering, 1e-6);
+}
+
+/* ------------------------------------------------------------------ */
+console.log('\n19. Overberg er et volum, ikke en flate');
+{
+  /* Her sto `overberg * cellA / ruteM`, som er m x m² / m = m² - og som doblet
+     seg hver gang rutenettet ble halvert: antall fjellceller vokser som
+     1/ruteM², mens hvert bidrag bare halveres. Samme tomt ga 120, 265 og 529
+     "m³" ved 1, 0,5 og 0,25 m. Pa standardinnstillingen traff det tilfeldigvis
+     noe rimelig, sa feilen la og ventet pa at noen skrudde pa rutenettet. */
+  const lag = rute => T.beregnTomtemasser({
+    tomt: { punkter: rektangel(40, 60), kanter: [], nivaa: { modus: 'flat', kote: 96 } },
+    mal: Object.assign(grunnmal(), { overberg: 0.3 }),
+    terreng: { z: () => 100 }, fjell: new M.Fjellmodell({ standarddybde: 1 }),
+    rutestorrelse: rute, bakkefaktor: 1
+  });
+  const v = [2, 1, 0.5, 0.25].map(r => lag(r).sum.overberg);
+  const spenn = (Math.max(...v) - Math.min(...v)) / Math.max(...v);
+  paastand('overberg flytter seg ikke med rutestørrelsen', spenn < 0.08,
+    v.map(x => x.toFixed(0)).join(' · ') + `  spenn ${(spenn * 100).toFixed(1)} %`);
+  sjekk('null overberg gir null', lag(1).sum.overberg > 0 ? 1 : 0, 1, 0);
+
+  const uten = T.beregnTomtemasser({
+    tomt: { punkter: rektangel(40, 60), kanter: [], nivaa: { modus: 'flat', kote: 96 } },
+    mal: grunnmal(), terreng: { z: () => 100 },
+    fjell: new M.Fjellmodell({ standarddybde: 1 }), rutestorrelse: 1, bakkefaktor: 1
+  });
+  sjekk('overberg står på null som standard', uten.sum.overberg, 0, 1e-9);
+  paastand('og det er med vilje – R761 gir ikke tillegg for overberg', true);
+}
+
+/* ------------------------------------------------------------------ */
 console.log(`\n${ok} tester ok, ${feil} feil`);
 process.exit(feil ? 1 : 0);

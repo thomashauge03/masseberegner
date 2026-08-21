@@ -189,6 +189,7 @@ function beregnTomtemasser(o) {
   const renskDybde = Math.max(0, mal.renskDybde || 0);
   const s = tom.sum;
   let utenData = 0, dypesteSkjaering = 0, hoyesteFylling = 0, hoyesteVegg = 0;
+  const fjellhoyde = [];
   let forNaerBerg = 0;
   const rutenett = [];
 
@@ -236,32 +237,52 @@ function beregnTomtemasser(o) {
       if (iTomta) tom.areal += cellA;
       tom.arealMedSkraning += cellA;
 
-      /* Matjorda tas av først, sa rensk mot berget, og det som er igjen er
-         skjæring eller fylling. Rekkefølgen er ikke likegyldig: matjord som
-         ligger over berg finnes ikke, og rensk som gar dypere enn til berget
-         finnes heller ikke. */
+      /* MATJORDA TAS AV FØRST, OG DEN TELLER IKKE TO GANGER.
+         Her ble skjæringen malt fra ratt terreng samtidig som matjord og rensk
+         ble ført som egne poster. Da la de samme kubikkene bade i skjæringen og
+         i deponiposten - malt: 993 m³ matjord og 793 m³ rensk oppa en skjæring
+         som ikke endret seg med én kubikk nar de ble slatt pa. Vegen gjør det
+         riktig; skjæringen der SYNKER nar renskedybden økes.
+
+         Na skrapes matjorda av først, og skjæringen males fra den avskrapte
+         flaten. Da er matjorda ute av skjæringen, og deponiet far den én gang. */
       const tilBerg = Math.max(0, zT - zFjell);
       const matjordHer = Math.min(matjord, tilBerg);
       s.matjord += matjordHer * cellA;
+      const zAvdekket = zT - matjordHer;
+      const losIgjen = tilBerg - matjordHer;        // løsmasse igjen over berget
 
-      const d = zT - zPlanum;                    // positiv = skjæring
+      const d = zAvdekket - zPlanum;               // positiv = skjæring
       if (d > 0) {
-        // rensk: løsmasse som skrapes av berget der berget graves ut
-        const renskHer = Math.min(renskDybde, Math.max(0, tilBerg - Math.max(0, tilBerg - d)));
-        s.rensk += renskHer * cellA;
+        const iFjell = Math.max(0, d - losIgjen);         // under fjelloverflaten
+        let iLos = d - iFjell;
+        /* RENSK ER EN DEL AV LØSMASSEN, IKKE ET TILLEGG.
+           Det er det siste laget som skrapes av selve bergflaten før den
+           sprenges, og det skilles ut fordi det prises for seg - ikke fordi det
+           er masse i tillegg. Her ble det lagt oppa, og formelen
+           `min(renskDybde, min(tilBerg, d))` spurte bare om det ble gravd i det
+           hele tatt: en tomt med berget femti meter under fikk full "rensk mot
+           fjell" over hele flaten.
 
-        const iFjell = Math.max(0, d - tilBerg);          // under fjelloverflaten
-        const iLos = d - iFjell;
+           Na kreves det at uttaket faktisk nar ned til berget. */
+        const naarBerget = d >= losIgjen - 1e-9;
+        const renskHer = naarBerget ? Math.min(renskDybde, losIgjen) : 0;
+        s.rensk += renskHer * cellA;
+        iLos = Math.max(0, iLos - renskHer);
+
         s.skjaering += d * cellA;
         s.skjaeringFjell += iFjell * cellA;
         s.skjaeringLosmasse += iLos * cellA;
         dypesteSkjaering = Math.max(dypesteSkjaering, d);
-        if (iFjell > 0 && mal.overberg > 0) s.overberg += mal.overberg * cellA / ruteM;
+        if (iFjell > 0) fjellhoyde.push({ h: iFjell, inne: iTomta });
         /* R761 prosess 22 c): er det mindre enn 0,75 m fra ferdig niva ned til
            fast berg, ma det dypsprenges - berget ligger for nær til at et
            vanlig salveuttak gar. */
-        if (iFjell <= 0 && tilBerg - d < (mal.minAvstandTilBerg || 0)) forNaerBerg++;
+        if (iFjell <= 0 && losIgjen - d < (mal.minAvstandTilBerg || 0)) forNaerBerg++;
       } else if (d < 0) {
+        /* Fyllingen males fra den AVSKRAPTE flaten, ikke fra det opprinnelige
+           terrenget. Matjorda er tatt bort, sa hullet som skal fylles er
+           akkurat sa mye dypere. */
         s.fylling += -d * cellA;
         hoyesteFylling = Math.max(hoyesteFylling, -d);
       }
@@ -280,6 +301,30 @@ function beregnTomtemasser(o) {
          er nettopp der utslaget mot naboen ligger. */
       rutenett.push({ x, y, d, inne: iTomta, fjell: Math.max(0, d - tilBerg) });
     }
+  }
+
+  /* Overberg males pa BERGFLATEN som sprenges, ikke pa grunnflaten.
+     Her sto `mal.overberg * cellA / ruteM`, som er m x m² / m = m² - en flate,
+     ikke et volum - og som dessuten doblet seg hver gang rutenettet ble
+     halvert: antall fjellceller vokser som 1/ruteM², mens hvert bidrag bare
+     halveres. Samme tomt ga 120, 265 og 529 "m³" ved 1, 0,5 og 0,25 m rutenett.
+     Pa standardinnstillingen traff det tilfeldigvis noe rimelig, sa feilen la
+     og ventet pa at noen skrudde pa rutenettet.
+
+     Riktig mal er arealet av den sprengte flaten: bunnen (grunnflaten der det
+     er fjell) pluss veggene rundt. Veggarealet er omkretsen ganger midlere
+     berghøyde langs den. R761 prosess 22.1 gir ikke tillegg for overberg, sa
+     posten star pa null med mindre noen setter den - men settes den, skal den
+     vaere et volum som ikke flytter seg nar man endrer rutenettet. */
+  if (mal.overberg > 0 && fjellhoyde.length) {
+    const bunnAreal = fjellhoyde.length * ruteM * ruteM * arealFaktor;
+    let omkrets = 0;
+    for (let i = 0, j = p.length - 1; i < p.length; j = i++) {
+      omkrets += Math.hypot(p[i].x - p[j].x, p[i].y - p[j].y);
+    }
+    const midlereBerg = fjellhoyde.reduce((a, f) => a + f.h, 0) / fjellhoyde.length;
+    const veggAreal = omkrets * bf * midlereBerg;
+    s.overberg = mal.overberg * (bunnAreal + veggAreal);
   }
 
   tom.rutenett = rutenett;

@@ -79,7 +79,7 @@ const Tomteprofil = {
     for (const q of p) rekke = Math.max(rekke, Math.hypot(q.x - senter.x, q.y - senter.y));
     rekke += Math.min(40, app.P.mal.maksSokebredde || 45);
 
-    const fjell = new Fjellmodell(app.P.fjell);
+    const fjell = app.fjellmodellIUtm();   // sonderingene ma vaere i UTM, se app.js
     const nivaa = app.tomtenivaaIUtm(t);
     const mal = app.P.mal;
     const ob = (mal.slitelagTykkelse || 0) + (mal.baerelagTykkelse || 0)

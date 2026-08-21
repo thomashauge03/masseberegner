@@ -391,7 +391,7 @@ const App = {
       t.nivaa.kote = kote;
       const r = Tomtmasser.beregnTomtemasser({
         tomt: { punkter: this.tomtIUtm(t), kanter: t.kanter, nivaa: this.tomtenivaaIUtm(t) },
-        mal: this.P.mal, terreng: this.terreng, fjell: new Fjellmodell(this.P.fjell),
+        mal: this.P.mal, terreng: this.terreng, fjell: this.fjellmodellIUtm(),
         rutestorrelse: Math.max(1, this.P.mal.rutestorrelse), bakkefaktor: this.bakkefaktor()
       });
       return this.tomtebalanse(r.sum).balanse;
@@ -975,18 +975,37 @@ const App = {
     this.beregn();
   },
 
-  beregn() {
-    if (!this.linje || !this.terreng || this.P.vip.length < 2) return;
-    this.vprofil = new Vertikalprofil(this.P.vip);
-    this.fjellmodell = new Fjellmodell({
-      standarddybde: this.P.fjell.standarddybde,
-      rekkevidde: this.P.fjell.rekkevidde,
-      strekninger: this.P.fjell.strekninger,
-      punkter: this.P.fjell.punkter.map(p => {
+  /**
+   * Fjellmodellen med sonderingene regnet om til UTM.
+   *
+   * Sonderingene lagres som {lat, lon, dybde}, men Fjellmodell regner avstand i
+   * UTM og leser p.x og p.y. Gir man den punktene urørt, blir avstanden
+   * `Math.hypot(undefined - x, …)` = NaN, `NaN <= rekkevidde` er usant, og hvert
+   * eneste punkt hoppes STILLE over. Modellen faller tilbake pa standarddybden,
+   * og alt ser normalt ut - tallene er rimelige, det kommer ingen merknad, og
+   * sonderingene man har gatt ut og tatt har ingen virkning.
+   *
+   * Det var nøyaktig dette som skjedde i tomtemodus: vegen konverterte, tomta
+   * gjorde det ikke. Na gar begge samme vei inn.
+   */
+  fjellmodellIUtm() {
+    const f = this.P.fjell || {};
+    return new Fjellmodell({
+      standarddybde: f.standarddybde,
+      rekkevidde: f.rekkevidde,
+      strekninger: f.strekninger,
+      soner: f.soner,
+      punkter: (f.punkter || []).map(p => {
         const u = Geo.tilUtm(p.lat, p.lon, this.sone);
         return { x: u.x, y: u.y, dybde: p.dybde };
       })
     });
+  },
+
+  beregn() {
+    if (!this.linje || !this.terreng || this.P.vip.length < 2) return;
+    this.vprofil = new Vertikalprofil(this.P.vip);
+    this.fjellmodell = this.fjellmodellIUtm();
     const t0 = performance.now();
     this.resultat = beregnMasser({
       linje: this.linje, profil: this.vprofil, terreng: this.terreng,
@@ -1263,7 +1282,7 @@ const App = {
     if (t.omrissBetyr === 'yttergrense') {
       const inn = Tomtmasser.innerflate({
         tomt: { punkter: p, kanter: t.kanter, nivaa: this.tomtenivaaIUtm(t) },
-        mal: this.P.mal, terreng: this.terreng, fjell: new Fjellmodell(this.P.fjell)
+        mal: this.P.mal, terreng: this.terreng, fjell: this.fjellmodellIUtm()
       });
       if (inn.punkter) { bruktPolygon = inn.punkter; this._innerflate = inn.punkter; }
       else {
@@ -1283,7 +1302,7 @@ const App = {
       mal: this.P.mal,
       faktorer: this.P.faktorer,
       terreng: this.terreng,
-      fjell: new Fjellmodell(this.P.fjell),
+      fjell: this.fjellmodellIUtm(),
       rutestorrelse: this.P.mal.rutestorrelse,
       bakkefaktor: this.bakkefaktor()
     });
@@ -1315,26 +1334,45 @@ const App = {
     const fjellFast = s.skjaeringFjell;
     const losFast = s.skjaeringLosmasse;
     const fyllingBehov = s.fylling;
-    const overbygningBehov = s.slitelag + s.baerelag + s.forsterkningslag
-      + s.frostsikring + s.avrettingslag;
+    /* Bare bærelaget og forsterkningslaget kan bygges av egen sprengstein.
+       Slitelag, avretting og frostsikring har krav til kornkurve og renhet som
+       en tilfeldig salve ikke oppfyller - de kjøpes uansett. */
+    const kanByggesSelv = s.baerelag + s.forsterkningslag;
+    const maaKjopes = s.slitelag + s.avrettingslag + s.frostsikring;
+    const overbygningBehov = kanByggesSelv + maaKjopes;
+
     const fraFjell = fjellFast * f.fjellIFylling;
     const brukbarLos = losFast * f.brukbarLosmasse * f.losmasseIFylling;
     const tilgjengelig = fraFjell + brukbarLos;
+
+    /* Løsmassen brukes først i fyllingen, sa gar det som er igjen av fjell til
+       bærelaget - samme rekkefølge som vegen. Her kjøpte tomta HELE
+       overbygningen inn, ogsa nar den hadde sprengstein til overs: samme masse
+       ble kjørt bort som overskudd og kjøpt tilbake som bærelag. Vegen har gjort
+       det riktig hele tiden, og to moduser som priser samme masse ulikt er en
+       feil uansett hvilken av dem som har rett. */
     const fyllFraLos = Math.min(brukbarLos, fyllingBehov);
     const fyllFraFjell = Math.min(fraFjell, fyllingBehov - fyllFraLos);
+    const fjellIgjen = fraFjell - fyllFraFjell;
+    const baerelagFraFjell = Math.min(fjellIgjen, kanByggesSelv);
+
+    const manglerFylling = Math.max(0, fyllingBehov - fyllFraLos - fyllFraFjell);
+    const manglerBaerelag = Math.max(0, kanByggesSelv - baerelagFraFjell);
     return {
-      fjellFast, losFast, fyllingBehov, overbygningBehov,
+      fjellFast, losFast, fyllingBehov, overbygningBehov, kanByggesSelv, maaKjopes,
       fjellSprengtLos: fjellFast * f.sprengningsfaktor,
       fraFjell, brukbarLos, tilgjengelig,
       balanse: tilgjengelig - fyllingBehov,
-      fyllFraLos, fyllFraFjell,
-      manglerFylling: Math.max(0, fyllingBehov - tilgjengelig),
-      overskuddFjell: Math.max(0, fraFjell - fyllFraFjell),
-      /* Matjord og rensk gar til deponi, sammen med den løsmassen som ikke er
-         god nok til a fylle med. Overbygningen kjøpes - den er knust masse med
-         krav til kornkurve, og den finnes ikke i en skogsli. */
+      fyllFraLos, fyllFraFjell, baerelagFraFjell,
+      manglerFylling, manglerBaerelag,
+      overskuddFjell: Math.max(0, fjellIgjen - baerelagFraFjell),
+      overskuddLos: Math.max(0, brukbarLos - fyllFraLos),
+      /* Matjord og rensk gar til deponi sammen med den løsmassen som ikke er
+         god nok a fylle med. Merk at rensken na er TRUKKET UT av
+         skjaeringLosmasse i regnemotoren - før la den bade der og her, og de
+         samme kubikkene ble talt to ganger. */
       tilDeponi: s.matjord + s.rensk + losFast * (1 - f.brukbarLosmasse),
-      manglerTotalt: Math.max(0, fyllingBehov - tilgjengelig) + overbygningBehov
+      manglerTotalt: manglerFylling + manglerBaerelag + maaKjopes
     };
   },
 
