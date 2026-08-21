@@ -85,23 +85,58 @@ const Tomteprofil = {
     const ob = (mal.slitelagTykkelse || 0) + (mal.baerelagTykkelse || 0)
       + (mal.forsterkningslag || 0) + (mal.frostsikring || 0) + (mal.avrettingslag || 0);
 
+    /* Er tomta tegnet som yttergrense, er det den INNRYKKEDE flaten som skal
+       planeres. Snittet ma vise den, ellers ser man en flate som ikke skal
+       bygges og skraninger som starter feil sted. */
+    const flate = (t.omrissBetyr === 'yttergrense' && app._innerflate) ? app._innerflate : p;
+    const kantFor = i => (t.kanter && t.kanter[i]) || {};
+
     const punkt = [];
     const steg = Math.max(0.5, (2 * rekke) / 400);
     for (let d = -rekke; d <= rekke; d += steg) {
       const x = senter.x + ex * d, y = senter.y + ey * d;
       const zT = app.terreng.z(x, y);
-      const inne = Tomtmasser.innenforPolygon(p, x, y);
+      const inne = Tomtmasser.innenforPolygon(flate, x, y);
       let zF = null;
       if (Number.isFinite(zT)) {
         const dyp = fjell.dybde(x, y);
         zF = zT - (Number.isFinite(dyp) ? dyp : 0.5);
       }
+      /* Utenfor flaten gar jordarbeidsflaten videre som skraning, med samme
+         regnestykke som volumet bruker. Her sto det ingenting - snittet stoppet
+         i kanten, og skraningen, som er halve poenget med a se pa et snitt,
+         var rett og slett ikke tegnet. */
+      let zSkraning = null;
+      if (!inne && Number.isFinite(zT)) {
+        const naer = Tomtmasser.naermestePaOmriss(flate, x, y);
+        const kant = kantFor(naer.kant);
+        const zKant = Tomtmasser.nivaaVed(nivaa, naer.x, naer.y, tp);
+        const zTKant = app.terreng.z(naer.x, naer.y);
+        if (Number.isFinite(zKant) && naer.d <= (mal.maksSokebredde || 45)) {
+          const planumKant = zKant - ob;
+          const skjaerer = Number.isFinite(zTKant) ? zTKant > planumKant : zT > planumKant;
+          const z = skjaerer
+            ? Tomtmasser.skraningsflate(naer.d, planumKant, zF == null ? zT - 0.5 : zF, kant, mal)
+            : Tomtmasser.fyllingsflate(naer.d, planumKant, kant, mal);
+          /* Skraningen slutter der den møter terrenget. Uten den prøven ville
+             streken fortsatt inn i bakken pa den ene siden og ut i lufta pa den
+             andre. */
+          if (Number.isFinite(z) && (skjaerer ? z < zT : z > zT)) zSkraning = z;
+        }
+      }
       let zN = null;
       if (inne) {
-        const v = Tomtmasser.nivaaVed(nivaa, x, y, senter);
+        /* Referansen for fallet ma vaere tomtas tyngdepunkt - det samme som
+           volumet regnes med. Her sto `senter`, som er der snittet ligger, og
+           det flytter seg med skyveren: samme tomt fikk forskjellig ferdig niva
+           alt etter hvor man dro skyveren. */
+        const v = Tomtmasser.nivaaVed(nivaa, x, y, tp);
         if (Number.isFinite(v)) zN = v;
       }
-      punkt.push({ d, zT: Number.isFinite(zT) ? zT : null, zF, zN, inne });
+      /* Jordarbeidsflaten er én sammenhengende strek: planum inne i tomta,
+         skraning utenfor. Tegnes de hver for seg, blir det et hopp i kanten. */
+      const zJord = inne ? (zN == null ? null : zN - ob) : zSkraning;
+      punkt.push({ d, zT: Number.isFinite(zT) ? zT : null, zF, zN, zJord, inne });
     }
     return { punkt, ob, retning: grader, senter, tMin, tMaks, skyv };
   },
@@ -165,14 +200,17 @@ const Tomteprofil = {
         if (i - start < 2) continue;
         g.beginPath();
         for (let k = start; k < i; k++) g.lineTo(X(s.punkt[k].d), Y(s.punkt[k].zT));
-        for (let k = i - 1; k >= start; k--) g.lineTo(X(s.punkt[k].d), Y(s.punkt[k].zN - s.ob));
+        for (let k = i - 1; k >= start; k--) g.lineTo(X(s.punkt[k].d), Y(s.punkt[k].zJord));
         g.closePath(); g.fill();
       }
       g.globalAlpha = 1;
     };
-    const gyldig = q => q.zT != null && q.zN != null;
-    bane(q => gyldig(q) && q.zT > q.zN - s.ob, Farger.skjaeringFlate);
-    bane(q => gyldig(q) && q.zT < q.zN - s.ob, Farger.fyllingFlate);
+    /* Fargen skal dekke bade tomta og skraningene, ellers ser det ut som om
+       det bare skal graves inne pa tomta - og pa en bratt tomt er skraningene
+       ofte mer masse enn selve flaten. */
+    const gyldig = q => q.zT != null && q.zJord != null;
+    bane(q => gyldig(q) && q.zT > q.zJord, Farger.skjaeringFlate);
+    bane(q => gyldig(q) && q.zT < q.zJord, Farger.fyllingFlate);
 
     const strek = (velg, farge, tykk, stiplet) => {
       g.strokeStyle = farge; g.lineWidth = tykk;
@@ -189,7 +227,7 @@ const Tomteprofil = {
     };
     strek(q => q.zF, Farger.fjell, 1.2, true);          // fjelloverflaten
     strek(q => q.zT, Farger.terreng, 1.6, false);        // terrenget
-    strek(q => (q.zN == null ? null : q.zN - s.ob), Farger.planum, 1.2, true);
+    strek(q => q.zJord, Farger.planum, 1.4, true);   // planum inne, skråning utenfor
     strek(q => q.zN, Farger.veg, 2.4, false);         // ferdig nivå
 
     // tegnforklaring

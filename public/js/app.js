@@ -1271,7 +1271,10 @@ const App = {
           tekst: 'Skråningene tar hele arealet – det blir ingen flate igjen innenfor '
             + 'grensa. Legg nivået nærmere terrenget, sett en brattere skråning, '
             + 'eller velg sprengt vegg på de bratteste kantene.' }], areal: 0 };
+        this._innerflate = null;
         this.visTomtemasser();
+        this.status('⚠ Skråningene tar hele arealet innenfor grensa – senk nivået, '
+          + 'sett brattere skråning, eller velg sprengt vegg på de bratteste sidene');
         return this.resultat;
       }
     }

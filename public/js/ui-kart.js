@@ -449,6 +449,18 @@ const Kart = {
     const p = app.tomtIUtm(t);
     if (p.length < 3 || t.nivaa.kote == null) return;
 
+    /* Gikk innrykket ikke opp, finnes det ingen ferdig flate a marsjere fra.
+       Her sto , og da ble skraningen tegnet fra det man
+       hadde TEGNET - altsa fra yttergrensa og enda lenger ut. Streken gikk
+       titalls meter forbi grensa man nettopp hadde sagt at ingenting skulle
+       utenfor. */
+    if (t.omrissBetyr === 'yttergrense' && !app._innerflate) return;
+    /* Gikk innrykket ikke opp, finnes det ingen ferdig flate a marsjere fra.
+       Her sto `app._innerflate || p`, og da ble skraningen tegnet fra det man
+       hadde TEGNET - altsa fra yttergrensa og enda lenger ut. Streken gikk
+       titalls meter forbi grensa man nettopp hadde sagt at ingenting skulle
+       utenfor, og det sa ut som om programmet ikke brydde seg om valget. */
+    if (t.omrissBetyr === 'yttergrense' && !app._innerflate) return;
     const indre = app._innerflate || p;
     const fot = Tomtmasser.skraningsfot({
       tomt: { punkter: indre, kanter: t.kanter, nivaa: app.tomtenivaaIUtm(t) },
@@ -553,16 +565,36 @@ const Kart = {
     const tp = Tomtmasser.tyngdepunktAv(p);
     const senter = Geo.fraUtm(tp.x, tp.y, app.sone);
     const areal = Tomt.areal(p) * bf * bf;
+    /* Tallene skal bare vises nar de FINNES. Her sto det `r && r.sum`, og et
+       tomt sum-objekt er sant - sa Math.round(undefined) ga «NaN m³ skjæring»
+       midt i kartet nar beregningen ikke gikk opp. Det ser ut som om programmet
+       er i stykker, mens det egentlig var noe brukeren kunne rettet. */
     const r = app.resultat;
-    const under = r && r.sum
-      ? `<span>${Math.round(r.sum.skjaering).toLocaleString('nb-NO')} m³ skjæring · `
-        + `${Math.round(r.sum.fylling).toLocaleString('nb-NO')} m³ fylling</span>`
-      : '<span>sett et ferdig nivå</span>';
+    const harTall = r && r.sum && Number.isFinite(r.sum.skjaering) && Number.isFinite(r.sum.fylling);
+    let under;
+    if (harTall) {
+      under = `<span>${Math.round(r.sum.skjaering).toLocaleString('nb-NO')} m³ skjæring · `
+        + `${Math.round(r.sum.fylling).toLocaleString('nb-NO')} m³ fylling</span>`;
+    } else if (r && r.merknader && r.merknader.length) {
+      under = `<span class="feil">${escapeHtml(r.merknader[0].tekst.slice(0, 70))}</span>`;
+    } else {
+      under = '<span>sett et ferdig nivå under «Høyde»</span>';
+    }
+    /* Er tomta tegnet som yttergrense, er det tallet man leser her den FERDIGE
+       flaten, ikke det man tegnet. Ellers ser man 1128 m² og tror det er
+       plassen man far - mens skraningene har spist det meste. */
+    const yttergrense = t.omrissBetyr === 'yttergrense';
+    const ferdigAreal = yttergrense && app._innerflate
+      ? Tomt.areal(app._innerflate) * bf * bf : null;
     L.marker([senter.lat, senter.lon], {
       interactive: false,
       icon: L.divIcon({
         className: '',
-        html: `<div class="tomtemal-areal"><b>${Math.round(areal).toLocaleString('nb-NO')} m²</b>${under}</div>`,
+        html: '<div class="tomtemal-areal">'
+          + `<b>${Math.round(ferdigAreal != null ? ferdigAreal : areal).toLocaleString('nb-NO')} m²</b>`
+          + (ferdigAreal != null
+            ? `<span>ferdig flate · tegnet ${Math.round(areal).toLocaleString('nb-NO')} m²</span>` : '')
+          + under + '</div>',
         iconSize: [0, 0]
       })
     }).addTo(this.lag.tomtemal);

@@ -663,3 +663,5 @@ body {
   background: var(--f);
   background-image: repeating-linear-gradient(45deg, transparent 0 3px, rgba(255,120,128,.85) 3px 4px);
 }
+
+.tomtemal-areal .feil { color: #ff8a90; font-size: 10px; max-width: 210px; white-space: normal; }
