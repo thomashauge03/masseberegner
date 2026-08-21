@@ -213,7 +213,62 @@ body {
 .kartpanel { grid-area: kart; }
 .profilpanel { grid-area: profil; }
 .tverrpanel { grid-area: tverr; }
+/* Tomtepanelet skal vaere borte i vegbildet.
+   `.tomtpanel { display: none }` alene duger ikke: `.panel` star lenger nede i
+   fila med `display: flex`, og ved lik spesifisitet vinner den siste. Da ble
+   panelet liggende med `grid-area: tomt` i et rutenett som ikke har noe omrade
+   med det navnet, og rutenettet lagde en implisitt kolonne til det. Kartet og
+   lengdeprofilen ble klemt fra 878 til 52 piksler - hele vegbildet var
+   ubrukelig, og ingenting sa fra. */
+.rute:not(.tomtemodus) .tomtpanel { display: none; }
+.tomtpanel { grid-area: tomt; }
 .sidepanel { grid-area: side; display: flex; flex-direction: column; }
+
+/* Tomtemodus er et eget arbeidsbilde, ikke vegbildet med noen knapper skjult.
+   Lengdeprofil og tverrprofil hører til en senterlinje som ikke finnes her, og
+   a la dem sta tomme er verre enn a fjerne dem - da tror man de er i stykker.
+   Kartet far derfor mer plass, og under det star tomtepanelet. */
+.rute.tomtemodus {
+  grid-template-rows: 1fr 300px;
+  grid-template-areas: "kart side" "tomt side";
+}
+.rute.tomtemodus .profilpanel,
+.rute.tomtemodus .tverrpanel { display: none; }
+.rute.tomtemodus .tomtpanel { display: flex; flex-direction: column; }
+.rute.tomtemodus.stor-kart { grid-template-rows: 1fr; grid-template-areas: "kart side"; }
+.rute.tomtemodus.stor-tomt { grid-template-rows: 1fr; grid-template-areas: "tomt side"; }
+.rute.tomtemodus.stor-kart .tomtpanel,
+.rute.tomtemodus.stor-tomt .kartpanel { display: none; }
+.rute.tomtemodus.uten-side { grid-template-areas: "kart" "tomt"; }
+.rute.tomtemodus.uten-side.stor-kart { grid-template-areas: "kart"; }
+.rute.tomtemodus.uten-side.stor-tomt { grid-template-areas: "tomt"; }
+
+.tomtinnhold { display: flex; gap: 2px; overflow: hidden; flex: 1; }
+.tomtenokkel { flex: 1; overflow: auto; padding: 10px 12px; }
+.tomtekanter { width: 330px; overflow: auto; padding: 10px 12px; border-left: 1px solid var(--kant); }
+.tomtenokkel table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.tomtenokkel td { padding: 2px 0; }
+.tomtenokkel td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+.tomtenokkel tr.sum td { border-top: 1px solid var(--kant); font-weight: 600; padding-top: 5px; }
+.tomtenokkel h4 { margin: 12px 0 4px; font-size: 12px; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--blekk-svak); }
+.tomtenokkel h4:first-child { margin-top: 0; }
+.tomtekanter table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.tomtekanter th { text-align: left; font-weight: 600; color: var(--blekk-svak);
+  font-size: 11px; padding-bottom: 3px; }
+.tomtekanter td { padding: 2px 3px 2px 0; }
+.tomtekanter select, .tomtekanter input { width: 100%; font-size: 12px; }
+.tomtekanter td.mal { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* Modusbytte i toppen: Veg eller Tomt. */
+.modusbytte { display: flex; gap: 0; margin-left: 8px; }
+.modusknapp {
+  background: var(--flate-2); border: 1px solid var(--kant); color: var(--blekk-svak);
+  padding: 5px 12px; cursor: pointer; font-size: 13px; font-weight: 600;
+}
+.modusknapp:first-child { border-radius: 4px 0 0 4px; }
+.modusknapp:last-child { border-radius: 0 4px 4px 0; border-left: none; }
+.modusknapp.aktiv { background: var(--hm-gul, #f5b301); color: #111; border-color: var(--hm-gul, #f5b301); }
 
 /* Stor visning: ett panel tar hele arbeidsflaten, de andre trekker seg unna.
    Grensesnittet er ellers tett, og noen ganger trengs hele skjermen til

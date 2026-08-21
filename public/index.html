@@ -20,6 +20,10 @@
     <span class="hm-skrastrek" aria-hidden="true"></span>
   </div>
   <input id="prosjektnavn" class="navnefelt" value="Nytt prosjekt" spellcheck="false">
+  <div class="modusbytte">
+    <button id="modusVeg" class="modusknapp aktiv" title="Arbeid med veglinjen">▬ Veg</button>
+    <button id="modusTomt" class="modusknapp" title="Arbeid med en tomt – eget arbeidsbilde">⬟ Tomt</button>
+  </div>
   <div class="knapperad">
     <button id="knappNy" class="knapp">Ny</button>
     <button id="knappApne" class="knapp">Åpne</button>
@@ -39,8 +43,6 @@
       <span>Kart</span>
       <button class="utvidknapp" data-utvid="kart" title="Stor visning (skjuler de andre)">⤢</button>
       <div class="verktoy">
-        <select id="anleggsvelger" class="minivalg" title="Hvilket anlegg du jobber med. Veg og tomt har hver sine innstillinger og hver sin masseoppstilling."></select>
-        <button id="knappNyttAnlegg" class="verktoyknapp" title="Legg til en tomt i dette prosjektet">＋ Tomt</button>
         <button id="verktoyTegn" class="verktoyknapp" title="Klikk i kartet for å legge inn knekkpunkt. Dobbeltklikk for å avslutte.">✏️ Tegn senterlinje</button>
         <button id="verktoyTomt" class="verktoyknapp skjult" title="Klikk rundt tomta i kartet. Dobbeltklikk for å lukke den.">⬟ Tegn tomt</button>
         <button id="verktoyFlytt" class="verktoyknapp aktiv" title="Flytt og rediger punkt">✥ Rediger</button>
@@ -102,6 +104,31 @@
       </div>
     </div>
     <canvas id="tverrprofil"></canvas>
+  </section>
+
+  <!-- ---------------- Tomt (erstatter de to profilpanelene) ---------------- -->
+  <section class="panel tomtpanel">
+    <div class="panelhode">
+      <span>Tomta</span>
+      <button class="utvidknapp" data-utvid="tomt" title="Stor visning">⤢</button>
+      <div class="verktoy">
+        <label class="minitall">Ferdig kote
+          <input type="number" id="tm_kote" step="0.05" title="Høyden på det ferdige nivået"></label>
+        <button id="tm_foreslaKote" class="verktoyknapp" title="Foreslå en kote ut fra terrenget">Foreslå</button>
+        <button id="tm_balanser" class="verktoyknapp" title="Finn koten der skjæring og fylling går opp mot hverandre">Massebalanse</button>
+        <select id="tm_nivaamodus" class="minivalg" title="Hvordan det ferdige nivået formes">
+          <option value="flat">Flatt</option>
+          <option value="fall">Fall i én retning</option>
+        </select>
+        <label class="minitall">Fall <input type="number" id="tm_fall" step="0.5" min="0" max="15" title="Prosent"> %</label>
+        <label class="minitall">Retning <input type="number" id="tm_fallretning" step="5" min="0" max="359" title="Grader fra nord – dit vannet renner"> °</label>
+        <label class="minitall">Rutenett <input type="number" id="tm_rutestorrelse" step="0.25" min="0.25" max="5" title="Cellestørrelse i beregningen"> m</label>
+      </div>
+    </div>
+    <div class="tomtinnhold">
+      <div id="tomtNokkeltall" class="tomtenokkel"></div>
+      <div id="tomtKanter" class="tomtekanter"></div>
+    </div>
   </section>
 
   <!-- ---------------- Sidepanel ---------------- -->
@@ -337,6 +364,7 @@
 <script src="js/terreng.js"></script>
 <script src="js/masser.js"></script>
 <script src="js/tomt.js"></script>
+<script src="js/tomtmasser.js"></script>
 <script src="js/ui-kart.js"></script>
 <script src="js/ui-lengdeprofil.js"></script>
 <script src="js/ui-tverrprofil.js"></script>

@@ -65,6 +65,41 @@ class Terreng {
 
   nøkkel(tx, ty) { return tx + '_' + ty; }
 
+  /**
+   * Laster flisene som dekker et omrade - brukt av tomtemodus.
+   *
+   * En veg trenger et smalt belte langs en linje, og lastKorridor gar til verks
+   * deretter: den vandrer langs linjen og prøver a treffe sa fa fliser som
+   * mulig. En tomt er en klump, og da er det ingenting a spare pa a vaere lur.
+   * Hele omsluttende rektangel tas rett fram.
+   *
+   * Malt: en tomt pa 50 x 80 m med 45 m skraningssone treffer 1-4 fliser mot
+   * 4-10 for en 850 m veg - altsa omtrent en femdel av minnet.
+   *
+   * @param {Array<{x:number,y:number}>} omriss  UTM
+   * @param {number} marg  hvor langt utenfor omrisset det trengs data
+   */
+  async lastOmraade(omriss, marg, framdrift) {
+    if (!omriss || omriss.length < 3) return;
+    let minX = Infinity, maksX = -Infinity, minY = Infinity, maksY = -Infinity;
+    for (const p of omriss) {
+      minX = Math.min(minX, p.x); maksX = Math.max(maksX, p.x);
+      minY = Math.min(minY, p.y); maksY = Math.max(maksY, p.y);
+    }
+    /* To meter ekstra fordi den bilineære interpolasjonen slar opp i
+       nabocellen: et punkt helt ute ved kanten leser en celle som kan høre til
+       en flis ingen har bedt om, og da blir høyden der hentet fra faerre naboer
+       enn den skulle. */
+    const m = (marg || 0) + 2;
+    const trengs = new Set();
+    for (let ty = Math.floor((minY - m) / FLIS_M); ty <= Math.floor((maksY + m) / FLIS_M); ty++) {
+      for (let tx = Math.floor((minX - m) / FLIS_M); tx <= Math.floor((maksX + m) / FLIS_M); tx++) {
+        trengs.add(this.nøkkel(tx, ty));
+      }
+    }
+    return this._lastFliser(trengs, framdrift);
+  }
+
   /** Laster alle fliser som trengs for et belte langs linjeføringen. */
   async lastKorridor(linje, halvbredde, framdrift) {
     const trengs = new Set();
@@ -109,6 +144,15 @@ class Terreng {
        Merk at «ingen dekning» ikke kommer hit som en feil: da svarer tjenesten
        pent med en flis der hver eneste piksel er null, og serveren gjør den om
        til manglende data. En feil pa dette stedet er derfor alltid teknisk. */
+    return this._lastFliser(trengs, framdrift);
+  }
+
+  /**
+   * Laster ned flisene i settet. Delt av bade lastKorridor og lastOmraade -
+   * her ligger samtidigheten, det ekstra forsøket og framdriften, og det er
+   * det samme uansett hvilken form omradet har.
+   */
+  async _lastFliser(trengs, framdrift) {
     this.mangler.clear();
     const liste = [...trengs].filter(k => !this.fliser.has(k));
     let ferdig = 0;

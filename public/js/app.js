@@ -54,6 +54,7 @@ const App = {
     til.push({ tekst: na, hva: forrige.hva });
     this.P = JSON.parse(forrige.tekst);
     this.historikk._sist = forrige.tekst;
+    this.visAnleggsvelger();          // angre kan ha byttet hvilket anlegg som er oppe
     this.byggLinje();
     this.vprofil = new Vertikalprofil(this.P.vip);
     this.malTilSkjema();
@@ -61,6 +62,7 @@ const App = {
     this.visSonderinger();
     this.visLinjetabell();
     this.visHoydetabell();
+    if (this.erTomt()) this.oppdaterTomtefelt();
     await this.oppdater();
     this.visAngreknapper();
     this.status(steg + ' «' + forrige.hva + '»');
@@ -261,27 +263,304 @@ const App = {
       : 'Ny veg. Velg «Tegn senterlinje» og klikk i kartet.');
   },
 
-  /** Fyller anleggsvelgeren og viser de knappene som hører til typen. */
+  /**
+   * Bytter mellom vegbildet og tomtebildet.
+   *
+   * Her sto det en anleggsvelger nede i kartverktøylinja, og resten av skjermen
+   * ble staende som den var med noen knapper skjult. Det ble rotete: lengde-
+   * profil og tverrprofil hører til en senterlinje som ikke finnes pa en tomt,
+   * og de sto igjen halvtomme. Na er det to arbeidsbilder, og valget mellom dem
+   * ligger øverst der man ser det.
+   */
+  async settModus(type) {
+    if (!this.P) return;
+    let a = this.P.anlegg.find(x => x.type === type && x.id === this.P.aktivt)
+      || this.P.anlegg.find(x => x.type === type);
+    if (!a) { this.leggTilAnlegg(type); return; }
+    if (a.id !== this.P.aktivt) this.byttAnlegg(a.id);
+    else this.visAnleggsvelger();
+    if (type === 'tomt') await this.beregnTomt();
+  },
+
+  /** Viser riktig arbeidsbilde for det anlegget som er oppe. */
   visAnleggsvelger() {
-    const v = document.getElementById('anleggsvelger');
-    if (!v || !this.P) return;
-    v.innerHTML = '';
-    for (const a of this.P.anlegg) {
-      const o = document.createElement('option');
-      o.value = a.id;
-      o.textContent = (a.type === 'tomt' ? '⬟ ' : '▬ ') + a.navn;
-      if (a.id === this.P.aktivt) o.selected = true;
-      v.appendChild(o);
-    }
+    if (!this.P) return;
     const tomt = this.erTomt();
+    document.querySelector('.rute').classList.toggle('tomtemodus', tomt);
+    const m = (id, pa) => { const e = document.getElementById(id); if (e) e.classList.toggle('aktiv', pa); };
+    m('modusVeg', !tomt);
+    m('modusTomt', tomt);
     const bytt = (id, vis) => { const e = document.getElementById(id); if (e) e.classList.toggle('skjult', !vis); };
     bytt('verktoyTegn', !tomt);
     bytt('verktoyTomt', tomt);
-    /* Vegverktøyene skjules pa en tomt fordi de ikke betyr noe der - det finnes
-       ingen senterlinje a foresla en profil for. A la dem sta og ikke gjøre noe
-       er verre enn a fjerne dem: da tror man de er i stykker. */
-    for (const id of ['knappForeslaProfil', 'knappOptimaliser', 'knappRettOpp',
-      'knappGjorLovlig', 'knappBalanser']) bytt(id, !tomt);
+    if (tomt) { this.tomtTilSkjema(); this.visTomtemasser(); }
+  },
+
+  /* ---------------- tomtas skjema ---------------- */
+
+  tomtTilSkjema() {
+    if (!this.erTomt()) return;
+    const t = this.P.tomt, n = t.nivaa, mal = this.P.mal;
+    const sett = (id, v) => { const e = document.getElementById(id); if (e && document.activeElement !== e) e.value = v; };
+    sett('tm_kote', n.kote == null ? '' : n.kote.toFixed(2));
+    sett('tm_nivaamodus', n.modus || 'flat');
+    sett('tm_fall', ((n.fall || 0) * 100).toFixed(1));
+    sett('tm_fallretning', Math.round(n.fallretning || 0));
+    sett('tm_rutestorrelse', mal.rutestorrelse);
+    const fall = (n.modus || 'flat') === 'fall';
+    for (const id of ['tm_fall', 'tm_fallretning']) {
+      const e = document.getElementById(id);
+      if (e && e.parentElement) e.parentElement.classList.toggle('skjult', !fall);
+    }
+    this.visKanttabell();
+  },
+
+  skjemaTilTomt() {
+    if (!this.erTomt()) return;
+    const t = this.P.tomt, n = t.nivaa, mal = this.P.mal;
+    const tall = (id, standard) => {
+      const e = document.getElementById(id);
+      const v = e ? parseFloat(e.value) : NaN;
+      return Number.isFinite(v) ? v : standard;
+    };
+    const koteFelt = document.getElementById('tm_kote');
+    const k = parseFloat(koteFelt.value);
+    n.kote = Number.isFinite(k) ? k : null;
+    n.modus = document.getElementById('tm_nivaamodus').value;
+    n.fall = Math.max(0, tall('tm_fall', 2)) / 100;
+    n.fallretning = ((tall('tm_fallretning', 0) % 360) + 360) % 360;
+    mal.rutestorrelse = Math.max(0.25, Math.min(5, tall('tm_rutestorrelse', 1)));
+  },
+
+  /**
+   * Foreslår en kote ut fra terrenget.
+   *
+   * Middelhøyden over tomta er utgangspunktet: da blir det omtrent like mye a
+   * grave som a fylle, og massene har en sjanse til a ga opp. Overbygningen
+   * legges pa toppen, sa den foreslatte koten er der man kjører - ikke der
+   * jordarbeidet slutter.
+   */
+  foreslaKote() {
+    if (!this.erTomt()) return null;
+    const p = this.tomtIUtm();
+    if (p.length < 3 || !this.terreng) return null;
+    let sum = 0, n = 0;
+    let minX = Infinity, maksX = -Infinity, minY = Infinity, maksY = -Infinity;
+    for (const q of p) {
+      minX = Math.min(minX, q.x); maksX = Math.max(maksX, q.x);
+      minY = Math.min(minY, q.y); maksY = Math.max(maksY, q.y);
+    }
+    for (let y = minY; y <= maksY; y += 1) {
+      for (let x = minX; x <= maksX; x += 1) {
+        if (!Tomtmasser.innenforPolygon(p, x, y)) continue;
+        const z = this.terreng.z(x, y);
+        if (Number.isFinite(z)) { sum += z; n++; }
+      }
+    }
+    if (!n) return null;
+    const mal = this.P.mal;
+    const ob = (mal.slitelagTykkelse || 0) + (mal.baerelagTykkelse || 0)
+      + (mal.forsterkningslag || 0) + (mal.frostsikring || 0) + (mal.avrettingslag || 0);
+    return +(sum / n + ob).toFixed(2);
+  },
+
+  /**
+   * Finner koten der skjæring og fylling gar opp mot hverandre.
+   *
+   * Halveringssøk pa balansen. Den er strengt voksende i koten - løfter man
+   * nivaet, blir det mindre skjæring og mer fylling, alltid - sa halvering
+   * treffer. Det er det samme grepet «Massebalanse» gjør pa vegen.
+   */
+  async balanserTomt() {
+    if (!this.erTomt()) return;
+    const t = this.P.tomt;
+    if (!t.punkter.length) return;
+    const start = t.nivaa.kote != null ? t.nivaa.kote : this.foreslaKote();
+    if (start == null) { this.status('Sett en kote først'); return; }
+    this.merk('massebalanse på tomta');
+    this.framdrift(true, 'Finner koten som gir massebalanse…', 0.1);
+    await pause();
+    const maal = kote => {
+      t.nivaa.kote = kote;
+      const r = Tomtmasser.beregnTomtemasser({
+        tomt: { punkter: this.tomtIUtm(t), kanter: t.kanter, nivaa: this.tomtenivaaIUtm(t) },
+        mal: this.P.mal, terreng: this.terreng, fjell: new Fjellmodell(this.P.fjell),
+        rutestorrelse: Math.max(1, this.P.mal.rutestorrelse), bakkefaktor: this.bakkefaktor()
+      });
+      return this.tomtebalanse(r.sum).balanse;
+    };
+    let lav = start - 15, hoy = start + 15;
+    for (let i = 0; i < 24; i++) {
+      const midt = (lav + hoy) / 2;
+      if (maal(midt) > 0) hoy = midt; else lav = midt;
+      this.framdrift(true, 'Finner koten som gir massebalanse…', 0.1 + 0.85 * i / 24);
+      if (i % 4 === 0) await pause();
+    }
+    t.nivaa.kote = +((lav + hoy) / 2).toFixed(2);
+    this.framdrift(false);
+    this.tomtTilSkjema();
+    await this.beregnTomt();
+    const b = this.resultat && this.resultat.balanse;
+    this.status(b
+      ? `Kote ${t.nivaa.kote.toFixed(2)} gir balanse – ${Math.abs(b.balanse).toFixed(0)} m³ i avvik`
+      : `Kote ${t.nivaa.kote.toFixed(2)}`);
+  },
+
+  /**
+   * Målene og massene for tomta.
+   *
+   * Malene star øverst fordi det er dem man leser mens man tegner: er tomta
+   * blitt sa stor som den skulle? Massene under, delt i det som graves, det som
+   * fylles, og det som ma kjøres inn eller bort.
+   */
+  visTomtemasser() {
+    const boks = document.getElementById('tomtNokkeltall');
+    if (!boks || !this.erTomt()) return;
+    const t = this.tomtetall();
+    if (!t || t.hjorner < 3) {
+      boks.innerHTML = '<p class="notis">Tegn tomta i kartet – klikk rundt den, '
+        + 'dobbeltklikk eller Enter for å lukke.</p>';
+      return;
+    }
+    const n = (v, d = 0) => (v == null || !Number.isFinite(v) ? '–'
+      : v.toLocaleString('nb-NO', { minimumFractionDigits: d, maximumFractionDigits: d }));
+    const p = this.tomtIUtm();
+    const kanter = Tomt.kanter(p);
+    const bf = this.bakkefaktor();
+
+    let ut = '<h4>Mål</h4><table>';
+    ut += `<tr><td>Areal</td><td>${n(t.areal)} m²</td></tr>`;
+    ut += `<tr><td>Omkrets</td><td>${n(t.omkrets, 1)} m</td></tr>`;
+    ut += `<tr><td>Hjørner</td><td>${t.hjorner}</td></tr>`;
+    /* Kantlengdene enkeltvis. Det er dem man kontrollerer mot en situasjonsplan
+       - "skal ikke den siden vaere 32 meter?" - og de finnes ikke noe annet
+       sted i programmet. */
+    kanter.forEach((k, i) => {
+      const grader = ((90 - k.retning * 180 / Math.PI) % 360 + 360) % 360;
+      ut += `<tr><td>&nbsp;&nbsp;Kant ${i + 1}</td><td>${n(k.lengde * bf, 1)} m · ${n(grader, 0)}°</td></tr>`;
+    });
+    ut += '</table>';
+
+    const r = this.resultat;
+    if (!r || !r.sum) {
+      ut += '<p class="notis">Sett en ferdig kote for å få massene.</p>';
+      boks.innerHTML = ut;
+      return;
+    }
+    const s = r.sum, b = r.balanse;
+    ut += '<h4>Masser</h4><table>';
+    ut += `<tr><td>Skjæring</td><td>${n(s.skjaering)} m³</td></tr>`;
+    ut += `<tr><td>&nbsp;&nbsp;– løsmasse</td><td>${n(s.skjaeringLosmasse)} m³</td></tr>`;
+    ut += `<tr><td>&nbsp;&nbsp;– fjell (sprengning)</td><td>${n(s.skjaeringFjell)} m³</td></tr>`;
+    ut += `<tr><td>Fylling</td><td>${n(s.fylling)} m³</td></tr>`;
+    if (s.matjord > 0.5) ut += `<tr><td>Matjord av</td><td>${n(s.matjord)} m³</td></tr>`;
+    if (s.rensk > 0.5) ut += `<tr><td>Rensk</td><td>${n(s.rensk)} m³</td></tr>`;
+    if (s.overberg > 0.5) {
+      /* Egen linje, aldri bakt inn i fjellvolumet. R761 prosess 22.1: det gis
+         ikke tillegg for overberg, sa et tilbud som la det inn i sprengningen
+         ville sett dyrere ut enn oppgjøret blir. */
+      ut += `<tr><td>Overberg (ikke i oppgjør)</td><td>${n(s.overberg)} m³</td></tr>`;
+    }
+    ut += '</table>';
+
+    const lag = s.slitelag + s.baerelag + s.forsterkningslag + s.frostsikring + s.avrettingslag;
+    if (lag > 0.5) {
+      ut += '<h4>Byggeklart – lag som skal inn</h4><table>';
+      const rad = (navn, v, tykk) => v > 0.005
+        ? `<tr><td>${navn}${tykk ? ` (${tykk} m)` : ''}</td><td>${n(v)} m³</td></tr>` : '';
+      ut += rad('Frostsikring', s.frostsikring, this.P.mal.frostsikring);
+      ut += rad('Forsterkningslag', s.forsterkningslag, this.P.mal.forsterkningslag);
+      ut += rad('Bærelag', s.baerelag, this.P.mal.baerelagTykkelse);
+      ut += rad('Avretting', s.avrettingslag, this.P.mal.avrettingslag);
+      ut += rad('Slitelag', s.slitelag, this.P.mal.slitelagTykkelse);
+      ut += `<tr class="sum"><td>Sum overbygning</td><td>${n(lag)} m³</td></tr>`;
+      ut += `<tr><td>Tykkelse</td><td>${n(r.overbygning, 2)} m</td></tr>`;
+      ut += '</table>';
+    }
+
+    if (b) {
+      ut += '<h4>Massebalanse</h4><table>';
+      ut += `<tr><td>Sprengt fjell, løst (× ${this.P.faktorer.sprengningsfaktor})</td><td>${n(b.fjellSprengtLos)} p.a.m³</td></tr>`;
+      ut += `<tr><td>Tilgjengelig til fylling</td><td>${n(b.tilgjengelig)} m³</td></tr>`;
+      ut += `<tr><td>Fyllingsbehov</td><td>${n(b.fyllingBehov)} m³</td></tr>`;
+      ut += `<tr class="sum"><td>${b.balanse >= 0 ? 'Overskudd' : 'Underskudd'}</td>`
+        + `<td>${n(Math.abs(b.balanse))} m³</td></tr>`;
+      if (b.manglerTotalt > 0.5) ut += `<tr><td>Må kjøres inn</td><td>${n(b.manglerTotalt)} m³</td></tr>`;
+      if (b.tilDeponi > 0.5) ut += `<tr><td>Til deponi</td><td>${n(b.tilDeponi)} m³</td></tr>`;
+      ut += '</table>';
+    }
+
+    ut += '<h4>Dybder</h4><table>';
+    ut += `<tr><td>Dypeste skjæring</td><td>${n(r.dypesteSkjaering, 2)} m</td></tr>`;
+    ut += `<tr><td>Høyeste fylling</td><td>${n(r.hoyesteFylling, 2)} m</td></tr>`;
+    if (r.hoyesteVegg > 0.05) ut += `<tr><td>Høyeste bergvegg</td><td>${n(r.hoyesteVegg, 2)} m</td></tr>`;
+    ut += '</table>';
+
+    const merk = (r.merknader || []).concat(t.merknader || []);
+    if (merk.length) {
+      ut += '<h4>Merknader</h4>';
+      for (const m of merk) ut += `<p class="notis">⚠ ${escapeHtml(m.tekst)}</p>`;
+    }
+    boks.innerHTML = ut;
+  },
+
+  /**
+   * Kantene, én rad hver.
+   *
+   * Skrivematen for helningen skifter med kanttypen, og det er med vilje: en
+   * bergvegg skrives 10:1 (ti opp, én ut), en jordskraning 1:1,5 (én opp,
+   * halvannen ut). Blandes de, blir volumet fullstendig feil. Tallet som lagres
+   * er alltid det samme - vannrett utlegg per meter høyde - men det brukeren
+   * leser skal se ut som i normen.
+   */
+  visKanttabell() {
+    const boks = document.getElementById('tomtKanter');
+    if (!boks || !this.erTomt()) return;
+    const t = this.P.tomt;
+    const p = this.tomtIUtm(t);
+    if (p.length < 3) { boks.innerHTML = ''; return; }
+    const kanter = Tomt.kanter(p);
+    const mal = this.P.mal;
+    const bf = this.bakkefaktor();
+
+    let ut = '<table><tr><th>Kant</th><th>Lengde</th><th>Behandling</th><th>Helning</th></tr>';
+    kanter.forEach((k, i) => {
+      const kant = (t.kanter && t.kanter[i]) || {};
+      const type = kant.type || 'skraning';
+      const valg = Object.entries(Tomt.Kanttyper).map(([v, n]) =>
+        `<option value="${v}"${v === type ? ' selected' : ''}>${n}</option>`).join('');
+      let helning = '';
+      if (type === 'fjellvegg') {
+        const h = kant.veggHelning != null ? kant.veggHelning : mal.veggHelning;
+        helning = h < 1e-6 ? 'loddrett' : `${(1 / h).toFixed(h < 0.15 ? 0 : 1)}:1`;
+      } else if (type === 'skraning') {
+        const h = kant.skjaeringLosmasse != null ? kant.skjaeringLosmasse : mal.skjaeringLosmasse;
+        helning = `1:${h.toFixed(1)}`;
+      } else if (type === 'mur') {
+        helning = `≤ ${mal.maksMurHoyde} m`;
+      } else {
+        helning = '–';
+      }
+      ut += `<tr><td>${i + 1}</td><td class="mal">${(k.lengde * bf).toFixed(1)} m</td>`
+        + `<td><select data-kant="${i}">${valg}</select></td>`
+        + `<td class="mal">${helning}</td></tr>`;
+    });
+    ut += '</table>';
+    ut += '<p class="notis" style="font-size:11px;margin-top:8px">Bergvegg skrives 10:1 '
+      + '(ti opp, én ut). Jordskråning skrives 1:1,5 (én opp, halvannen ut). '
+      + 'Standardverdiene følger N200.</p>';
+    boks.innerHTML = ut;
+
+    for (const v of boks.querySelectorAll('select[data-kant]')) {
+      v.onchange = () => {
+        const i = +v.dataset.kant;
+        this.merk('kantbehandling');
+        if (!Array.isArray(t.kanter)) t.kanter = [];
+        t.kanter[i] = Object.assign({}, t.kanter[i], { type: v.value });
+        this.visKanttabell();
+        this.beregnTomt();
+      };
+    }
   },
 
   /** Nøkkeltallene for tomta i statuslinjen mens man tegner. */
@@ -847,8 +1126,11 @@ const App = {
   tomtEndret() {
     Kart.tegn();
     this.oppdaterTomtefelt();
+    this.visKanttabell();
     this.visLagretMerke();
     this.planleggAutolagring();
+    clearTimeout(this._tomteberegning);
+    this._tomteberegning = setTimeout(() => this.beregnTomt(), 150);
   },
 
   /** Tomta i UTM, sa areal og lengder males i meter og ikke i grader. */
@@ -860,6 +1142,98 @@ const App = {
       const u = Geo.tilUtm(p.lat, p.lon, this.sone);
       return { x: u.x, y: u.y };
     });
+  },
+
+  /**
+   * Laster terreng for tomta og regner massene.
+   *
+   * Egen vei inn, ikke `beregn()`. Vegberegningen henger pa en senterlinje som
+   * ikke finnes her, og a lage en attrapp av en linje for a komme gjennom
+   * ville vaert verre enn a skrive de tjue linjene som faktisk trengs.
+   */
+  async beregnTomt() {
+    if (!this.erTomt()) return null;
+    const t = this.P.tomt;
+    const p = this.tomtIUtm(t);
+    if (p.length < 3) { this.resultat = null; this.visTomtemasser(); return null; }
+
+    const marg = Math.max(10, (this.P.mal.maksSokebredde || 45));
+    const res = 1;
+    if (!this.terreng || this.terreng.sone !== this.sone || this.terreng.res !== res) {
+      this.terreng = new Terreng(this.sone, res);
+    }
+    const nokkel = p.map(q => q.x.toFixed(1) + ',' + q.y.toFixed(1)).join('|') + '#' + marg;
+    if (nokkel !== this._terrengnokkel) {
+      const varSynlig = !document.getElementById('framdrift').classList.contains('skjult');
+      this.framdrift(true, 'Henter terrengdata fra Kartverket…', 0);
+      try {
+        await this.terreng.lastOmraade(p, marg, (f, tot) =>
+          this.framdrift(true, `Henter terrengdata fra Kartverket… ${f}/${tot}`, tot ? f / tot : 1));
+      } finally { if (!varSynlig) this.framdrift(false); }
+      this._terrengnokkel = nokkel;
+      if (this.terreng.mangler.size) {
+        this.status(`⚠ Fikk ikke ${this.terreng.mangler.size} terrengfliser – deler av tomta mangler data`);
+      }
+    }
+
+    const t0 = performance.now();
+    this.resultat = Tomtmasser.beregnTomtemasser({
+      tomt: { punkter: p, kanter: t.kanter, nivaa: this.tomtenivaaIUtm(t) },
+      mal: this.P.mal,
+      faktorer: this.P.faktorer,
+      terreng: this.terreng,
+      fjell: new Fjellmodell(this.P.fjell),
+      rutestorrelse: this.P.mal.rutestorrelse,
+      bakkefaktor: this.bakkefaktor()
+    });
+    this.resultat.balanse = this.tomtebalanse(this.resultat.sum);
+    this.visTomtemasser();
+    this.status(`Tomta regnet på ${Math.round(performance.now() - t0)} ms`);
+    return this.resultat;
+  },
+
+  /** Nivået med sluk-punktet gjort om til UTM. */
+  tomtenivaaIUtm(t) {
+    const n = Object.assign({}, t.nivaa);
+    if (n.punkt && n.punkt.lat != null) {
+      const u = Geo.tilUtm(n.punkt.lat, n.punkt.lon, this.sone);
+      n.punkt = { x: u.x, y: u.y };
+    }
+    return n;
+  },
+
+  /**
+   * Massebalansen for en tomt.
+   *
+   * Samme regnestykke og samme faktorer som vegen - det er egenskaper ved
+   * massen, ikke ved geometrien. Sprengstein er sprengstein.
+   */
+  tomtebalanse(s) {
+    const f = this.P.faktorer;
+    const fjellFast = s.skjaeringFjell;
+    const losFast = s.skjaeringLosmasse;
+    const fyllingBehov = s.fylling;
+    const overbygningBehov = s.slitelag + s.baerelag + s.forsterkningslag
+      + s.frostsikring + s.avrettingslag;
+    const fraFjell = fjellFast * f.fjellIFylling;
+    const brukbarLos = losFast * f.brukbarLosmasse * f.losmasseIFylling;
+    const tilgjengelig = fraFjell + brukbarLos;
+    const fyllFraLos = Math.min(brukbarLos, fyllingBehov);
+    const fyllFraFjell = Math.min(fraFjell, fyllingBehov - fyllFraLos);
+    return {
+      fjellFast, losFast, fyllingBehov, overbygningBehov,
+      fjellSprengtLos: fjellFast * f.sprengningsfaktor,
+      fraFjell, brukbarLos, tilgjengelig,
+      balanse: tilgjengelig - fyllingBehov,
+      fyllFraLos, fyllFraFjell,
+      manglerFylling: Math.max(0, fyllingBehov - tilgjengelig),
+      overskuddFjell: Math.max(0, fraFjell - fyllFraFjell),
+      /* Matjord og rensk gar til deponi, sammen med den løsmassen som ikke er
+         god nok til a fylle med. Overbygningen kjøpes - den er knust masse med
+         krav til kornkurve, og den finnes ikke i en skogsli. */
+      tilDeponi: s.matjord + s.rensk + losFast * (1 - f.brukbarLosmasse),
+      manglerTotalt: Math.max(0, fyllingBehov - tilgjengelig) + overbygningBehov
+    };
   },
 
   /** Nøkkeltallene for tomta, slik de vises mens man tegner. */
@@ -2363,9 +2737,20 @@ const App = {
      den lante. */
   autolagringPause: 0,
 
+  /** Har prosjektet noe i det hele tatt - en veglinje eller en tomt? */
+  harInnhold() {
+    if (!this.P || !this.P.anlegg) return false;
+    return this.P.anlegg.some(a =>
+      (a.ip && a.ip.length) || (a.tomt && a.tomt.punkter && a.tomt.punkter.length));
+  },
+
   harUlagret() {
     if (!this.P) return false;
-    if (!this._lagretSom) return (this.P.ip || []).length > 0;
+    /* Her sto det `P.ip.length > 0`. En tomt har ingen knekkpunkt, sa et
+       prosjekt med bare en tomt i meldte at det ikke var noe a lagre - og ble
+       aldri autolagret. Alt man hadde tegnet la da og ventet pa en lagring som
+       ikke kom. */
+    if (!this._lagretSom) return this.harInnhold();
     return JSON.stringify(this.P) !== this._lagretSom;
   },
 
@@ -2532,15 +2917,20 @@ const App = {
     id('knappApne').onclick = () => this.apneDialog();
     id('dialogLukk').onclick = () => id('dialog').classList.add('skjult');
     id('knappNy').onclick = async () => {
-      if (this.P.ip.length) {
+      /* Her sto det `P.ip.length`. Et prosjekt med bare en tomt i ble derfor
+         kastet uten a spørre - man trykket «Ny» og tomta var borte. */
+      if (this.harInnhold()) {
         const ja = await this.bekreft(
           'Starte på et nytt prosjekt? Det du har tegnet nå forsvinner hvis det ikke er lagret.',
           'Nytt prosjekt');
         if (!ja) return;
       }
-      const mal = Object.assign({}, this.P.mal);   // behold vegmalen til neste vei
+      /* Vegmalen tas med til neste veg. Star en tomt oppe, peker `P.mal` pa
+         tomtemalen, og den ville blitt tredd nedover den nye vegen. */
+      const vegen = this.P.anlegg && this.P.anlegg.find(a => a.type === 'veg');
+      const mal = Object.assign({}, vegen ? vegen.mal : StandardMal);
       this.P = this.nyttProsjekt();
-      this.P.mal = mal;
+      this.P.anlegg[0].mal = mal;
       this.tomPaneler();
       this.tomHistorikk();
       this._lagretSom = '';
@@ -2650,7 +3040,7 @@ const App = {
        men Leaflet ma fa beskjed eksplisitt. */
     const rute = document.querySelector('.rute');
     const settStor = navn => {
-      const alt = ['kart', 'profil', 'tverr'];
+      const alt = ['kart', 'profil', 'tverr', 'tomt'];
       const alleredePa = rute.classList.contains('stor-' + navn);
       alt.forEach(n => rute.classList.remove('stor-' + n));
       if (!alleredePa) rute.classList.add('stor-' + navn);
@@ -2674,7 +3064,7 @@ const App = {
       }, 60);
     };
     this._nullstillVisning = () => {
-      ['kart', 'profil', 'tverr'].forEach(n => rute.classList.remove('stor-' + n));
+      ['kart', 'profil', 'tverr', 'tomt'].forEach(n => rute.classList.remove('stor-' + n));
       document.querySelectorAll('.utvidknapp').forEach(b => { b.classList.remove('aktiv'); b.textContent = '⤢'; });
       setTimeout(() => { if (Kart.kart) Kart.kart.invalidateSize(); Lengdeprofil.tegn(); Tverrprofil.tegn(); }, 60);
     };

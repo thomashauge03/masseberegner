@@ -100,8 +100,29 @@ const Kart = {
     if (p('verktoyTomt')) p('verktoyTomt').onclick = () => this.settModus('tegnTomt');
     p('verktoyFlytt').onclick = () => this.settModus('rediger');
     p('verktoySondering').onclick = () => this.settModus('sondering');
-    if (p('anleggsvelger')) p('anleggsvelger').onchange = e => this.app.byttAnlegg(e.target.value);
-    if (p('knappNyttAnlegg')) p('knappNyttAnlegg').onclick = () => this.app.velgNyttAnlegg();
+    if (p('modusVeg')) p('modusVeg').onclick = () => this.app.settModus('veg');
+    if (p('modusTomt')) p('modusTomt').onclick = () => this.app.settModus('tomt');
+    for (const [id, felt] of [['tm_kote', 1], ['tm_nivaamodus', 1], ['tm_fall', 1],
+      ['tm_fallretning', 1], ['tm_rutestorrelse', 1]]) {
+      const e = p(id);
+      if (!e) continue;
+      e.onchange = () => {
+        this.app.merk('endret ferdig nivå');
+        this.app.skjemaTilTomt();
+        this.app.tomtTilSkjema();
+        this.app.beregnTomt();
+      };
+    }
+    if (p('tm_foreslaKote')) p('tm_foreslaKote').onclick = async () => {
+      const k = this.app.foreslaKote();
+      if (k == null) { this.app.status('Tegn tomta først, så terrenget kan leses'); return; }
+      this.app.merk('foreslå kote');
+      this.app.P.tomt.nivaa.kote = k;
+      this.app.tomtTilSkjema();
+      await this.app.beregnTomt();
+      this.app.status(`Foreslo kote ${k.toFixed(2)} – middelhøyden i terrenget pluss overbygningen`);
+    };
+    if (p('tm_balanser')) p('tm_balanser').onclick = () => this.app.balanserTomt();
     p('knappAngre').onclick = () => this.app.angre();
     if (p('knappGjorOm')) p('knappGjorOm').onclick = () => this.app.gjorOm();
     p('bakgrunnskart').onchange = e => {

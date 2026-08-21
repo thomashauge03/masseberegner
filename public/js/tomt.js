@@ -73,32 +73,53 @@ const Kanttyper = {
 const StandardTomtemal = {
   arbeidstype: 'planering',
 
-  /* --- skråninger, samme betydning som i vegmalen (H:V) --- */
-  skjaeringLosmasse: 1.5,
-  skjaeringFjell: 0.2,
-  fylling: 1.5,
+  /* --- skråninger. Alle tall er VANNRETT UTLEGG PER METER HØYDE, som i
+     vegmalen. Standardverdiene er morene, som er det vanligste i Agder.
+     N200 tabell 242.1 (skjæring, uten erosjonssikring): stein 1,5 · grus 2,0 ·
+     sand 2,0 · finsand/silt 3,0 · leire 3,0 · morene 2,5.
+     N200 tabell 252.1 (fylling): stein 1,25 · grus 1,5 · sand 2,0 · morene
+     2,0-3,0. --- */
+  losmassetype: 'morene',    // styrer forslagene, ikke regnestykket
+  skjaeringLosmasse: 2.5,
+  skjaeringFjell: 0.2,       // 5:1 - som vegmalen
+  fylling: 2.0,
 
   /* --- sprengt vegg ---
-     En "rett vegg" er nesten aldri rett hele veien opp. Den star vertikalt i
-     fjellet, men løsmassen som ligger over fjelloverflaten raser ut om den
+     En "rett vegg" er nesten aldri rett hele veien opp. Den star nær vertikalt
+     i fjellet, men løsmassen som ligger over fjelloverflaten raser ut om den
      settes like bratt. Derfor to helninger: veggHelning gjelder under
      fjelloverflaten, losmasseOverFjell over den.
 
      Regner man hele veggen vertikal, blir løsmassevolumet for lite og
      skjæringstoppen havner feil sted i kartet - og summen ser rimelig ut, sa
-     feilen synes ikke. */
-  veggHelning: 0.1,          // H:V under fjelloverflaten. 0 = loddrett
-  losmasseOverFjell: 1.5,    // H:V over fjelloverflaten
-  maksVeggHoyde: 8.0,        // over dette kreves berme
-  bermeBredde: 3.0,
-  bermeFall: 0.05,           // innover, sa vann ikke renner utfor
+     feilen synes ikke.
 
-  /* Fjell som sprenges ut utenfor teoretisk profil. Dette er ekte masse som
-     skal lastes og kjøres, men som ikke star i den teoretiske beregningen.
-     Føres som egen post i rapporten, ikke bakt inn i fjellvolumet. */
-  overberg: 0.3,
+     MERK SKRIVEMATEN. Berg og løsmasse oppgis med motsatt logikk i normene:
+     en bergvegg skrives 10:1 (ti opp, én ut - nesten loddrett), mens en
+     jordskraning skrives 1:1,5 (én opp, halvannen ut - slak). Blandes de, blir
+     volumet fullstendig feil. Derfor lagres alt her som ett entydig tall:
+     VANNRETT UTLEGG PER METER HØYDE. 0,1 er da bergveggen (= 10:1) og 1,5 er
+     jordskraningen (= 1:1,5). Skrivematen hører hjemme i skjermbildet, ikke i
+     tallet. */
+  veggHelning: 0.1,          // 10:1 - N200 kap. 223.1: "nær vertikale (10:1)"
+  losmasseOverFjell: 2.0,    // 1:2 - løsmasse som blir staende over bergveggen
+  maksVeggHoyde: 10.0,       // N200 kap. 202.1: over 10 m -> geoteknisk kategori 3
+  bermeBredde: 1.5,          // hylle mellom paller; 4-6 m først over ca. 25 m
+  bermeFall: 0.05,           // innover, sa vann ikke renner utfor
+  renskUtenforVegg: 2.0,     // N200 kap. 223.4: avdekking min. 2 m utenfor kant
+
+  /* Overberg - fjell som faktisk sprenges ut utenfor prosjektert kontur.
+     Star pa null med vilje. R761 prosess 22.1: "Det gis ikke tillegg for
+     overberg, masser fra driftsrensk eller ettersprengning", og utfall innenfor
+     0,5 m fra konturen medregnes ikke. Setter man et tall her, kommer det som
+     EGEN post i rapporten - aldri bakt inn i fjellvolumet, for da ville et
+     tilbud sett dyrere ut enn oppgjøret blir. */
+  overberg: 0,
   kontursprengning: false,
-  overbergKontur: 0.15,      // overberg nar det sprenges med kontur
+
+  /* R761 prosess 22 c): avstanden fra ferdig niva ned til fast berg ma vaere
+     større enn 0,75 m, ellers ma det dypsprenges. Utløser en merknad. */
+  minAvstandTilBerg: 0.75,
 
   /* --- støttemur ---
      Fundamentgrøfta og den drenerende bakfyllinga er to volum folk glemmer
@@ -177,8 +198,17 @@ function nyTomt() {
 function signertAreal(p) {
   if (!p || p.length < 3) return 0;
   let a = 0;
+  /* Kryssproduktforma, ikke trapesforma.
+     Her sto det `(x_j + x_i) * (y_j - y_i)`, som gir riktig areal men MOTSATT
+     fortegn av leddet tyngdepunktet regnes med. Da ble tyngdepunktet negert:
+     et rektangel med hjørne i origo fikk tyngdepunkt i (-20, -30) i stedet for
+     (20, 30). Arealet sa fortsatt riktig ut, siden det tas absoluttverdi av -
+     men et ferdig niva med fall regnes ut fra tyngdepunktet, og det havnet
+     hundre meter pa feil side av tomta.
+     Og `kanter()` leser fortegnet for a vite hvilken vei som er UT. Med feil
+     fortegn pekte alle normalene innover. */
   for (let i = 0, j = p.length - 1; i < p.length; j = i++) {
-    a += (p[j].x + p[i].x) * (p[j].y - p[i].y);
+    a += p[j].x * p[i].y - p[i].x * p[j].y;
   }
   return a / 2;
 }
