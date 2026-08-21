@@ -322,6 +322,16 @@ const App = {
     this.visSnittvelger();
   },
 
+  /**
+   * Leser de feltene som fortsatt star i verktøylinja under snittet.
+   *
+   * Hvert oppslag ma tale at feltet ikke finnes. Fall, retning og rutestørrelse
+   * ble flyttet til Høyde-fanen, men denne funksjonen leste dem fortsatt med
+   * `document.getElementById('tm_nivaamodus').value` - som kaster pa null. Da
+   * røk hele funksjonen, og med den kallet til beregnTomt() som skulle kommet
+   * etterpa: man skrev en ny ferdig kote, feltet viste den nye verdien, og
+   * ingenting ble regnet om. Panelet sto igjen med de gamle massene.
+   */
   skjemaTilTomt() {
     if (!this.erTomt()) return;
     const t = this.P.tomt, n = t.nivaa, mal = this.P.mal;
@@ -330,13 +340,19 @@ const App = {
       const v = e ? parseFloat(e.value) : NaN;
       return Number.isFinite(v) ? v : standard;
     };
+    const tekst = (id, standard) => {
+      const e = document.getElementById(id);
+      return e && e.value ? e.value : standard;
+    };
     const koteFelt = document.getElementById('tm_kote');
-    const k = parseFloat(koteFelt.value);
-    n.kote = Number.isFinite(k) ? k : null;
-    n.modus = document.getElementById('tm_nivaamodus').value;
-    n.fall = Math.max(0, tall('tm_fall', 2)) / 100;
-    n.fallretning = ((tall('tm_fallretning', 0) % 360) + 360) % 360;
-    mal.rutestorrelse = Math.max(0.25, Math.min(5, tall('tm_rutestorrelse', 1)));
+    if (koteFelt) {
+      const k = parseFloat(koteFelt.value);
+      n.kote = Number.isFinite(k) ? k : null;
+    }
+    n.modus = tekst('tm_nivaamodus', n.modus || 'flat');
+    n.fall = Math.max(0, tall('tm_fall', (n.fall || 0.02) * 100)) / 100;
+    n.fallretning = ((tall('tm_fallretning', n.fallretning || 0) % 360) + 360) % 360;
+    mal.rutestorrelse = Math.max(0.25, Math.min(5, tall('tm_rutestorrelse', mal.rutestorrelse || 1)));
   },
 
   /**
@@ -532,6 +548,19 @@ const App = {
     ut += rad('<span class="merke-fylling">Fylling</span>',
       `<span class="merke-fylling">${tall(s.fylling)} m³</span>`, 'stor');
     ut += '</div>';
+
+    /* Muren er to poster folk glemmer nar de bytter skraning med mur:
+       grøfta under den og den drenerende bakfyllinga bak. Begge ma kjøres. */
+    if (r.murLengde > 0.5) {
+      ut += '<div class="sumkort"><h4>Støttemur</h4>';
+      ut += rad('Lengde', tall(r.murLengde, 1) + ' m');
+      ut += rad('Høyeste punkt', tall(r.murHoyde, 2) + ' m');
+      if (s.murFundament > 0.05) ut += rad('Fundamentgrøft', tall(s.murFundament, 1) + ' m³', null,
+        `${this.P.mal.fundamentDybde} m dyp og ${this.P.mal.fundamentBredde} m bred under muren.`);
+      if (s.murBakfylling > 0.05) ut += rad('Drenerende bakfylling', tall(s.murBakfylling, 1) + ' m³', null,
+        `${this.P.mal.bakfylling} m tykt lag bak muren. Kjøpes – det må være drenerende masse.`);
+      ut += '</div>';
+    }
 
     const lag = s.slitelag + s.baerelag + s.forsterkningslag + s.frostsikring + s.avrettingslag;
     if (lag > 0.5) {
@@ -1308,14 +1337,25 @@ const App = {
       });
       if (inn.punkter) { bruktPolygon = inn.punkter; this._innerflate = inn.punkter; }
       else {
+        /* Si HVA som ikke gar opp, ikke bare at det ikke gar.
+           Pa en tomt med fjorten meters fall trenger skraningene titalls meter,
+           og da er svaret nesten alltid det samme: sett mur eller sprengt vegg
+           pa de sidene der det ikke er plass. En mur tar en sjettedel av
+           bredden til en jordskraning - det er nettopp derfor man bygger den. */
+        const T = this.terrengOverTomta();
+        const bredt = Math.sqrt(Tomt.areal(p));
+        const detalj = T
+          ? `Terrenget faller ${(T.hoy - T.lav).toFixed(1)} m over tomta, og den er `
+            + `omtrent ${bredt.toFixed(0)} m tvers over. `
+          : '';
+        const rad = 'Sett mur eller sprengt vegg på de sidene der det ikke er plass – '
+          + 'en mur tar omtrent en sjettedel av bredden til en jordskråning. '
+          + 'Eller legg nivået nærmere terrenget.';
         this.resultat = { sum: {}, merknader: [{ type: 'tomt',
-          tekst: 'Skråningene tar hele arealet – det blir ingen flate igjen innenfor '
-            + 'grensa. Legg nivået nærmere terrenget, sett en brattere skråning, '
-            + 'eller velg sprengt vegg på de bratteste kantene.' }], areal: 0 };
+          tekst: 'Skråningene tar hele arealet innenfor grensa. ' + detalj + rad }], areal: 0 };
         this._innerflate = null;
         this.visTomtemasser();
-        this.status('⚠ Skråningene tar hele arealet innenfor grensa – senk nivået, '
-          + 'sett brattere skråning, eller velg sprengt vegg på de bratteste sidene');
+        this.status('⚠ Ikke plass til skråningene innenfor grensa – prøv mur eller sprengt vegg på de bratteste sidene');
         return this.resultat;
       }
     }

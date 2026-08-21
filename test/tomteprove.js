@@ -635,17 +635,61 @@ console.log('\n21. Når skråningen ikke lander, må det sies fra');
     !fin.merknader.some(m => m.type === 'utslag'),
     JSON.stringify(fin.merknader.map(m => m.tekst.slice(0, 40))));
 
-  /* Mur og overgang har ingen egen geometri enna. Det er greit - men det ma
-     sies, ellers velger man «mur» og tror tallene gjelder en mur. */
-  const mur = T.beregnTomtemasser({
+  /* Overgang har fortsatt ingen egen geometri og regnes som skraning. Det ma
+     sies, ellers velger man den og tror tallene gjelder noe annet. */
+  const overgang = T.beregnTomtemasser({
+    tomt: { punkter: rektangel(40, 60), kanter: [{ type: 'overgang' }, {}, {}, {}],
+      nivaa: { modus: 'flat', kote: 98 } },
+    mal: grunnmal(), terreng: { z: () => 100 },
+    fjell: new M.Fjellmodell({ standarddybde: 100 }), rutestorrelse: 1, bakkefaktor: 1
+  });
+  paastand('overgang blir meldt som regnet som skråning',
+    overgang.merknader.some(m => m.type === 'kant'),
+    JSON.stringify(overgang.merknader.map(m => m.tekst.slice(0, 50))));
+}
+
+/* ------------------------------------------------------------------ */
+console.log('\n21b. Muren er støtte, ikke en skråning');
+{
+  /* En mur star nær loddrett og tar bare murAnlegg meter ut per meter høyde -
+     omtrent en sjettedel av en jordskraning. Det er hele grunnen til at man
+     bygger den: tomta kan ligge der den skal, med støtte i kanten, uten at
+     halve arealet gar med til a slake ut.
+
+     Her ble mur regnet som en vanlig planert skraning. Pa en tomt med fjorten
+     meters fall betydde det at skraningene spiste hele arealet, og
+     yttergrense-modus svarte «det blir ingen flate igjen» - selv om den ene
+     løsningen som faktisk brukes i marka var valgt i lista. */
+  const mal = Object.assign(grunnmal(), { skjaeringLosmasse: 2.5, fylling: 2, maksSokebredde: 60 });
+  const bratt = { z: x => 212 - x * 0.35 };            // 14 m fall over 40 m
+  const lag = kanter => ({
+    tomt: { punkter: rektangel(40, 60), kanter, nivaa: { modus: 'flat', kote: 205 } },
+    mal, terreng: bratt, fjell: new M.Fjellmodell({ standarddybde: 100 }),
+    rutestorrelse: 1, bakkefaktor: 1
+  });
+  paastand('bratt tomt med bare skråninger: ingen plass',
+    T.innerflate(lag([])).forLiten === true);
+  const medMur = T.innerflate(lag([0, 1, 2, 3].map(() => ({ type: 'mur' }))));
+  paastand('men med mur rundt blir det plass',
+    !!medMur.punkter && Tomt.areal(medMur.punkter) > 2000,
+    medMur.punkter ? Tomt.areal(medMur.punkter).toFixed(0) + ' m² av 2400' : 'FOR LITEN');
+
+  /* Muren har to volum folk glemmer: grøfta under den og den drenerende
+     bakfyllinga bak. Begge ma kjøres, og ingen av dem kommer fram om man bare
+     regner at skraningen ble brattere. */
+  const r = T.beregnTomtemasser({
     tomt: { punkter: rektangel(40, 60), kanter: [{ type: 'mur' }, {}, {}, {}],
       nivaa: { modus: 'flat', kote: 98 } },
     mal: grunnmal(), terreng: { z: () => 100 },
     fjell: new M.Fjellmodell({ standarddybde: 100 }), rutestorrelse: 1, bakkefaktor: 1
   });
-  paastand('mur blir meldt som regnet som skråning',
-    mur.merknader.some(m => m.type === 'kant' && /mur/.test(m.tekst)),
-    JSON.stringify(mur.merknader.map(m => m.tekst.slice(0, 50))));
+  sjekk('fundamentgrøft = lengde x dybde x bredde', r.sum.murFundament, 40 * 0.6 * 0.8, 0.5);
+  sjekk('bakfylling = lengde x bredde x høyde', r.sum.murBakfylling, 40 * 0.5 * 2.0, 1);
+  sjekk('murlengden er kanten', r.murLengde, 40, 0.5);
+  sjekk('og høyden er skjæringsdybden ved den', r.murHoyde, 2.0, 0.1);
+  paastand('mur over 1,5 m blir meldt som søknadspliktig',
+    r.merknader.some(m => m.type === 'mur' && /søknadspliktig/.test(m.tekst)),
+    JSON.stringify(r.merknader.map(m => m.tekst.slice(0, 40))));
 }
 
 /* ------------------------------------------------------------------ */
@@ -668,6 +712,38 @@ console.log('\n22. Kantnummer: tabellen og motoren må være enige');
   const n2 = T.naermestePaOmriss(medDublett, 45, 30);
   paastand('og østkanten er den samme i begge', k.some(x => x.nr === n2.kant),
     `motoren sier ${n2.kant}, lista har ${k.map(x => x.nr).join(',')}`);
+}
+
+/* ------------------------------------------------------------------ */
+console.log('\n23. Innrykket må lande på samme svar uansett hvor lenge det får jobbe');
+{
+  /* Søket svingte: pa skranende terreng ga rundene 1280, 1618, 1501, 1527,
+     1530 - og de faste tre rundene landet 1,9 % feil, tilfeldig hvor i
+     svingningen de traff. Nar kanten flyttes innover, endrer høyden ved kanten
+     seg, og det slar tilbake pa hvor mye plass skraningen trenger. Halv vekt pa
+     det nye kravet demper svingningen. */
+  const mal = Object.assign(grunnmal(), { skjaeringLosmasse: 2, fylling: 2, maksSokebredde: 60 });
+  for (const [navn, terr] of [['flatt', () => 100], ['1:8 skrånende', x => 100 - x / 8],
+    ['1:12 slakt', x => 100 - x / 12]]) {
+    const o = {
+      tomt: { punkter: rektangel(40, 60), kanter: [], nivaa: { modus: 'flat', kote: 98 } },
+      mal, terreng: { z: terr }, fjell: new M.Fjellmodell({ standarddybde: 100 }),
+      rutestorrelse: 1, bakkefaktor: 1
+    };
+    const v = [6, 14, 30].map(n => {
+      const r = T.innerflate(o, n);
+      return r.punkter ? Tomt.areal(r.punkter) : 0;
+    });
+    const spenn = (Math.max(...v) - Math.min(...v)) / Math.max(...v);
+    paastand(`${navn}: samme svar med 6, 14 og 30 runder`, spenn < 0.005,
+      v.map(x => x.toFixed(1)).join(' · ') + `  spenn ${(spenn * 100).toFixed(2)} %`);
+  }
+  // flatt terreng er ferdig etter første runde og skal treffe fasiten eksakt
+  const flat = T.innerflate({
+    tomt: { punkter: rektangel(40, 60), kanter: [], nivaa: { modus: 'flat', kote: 98 } },
+    mal, terreng: { z: () => 100 }, fjell: new M.Fjellmodell({ standarddybde: 100 })
+  });
+  sjekk('og flatt terreng treffer 32 x 52 eksakt', Tomt.areal(flat.punkter), 32 * 52, 2);
 }
 
 /* ------------------------------------------------------------------ */

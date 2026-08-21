@@ -105,6 +105,21 @@ function skraningsflate(d, zKant, zFjell, kant, mal) {
   const type = kant.type || 'skraning';
   if (type === 'apen') return NaN;              // ingenting regnes utenfor
 
+  /* EN MUR ER STØTTE, IKKE EN SKRANING.
+     Den star nær loddrett og tar bare `murAnlegg` meter ut per meter høyde -
+     omtrent en sjettedel av en jordskraning. Det er hele grunnen til at man
+     bygger mur: tomta kan ligge der den skal, med støtte i kanten, uten at
+     halve arealet gar med til a slake ut.
+
+     Her ble mur regnet som en vanlig planert skraning. Pa en tomt med fjorten
+     meters fall betydde det at skraningene spiste hele arealet, og
+     yttergrense-modus svarte "det blir ingen flate igjen" - selv om den ene
+     losningen som faktisk brukes i marka var valgt i lista. */
+  if (type === 'mur') {
+    const anlegg = Math.max(0, kant.murAnlegg != null ? kant.murAnlegg : mal.murAnlegg);
+    return zKant + d / Math.max(0.01, anlegg);
+  }
+
   const brattFjell = Math.max(0, type === 'fjellvegg'
     ? (kant.veggHelning != null ? kant.veggHelning : mal.veggHelning)
     : (kant.skjaeringFjell != null ? kant.skjaeringFjell : mal.skjaeringFjell));
@@ -128,6 +143,13 @@ function skraningsflate(d, zKant, zFjell, kant, mal) {
 function fyllingsflate(d, zKant, kant, mal) {
   const type = kant.type || 'skraning';
   if (type === 'apen') return NaN;
+  /* Muren holder ogsa fyllinga oppe - det er den vanligste bruken: tomta ligger
+     høyt, og muren tar det som ellers matte blitt en lang fyllingsskraning
+     nedover lia. */
+  if (type === 'mur') {
+    const anlegg = Math.max(0, kant.murAnlegg != null ? kant.murAnlegg : mal.murAnlegg);
+    return zKant - d / Math.max(0.01, anlegg);
+  }
   const m = Math.max(0.02, kant.fylling != null ? kant.fylling : mal.fylling);
   return zKant - d / m;
 }
@@ -151,7 +173,8 @@ function beregnTomtemasser(o) {
   const tom = {
     sum: { skjaering: 0, skjaeringFjell: 0, skjaeringLosmasse: 0, fylling: 0,
       rensk: 0, matjord: 0, slitelag: 0, baerelag: 0, forsterkningslag: 0,
-      frostsikring: 0, avrettingslag: 0, overberg: 0 },
+      frostsikring: 0, avrettingslag: 0, overberg: 0,
+      murFundament: 0, murBakfylling: 0 },
     areal: 0, arealMedSkraning: 0, celler: 0, merknader, rutenett: null
   };
   if (p.length < 3) {
@@ -369,20 +392,61 @@ function beregnTomtemasser(o) {
           + 'nærmere bakken.' });
     }
   }
-  /* Mur og overgang har ingen egen geometri enna - de regnes som en vanlig
-     planert skraning. Det er en rimelig midlertidig løsning, men den ma SIES:
-     en mur tar ingen plass utover, har fundamentgrøft og drenerende bakfylling,
-     og gir et helt annet volum. Uten merknaden ville man valgt «mur» i lista og
-     trodd at tallene gjaldt en mur. */
-  const utenGeometri = new Set();
-  for (const k of (o.tomt.kanter || [])) {
-    if (k && (k.type === 'mur' || k.type === 'overgang')) utenGeometri.add(k.type);
+  /* MURENS EGNE VOLUM.
+     To poster folk glemmer nar de bytter skraning med mur: grøfta under muren
+     og den drenerende bakfyllinga bak den. Begge ma kjøres, og ingen av dem
+     kommer fram om man bare regner at skraningen ble brattere.
+     Høyden males der muren star - det er høydeforskjellen mellom planum ved
+     kanten og terrenget der. */
+  const murKanter = [];
+  for (let i = 0; i < p.length; i++) {
+    const k = kantFor(i);
+    if (!k || k.type !== 'mur') continue;
+    const a = p[i], b = p[(i + 1) % p.length];
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    if (len < 1e-9) continue;
+    let sumH = 0, n = 0, maksH = 0;
+    const steg = Math.max(1, len / 20);
+    for (let s = 0; s <= len; s += steg) {
+      const f = s / len;
+      const x = a.x + (b.x - a.x) * f, y = a.y + (b.y - a.y) * f;
+      const zK = planum(x, y), zT2 = o.terreng.z(x, y);
+      if (!Number.isFinite(zK) || !Number.isFinite(zT2)) continue;
+      const h = Math.abs(zT2 - zK);
+      sumH += h; n++; maksH = Math.max(maksH, h);
+    }
+    if (n) murKanter.push({ nr: i, lengde: len * bf, snittHoyde: sumH / n, maksHoyde: maksH });
   }
-  if (utenGeometri.size) {
+  if (murKanter.length) {
+    let murLengde = 0, murMaks = 0, fundament = 0, bakfyll = 0;
+    for (const m of murKanter) {
+      murLengde += m.lengde;
+      murMaks = Math.max(murMaks, m.maksHoyde);
+      fundament += m.lengde * (mal.fundamentDybde || 0) * (mal.fundamentBredde || 0);
+      bakfyll += m.lengde * (mal.bakfylling || 0) * m.snittHoyde;
+    }
+    s.murFundament = fundament;
+    s.murBakfylling = bakfyll;
+    tom.murLengde = murLengde;
+    tom.murHoyde = murMaks;
+    if (mal.maksMurHoyde > 0 && murMaks > mal.maksMurHoyde) {
+      merknader.push({ type: 'mur',
+        tekst: `Muren blir ${murMaks.toFixed(1)} m høy. Over ${mal.maksMurHoyde} m må den `
+          + 'prosjekteres, og en tørrmur holder ikke – regn med betong eller L-element.' });
+    }
+    /* SAK10 § 4-1: en mur pa inntil 1 m kan sta 1 m fra nabogrensen, en pa
+       inntil 1,5 m ma sta 4 m unna. Over det er den søknadspliktig. */
+    if (murMaks > 1.5) {
+      merknader.push({ type: 'mur',
+        tekst: `Mur over 1,5 m er søknadspliktig (SAK10 § 4-1). Denne blir ${murMaks.toFixed(1)} m.` });
+    }
+  }
+  /* Overgang har fortsatt ingen egen geometri og regnes som planert skraning.
+     Det ma sies - ellers velger man den og tror tallene gjelder noe annet. */
+  if ((o.tomt.kanter || []).some(k => k && k.type === 'overgang')) {
     merknader.push({ type: 'kant',
-      tekst: `${[...utenGeometri].join(' og ')} er regnet som planert skråning – `
-        + 'egen geometri for dem er ikke bygget ennå. Fundamentgrøft og bakfylling '
-        + 'bak en mur er ikke med i tallene.' });
+      tekst: 'Overgang mot et annet anlegg er regnet som planert skråning – '
+        + 'egen geometri for den er ikke bygget ennå.' });
   }
   if (forNaerBerg > 0) {
     merknader.push({ type: 'berg',
@@ -549,7 +613,7 @@ function skraningsfot(o) {
  * avviket halveres fort fordi høyden ved kanten endrer seg lite nar kanten
  * flyttes en meter.
  */
-function innerflate(o, runder = 3) {
+function innerflate(o, runder = 14) {
   const p = (o.tomt.punkter || []).map(q => ({ x: q.x, y: q.y }));
   if (p.length < 3) return { punkter: p, innrykk: [] };
   let areal2 = 0;
@@ -558,17 +622,29 @@ function innerflate(o, runder = 3) {
 
   let na = p.map(q => ({ x: q.x, y: q.y }));
   let innrykk = new Array(p.length).fill(0);
+  let forrigeKant = null;
   for (let r = 0; r < runder; r++) {
     const fot = skraningsfot(Object.assign({}, o, { tomt: Object.assign({}, o.tomt, { punkter: na }) }));
     if (!fot.length) break;
     /* Hvor langt hver kant stakk ut, malt som det største pa kanten.
        Apne kanter gir 0 - de krever ingen plass, og skal derfor ikke rykke
        noe inn. */
-    const perKant = new Array(p.length).fill(0);
+    const raaKant = new Array(p.length).fill(0);
     for (const f of fot) {
       if (f.type === 'apen') continue;
-      perKant[f.kant] = Math.max(perKant[f.kant], f.ut);
+      raaKant[f.kant] = Math.max(raaKant[f.kant], f.ut);
     }
+    /* Demping.
+       Uten den svinger søket: pa skranende terreng ga rundene 1280, 1618, 1501,
+       1527, 1530 - og de faste tre rundene landet 1,9 % feil, tilfeldig hvor i
+       svingningen de traff. Grunnen er at nar kanten flyttes innover, endrer
+       høyden ved kanten seg, og det slar tilbake pa hvor mye plass skraningen
+       trenger. Halv vekt pa det nye kravet demper svingningen, og søket lander
+       pa samme svar uansett hvor mange runder man kjører. */
+    const perKant = forrigeKant
+      ? raaKant.map((v, i) => (v + forrigeKant[i]) / 2)
+      : raaKant;
+    forrigeKant = perKant;
     /* Innrykket males ALLTID fra det tegnede omrisset, aldri fra forrige runde.
        Her sto det motsatt, og da krympet flaten pa nytt for hver runde: 2400 m²
        ble til 1056 og sa til 576, i stedet for a lande pa 1664. Rundene finnes
@@ -603,7 +679,14 @@ function innerflate(o, runder = 3) {
       const vy = (-n1.x * foran + n2.x * bak) / det;
       nye.push({ x: b.x + vx, y: b.y + vy });
     }
+    /* Slutt nar kantene star stille. Uten dette matte alle rundene kjøres
+       hver gang, ogsa pa en flat tomt der svaret er ferdig etter den første. */
+    let flyttet = 0;
+    for (let i = 0; i < nye.length; i++) {
+      flyttet = Math.max(flyttet, Math.hypot(nye[i].x - na[i].x, nye[i].y - na[i].y));
+    }
     na = nye;
+    const stillestaaende = flyttet < 0.02 && r > 0;
     /* Gikk innrykket forbi midten, er det ikke plass til noen tomt.
        Fortegnet pa arealet duger ikke som prøve: et rektangel som rykkes inn
        forbi midten vender BEGGE akser, og da er arealet positivt igjen - et
@@ -622,6 +705,7 @@ function innerflate(o, runder = 3) {
     if (snudd || Math.sign(a2) !== Math.sign(areal2) || Math.abs(a2) < 4) {
       return { punkter: null, innrykk, forLiten: true };
     }
+    if (stillestaaende) break;
   }
   return { punkter: na, innrykk };
 }
