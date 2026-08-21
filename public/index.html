@@ -56,6 +56,7 @@
         </select>
         <label class="avkryss"><input type="checkbox" id="visSkygge" checked> Terrengskygge</label>
         <label class="avkryss"><input type="checkbox" id="visLosmasse"> Løsmasser (NGU)</label>
+        <label class="avkryss skjult" id="visTomtefargerBoks"><input type="checkbox" id="visTomtefarger" checked> Skjæring/fylling</label>
       </div>
     </div>
     <div id="kart"></div>
@@ -116,13 +117,15 @@
           <input type="number" id="tm_kote" step="0.05" title="Høyden på det ferdige nivået"></label>
         <button id="tm_foreslaKote" class="verktoyknapp" title="Foreslå en kote ut fra terrenget">Foreslå</button>
         <button id="tm_balanser" class="verktoyknapp" title="Finn koten der skjæring og fylling går opp mot hverandre">Massebalanse</button>
-        <select id="tm_nivaamodus" class="minivalg" title="Hvordan det ferdige nivået formes">
-          <option value="flat">Flatt</option>
-          <option value="fall">Fall i én retning</option>
+        <select id="tp_retning" class="minivalg" title="Hvor snittet legges">
+          <option value="fall">Snitt langs fallet</option>
+          <option value="tvers">Snitt på tvers</option>
         </select>
-        <label class="minitall">Fall <input type="number" id="tm_fall" step="0.5" min="0" max="15" title="Prosent"> %</label>
-        <label class="minitall">Retning <input type="number" id="tm_fallretning" step="5" min="0" max="359" title="Grader fra nord – dit vannet renner"> °</label>
-        <label class="minitall">Rutenett <input type="number" id="tm_rutestorrelse" step="0.25" min="0.25" max="5" title="Cellestørrelse i beregningen"> m</label>
+        <button id="tp_forrige" class="verktoyknapp" title="Flytt snittet">◀</button>
+        <input type="range" id="tp_skyver" min="0" max="100" value="50" class="skyver" title="Flytt snittet tvers over tomta">
+        <button id="tp_neste" class="verktoyknapp" title="Flytt snittet">▶</button>
+        <span id="tp_etikett" class="etikett">–</span>
+        <span class="hjelpetekst">Klikk i snittet for å sette nivået</span>
       </div>
     </div>
     <div class="tomtinnhold">
@@ -197,6 +200,7 @@
     </div>
 
     <!-- Vegmal -->
+    <div class="faneinnhold" id="fane-tomthoyde"><div id="tomthoydeSkjema"></div></div>
     <div class="faneinnhold" id="fane-tomtemal"><div id="tomtemalSkjema"></div></div>
 
     <div class="faneinnhold" id="fane-mal">

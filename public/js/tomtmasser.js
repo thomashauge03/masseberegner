@@ -272,8 +272,13 @@ function beregnTomtemasser(o) {
         s.forsterkningslag += (mal.forsterkningslag || 0) * cellA;
         s.frostsikring += (mal.frostsikring || 0) * cellA;
         s.avrettingslag += (mal.avrettingslag || 0) * cellA;
-        rutenett.push({ x, y, d, fjell: Math.max(0, d - tilBerg) });
       }
+      /* Hver celle tas vare pa, ogsa de utenfor tomta. Det er dette bildet
+         kartet farger: hvor dypt det skal graves og hvor høyt det skal fylles,
+         over hele flaten. Uten skraningscellene stopper fargen brått i
+         tomtekanten, og da ser det ut som om ingenting skjer utenfor - mens det
+         er nettopp der utslaget mot naboen ligger. */
+      rutenett.push({ x, y, d, inne: iTomta, fjell: Math.max(0, d - tilBerg) });
     }
   }
 

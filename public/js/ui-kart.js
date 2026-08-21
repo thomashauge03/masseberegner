@@ -102,6 +102,24 @@ const Kart = {
     p('verktoySondering').onclick = () => this.settModus('sondering');
     if (p('modusVeg')) p('modusVeg').onclick = () => this.app.settModus('veg');
     if (p('modusTomt')) p('modusTomt').onclick = () => this.app.settModus('tomt');
+    if (p('visTomtefarger')) p('visTomtefarger').onchange = () => this.tegnTomtefarger();
+    if (p('tp_retning')) p('tp_retning').onchange = e => {
+      Tomteprofil.retning = e.target.value;
+      Tomteprofil.tegn();
+    };
+    if (p('tp_skyver')) p('tp_skyver').oninput = e => {
+      Tomteprofil.forskyvning = (+e.target.value) / 100;
+      Tomteprofil.tegn();
+    };
+    const flyttSnitt = steg => {
+      const sk = p('tp_skyver');
+      if (!sk) return;
+      sk.value = Math.max(0, Math.min(100, (+sk.value) + steg));
+      Tomteprofil.forskyvning = (+sk.value) / 100;
+      Tomteprofil.tegn();
+    };
+    if (p('tp_forrige')) p('tp_forrige').onclick = () => flyttSnitt(-5);
+    if (p('tp_neste')) p('tp_neste').onclick = () => flyttSnitt(5);
     for (const [id, felt] of [['tm_kote', 1], ['tm_nivaamodus', 1], ['tm_fall', 1],
       ['tm_fallretning', 1], ['tm_rutestorrelse', 1]]) {
       const e = p(id);
@@ -334,6 +352,135 @@ const Kart = {
    * som en apen linje. Man ser ikke hva man holder pa a lage før man lukker
    * det, og da er det for sent a se at formen ble feil.
    */
+  /**
+   * Farger hele tomta etter hvor dypt det skal graves og hvor høyt det skal
+   * fylles - skjæringen rød, fyllingen grønn, sterkere farge jo mer.
+   *
+   * Dette er det som svarer til fotavtrykket pa en veg: ett bilde som viser
+   * hele anlegget pa én gang. Tallene sier at det er 3800 m³ skjæring, men ikke
+   * om det er ett hjørne som star for alt eller om det ligger jevnt utover - og
+   * det er den forskjellen som avgjør hvordan man legger opp arbeidet.
+   *
+   * Skraningscellene utenfor tomta er med. Uten dem stopper fargen brått i
+   * tomtekanten, og da ser man ikke utslaget mot naboen - som ofte er det som
+   * avgjør om løsningen gar.
+   */
+  tegnTomtefarger() {
+    const app = this.app;
+    if (this.lag.tomtefarger) { this.kart.removeLayer(this.lag.tomtefarger); this.lag.tomtefarger = null; }
+    if (!app.erTomt() || !app.resultat || !app.resultat.rutenett || !app.resultat.rutenett.length) return;
+    if (!document.getElementById('visTomtefarger')
+      || !document.getElementById('visTomtefarger').checked) return;
+
+    const celler = app.resultat.rutenett;
+    const rute = Math.max(0.25, app.P.mal.rutestorrelse || 1);
+    let minX = Infinity, maksX = -Infinity, minY = Infinity, maksY = -Infinity, maksAvvik = 0;
+    for (const c of celler) {
+      minX = Math.min(minX, c.x); maksX = Math.max(maksX, c.x);
+      minY = Math.min(minY, c.y); maksY = Math.max(maksY, c.y);
+      maksAvvik = Math.max(maksAvvik, Math.abs(c.d));
+    }
+    if (!(maksAvvik > 0.01)) return;
+    const nb = Math.round((maksX - minX) / rute) + 1;
+    const nh = Math.round((maksY - minY) / rute) + 1;
+    if (nb < 2 || nh < 2 || nb * nh > 4e6) return;
+
+    const lerret = document.createElement('canvas');
+    lerret.width = nb; lerret.height = nh;
+    const g = lerret.getContext('2d');
+    const bilde = g.createImageData(nb, nh);
+    const d = bilde.data;
+    for (const c of celler) {
+      const i = Math.round((c.x - minX) / rute);
+      const j = nh - 1 - Math.round((c.y - minY) / rute);   // bildet har y nedover
+      if (i < 0 || i >= nb || j < 0 || j >= nh) continue;
+      const k = (j * nb + i) * 4;
+      /* Kvadratrota gjør at de grunne partiene ogsa synes. Med lineær skala
+         forsvinner alt under en meter nar ett hjørne er ti meter dypt, og da
+         ser tomta ut som om den er urørt der den faktisk skal graves. */
+      const styrke = Math.min(1, Math.sqrt(Math.abs(c.d) / maksAvvik));
+      if (c.d > 0) { d[k] = 216; d[k + 1] = 30; d[k + 2] = 40; }     // skjæring
+      else { d[k] = 52; d[k + 1] = 160; d[k + 2] = 90; }             // fylling
+      d[k + 3] = Math.round(40 + 175 * styrke) * (c.inne ? 1 : 0.75);
+    }
+    g.putImageData(bilde, 0, 0);
+
+    const sone = app.sone;
+    const hj = (x, y) => { const g2 = Geo.fraUtm(x, y, sone); return [g2.lat, g2.lon]; };
+    const grenser = L.latLngBounds(
+      hj(minX - rute / 2, minY - rute / 2),
+      hj(maksX + rute / 2, maksY + rute / 2));
+    this.lag.tomtefarger = L.imageOverlay(lerret.toDataURL(), grenser, { opacity: 0.85 });
+    this.lag.tomtefarger.addTo(this.kart);
+    this.lag.tomtefarger.bringToFront();
+    if (this.lag.tomt) this.lag.tomt.bringToFront();
+  },
+
+  /**
+   * Målene rett i kartet: lengden på hver kant og arealet i midten.
+   *
+   * Det er her man leser dem. A matte se ned i et panel for a vite om den ene
+   * siden ble 32 eller 34 meter er tungvint - malet hører hjemme pa streken det
+   * gjelder, slik det star pa en situasjonsplan.
+   *
+   * Etiketten sier ogsa hva slags behandling kanten har fatt, sa man ser med én
+   * gang hvilken side som er sprengt vegg og hvilken som er planert skraning.
+   * Klikk pa den, sa legger snittet seg vinkelrett pa nettopp den kanten.
+   */
+  tegnTomtemal() {
+    const app = this.app;
+    if (!this.lag.tomtemal) this.lag.tomtemal = L.layerGroup().addTo(this.kart);
+    this.lag.tomtemal.clearLayers();
+    if (!app.erTomt()) return;
+    const t = app.P.tomt;
+    if (!t || t.punkter.length < 3) return;
+    const p = app.tomtIUtm(t);
+    if (p.length < 3) return;
+    const kanter = Tomt.kanter(p);
+    const bf = app.bakkefaktor();
+    const kort = { skraning: 'skråning', fjellvegg: 'sprengt vegg', mur: 'mur', apen: 'åpen', overgang: 'overgang' };
+
+    kanter.forEach((k, i) => {
+      const kant = (t.kanter && t.kanter[i]) || {};
+      const type = kant.type || 'skraning';
+      const midt = Geo.fraUtm((k.a.x + k.b.x) / 2, (k.a.y + k.b.y) / 2, app.sone);
+      const valgt = Tomteprofil.retning === 'kant' + i;
+      const html = `<div class="kantmal${valgt ? ' valgt' : ''}" data-kant="${i}">`
+        + `<b>${(k.lengde * bf).toFixed(1)} m</b><span>${kort[type] || type}</span></div>`;
+      const m = L.marker([midt.lat, midt.lon], {
+        interactive: true,
+        icon: L.divIcon({ className: '', html, iconSize: [0, 0] })
+      });
+      m.on('click', e => {
+        L.DomEvent.stop(e);
+        Tomteprofil.retning = 'kant' + i;
+        const velg = document.getElementById('tp_retning');
+        if (velg) velg.value = 'kant' + i;
+        Tomteprofil.tegn();
+        this.tegnTomtemal();
+        app.status(`Snitt vinkelrett på kant ${i + 1} – ${kort[type] || type}`);
+      });
+      m.addTo(this.lag.tomtemal);
+    });
+
+    const tp = Tomtmasser.tyngdepunktAv(p);
+    const senter = Geo.fraUtm(tp.x, tp.y, app.sone);
+    const areal = Tomt.areal(p) * bf * bf;
+    const r = app.resultat;
+    const under = r && r.sum
+      ? `<span>${Math.round(r.sum.skjaering).toLocaleString('nb-NO')} m³ skjæring · `
+        + `${Math.round(r.sum.fylling).toLocaleString('nb-NO')} m³ fylling</span>`
+      : '<span>sett et ferdig nivå</span>';
+    L.marker([senter.lat, senter.lon], {
+      interactive: false,
+      icon: L.divIcon({
+        className: '',
+        html: `<div class="tomtemal-areal"><b>${Math.round(areal).toLocaleString('nb-NO')} m²</b>${under}</div>`,
+        iconSize: [0, 0]
+      })
+    }).addTo(this.lag.tomtemal);
+  },
+
   tegnTomt() {
     const app = this.app;
     this.lag.tomtHjorner.clearLayers();
@@ -354,6 +501,7 @@ const Kart = {
       this.lag.tomtHjelp.setLatLngs(pkt.length >= 3 ? pkt.concat([pkt[0]]) : pkt);
     }
 
+    this.tegnTomtemal();
     t.punkter.forEach((pt, i) => {
       const m = L.marker([pt.lat, pt.lon], {
         draggable: true,

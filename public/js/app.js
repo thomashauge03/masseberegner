@@ -313,6 +313,7 @@ const App = {
       if (e && e.parentElement) e.parentElement.classList.toggle('skjult', !fall);
     }
     this.visKanttabell();
+    this.visSnittvelger();
   },
 
   skjemaTilTomt() {
@@ -427,103 +428,126 @@ const App = {
   },
 
   /**
-   * Målene og massene for tomta.
+   * Massene for tomta, i sidepanelet.
    *
-   * Malene star øverst fordi det er dem man leser mens man tegner: er tomta
-   * blitt sa stor som den skulle? Massene under, delt i det som graves, det som
-   * fylles, og det som ma kjøres inn eller bort.
+   * Bygd av de samme byggeklossene som vegens sammendrag - sumkort, sumrad og
+   * verdi - sa skrift, avstander og farger blir identiske. Her sto det en egen
+   * tabell med egen stil, og da sa tomta ut som et annet program.
    */
   visTomtemasser() {
-    /* Massene hører hjemme i sidepanelet, samme sted som vegens - det er der
-       man ser etter dem. Her sto de nede i tomtepanelet, mens sidepanelet
-       fortsatt sa "Tegn en senterlinje i kartet for a komme i gang". */
     const boks = document.getElementById('massesammendrag');
     if (!boks || !this.erTomt()) return;
     Tomteprofil.tegn();
+    Kart.tegnTomtefarger();
+    /* Malene i kartet tegnes ogsa her, ikke bare fra Kart.tegn(). Kart.tegn()
+       kjører før beregningen er ferdig, sa etiketten viste forrige tilstand -
+       "sett et ferdig niva" etter at nivaet var satt, og gammel kanttype etter
+       at den var byttet. */
+    Kart.tegnTomtemal();
     const t = this.tomtetall();
     if (!t || t.hjorner < 3) {
-      boks.innerHTML = '<p class="notis">Tegn tomta i kartet – klikk rundt den, '
-        + 'dobbeltklikk eller Enter for å lukke.</p>';
+      boks.innerHTML = '<span class="tomtekst">Tegn tomta i kartet – klikk rundt den, '
+        + 'dobbeltklikk eller Enter for å lukke.</span>';
       return;
     }
-    const n = (v, d = 0) => (v == null || !Number.isFinite(v) ? '–'
-      : v.toLocaleString('nb-NO', { minimumFractionDigits: d, maximumFractionDigits: d }));
+    const tall = (v, d = 0) => Rapport.tall(v, d);
+    const rad = (navn, verdi, klasse, tittel) =>
+      `<div class="sumrad${klasse ? ' ' + klasse : ''}"${tittel ? ` title="${escapeHtml(tittel)}"` : ''}>`
+      + `<span>${navn}</span><span class="verdi">${verdi}</span></div>`;
+
+    const r = this.resultat;
+    const merk = (r && r.merknader ? r.merknader : []).concat(t.merknader || []);
+    let ut = merk.length
+      ? `<div class="varselboks"><b>${merk.length} merknad${merk.length === 1 ? '' : 'er'}</b>`
+        + merk.slice(0, 20).map(m => `<div>${escapeHtml(m.tekst)}</div>`).join('') + '</div>'
+      : '';
+
+    /* Malene først. Det er dem man leser mens man tegner, og kantlengdene er
+       det man kontrollerer mot en situasjonsplan. */
     const p = this.tomtIUtm();
     const kanter = Tomt.kanter(p);
     const bf = this.bakkefaktor();
-
-    let ut = '<h4>Mål</h4><table>';
-    ut += `<tr><td>Areal</td><td>${n(t.areal)} m²</td></tr>`;
-    ut += `<tr><td>Omkrets</td><td>${n(t.omkrets, 1)} m</td></tr>`;
-    ut += `<tr><td>Hjørner</td><td>${t.hjorner}</td></tr>`;
-    /* Kantlengdene enkeltvis. Det er dem man kontrollerer mot en situasjonsplan
-       - "skal ikke den siden vaere 32 meter?" - og de finnes ikke noe annet
-       sted i programmet. */
+    ut += '<div class="sumkort"><h4>Mål</h4>';
+    ut += rad('Areal', tall(t.areal) + ' m²');
+    ut += rad('Omkrets', tall(t.omkrets, 1) + ' m');
+    ut += rad('Hjørner', String(t.hjorner));
+    ut += '<div class="strek"></div>';
     kanter.forEach((k, i) => {
       const grader = ((90 - k.retning * 180 / Math.PI) % 360 + 360) % 360;
-      ut += `<tr><td>&nbsp;&nbsp;Kant ${i + 1}</td><td>${n(k.lengde * bf, 1)} m · ${n(grader, 0)}°</td></tr>`;
+      ut += rad(`Kant ${i + 1}`, `${tall(k.lengde * bf, 1)} m <small>${tall(grader, 0)}°</small>`);
     });
-    ut += '</table>';
+    ut += '</div>';
 
-    const r = this.resultat;
     if (!r || !r.sum) {
-      ut += '<p class="notis">Sett en ferdig kote for å få massene.</p>';
+      ut += '<div class="sumkort"><h4>Masser</h4>'
+        + '<span class="tomtekst">Sett et ferdig nivå under «Høyde» for å få massene.</span></div>';
       boks.innerHTML = ut;
       return;
     }
     const s = r.sum, b = r.balanse;
-    ut += '<h4>Masser</h4><table>';
-    ut += `<tr><td>Skjæring</td><td>${n(s.skjaering)} m³</td></tr>`;
-    ut += `<tr><td>&nbsp;&nbsp;– løsmasse</td><td>${n(s.skjaeringLosmasse)} m³</td></tr>`;
-    ut += `<tr><td>&nbsp;&nbsp;– fjell (sprengning)</td><td>${n(s.skjaeringFjell)} m³</td></tr>`;
-    ut += `<tr><td>Fylling</td><td>${n(s.fylling)} m³</td></tr>`;
-    if (s.matjord > 0.5) ut += `<tr><td>Matjord av</td><td>${n(s.matjord)} m³</td></tr>`;
-    if (s.rensk > 0.5) ut += `<tr><td>Rensk</td><td>${n(s.rensk)} m³</td></tr>`;
+
+    ut += '<div class="sumkort"><h4>Nøkkeltall</h4>';
+    ut += rad('Dypeste skjæring', tall(r.dypesteSkjaering, 2) + ' m');
+    ut += rad('Høyeste fylling', tall(r.hoyesteFylling, 2) + ' m');
+    if (r.hoyesteVegg > 0.05) ut += rad('Høyeste bergvegg', tall(r.hoyesteVegg, 2) + ' m');
+    ut += rad('Beregnet flate', tall(r.arealMedSkraning) + ' m² <small>med skråninger</small>');
+    ut += '</div>';
+
+    ut += '<div class="sumkort"><h4>Masser – prosjektert fast volum (p.f.m³)</h4>';
+    if (s.matjord > 0.5) ut += rad('Matjord som tas av', tall(s.matjord) + ' m³',
+      null, 'Skrapes av før arbeidet starter. Mellomlagres ofte på tomta og legges tilbake på skråningene.');
+    if (s.rensk > 0.5) ut += rad('Rensk mot fjell', tall(s.rensk) + ' m³');
+    ut += '<div class="strek"></div>';
+    ut += rad('<span class="merke-skjaering">Skjæring totalt</span>',
+      `<span class="merke-skjaering">${tall(s.skjaering)} m³</span>`, 'stor');
+    ut += rad('&nbsp;&nbsp;– løsmasse', tall(s.skjaeringLosmasse) + ' m³');
+    ut += rad('<span class="merke-fjell">&nbsp;&nbsp;– fjell (sprengning)</span>',
+      `<span class="merke-fjell">${tall(s.skjaeringFjell)} m³</span>`);
     if (s.overberg > 0.5) {
-      /* Egen linje, aldri bakt inn i fjellvolumet. R761 prosess 22.1: det gis
-         ikke tillegg for overberg, sa et tilbud som la det inn i sprengningen
-         ville sett dyrere ut enn oppgjøret blir. */
-      ut += `<tr><td>Overberg (ikke i oppgjør)</td><td>${n(s.overberg)} m³</td></tr>`;
+      ut += rad('&nbsp;&nbsp;– overberg', tall(s.overberg) + ' m³', null,
+        'Fjell som sprenges utenfor prosjektert kontur. Egen post: R761 prosess 22.1 gir '
+        + 'ikke tillegg for overberg, så det hører ikke hjemme i sprengningsvolumet.');
     }
-    ut += '</table>';
+    ut += '<div class="strek"></div>';
+    ut += rad('<span class="merke-fylling">Fylling</span>',
+      `<span class="merke-fylling">${tall(s.fylling)} m³</span>`, 'stor');
+    ut += '</div>';
 
     const lag = s.slitelag + s.baerelag + s.forsterkningslag + s.frostsikring + s.avrettingslag;
     if (lag > 0.5) {
-      ut += '<h4>Byggeklart – lag som skal inn</h4><table>';
-      const rad = (navn, v, tykk) => v > 0.005
-        ? `<tr><td>${navn}${tykk ? ` (${tykk} m)` : ''}</td><td>${n(v)} m³</td></tr>` : '';
-      ut += rad('Frostsikring', s.frostsikring, this.P.mal.frostsikring);
-      ut += rad('Forsterkningslag', s.forsterkningslag, this.P.mal.forsterkningslag);
-      ut += rad('Bærelag', s.baerelag, this.P.mal.baerelagTykkelse);
-      ut += rad('Avretting', s.avrettingslag, this.P.mal.avrettingslag);
-      ut += rad('Slitelag', s.slitelag, this.P.mal.slitelagTykkelse);
-      ut += `<tr class="sum"><td>Sum overbygning</td><td>${n(lag)} m³</td></tr>`;
-      ut += `<tr><td>Tykkelse</td><td>${n(r.overbygning, 2)} m</td></tr>`;
-      ut += '</table>';
+      const m = this.P.mal;
+      ut += '<div class="sumkort"><h4>Byggeklart – lag som skal inn</h4>';
+      const lagrad = (navn, v, tykk) => v > 0.005
+        ? rad(navn + (tykk ? ` <small>${tall(tykk, 2)} m</small>` : ''), tall(v) + ' m³') : '';
+      ut += lagrad('Frostsikring', s.frostsikring, m.frostsikring);
+      ut += lagrad('Forsterkningslag', s.forsterkningslag, m.forsterkningslag);
+      ut += lagrad('Bærelag', s.baerelag, m.baerelagTykkelse);
+      ut += lagrad('Avretting', s.avrettingslag, m.avrettingslag);
+      ut += lagrad('Slitelag', s.slitelag, m.slitelagTykkelse);
+      ut += '<div class="strek"></div>';
+      ut += rad('Sum overbygning', tall(lag) + ' m³', 'stor');
+      ut += '</div>';
     }
 
     if (b) {
-      ut += '<h4>Massebalanse</h4><table>';
-      ut += `<tr><td>Sprengt fjell, løst (× ${this.P.faktorer.sprengningsfaktor})</td><td>${n(b.fjellSprengtLos)} p.a.m³</td></tr>`;
-      ut += `<tr><td>Tilgjengelig til fylling</td><td>${n(b.tilgjengelig)} m³</td></tr>`;
-      ut += `<tr><td>Fyllingsbehov</td><td>${n(b.fyllingBehov)} m³</td></tr>`;
-      ut += `<tr class="sum"><td>${b.balanse >= 0 ? 'Overskudd' : 'Underskudd'}</td>`
-        + `<td>${n(Math.abs(b.balanse))} m³</td></tr>`;
-      if (b.manglerTotalt > 0.5) ut += `<tr><td>Må kjøres inn</td><td>${n(b.manglerTotalt)} m³</td></tr>`;
-      if (b.tilDeponi > 0.5) ut += `<tr><td>Til deponi</td><td>${n(b.tilDeponi)} m³</td></tr>`;
-      ut += '</table>';
-    }
-
-    ut += '<h4>Dybder</h4><table>';
-    ut += `<tr><td>Dypeste skjæring</td><td>${n(r.dypesteSkjaering, 2)} m</td></tr>`;
-    ut += `<tr><td>Høyeste fylling</td><td>${n(r.hoyesteFylling, 2)} m</td></tr>`;
-    if (r.hoyesteVegg > 0.05) ut += `<tr><td>Høyeste bergvegg</td><td>${n(r.hoyesteVegg, 2)} m</td></tr>`;
-    ut += '</table>';
-
-    const merk = (r.merknader || []).concat(t.merknader || []);
-    if (merk.length) {
-      ut += '<h4>Merknader</h4>';
-      for (const m of merk) ut += `<p class="notis">⚠ ${escapeHtml(m.tekst)}</p>`;
+      ut += '<div class="sumkort"><h4>Massebalanse</h4>';
+      ut += rad(`Sprengt fjell, løst <small>× ${this.P.faktorer.sprengningsfaktor}</small>`,
+        tall(b.fjellSprengtLos) + ' p.a.m³', null,
+        'Hva den faste kubikken blir til på et lass. Brukes til transport, ikke til balansen.');
+      ut += rad('Tilgjengelig til fylling', tall(b.tilgjengelig) + ' m³', null,
+        'Sprengstein × ' + this.P.faktorer.fjellIFylling + ' pluss brukbar løsmasse. '
+        + 'Fjell teller med en annen faktor her enn på lasset – 1,30 er hva den fyller '
+        + 'ferdig utlagt og komprimert.');
+      ut += rad('Fyllingsbehov', tall(b.fyllingBehov) + ' m³');
+      ut += '<div class="strek"></div>';
+      ut += rad(b.balanse >= 0 ? 'Masseoverskudd' : 'Massemangel',
+        tall(Math.abs(b.balanse)) + ' m³', 'stor');
+      if (b.manglerTotalt > 0.5) ut += rad('Må kjøres inn', tall(b.manglerTotalt) + ' m³', null,
+        'Fyllingsmangel pluss hele overbygningen. Overbygningen kjøpes – den er knust '
+        + 'masse med krav til kornkurve, og finnes ikke i en skogsli.');
+      if (b.tilDeponi > 0.5) ut += rad('Til deponi', tall(b.tilDeponi) + ' m³', null,
+        'Matjord, rensk og den løsmassen som ikke er god nok å fylle med.');
+      ut += '</div>';
     }
     boks.innerHTML = ut;
   },
@@ -537,6 +561,27 @@ const App = {
    * er alltid det samme - vannrett utlegg per meter høyde - men det brukeren
    * leser skal se ut som i normen.
    */
+  /** Fyller velgeren for hvor snittet legges - med én linje per kant. */
+  visSnittvelger() {
+    const v = document.getElementById('tp_retning');
+    if (!v || !this.erTomt()) return;
+    const p = this.tomtIUtm();
+    const valgt = v.value || Tomteprofil.retning;
+    let ut = '<option value="fall">Snitt langs fallet</option>'
+      + '<option value="tvers">Snitt på tvers</option>';
+    if (p.length >= 3) {
+      const kort = { skraning: 'skråning', fjellvegg: 'sprengt vegg', mur: 'mur', apen: 'åpen', overgang: 'overgang' };
+      const t = this.P.tomt;
+      Tomt.kanter(p).forEach((k, i) => {
+        const type = ((t.kanter && t.kanter[i]) || {}).type || 'skraning';
+        ut += `<option value="kant${i}">Kant ${i + 1} – ${kort[type] || type}</option>`;
+      });
+    }
+    v.innerHTML = ut;
+    v.value = valgt;
+    if (!v.value) { v.value = 'fall'; Tomteprofil.retning = 'fall'; }
+  },
+
   visKanttabell() {
     const boks = document.getElementById('tomtKanter');
     if (!boks || !this.erTomt()) return;
@@ -582,6 +627,7 @@ const App = {
         if (!Array.isArray(t.kanter)) t.kanter = [];
         t.kanter[i] = Object.assign({}, t.kanter[i], { type: v.value });
         this.visKanttabell();
+        this.visSnittvelger();
         this.beregnTomt();
       };
     }
@@ -1213,6 +1259,7 @@ const App = {
     });
     this.resultat.balanse = this.tomtebalanse(this.resultat.sum);
     this.visTomtemasser();
+    this.tomthoydeTilSkjema();
     this.status(`Tomta regnet på ${Math.round(performance.now() - t0)} ms`);
     return this.resultat;
   },
@@ -2283,6 +2330,19 @@ const App = {
     vis('.fane[data-fane="linje"]', !tomt);
     vis('.fane[data-fane="mal"]', !tomt);
     vis('.fane[data-fane="tomtemal"]', tomt);
+    vis('.fane[data-fane="tomthoyde"]', tomt);
+    vis('#visTomtefargerBoks', tomt);
+    for (const [navn, tekst, etter] of [['tomthoyde', 'Høyde', 'masser'], ['tomtemal', 'Tomtemal', 'tomthoyde']]) {
+      if (document.querySelector('.fane[data-fane="' + navn + '"]')) continue;
+      const rad = document.querySelector('.faner');
+      const foran = document.querySelector('.fane[data-fane="' + etter + '"]');
+      if (!rad || !foran) continue;
+      const k = document.createElement('button');
+      k.className = 'fane'; k.dataset.fane = navn; k.textContent = tekst;
+      k.onclick = () => this.visFane(navn);
+      rad.insertBefore(k, foran.nextSibling);
+      k.classList.toggle('skjult', !tomt);
+    }
     let knapp = document.querySelector('.fane[data-fane="tomtemal"]');
     if (!knapp) {
       const rad = document.querySelector('.faner');
@@ -2301,13 +2361,181 @@ const App = {
        sidepanelet tomt uten at noe forklarer hvorfor. */
     const aktiv = document.querySelector('.fane.aktiv');
     if (aktiv && aktiv.classList.contains('skjult')) this.visFane('masser');
-    if (tomt) this.tomtemalTilSkjema();
+    if (tomt) { this.tomthoydeTilSkjema(); this.tomtemalTilSkjema(); }
   },
 
   /** Bytter fane i sidepanelet. */
   visFane(navn) {
     for (const f of document.querySelectorAll('.fane')) f.classList.toggle('aktiv', f.dataset.fane === navn);
     for (const d of document.querySelectorAll('.faneinnhold')) d.classList.toggle('aktiv', d.id === 'fane-' + navn);
+  },
+
+  /** Terrenget over tomta: laveste, middel og høyeste. */
+  terrengOverTomta() {
+    const p = this.tomtIUtm();
+    if (p.length < 3 || !this.terreng) return null;
+    let minX = Infinity, maksX = -Infinity, minY = Infinity, maksY = -Infinity;
+    for (const q of p) {
+      minX = Math.min(minX, q.x); maksX = Math.max(maksX, q.x);
+      minY = Math.min(minY, q.y); maksY = Math.max(maksY, q.y);
+    }
+    let sum = 0, n = 0, lav = Infinity, hoy = -Infinity;
+    for (let y = minY; y <= maksY; y += 1) {
+      for (let x = minX; x <= maksX; x += 1) {
+        if (!Tomtmasser.innenforPolygon(p, x, y)) continue;
+        const z = this.terreng.z(x, y);
+        if (!Number.isFinite(z)) continue;
+        sum += z; n++; lav = Math.min(lav, z); hoy = Math.max(hoy, z);
+      }
+    }
+    return n ? { lav, hoy, middel: sum / n, antall: n } : null;
+  },
+
+  /** Overbygningens tykkelse - avstanden fra ferdig nivå ned til planum. */
+  overbygningstykkelse() {
+    const m = this.P.mal;
+    return (m.slitelagTykkelse || 0) + (m.baerelagTykkelse || 0)
+      + (m.forsterkningslag || 0) + (m.frostsikring || 0) + (m.avrettingslag || 0);
+  },
+
+  /**
+   * Høyden pa tomta - ett sted, med det man trenger for a velge den.
+   *
+   * Feltet la før inneklemt i verktøylinja nede, mellom fall, retning og
+   * rutestørrelse. Da er det et tall man skriver i blinde. Her star terrenget
+   * ved siden av: laveste, middel og høyeste punkt pa tomta, med en knapp for
+   * hver. Da ser man hva man velger mellom, og hva valget koster - dypeste
+   * skjæring, høyeste fylling og balansen star rett under.
+   */
+  tomthoydeTilSkjema() {
+    const boks = document.getElementById('tomthoydeSkjema');
+    if (!boks || !this.erTomt()) return;
+    const t = this.P.tomt, n = t.nivaa;
+    const har = t.punkter.length >= 3;
+    if (!har) {
+      boks.innerHTML = '<p class="notis">Tegn tomta i kartet først – klikk rundt den, '
+        + 'dobbeltklikk eller Enter for å lukke.</p>';
+      return;
+    }
+    const T = this.terrengOverTomta();
+    const ob = this.overbygningstykkelse();
+    const tall = (v, d = 2) => (Number.isFinite(v)
+      ? v.toLocaleString('nb-NO', { minimumFractionDigits: d, maximumFractionDigits: d }) : '–');
+    const r = this.resultat;
+
+    let ut = '<h3>Ferdig nivå</h3>';
+    ut += '<div class="hoydevalg">'
+      + `<input type="number" id="th_kote" step="0.05" value="${n.kote == null ? '' : n.kote.toFixed(2)}">`
+      + '<span class="enhet">moh.</span></div>';
+    ut += '<div class="knapperad hoydeverktoy">'
+      + '<button class="knapp" id="th_foresla">Foreslå</button>'
+      + '<button class="knapp" id="th_balanser">Massebalanse</button></div>';
+    if (ob > 0.005) {
+      ut += `<p class="notis">Planum ligger ${tall(ob)} m under dette – `
+        + 'skråningene starter der, ikke i overflaten.</p>';
+    }
+
+    if (T) {
+      ut += '<h3>Terrenget på tomta</h3><table class="noekkel">';
+      ut += `<tr><td>Laveste</td><td>${tall(T.lav)} moh.</td>`
+        + `<td><button class="knapp liten" data-legg="${(T.lav + ob).toFixed(2)}">Legg her</button></td></tr>`;
+      ut += `<tr><td>Middel</td><td>${tall(T.middel)} moh.</td>`
+        + `<td><button class="knapp liten" data-legg="${(T.middel + ob).toFixed(2)}">Legg her</button></td></tr>`;
+      ut += `<tr><td>Høyeste</td><td>${tall(T.hoy)} moh.</td>`
+        + `<td><button class="knapp liten" data-legg="${(T.hoy + ob).toFixed(2)}">Legg her</button></td></tr>`;
+      ut += `<tr><td>Fall over tomta</td><td>${tall(T.hoy - T.lav, 1)} m</td><td></td></tr>`;
+      ut += '</table>';
+      ut += '<p class="notis">Knappene legger <b>planum</b> på terrenget, så '
+        + 'overbygningen kommer oppå. Legger du på middelhøyden, blir det omtrent '
+        + 'like mye å grave som å fylle.</p>';
+    }
+
+    ut += '<h3>Form</h3>';
+    ut += '<div class="felt"><label>Nivået</label>'
+      + `<select id="th_modus">
+           <option value="flat"${n.modus === 'flat' ? ' selected' : ''}>Flatt</option>
+           <option value="fall"${n.modus === 'fall' ? ' selected' : ''}>Fall i én retning</option>
+         </select><span class="enhet"></span></div>`;
+    if (n.modus === 'fall') {
+      const f = (n.fall || 0) * 100;
+      const somForhold = f > 0.001 ? '1:' + Math.round(100 / f) : 'flatt';
+      ut += `<div class="felt"><label>Fall</label>`
+        + `<input type="number" id="th_fall" step="0.5" min="0" max="15" value="${f.toFixed(1)}">`
+        + `<span class="enhet">% · ${somForhold}</span></div>`;
+      ut += `<div class="felt"><label>Retning</label>`
+        + `<input type="number" id="th_retning" step="5" min="0" max="359" value="${Math.round(n.fallretning || 0)}">`
+        + `<span class="enhet">° · ${this._himmelretning(n.fallretning || 0)}</span></div>`;
+      ut += '<p class="notis">Retningen er dit vannet renner. Minstefall for at '
+        + 'vann skal renne av er 1:100 på tett dekke og 1:50 på grus.</p>';
+      if (f > 0.001 && f < (this.P.mal.minstefall || 0) * 100 - 1e-9) {
+        ut += '<p class="notis">⚠ Under minstefallet – det blir stående vann.</p>';
+      }
+    }
+
+    ut += '<div class="felt"><label>Rutenett</label>'
+      + `<input type="number" id="th_rutenett" step="0.25" min="0.25" max="5" value="${this.P.mal.rutestorrelse}">`
+      + '<span class="enhet">m</span></div>';
+
+    if (r && r.sum) {
+      ut += '<h3>Hva høyden koster</h3><table class="noekkel">';
+      ut += `<tr><td>Dypeste skjæring</td><td>${tall(r.dypesteSkjaering)} m</td></tr>`;
+      ut += `<tr><td>Høyeste fylling</td><td>${tall(r.hoyesteFylling)} m</td></tr>`;
+      if (r.hoyesteVegg > 0.05) ut += `<tr><td>Høyeste bergvegg</td><td>${tall(r.hoyesteVegg)} m</td></tr>`;
+      if (r.balanse) {
+        const b = r.balanse;
+        ut += `<tr><td>${b.balanse >= 0 ? 'Masseoverskudd' : 'Massemangel'}</td>`
+          + `<td>${tall(Math.abs(b.balanse), 0)} m³</td></tr>`;
+      }
+      ut += '</table>';
+    }
+    boks.innerHTML = ut;
+
+    const kote = document.getElementById('th_kote');
+    const settKote = async v => {
+      if (!Number.isFinite(v)) return;
+      this.merk('satte ferdig nivå');
+      t.nivaa.kote = +v.toFixed(2);
+      this.tomtTilSkjema();
+      await this.beregnTomt();
+    };
+    kote.onchange = () => settKote(parseFloat(kote.value));
+    document.getElementById('th_foresla').onclick = async () => {
+      const k = this.foreslaKote();
+      if (k == null) { this.status('Fant ingen terrengdata over tomta'); return; }
+      await settKote(k);
+      this.status(`Foreslo kote ${k.toFixed(2)} – middelhøyden i terrenget pluss overbygningen`);
+    };
+    document.getElementById('th_balanser').onclick = () => this.balanserTomt();
+    for (const b of boks.querySelectorAll('button[data-legg]')) {
+      b.onclick = () => settKote(parseFloat(b.dataset.legg));
+    }
+    const modus = document.getElementById('th_modus');
+    modus.onchange = async () => {
+      this.merk('endret form på nivået');
+      t.nivaa.modus = modus.value;
+      this.tomtTilSkjema();
+      await this.beregnTomt();
+    };
+    const knytt = (id, les) => {
+      const e = document.getElementById(id);
+      if (!e) return;
+      e.onchange = async () => {
+        const v = parseFloat(e.value);
+        if (!Number.isFinite(v)) return;
+        this.merk('endret ferdig nivå');
+        les(v);
+        this.tomtTilSkjema();
+        await this.beregnTomt();
+      };
+    };
+    knytt('th_fall', v => { t.nivaa.fall = Math.max(0, v) / 100; });
+    knytt('th_retning', v => { t.nivaa.fallretning = ((v % 360) + 360) % 360; });
+    knytt('th_rutenett', v => { this.P.mal.rutestorrelse = Math.max(0.25, Math.min(5, v)); });
+  },
+
+  _himmelretning(grader) {
+    const n = ['nord', 'nordøst', 'øst', 'sørøst', 'sør', 'sørvest', 'vest', 'nordvest'];
+    return n[Math.round((((grader % 360) + 360) % 360) / 45) % 8];
   },
 
   /**

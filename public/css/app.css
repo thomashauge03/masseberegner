@@ -588,3 +588,46 @@ body {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
   .knapp.primaer:active { transform: none; }
 }
+
+
+/* ── tomtemodus: høydevalget ────────────────────────────── */
+.hoydevalg { display: flex; align-items: baseline; gap: 8px; margin: 6px 0 10px; }
+.hoydevalg input {
+  font-size: 22px; font-family: var(--skrift); font-variant-numeric: tabular-nums;
+  width: 150px; padding: 6px 10px;
+  background: var(--flate-opp); color: var(--blekk); border: 2px solid var(--kant-sterk);
+}
+.hoydevalg input:hover, .hoydevalg input:focus { border-color: var(--hm-raud); }
+.hoydevalg .enhet { color: var(--blekk-svak); font-size: 13px; }
+.knapp.liten { padding: 2px 8px; font-size: 11px; }
+#tomthoydeSkjema table.noekkel td:nth-child(2) { text-align: right; font-variant-numeric: tabular-nums; }
+#tomthoydeSkjema table.noekkel td:last-child { text-align: right; width: 1%; white-space: nowrap; }
+
+
+/* ── tomtemodus: målene i kartet ─────────────────────────
+   Lengden hører hjemme pa streken den gjelder, slik den star pa en
+   situasjonsplan - ikke nede i et panel man ma se ned i for a vite om den ene
+   siden ble 32 eller 34 meter. */
+.kantmal, .tomtemal-areal {
+  position: absolute; transform: translate(-50%, -50%);
+  white-space: nowrap; pointer-events: auto;
+  font-family: var(--skrift); font-variant-numeric: tabular-nums;
+  background: rgba(11, 11, 12, 0.82); color: #fafafa;
+  border: 1px solid rgba(250, 250, 250, 0.25);
+  padding: 2px 7px; line-height: 1.25;
+  text-align: center;
+}
+.kantmal { font-size: 11px; cursor: pointer; }
+.kantmal b { display: block; font-weight: 700; }
+.kantmal span { display: block; font-size: 10px; color: #c8c8ce; }
+.kantmal:hover { border-color: var(--hm-raud); }
+.kantmal.valgt { background: var(--hm-raud); border-color: var(--hm-raud); }
+.kantmal.valgt span { color: #ffe3e5; }
+.tomtemal-areal { font-size: 13px; pointer-events: none; padding: 4px 10px; }
+.tomtemal-areal b { display: block; font-size: 16px; font-weight: 700; }
+.tomtemal-areal span { display: block; font-size: 10px; color: #c8c8ce; }
+@media (prefers-color-scheme: light) {
+  .kantmal, .tomtemal-areal { background: rgba(255,255,255,.92); color: #0b0b0c; border-color: rgba(11,11,12,.3); }
+  .kantmal span, .tomtemal-areal span { color: #52525b; }
+  .kantmal.valgt { background: var(--hm-raud); color: #fff; }
+}

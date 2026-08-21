@@ -14,6 +14,8 @@
 const Tomteprofil = {
   app: null,
   lerret: null,
+  retning: 'fall',        // 'fall' eller 'tvers'
+  forskyvning: 0.5,       // 0..1 tvers over tomta, 0,5 = gjennom tyngdepunktet
 
   init(app) {
     this.app = app;
@@ -36,10 +38,40 @@ const Tomteprofil = {
     const p = app.tomtIUtm(t);
     if (p.length < 3) return null;
 
-    const senter = Tomtmasser.tyngdepunktAv(p);
-    const rad = ((t.nivaa.fallretning || 0)) * Math.PI / 180;
-    // enhetsvektor langs fallretningen; nord er (0,1), øst er (1,0)
+    const tp = Tomtmasser.tyngdepunktAv(p);
+    /* Retningen snittet legges i. Langs fallet er standarden, for det er den
+       veien det ferdige nivaet heller og dermed der forskjellen mot terrenget
+       er størst. Pa tvers er den andre man vil se - det er den som viser om
+       tomta ligger skjevt i lia. */
+    let grader = t.nivaa.fallretning || 0;
+    if (this.retning === 'tvers') grader += 90;
+    else if (/^kant\d+$/.test(this.retning)) {
+      /* Snitt vinkelrett pa en valgt kant. Det er dette man vil se nar man
+         lurer pa hvordan den ene siden blir - om bergveggen star der den skal,
+         eller hvor langt skraningen gar ut mot naboen. Samme spørsmal som
+         tverrprofilen svarer pa for en veg.
+
+         Retningen tas fra kantens utoverrettede normal, sa snittet peker ut av
+         tomta. Peker den innover, ser man skraningen speilvendt - og det er
+         akkurat den forvekslingen som gjør at man tror utslaget gar feil vei. */
+      const k = Tomt.kanter(p)[+this.retning.slice(4)];
+      if (k) grader = ((Math.atan2(k.nx, k.ny) * 180 / Math.PI) % 360 + 360) % 360;
+    }
+    const rad = grader * Math.PI / 180;
+    // enhetsvektor langs snittet; nord er (0,1), øst er (1,0)
     const ex = Math.sin(rad), ey = Math.cos(rad);
+    // normalen, som snittet forskyves langs
+    const nx = Math.cos(rad), ny = -Math.sin(rad);
+
+    /* Hvor langt tomta strekker seg vinkelrett pa snittet - det er der
+       skyveren beveger seg. */
+    let tMin = Infinity, tMaks = -Infinity;
+    for (const q of p) {
+      const u = (q.x - tp.x) * nx + (q.y - tp.y) * ny;
+      tMin = Math.min(tMin, u); tMaks = Math.max(tMaks, u);
+    }
+    const skyv = tMin + (tMaks - tMin) * Math.max(0, Math.min(1, this.forskyvning));
+    const senter = { x: tp.x + nx * skyv, y: tp.y + ny * skyv };
 
     /* Hvor langt snittet rekker: til det er godt utenfor bade tomta og
        skraningene, sa man ser hvor de treffer terrenget. */
@@ -71,7 +103,7 @@ const Tomteprofil = {
       }
       punkt.push({ d, zT: Number.isFinite(zT) ? zT : null, zF, zN, inne });
     }
-    return { punkt, ob, retning: t.nivaa.fallretning || 0 };
+    return { punkt, ob, retning: grader, senter, tMin, tMaks, skyv };
   },
 
   tegn() {
@@ -173,7 +205,41 @@ const Tomteprofil = {
       x += g.measureText(navn).width + 34;
     }
     g.textAlign = 'right';
-    g.fillText(`Snitt gjennom tyngdepunktet · retning ${Math.round(s.retning)}°`, b - marg.h, h - 10);
+    const hvor = /^kant\d+$/.test(this.retning)
+      ? 'Vinkelrett på kant ' + (+this.retning.slice(4) + 1)
+      : (this.retning === 'tvers' ? 'På tvers' : 'Langs fallet');
+    g.fillText(`${hvor} · retning ${Math.round(s.retning)}°`, b - marg.h, h - 10);
+    this._merkAv(s);
+  },
+
+  /**
+   * Merker snittlinja i kartet, og skriver hvor den ligger.
+   *
+   * Uten den vet man ikke hvilket snitt man ser pa. Tverrprofilen pa en veg har
+   * profilnummeret sitt a vise til; her ma linja tegnes.
+   */
+  _merkAv(s) {
+    const e = document.getElementById('tp_etikett');
+    if (e) {
+      const midt = (s.tMin + s.tMaks) / 2;
+      const fra = s.skyv - midt;
+      e.textContent = Math.abs(fra) < 0.05 ? 'gjennom midten'
+        : `${Math.abs(fra).toFixed(1)} m ${fra > 0 ? 'over' : 'under'} midten`;
+    }
+    if (typeof Kart === 'undefined' || !Kart.kart || !Kart.lag) return;
+    const app = this.app;
+    const rad = s.retning * Math.PI / 180;
+    const ex = Math.sin(rad), ey = Math.cos(rad);
+    const d0 = s.punkt[0].d, d1 = s.punkt[s.punkt.length - 1].d;
+    const hj = (x, y) => { const g = Geo.fraUtm(x, y, app.sone); return [g.lat, g.lon]; };
+    const linje = [hj(s.senter.x + ex * d0, s.senter.y + ey * d0),
+      hj(s.senter.x + ex * d1, s.senter.y + ey * d1)];
+    if (!Kart.lag.snittlinje) {
+      Kart.lag.snittlinje = L.polyline([], {
+        color: Farger.blekk, weight: 1.5, dashArray: '7 5', opacity: 0.9
+      }).addTo(Kart.kart);
+    }
+    Kart.lag.snittlinje.setLatLngs(app.erTomt() ? linje : []);
   },
 
   /** Pen avstand mellom kotelinjene. */
