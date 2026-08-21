@@ -243,7 +243,8 @@ body {
 .rute.tomtemodus.uten-side.stor-kart { grid-template-areas: "kart"; }
 .rute.tomtemodus.uten-side.stor-tomt { grid-template-areas: "tomt"; }
 
-.tomtinnhold { display: flex; gap: 2px; overflow: hidden; flex: 1; }
+.tomtinnhold { display: flex; gap: 2px; overflow: hidden; flex: 1; min-height: 0; }
+#tomtprofil { flex: 1; min-width: 0; display: block; }
 .tomtenokkel { flex: 1; overflow: auto; padding: 10px 12px; }
 .tomtekanter { width: 330px; overflow: auto; padding: 10px 12px; border-left: 1px solid var(--kant); }
 .tomtenokkel table { width: 100%; border-collapse: collapse; font-size: 13px; }

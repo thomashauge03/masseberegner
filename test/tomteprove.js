@@ -429,5 +429,37 @@ console.log('\n15. Bergveggens helning slår ut på volumet');
 }
 
 /* ------------------------------------------------------------------ */
+console.log('\n16. Balansen synker når koten heves');
+{
+  /* Egenskapen halveringssøket i «Massebalanse» hviler pa. Løfter man det
+     ferdige nivaet, blir det mindre a grave og mer a fylle - alltid. Sto
+     søket motsatt vei, løp det til bunnen av søkeomradet og meldte at det
+     hadde funnet balanse med 71 000 m³ i avvik. Det gjorde det.
+
+     Testen er ikke bare et fortegn: den kontrollerer at balansen er strengt
+     synkende over hele omradet, for det er dét som gjør halvering gyldig. */
+  const kote = k => {
+    const r = kjor({
+      tomt: { punkter: rektangel(40, 60), kanter: [], nivaa: { modus: 'flat', kote: k } },
+      terreng: { z: () => 100 }, rutestorrelse: 1
+    });
+    const f = { sprengningsfaktor: 1.5, fjellIFylling: 1.3, losmasseIFylling: 0.95, brukbarLosmasse: 0.5 };
+    const tilgjengelig = r.sum.skjaeringFjell * f.fjellIFylling
+      + r.sum.skjaeringLosmasse * f.brukbarLosmasse * f.losmasseIFylling;
+    return tilgjengelig - r.sum.fylling;
+  };
+  const verdier = [94, 96, 98, 100, 102, 104].map(kote);
+  let synker = true;
+  for (let i = 1; i < verdier.length; i++) if (verdier[i] >= verdier[i - 1]) synker = false;
+  paastand('balansen synker strengt når koten heves', synker,
+    verdier.map(v => v.toFixed(0)).join(' → '));
+  paastand('lavt nivå gir overskudd', verdier[0] > 0, verdier[0].toFixed(0));
+  paastand('høyt nivå gir underskudd', verdier[verdier.length - 1] < 0,
+    verdier[verdier.length - 1].toFixed(0));
+  /* Og roten ligger mellom dem, sa halvering i det hele tatt har noe a finne. */
+  paastand('roten er innenfor søkeområdet', verdier[0] > 0 && verdier[verdier.length - 1] < 0);
+}
+
+/* ------------------------------------------------------------------ */
 console.log(`\n${ok} tester ok, ${feil} feil`);
 process.exit(feil ? 1 : 0);

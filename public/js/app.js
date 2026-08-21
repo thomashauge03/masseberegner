@@ -389,10 +389,30 @@ const App = {
       });
       return this.tomtebalanse(r.sum).balanse;
     };
-    let lav = start - 15, hoy = start + 15;
+    /* Balansen SYNKER nar koten heves: løfter man nivaet, blir det mindre a
+       grave og mer a fylle. Her sto halveringen motsatt vei, og da løp den rett
+       til bunnen av søkeomradet i stedet for a nærme seg null - 71 000 m³ i
+       avvik, meldt som om den hadde funnet balanse.
+
+       Derfor sjekkes ogsa at roten i det hele tatt ligger mellom endene før
+       halveringen starter. Ligger den ikke det, finnes det ingen kote som gir
+       balanse innenfor det man kan grave, og da er det bedre a si det enn a
+       levere endepunktet som om det var svaret. */
+    let lav = start - 30, hoy = start + 30;
+    const bLav = maal(lav), bHoy = maal(hoy);
+    if (!(bLav > 0 && bHoy < 0)) {
+      t.nivaa.kote = start;
+      this.framdrift(false);
+      this.tomtTilSkjema();
+      await this.beregnTomt();
+      this.status(bLav <= 0
+        ? 'Fant ingen kote som gir balanse – det blir fylling uansett hvor lavt tomta legges'
+        : 'Fant ingen kote som gir balanse – det blir skjæring uansett hvor høyt tomta legges');
+      return;
+    }
     for (let i = 0; i < 24; i++) {
       const midt = (lav + hoy) / 2;
-      if (maal(midt) > 0) hoy = midt; else lav = midt;
+      if (maal(midt) > 0) lav = midt; else hoy = midt;
       this.framdrift(true, 'Finner koten som gir massebalanse…', 0.1 + 0.85 * i / 24);
       if (i % 4 === 0) await pause();
     }
@@ -414,8 +434,12 @@ const App = {
    * fylles, og det som ma kjøres inn eller bort.
    */
   visTomtemasser() {
-    const boks = document.getElementById('tomtNokkeltall');
+    /* Massene hører hjemme i sidepanelet, samme sted som vegens - det er der
+       man ser etter dem. Her sto de nede i tomtepanelet, mens sidepanelet
+       fortsatt sa "Tegn en senterlinje i kartet for a komme i gang". */
+    const boks = document.getElementById('massesammendrag');
     if (!boks || !this.erTomt()) return;
+    Tomteprofil.tegn();
     const t = this.tomtetall();
     if (!t || t.hjorner < 3) {
       boks.innerHTML = '<p class="notis">Tegn tomta i kartet – klikk rundt den, '
@@ -628,6 +652,7 @@ const App = {
     Kart.init(this);
     Lengdeprofil.init(this);
     Tverrprofil.init(this);
+    Tomteprofil.init(this);
     Rapport.init(this);
     Pdfrapport.init(this);
     PdfUI.init(this);
@@ -2240,26 +2265,119 @@ const App = {
     this.visSonderinger();
   },
 
-  /** Malfanen heter «Vegmal» eller «Tomtemal» etter hva som er oppe. */
+  /**
+   * Fanene i sidepanelet skifter med modus.
+   *
+   * Vegen har Masser, Høyder, Vegmal, Grunnforhold og Linje. En tomt har ingen
+   * høyder langs en stasjonering og ingen linje, sa de to fanene ville staat
+   * tomme - og en fane som ikke gjør noe er verre enn ingen fane, for man tror
+   * den er i stykker. I stedet far tomta sin egen malfane.
+   */
   visMalfane() {
-    const f = document.querySelector('.fane[data-fane="mal"]');
-    if (f) f.textContent = this.erTomt() ? 'Tomtemal' : 'Vegmal';
-    const boks = document.getElementById('fane-mal');
-    if (!boks) return;
-    let notis = document.getElementById('tomtemalNotis');
-    if (this.erTomt()) {
-      if (!notis) {
-        notis = document.createElement('p');
-        notis.id = 'tomtemalNotis';
-        notis.className = 'notis';
-        boks.insertBefore(notis, boks.firstChild);
+    const tomt = this.erTomt();
+    const vis = (velger, pa) => {
+      const e = document.querySelector(velger);
+      if (e) e.classList.toggle('skjult', !pa);
+    };
+    vis('.fane[data-fane="hoyder"]', !tomt);
+    vis('.fane[data-fane="linje"]', !tomt);
+    vis('.fane[data-fane="mal"]', !tomt);
+    vis('.fane[data-fane="tomtemal"]', tomt);
+    let knapp = document.querySelector('.fane[data-fane="tomtemal"]');
+    if (!knapp) {
+      const rad = document.querySelector('.faner');
+      const malknapp = document.querySelector('.fane[data-fane="mal"]');
+      if (rad && malknapp) {
+        knapp = document.createElement('button');
+        knapp.className = 'fane';
+        knapp.dataset.fane = 'tomtemal';
+        knapp.textContent = 'Tomtemal';
+        rad.insertBefore(knapp, malknapp.nextSibling);
+        knapp.onclick = () => this.visFane('tomtemal');
+        knapp.classList.toggle('skjult', !tomt);
       }
-      notis.textContent = 'Feltene under hører til vegen. Tomta har sine egne '
-        + 'innstillinger – skråninger, sprengt vegg, mur og lag – og de kommer i neste '
-        + 'etappe. Endrer du noe her nå, treffer det vegen, ikke tomta.';
-      notis.classList.remove('skjult');
-    } else if (notis) {
-      notis.classList.add('skjult');
+    }
+    /* Star man pa en fane som nettopp ble skjult, ma man flyttes - ellers blir
+       sidepanelet tomt uten at noe forklarer hvorfor. */
+    const aktiv = document.querySelector('.fane.aktiv');
+    if (aktiv && aktiv.classList.contains('skjult')) this.visFane('masser');
+    if (tomt) this.tomtemalTilSkjema();
+  },
+
+  /** Bytter fane i sidepanelet. */
+  visFane(navn) {
+    for (const f of document.querySelectorAll('.fane')) f.classList.toggle('aktiv', f.dataset.fane === navn);
+    for (const d of document.querySelectorAll('.faneinnhold')) d.classList.toggle('aktiv', d.id === 'fane-' + navn);
+  },
+
+  /**
+   * Tomtemalen som skjema.
+   *
+   * Bygges av kode i stedet for a staa i HTML-en, fordi skrivematen for
+   * helningen skifter med hva feltet gjelder: en bergvegg skrives 10:1 (ti opp,
+   * én ut), en jordskraning 1:1,5 (én opp, halvannen ut). Normene bruker
+   * motsatt logikk for berg og løsmasse, og blander man dem, blir volumet
+   * fullstendig feil. Tallet som lagres er alltid vannrett utlegg per meter
+   * høyde; det som vises, følger normen for det aktuelle feltet.
+   */
+  tomtemalTilSkjema() {
+    const boks = document.getElementById('tomtemalSkjema');
+    if (!boks || !this.erTomt()) return;
+    const m = this.P.mal;
+    const F = [
+      ['h3', 'Skråninger'],
+      ['los', 'skjaeringLosmasse', 'Skjæring i løsmasse', 0.1, 5, 0.1],
+      ['los', 'skjaeringFjell', 'Skjæring i fjell', 0, 5, 0.05],
+      ['los', 'fylling', 'Fyllingsskråning', 0.1, 5, 0.1],
+      ['h3', 'Sprengt vegg'],
+      ['berg', 'veggHelning', 'Vegghelning', 0, 2, 0.05],
+      ['los', 'losmasseOverFjell', 'Løsmasse over veggen', 0.5, 5, 0.1],
+      ['m', 'maksVeggHoyde', 'Maks vegghøyde før berme', 0, 30, 0.5],
+      ['m', 'bermeBredde', 'Bermebredde', 0, 10, 0.5],
+      ['m', 'overberg', 'Overberg (egen post)', 0, 2, 0.05],
+      ['h3', 'Lag under ferdig nivå'],
+      ['m', 'matjordDybde', 'Matjord som tas av', 0, 1, 0.05],
+      ['m', 'renskDybde', 'Rensk mot fjell', 0, 1, 0.05],
+      ['m', 'frostsikring', 'Frostsikring', 0, 2, 0.05],
+      ['m', 'forsterkningslag', 'Forsterkningslag', 0, 2, 0.05],
+      ['m', 'baerelagTykkelse', 'Bærelag', 0, 1, 0.05],
+      ['m', 'avrettingslag', 'Avretting', 0, 0.5, 0.01],
+      ['m', 'slitelagTykkelse', 'Slitelag', 0, 0.5, 0.01],
+      ['h3', 'Grenser'],
+      ['m', 'maksSkjaeringsdybde', 'Maks skjæringsdybde', 0, 30, 0.5],
+      ['m', 'maksFyllingshoyde', 'Maks fyllingshøyde', 0, 30, 0.5],
+      ['m', 'maksUtslag', 'Maks utslag fra kant', 0, 60, 1],
+      ['m', 'maksSokebredde', 'Søkebredde for skråninger', 5, 200, 5],
+      ['m', 'minAvstandTilBerg', 'Minst avstand til fast berg', 0, 3, 0.05]
+    ];
+    let ut = '';
+    for (const rad of F) {
+      if (rad[0] === 'h3') { ut += `<h3>${rad[1]}</h3>`; continue; }
+      const [slag, felt, navn, min, maks, steg] = rad;
+      const v = m[felt];
+      let hint = '';
+      if (slag === 'berg') hint = v > 1e-6 ? `${(1 / v).toFixed(v < 0.15 ? 0 : 1)}:1` : 'loddrett';
+      else if (slag === 'los') hint = v > 1e-6 ? `1:${(+v).toFixed(1)}` : 'loddrett';
+      else hint = 'm';
+      ut += `<div class="felt"><label>${navn}</label>`
+        + `<input type="number" data-tm="${felt}" value="${v}" min="${min}" max="${maks}" step="${steg}">`
+        + `<span class="enhet">${hint}</span></div>`;
+    }
+    ut += '<p class="notis">Skråningstallet er vannrett utlegg per meter høyde. '
+      + 'Bergvegg vises som 10:1 (ti opp, én ut), jordskråning som 1:1,5 '
+      + '(én opp, halvannen ut) – slik normene skriver dem. Standardverdiene '
+      + 'følger N200 og R761.</p>';
+    boks.innerHTML = ut;
+    for (const inp of boks.querySelectorAll('input[data-tm]')) {
+      inp.onchange = () => {
+        const felt = inp.dataset.tm;
+        const v = parseFloat(inp.value);
+        if (!Number.isFinite(v)) { inp.value = m[felt]; return; }
+        this.merk('endret tomtemal');
+        m[felt] = Math.max(+inp.min, Math.min(+inp.max, v));
+        this.tomtemalTilSkjema();
+        this.beregnTomt();
+      };
     }
   },
 
@@ -2905,7 +3023,7 @@ const App = {
     Kart.zoomTilLinje();
   },
 
-  tegnAlt() { Kart.tegn(); Lengdeprofil.tegn(); Tverrprofil.tegn(); },
+  tegnAlt() { Kart.tegn(); Lengdeprofil.tegn(); Tverrprofil.tegn(); Tomteprofil.tegn(); },
 
   /* ---------------- knapper og felt ---------------- */
 
@@ -3050,7 +3168,7 @@ const App = {
       });
       setTimeout(() => {
         if (Kart.kart) Kart.kart.invalidateSize();
-        Lengdeprofil.tegn(); Tverrprofil.tegn();
+        Lengdeprofil.tegn(); Tverrprofil.tegn(); Tomteprofil.tegn();
       }, 60);
     };
     document.querySelectorAll('.utvidknapp').forEach(b => {
@@ -3060,13 +3178,13 @@ const App = {
       rute.classList.toggle('uten-side');
       setTimeout(() => {
         if (Kart.kart) Kart.kart.invalidateSize();
-        Lengdeprofil.tegn(); Tverrprofil.tegn();
+        Lengdeprofil.tegn(); Tverrprofil.tegn(); Tomteprofil.tegn();
       }, 60);
     };
     this._nullstillVisning = () => {
       ['kart', 'profil', 'tverr', 'tomt'].forEach(n => rute.classList.remove('stor-' + n));
       document.querySelectorAll('.utvidknapp').forEach(b => { b.classList.remove('aktiv'); b.textContent = '⤢'; });
-      setTimeout(() => { if (Kart.kart) Kart.kart.invalidateSize(); Lengdeprofil.tegn(); Tverrprofil.tegn(); }, 60);
+      setTimeout(() => { if (Kart.kart) Kart.kart.invalidateSize(); Lengdeprofil.tegn(); Tverrprofil.tegn(); Tomteprofil.tegn(); }, 60);
     };
 
     document.querySelectorAll('.fane').forEach(f => {
