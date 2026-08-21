@@ -11,26 +11,126 @@ camelCase, uten æøå i nøklene, skråninger som H:V-forhold og prosenter som 
 
 ## 1. Hvor skillet mellom modusene går
 
-Et prosjekt får et felt `type: 'veg' | 'tomt'`. Gamle prosjektfiler mangler feltet og
-skal leses som `'veg'` – da åpner alt som finnes fra før uendret.
+**Avgjort:** en veg og en tomt behandles som hver sin ting – egne innstillinger, egne
+masser – men datamodellen bygges slik at de *kan* ligge i samme prosjekt. Grunnen til at
+det avgjøres nå og ikke senere: formatet på prosjektfila er vondt å endre etterpå, mens
+brukerflaten kan bygges ut når som helst.
 
-Spørsmålet som må avgjøres først: **skal ett prosjekt kunne inneholde både en veg og en
-tomt?** Det er ikke akademisk. En skogsbilveg ender ofte i en snuplass eller et velteplass,
-og en tomt har nesten alltid en adkomstveg. Ligger de i hvert sitt prosjekt, kan ikke
-massene balanseres mot hverandre – og det er nettopp der pengene ligger: sprengsteinen fra
-tomta skal i vegfyllinga.
+### 1.1 Prosjektet blir en beholder med anlegg
 
-Tre mulige svar:
+```js
+{
+  navn: 'Ydestad',
+  versjon: 2,                    // ny; mangler den, er fila fra før tomtemodus
+  aktivt: 'a1',                  // hvilket anlegg som er oppe i skjermen
+  anlegg: [
+    { id: 'a1', type: 'veg',  navn: 'Hovedveg', ip: […], vip: […], mal: { …vegmal } },
+    { id: 'a2', type: 'tomt', navn: 'Snuplass', tomt: {…},          mal: { …tomtemal } }
+  ],
 
-| | Beskrivelse | Konsekvens |
-|---|---|---|
-| A | Ett prosjekt = én ting, `type` avgjør | Enklest. Ingen felles massebalanse. |
-| B | Ett prosjekt kan ha én veg **og** flere tomter | Felles massebalanse. Mer arbeid i UI og rapport. |
-| C | Ett prosjekt = liste med «anlegg», hvert med egen type | Mest fleksibelt, størst omskriving. |
+  // felles for hele prosjektet – se 1.2
+  fjell: { standarddybde, rekkevidde, punkter, soner },
+  faktorer: { sprengningsfaktor, fjellIFylling, losmasseIFylling, brukbarLosmasse },
+  bakkekorreksjon: true
+}
+```
 
-Jeg mener **B** er riktig: det speiler virkeligheten (veg + snuplass + tomt er ett
-oppdrag), og den felles massebalansen er hovedgrunnen til at noen bruker programmet.
-Men det er ditt valg – se avsnitt 14.
+Hvert anlegg har **sin egen mal**. Det er dette som løser at det blir «knokete med
+innstillinger»: det finnes ingen felles mal å bli forvirret av. Lager du en tomt, får
+den standard tomtemal; lager du en veg, får den standard vegmal. Endrer du
+skjæringshelningen på tomta, skjer det ingenting med vegen.
+
+### 1.2 Hva som er felles og hvorfor
+
+| Felles | Begrunnelse |
+|---|---|
+| `fjell` | Fjellet ligger under begge. En sondering tatt på tomta sier noe om vegen 30 m unna. Å føre dem i hver sin modell ville gitt to forskjellige svar på samme spørsmål. |
+| `faktorer` | Egenskaper ved massen, ikke ved geometrien. Sprengstein er sprengstein. |
+| `bakkekorreksjon` | Egenskap ved stedet. |
+| Terrengdataene | Samme fliser fra Kartverket. Å laste dem to ganger er bortkastet. |
+
+Alt annet ligger i anlegget.
+
+### 1.3 Gamle filer
+
+Filer fra i dag har `ip`, `vip` og `mal` øverst og mangler `anlegg`. Ved åpning pakkes
+de inn i ett anlegg av type `veg`:
+
+```js
+if (!P.anlegg) {
+  P.anlegg = [{ id: 'a1', type: 'veg', navn: P.navn, ip: P.ip, vip: P.vip, mal: P.mal }];
+  P.aktivt = 'a1';
+  P.versjon = 2;
+}
+```
+
+Ingenting går tapt, og ingen fil må konverteres på forhånd.
+
+**Bør vi også skrive bakover?** Har prosjektet nøyaktig ett anlegg og det er en veg, kan
+`ip`, `vip` og `mal` speiles på toppnivå ved lagring. Da kan en eldre, hurtiglagret utgave
+av programmet fortsatt åpne fila. Det koster noen linjer og er billig forsikring, men er
+ikke nødvendig hvis alle alltid kjører siste versjon.
+
+### 1.3b Resten av koden trenger ikke røres
+
+`P.ip`, `P.vip` og `P.mal` slås opp **212 steder** i programmet. Å skrive om alle sammen
+ville vært både stort og risikabelt. Det er ikke nødvendig: feltene gjøres om til vinduer
+inn i det aktive anlegget.
+
+```js
+const aktivt = () => P.anlegg.find(a => a.id === P.aktivt) || P.anlegg[0];
+for (const felt of ['ip', 'vip', 'mal', 'tomt']) {
+  Object.defineProperty(P, felt, {
+    configurable: true,
+    enumerable: false,          // holdes utenfor JSON og structuredClone
+    get() { return aktivt()[felt]; },
+    set(v) { aktivt()[felt] = v; }
+  });
+}
+```
+
+`enumerable: false` er nøkkelen. Den gjør at feltene finnes for koden, men ikke for
+lagringen – så fila inneholder bare `anlegg`, ikke to sett av samme data som kan komme
+i utakt.
+
+Prøvd, ikke antatt (24 kontroller, alle grønne):
+
+| Kontroll | Resultat |
+|---|---|
+| Gammel fil åpner uendret | ok |
+| Mutasjon (`P.ip.push`) lander i anlegget | ok |
+| Tilordning (`P.vip = […]`) lander også i anlegget | ok |
+| JSON inneholder ingen dobbeltlagring | ok |
+| IndexedDB (`structuredClone`) dropper speilingen | ok |
+| localStorage (`JSON.stringify`) gjør det samme | ok |
+| Bytte av anlegg gir riktig mal og geometri | ok |
+| Angre: øyeblikksbilde og tilbakelegging | ok |
+| «Ulagret»-sammenligningen virker fortsatt | ok |
+
+Den ene fellen som ble sjekket særskilt: alt som går gjennom `Object.keys(P)`,
+`for…in`, `Object.assign({}, P)` eller spredning ville mistet feltene, siden de er
+ikke-tellbare. Programmet gjør ikke noe av det noe sted – prosjektet håndteres bare med
+`JSON.stringify` og `Lager.lagre`. Det er verdt å holde et øye med om det endrer seg.
+
+Nettoregnskapet: **én ny funksjon**, kalt tre steder (åpne, importere, legge tilbake
+etter angre). **Null endringer** i de 212 oppslagene.
+
+### 1.4 Massene holdes atskilt
+
+Dette er uttrykkelig ønsket, og det er også det riktige: en tomt og en veg prises hver
+for seg, og en felles bunnlinje skjuler hvor pengene ligger.
+
+- Hvert anlegg får **sin egen fullstendige masseoppstilling**, akkurat som i dag.
+- Rapporten får en **prosjektoversikt** som viser anleggene ved siden av hverandre, med
+  hver sin kolonne. Ingen sammenslåing.
+- **Felles massebalanse er en avkryssing som står av.** Slås den på, kommer det en egen
+  bolk – «hvis massene kjøres mellom anleggene» – som viser hvor mye av overskuddet fra
+  det ene som dekker underskuddet i det andre, og hvor langt det er mellom dem. Den
+  erstatter ikke de enkelte oppstillingene, den kommer i tillegg.
+
+Grunnen til at den bolken er verdt å ha, selv om den står av: sprengsteinen fra en
+tomtevegg er den billigste fyllmassen vegen kan få, og alternativet er å kjøpe den.
+Men det skal være et bevisst valg å regne slik, ikke noe som skjer av seg selv.
 
 ---
 
@@ -398,8 +498,9 @@ skjult. Ellers ender skjemaet med å være fullt av felt som ikke gjelder.
 
 ## 14. Åpne spørsmål jeg trenger svar på
 
-1. **Skal ett prosjekt kunne ha både veg og tomt** (alternativ B i avsnitt 1), så massene
-   kan balanseres mot hverandre? Det er den avgjørelsen som styrer mest av resten.
+1. ~~Skal ett prosjekt kunne ha både veg og tomt?~~ **Avklart:** ja, datamodellen skal
+   tåle det, men de behandles som egne ting med egne innstillinger, og massene holdes
+   atskilt. Felles balanse blir en avkryssing som står av. Se avsnitt 1.
 2. **Hvilken helning setter dere på en sprengt vegg?** Loddrett, 10:1 eller 5:1? Og
    hvor høy lar dere den stå før dere legger inn en berme?
 3. **Hvor mye overberg regner dere med?** Og vil dere ha det som egen linje i rapporten,
