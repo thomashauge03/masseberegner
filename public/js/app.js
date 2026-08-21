@@ -188,7 +188,13 @@ const App = {
       if (!a.type) a.type = a.tomt ? 'tomt' : 'veg';
       if (a.type === 'tomt') {
         a.mal = Object.assign({}, StandardTomtemal, a.mal || {});
+        /* Nivaet ma flettes for seg. Object.assign gar bare ett niva ned, sa
+           en lagret tomt ville byttet ut hele `nivaa` med sin egen - og felt
+           som kom til etterpa ble undefined i stedet for a fa standardverdien.
+           Da regnet et gammelt prosjekt med NaN uten a si fra. */
+        const nivaa = Object.assign(nyTomt().nivaa, (a.tomt && a.tomt.nivaa) || {});
         a.tomt = Object.assign(nyTomt(), a.tomt || {});
+        a.tomt.nivaa = nivaa;
         if (!Array.isArray(a.tomt.punkter)) a.tomt.punkter = [];
         if (!Array.isArray(a.tomt.kanter)) a.tomt.kanter = [];
         a.ip = a.ip || [];      // se nyttAnlegg: tomme lister, ikke undefined

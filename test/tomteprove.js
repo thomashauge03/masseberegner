@@ -461,5 +461,26 @@ console.log('\n16. Balansen synker når koten heves');
 }
 
 /* ------------------------------------------------------------------ */
+console.log('\n17. En ny tomt er flat');
+{
+  /* Fallet er noe man legger pa bevisst der vann skal renne av. Sto en ny tomt
+     pa fall, matte man skru det av hver gang - og to prosent man ikke har bedt
+     om flytter en hel meter over femti meter. */
+  const t = Tomt.nyTomt();
+  paastand('ny tomt er flat', t.nivaa.modus === 'flat', t.nivaa.modus);
+  paastand('men fallet ligger klart til bruk', t.nivaa.fall === 0.02, String(t.nivaa.fall));
+  paastand('koten er ikke satt enda', t.nivaa.kote === null, String(t.nivaa.kote));
+
+  // og flatt niva skal gi samme kote overalt
+  const ref = { x: 20, y: 30 };
+  const n = { modus: 'flat', kote: 98, fall: 0.02, fallretning: 180 };
+  sjekk('flatt nivå er likt i nord', T.nivaaVed(n, 20, 60, ref), 98, 1e-12);
+  sjekk('flatt nivå er likt i sør', T.nivaaVed(n, 20, 0, ref), 98, 1e-12);
+  sjekk('flatt nivå er likt i øst', T.nivaaVed(n, 40, 30, ref), 98, 1e-12);
+  paastand('fallet blir ikke brukt når nivået er flatt',
+    T.nivaaVed(n, 20, 60, ref) === T.nivaaVed(n, 20, 0, ref));
+}
+
+/* ------------------------------------------------------------------ */
 console.log(`\n${ok} tester ok, ${feil} feil`);
 process.exit(feil ? 1 : 0);

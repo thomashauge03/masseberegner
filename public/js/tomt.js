@@ -170,9 +170,13 @@ function nyTomt() {
     hull: [],                // [[{lat, lon}]] utsparinger som ikke røres
     kanter: [],              // overstyringer per kant, indeks = kantnummer
     nivaa: {
-      modus: 'fall',
+      /* Flatt er standarden. En tomt er som regel tenkt flat, og fallet er noe
+         man legger pa bevisst der vann skal renne av. Sto den pa fall fra
+         starten, matte man skru det av hver gang - og et fall pa to prosent man
+         ikke har bedt om flytter en hel meter over femti meter. */
+      modus: 'flat',
       kote: null,            // null = ikke satt enda, foreslas fra terrenget
-      fall: 0.02,
+      fall: 0.02,            // brukes nar man velger fall
       fallretning: 0,        // grader fra nord, dit vannet renner
       punkt: null,           // for 'sluk'
       linje: null,           // for 'rennelinje'
