@@ -885,5 +885,82 @@ console.log('\n25. Grensa er en grense: ingenting utenfor den');
 }
 
 /* ------------------------------------------------------------------ */
+console.log('\n26. Skråningen slutter der bakken er, ikke der innstillingen er');
+{
+  /* I tverrprofilen gikk den ferdige flaten rett ned - en loddrett vegg ingen
+     kan bygge. Det var ikke det programmet regnet; det var der tegningen
+     sluttet, ved søkebredden. Og volumet sluttet samme sted: samme tomt ga
+     21 788 m³ fylling med 45 m søkebredde og 93 164 m³ med 90. Fire ganger så
+     mye, styrt av et tall i et skjema.
+
+     En fylling i en li slutter ikke fordi en innstilling sier stopp. Den går
+     nedover til den møter bakken. Nå søker skråningen til den lander. */
+  const rekt = (b, h) => [{ x: 0, y: 0 }, { x: b, y: 0 }, { x: b, y: h }, { x: 0, y: h }];
+  const p26 = rekt(40, 30);
+  const li = { z: x => 210 - x * 0.25 };            // faller 1:4, fyllinga går langt
+  const fj26 = new M.Fjellmodell({ standarddybde: 100 });
+  const kjor = sok => T.beregnTomtemasser({
+    tomt: { punkter: p26, kanter: [], nivaa: { modus: 'flat', kote: 212 } },
+    mal: Object.assign(grunnmal(), { maksSokebredde: sok }),
+    terreng: li, fjell: fj26, rutestorrelse: 1, bakkefaktor: 1
+  });
+  const a = kjor(45), b = kjor(90), c = kjor(200);
+  sjekk('volumet er det samme med 45 og 90 m søkebredde', a.sum.fylling, b.sum.fylling, 1);
+  sjekk('og det samme med 200 m', a.sum.fylling, c.sum.fylling, 1);
+  if (!(a.rekkevidde > 45)) {
+    feil++; console.log('  FEIL  skråningen kom ikke forbi søkebredden: ' + a.rekkevidde.toFixed(1) + ' m');
+  } else { ok++; console.log('  ok    skråningen gikk forbi søkebredden og landet (' + a.rekkevidde.toFixed(1) + ' m)'); }
+  if (!(a.skraningsfot || []).every(f => f.traff || f.iLufta || f.moterGrense || f.type === 'apen')) {
+    feil++; console.log('  FEIL  fotpunkt uten forklaring på hvorfor det stoppet');
+  } else { ok++; console.log('  ok    hvert fotpunkt vet hvorfor det stoppet'); }
+
+  /* Ingen loddrett vegg i jordarbeidsflaten. Skråningsflaten skal falle med
+     sin egen helning hele veien ut - ikke stupe der tegningen slutter. */
+  const nivaa26 = { modus: 'flat', kote: 212 };
+  const mal26 = Object.assign(grunnmal(), { maksSokebredde: 45 });
+  const tp26 = T.tyngdepunktAv(p26);
+  let verstFall = 0;
+  const dSteg = 0.5;
+  for (let d = 0; d <= 120; d += dSteg) {
+    const x = -d, y = 15;                            // rett vestover, ut av tomta
+    const naer = T.naermestePaOmriss(p26, x, y);
+    const naerNeste = T.naermestePaOmriss(p26, -(d + dSteg), y);
+    const zK = T.nivaaVed(nivaa26, naer.x, naer.y, tp26) - 0;
+    const z1 = T.fyllingsflate(naer.d, zK, {}, mal26);
+    const z2 = T.fyllingsflate(naerNeste.d, zK, {}, mal26);
+    if (!Number.isFinite(z1) || !Number.isFinite(z2)) continue;
+    if (z1 < li.z(x) || z2 < li.z(-(d + dSteg))) break;   // landet
+    verstFall = Math.max(verstFall, Math.abs(z2 - z1) / dSteg);
+  }
+  if (!(verstFall < 1.5)) {
+    feil++; console.log('  FEIL  jordarbeidsflaten stuper: ' + verstFall.toFixed(1) + ' m per meter');
+  } else { ok++; console.log('  ok    ingen loddrett vegg i skråningen (bratteste ' + verstFall.toFixed(2) + ' m/m)'); }
+
+  /* Faller bakken raskere enn skråningen selv, lander den aldri. Da skal det
+     SIES, ikke skjules bak et ryddig tall. */
+  const stup = { z: x => 210 - x * 1.0 };            // 1:1, brattere enn fyllinga 1:1,5
+  const s = T.beregnTomtemasser({
+    tomt: { punkter: p26, kanter: [], nivaa: nivaa26 },
+    mal: mal26, terreng: stup, fjell: fj26, rutestorrelse: 1, bakkefaktor: 1
+  });
+  const iLufta = (s.skraningsfot || []).filter(f => f.iLufta).length;
+  if (!iLufta) {
+    feil++; console.log('  FEIL  et stup gir ingen punkt i lufta');
+  } else { ok++; console.log('  ok    et stup gir ' + iLufta + ' fotpunkt som henger i lufta'); }
+  const sagt = (s.merknader || []).some(m => /finner ikke bakken|henger fortsatt i lufta/.test(m.tekst));
+  if (!sagt) {
+    feil++; console.log('  FEIL  det blir ikke sagt fra at skråningen ikke lander');
+  } else { ok++; console.log('  ok    og det blir sagt fra i klartekst'); }
+
+  /* Ei tomt på flat mark skal ikke bli tregere eller annerledes av dette. */
+  const flatt = { z: () => 200 };
+  const f1 = T.beregnTomtemasser({ tomt: { punkter: p26, kanter: [], nivaa: { modus: 'flat', kote: 202 } },
+    mal: mal26, terreng: flatt, fjell: fj26, rutestorrelse: 1, bakkefaktor: 1 });
+  const anlegg = grunnmal().fylling;
+  const forventa = 40 * 30 * 2 + (2 * (40 + 30)) * (2 * 2 * anlegg / 2) + Math.PI * (2 * anlegg) ** 2 / 3;
+  sjekk('flat mark: fyllinga treffer handregningen', f1.sum.fylling, forventa, forventa * 0.06);
+}
+
+/* ------------------------------------------------------------------ */
 console.log(`\n${ok} tester ok, ${feil} feil`);
 process.exit(feil ? 1 : 0);

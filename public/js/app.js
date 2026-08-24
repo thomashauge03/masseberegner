@@ -1362,7 +1362,18 @@ const App = {
     const p = this.tomtIUtm(t);
     if (p.length < 3) { this.resultat = null; this.visTomtemasser(); return null; }
 
-    const marg = Math.max(10, (this.P.mal.maksSokebredde || 45));
+    /* Marginen ma dekke sa langt skråningen faktisk kan komme til a ga, ikke
+       bare søkebredden. Skråningen søker nå til den lander, men den kan ikke
+       lande i terreng som ikke er lastet ned - da stopper den pa datakanten,
+       og det ser ut som om den lander der. Det er nøyaktig den samme løgnen
+       som søkebredden fortalte før.
+
+       Forrige beregning vet best hvor langt det ble: rekkevidden derfra brukes
+       som utgangspunkt, med god klaring, sa marka rekker lenger enn skråningen
+       neste gang. Første gang finnes den ikke, og da duger søkebredden. */
+    const forrigeRekke = this.resultat && this.resultat.rekkevidde || 0;
+    const marg = Math.min(160, Math.max(10, this.P.mal.maksSokebredde || 45,
+      Math.ceil(forrigeRekke * 1.35) + 10));
     const res = 1;
     if (!this.terreng || this.terreng.sone !== this.sone || this.terreng.res !== res) {
       this.terreng = new Terreng(this.sone, res);
@@ -1433,6 +1444,21 @@ const App = {
       rutestorrelse: this.P.mal.rutestorrelse,
       bakkefaktor: this.bakkefaktor()
     });
+    /* STOPPET SKRANINGEN PA DATAKANTEN, HENT MER MARK OG REGN PA NYTT.
+       Skraningen søker nå til den lander, men den kan bare lande i terreng som
+       er lastet ned. Sluttet dataene før bakken kom, stanset den der - og det
+       ser ut akkurat som en landing, med et volum som er kuttet like vilkarlig
+       som søkebredden gjorde det før.
+       Én ny runde med romsligere margin er nok i praksis: da er marka strukket
+       til det skraningen bad om, med klaring. */
+    if (!this._utvidetRunde && this.resultat.skraningsfot
+      && this.resultat.skraningsfot.some(f => f.manglerData)) {
+      this._utvidetRunde = true;
+      try {
+        this._terrengnokkel = null;          // tving ny nedlasting
+        return await this.beregnTomt();
+      } finally { this._utvidetRunde = false; }
+    }
     this.resultat.balanse = this.tomtebalanse(this.resultat.sum);
     /* Sider der skraningen ikke far plass innenfor grensa.
        Her ble hele beregningen nektet med «ingen flate igjen». Na vises det som

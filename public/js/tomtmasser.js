@@ -76,6 +76,12 @@ function tilGrensa(grense, x, y, nx, ny) {
   return innenforPolygon(grense, x, y) ? Infinity : 0;
 }
 
+/* Hvor langt skraningen far lov a lete etter bakken før programmet gir opp.
+   Ikke en ingeniørgrense - en ren stoppekloss sa en tomt lagt hundre meter over
+   en fjord ikke setter maskinen fast. Lander den ikke innenfor dette, er svaret
+   uansett mur eller et annet niva, ikke et større tall. */
+const REKKEVIDDE_TAK = 150;
+
 function naermestePaOmriss(p, x, y) {
   let best = { d: Infinity, kant: 0, u: 0, x: 0, y: 0 };
   for (let i = 0; i < p.length; i++) {
@@ -240,7 +246,15 @@ function beregnTomtemasser(o) {
   }
 
   const kantFor = i => (o.tomt.kanter && o.tomt.kanter[i]) || {};
-  const maksUt = Math.max(1, mal.maksSokebredde || 45);
+
+  /* HVOR LANGT UT SKAL DET REGNES? SPØR SKRÅNINGEN, IKKE INNSTILLINGEN.
+     Her sto søkebredden, og da ble volumet kuttet ved den: cellene lenger ute
+     ble hoppet over selv om fyllingen fortsatte nedover i lia. Tallet var da
+     bestemt av et tall i et skjema, ikke av terrenget.
+     Nå måles foten først, og rutenettet strekkes til den når. */
+  const foten = (o.terreng && p.length >= 3) ? skraningsfot(o) : [];
+  const naadde = foten.reduce((m, f) => Math.max(m, f.ut || 0), 0);
+  const maksUt = Math.max(1, mal.maksSokebredde || 45, Math.ceil(naadde) + ruteM);
 
   // omslutt tomta og skråningssonen
   let minX = Infinity, maksX = -Infinity, minY = Infinity, maksY = -Infinity;
@@ -402,6 +416,12 @@ function beregnTomtemasser(o) {
   tom.dypesteSkjaering = dypesteSkjaering;
   tom.hoyesteFylling = hoyesteFylling;
   tom.hoyesteVegg = hoyesteVegg;
+  /* Foten følger med ut, sa kartet og snittet tegner den samme skraningen som
+     volumet er regnet pa. Regnet de den hver for seg, kunne de vaere uenige -
+     og det var nettopp uenigheten man sa da snittet stoppet ved søkebredden
+     mens volumet gikk lenger. */
+  tom.skraningsfot = foten;
+  tom.rekkevidde = naadde;
 
   /* --- merknader --- */
   if (utenData) {
@@ -427,16 +447,44 @@ function beregnTomtemasser(o) {
      innstilling og ikke av virkeligheten.
      `traff: false` ble skrevet i skraningsfot, men lest ingen steder. Na
      kontrolleres det, og brukeren far vite at tallet ikke star pa egne ben. */
-  if (o.terreng && p.length >= 3) {
-    const fot = skraningsfot(o);
-    const bom = fot.filter(f => !f.traff).length;
-    if (bom > 0) {
-      const andel = Math.round(100 * bom / fot.length);
+  if (foten.length) {
+    /* Nå søker skråningen til den lander. Da er det bare to grunner igjen til
+       at den ikke gjør det, og de betyr helt forskjellige ting. */
+    const iLufta = foten.filter(f => f.iLufta);
+    const motGrense = foten.filter(f => f.moterGrense);
+    if (iLufta.length) {
+      const sider = [...new Set(iLufta.map(f => f.kant + 1))].sort((a, b) => a - b);
+      const lengst = iLufta.reduce((m, f) => Math.max(m, f.ut), 0);
       merknader.push({ type: 'utslag',
-        tekst: `Skråningen når ikke terrenget på ${andel} % av omkretsen – den er `
-          + `kuttet ved søkebredden (${Math.round(maksUt)} m). Volumet er da bestemt av `
-          + 'den innstillingen, ikke av terrenget. Øk søkebredden, eller flytt nivået '
-          + 'nærmere bakken.' });
+        tekst: `Skråningen finner ikke bakken på side ${sider.join(', ')} – den er fulgt `
+          + `${Math.round(lengst)} m ut og henger fortsatt i lufta. Terrenget faller `
+          + 'raskere enn skråningen selv, så en fylling her har ingen fot å stå på. '
+          + 'Volumet under er derfor et minstetall. Løsningen er mur eller sprengt '
+          + 'vegg på de sidene, eller et ferdig nivå nærmere terrenget.' });
+    }
+    if (motGrense.length) {
+      const sider = [...new Set(motGrense.map(f => f.kant + 1))].sort((a, b) => a - b);
+      merknader.push({ type: 'grense',
+        tekst: `Skråningen er stoppet av tomtegrensa på side ${sider.join(', ')}. `
+          + 'Der må noe holde den: mur, sprengt vegg eller brattere skråning.' });
+    }
+    /* Datakanten er ikke bakken. Stoppet skraningen fordi terrenget ikke var
+       lastet ned sa langt, er tallet et kutt - like vilkarlig som søkebredden
+       var det. Da ma det sies, ikke skjules bak et ryddig volum. */
+    const utenMark = foten.filter(f => f.manglerData);
+    if (utenMark.length) {
+      const sider = [...new Set(utenMark.map(f => f.kant + 1))].sort((a, b) => a - b);
+      merknader.push({ type: 'data',
+        tekst: `Terrengdataene tar slutt før skråningen lander på side ${sider.join(', ')}. `
+          + 'Volumet der er kuttet ved datakanten, ikke ved bakken. Flytt kartet slik at '
+          + 'området nedenfor tomta blir lastet ned, og regn på nytt.' });
+    }
+    const langt = Math.round(naadde);
+    if (langt > (mal.maksSokebredde || 45)) {
+      merknader.push({ type: 'utslag',
+        tekst: `Skråningen går ${langt} m ut på det meste – lenger enn søkebredden på `
+          + `${mal.maksSokebredde || 45} m. Den er fulgt hele veien til den lander, så `
+          + 'volumet er riktig, men se om tomta bør legges nærmere terrenget.' });
     }
   }
   /* MURENS EGNE VOLUM.
@@ -616,7 +664,12 @@ function skraningsfot(o) {
          Her fortsatte den utover og ble bare flagget, og da la det en strek
          flere titalls meter utenfor grensa man nettopp hadde satt. */
       const grenseUt = o.grense ? tilGrensa(o.grense, x, y, nx, ny) : Infinity;
-      const maksHer = Math.min(maksUt, grenseUt);
+      /* To helt forskjellige tak. Grensa er en ekte vegg som skraningen ikke far
+         ga forbi. Rekkeviddetaket er bare en stoppekloss for programmet. Sto de
+         to sammen i ett tall, kunne søket aldri strekke seg forbi søkebredden -
+         som var nettopp feilen: skraningen ble kuttet ved 45 m og snittet tegnet
+         en loddrett vegg der den sluttet. */
+      const maksHer = Math.min(grenseUt, REKKEVIDDE_TAK);
       const skjaerer = zT > zK;
       let traff = 0;
       const over = d => {
@@ -636,14 +689,40 @@ function skraningsfot(o) {
          den første kryssingen, sa linja og tallene ble uenige.
          Derfor gas det først i grove steg til fortegnet snur, og halveringen
          gjøres innenfor det ene steget. */
-      const grovSteg = Math.max(0.25, maksHer / 60);
-      let funnet = false, lav = 0, hoy = maksHer;
-      for (let d = grovSteg; d <= maksHer + 1e-9; d += grovSteg) {
-        if (over(d) === true) { lav = d - grovSteg; hoy = d; funnet = true; break; }
+      /* SØKEBREDDEN ER EN YTELSESGRENSE, IKKE EN INGENIØRAVGJØRELSE.
+         Nadde skraningen ikke terrenget innenfor de 45 metrene, ble den bare
+         kuttet der. I snittet sa det ut som om den ferdige flaten stupte rett
+         ned - en loddrett vegg som ingen kan bygge - og volumet ble et tall
+         søkebredden hadde bestemt: samme tomt ga 21 788 m³ fylling med 45 m og
+         93 164 m³ med 90.
+
+         En fylling i en li slutter ikke fordi en innstilling sier stopp. Den
+         gar nedover til den møter bakken, og det kan godt vaere hundre meter.
+         Derfor dobles søket til skraningen faktisk lander - eller til
+         terrengdataene tar slutt, eller taket nas. Da er tallet bestemt av
+         bakken, slik det skal vaere.
+
+         Grensa er noe annet: den er en ekte vegg, og der SKAL den stoppe. */
+      const start = Math.min(maksHer, maksUt);
+      let tak = start, funnet = false, lav = 0, hoy = start, slappOppData = false;
+      for (let runde = 0; runde < 8; runde++) {
+        const grovSteg = Math.max(0.25, tak / 60);
+        for (let d = lav > 0 ? lav : grovSteg; d <= tak + 1e-9; d += grovSteg) {
+          if (over(d) === true) { lav = Math.max(0, d - grovSteg); hoy = d; funnet = true; break; }
+        }
+        if (funnet || tak >= maksHer - 1e-9 || tak >= REKKEVIDDE_TAK) break;
+        /* Ikke landet ennå. Er det terrengdata der ute, er det verdt a ga
+           videre; er det ikke det, hjelper det ikke a lete lenger - men da er
+           det datakanten som stoppet skraningen, ikke bakken, og det ma sies
+           fra om. Ellers ser det ut som om skraningen lander akkurat der
+           nedlastingen tilfeldigvis sluttet. */
+        if (over(tak) === null) { slappOppData = true; break; }
+        lav = tak;
+        tak = Math.min(maksHer, REKKEVIDDE_TAK, tak * 2);
       }
-      if (!funnet) { traff = maksHer; }
+      if (!funnet) { traff = Math.min(maksHer, tak); }
       else {
-        for (let b = 0; b < 14; b++) {
+        for (let b = 0; b < 18; b++) {
           const midt = (lav + hoy) / 2;
           if (over(midt) === true) hoy = midt; else lav = midt;
         }
@@ -653,7 +732,11 @@ function skraningsfot(o) {
         type: skjaerer ? 'skjaering' : 'fylling',
         traff: funnet,
         // stoppet av grensa, ikke av terrenget - her ma noe holde skraningen
-        moterGrense: !funnet && grenseUt <= maksUt + 1e-9 });
+        moterGrense: !funnet && grenseUt <= traff + 1e-9,
+        // hverken landet eller stoppet i en grense: den star fortsatt i lufta
+        iLufta: !funnet && !(grenseUt <= traff + 1e-9),
+        // ... og her var det terrengdataene som tok slutt, ikke bakken som kom
+        manglerData: slappOppData });
     }
   }
   return ut;

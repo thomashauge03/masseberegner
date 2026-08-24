@@ -30,6 +30,19 @@ const Tomteprofil = {
     return this;
   },
 
+  /**
+   * Hvor langt skråningene faktisk går, målt på beregningen som er kjørt.
+   *
+   * Snittet skal vise det samme som volumet er regnet på. Leses tallet fra
+   * søkebredden i stedet, tegnes en strek som stopper et annet sted enn der
+   * skråningen slutter – og da ser den ferdige flaten ut til å stupe rett ned.
+   */
+  _rekkevidde(app) {
+    const f = app.resultat && app.resultat.skraningsfot;
+    if (!f || !f.length) return app.P.mal.maksSokebredde || 45;
+    return f.reduce((m, q) => Math.max(m, q.ut || 0), 0);
+  },
+
   /** Punktene i snittet, med terreng, fjell og ferdig nivå. */
   snitt() {
     const app = this.app;
@@ -77,7 +90,12 @@ const Tomteprofil = {
        skraningene, sa man ser hvor de treffer terrenget. */
     let rekke = 0;
     for (const q of p) rekke = Math.max(rekke, Math.hypot(q.x - senter.x, q.y - senter.y));
-    rekke += Math.min(40, app.P.mal.maksSokebredde || 45);
+    /* Snittet ma rekke sa langt skraningen faktisk gar. Her sto søkebredden,
+       og nadde ikke skraningen bakken innenfor den, stoppet streken midt i
+       lufta - i snittet sa det ut som om den ferdige flaten stupte rett ned.
+       Det er ikke noe man kan bygge, og det var heller ikke det programmet
+       regnet: det er bare der tegningen sluttet. */
+    rekke += Math.max(10, Math.min(200, this._rekkevidde(app) + 5));
 
     const fjell = app.fjellmodellIUtm();   // sonderingene ma vaere i UTM, se app.js
     const nivaa = app.tomtenivaaIUtm(t);
@@ -118,7 +136,7 @@ const Tomteprofil = {
         const kant = kantFor(naer.kant);
         const zKant = Tomtmasser.nivaaVed(nivaa, naer.x, naer.y, tp);
         const zTKant = app.terreng.z(naer.x, naer.y);
-        if (Number.isFinite(zKant) && naer.d <= (mal.maksSokebredde || 45)) {
+        if (Number.isFinite(zKant) && naer.d <= rekke) {
           const planumKant = zKant - ob;
           const skjaerer = Number.isFinite(zTKant) ? zTKant > planumKant : zT > planumKant;
           const z = skjaerer
