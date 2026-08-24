@@ -252,7 +252,7 @@ body {
 .tverrpanel { position: relative; }
 
 /* Vekslaren mellom snitt og 3D. Står i panelhovudet, rett etter tittelen. */
-.visvalg { display: flex; gap: 2px; margin-left: 6px; }
+.visvalg { display: flex; gap: 2px; margin-left: 6px; flex: none; }
 .visvalg .verktoyknapp { padding: 2px 9px; }
 .verktoygruppe { display: contents; }
 .verktoygruppe.skjult { display: none; }
@@ -264,7 +264,9 @@ body {
    hovudet 287 px av eit panel på 300, og teikneflata sat att med 12 px – altså
    ingen modell i det heile. Innhaldet får difor ei minstehøgd, og hovudet må
    vike (og skrolle) i staden. */
-.rute.tomtemodus .tomtpanel .panelhode { flex: 0 1 auto; min-height: 0; overflow-y: auto; max-height: 55%; }
+.rute.tomtemodus .tomtpanel .panelhode > span:first-child { flex: none; white-space: nowrap; }
+.panelhode > .utvidknapp { flex: none; }
+.panelhode { flex: 0 1 auto; min-height: 0; overflow-y: auto; max-height: 55%; }
 .rute.tomtemodus .tomtinnhold { flex: 1 1 auto; min-height: 110px; }
 .tomtekanter { width: 330px; overflow: auto; padding: 10px 12px; border-left: 1px solid var(--kant); }
   letter-spacing: .06em; color: var(--blekk-svak); }
@@ -315,11 +317,25 @@ body {
   border-bottom: 2px solid var(--kant);
   font-family: var(--skrift-tittel); font-weight: 700; font-size: 13px;
   text-transform: uppercase; letter-spacing: .06em; color: var(--blekk);
-  flex-wrap: wrap;
+  /* HODET BRYTER IKKE.
+     Med `flex-wrap: wrap` hoppet hele verktøylinja ned på en egen rad så snart
+     den ba om mer enn det som var igjen ved siden av tittelen – og en fleksboks
+     bryter FØR den krymper. Hodet gikk da fra 39 til 72 px, og de 33 pikslene er
+     tatt rett fra tegningen. Uten bryting krymper verktøylinja i stedet, og det
+     er avlesningen inni den som gir fra seg plassen (`flex: 1 1 0` + ellipse).
+     Verktøylinja bryter fortsatt INNI seg selv når det virkelig er trangt. */
+  flex-wrap: nowrap;
 }
+/* VERKTØYLINJA MÅ KUNNE KRYMPE.
+   Uten `min-width: 0` er en fleksboks aldri smalere enn innholdet sitt, og da
+   ba verktøylinja om 888 px i et hode på 1038 – mer enn det var igjen ved
+   siden av tittelen. Resultatet var at HELE linja hoppet ned på en egen rad, og
+   hodet vokste fra 39 til 72 px. Nå krymper den i stedet, og det er avlesningen
+   inni den som gir fra seg plassen (den har `flex: 1 1 0` og ellipse). */
 .verktoy {
   display: flex; align-items: center; gap: 5px; margin-left: auto;
-  font-family: var(--skrift); font-weight: 400; text-transform: none; letter-spacing: 0; flex-wrap: wrap;
+  font-family: var(--skrift); font-weight: 400; text-transform: none; letter-spacing: 0;
+  flex-wrap: wrap; flex: 1 1 auto; min-width: 0; justify-content: flex-end;
 }
 .verktoyknapp {
   background: var(--flate-opp); color: var(--blekk); border: 2px solid var(--kant);
@@ -404,7 +420,10 @@ body {
   flex: 1 1 0; width: 100%; min-width: 0; min-height: 0;
   display: block; cursor: crosshair;
 }
-.skyver { width: 220px; accent-color: var(--hm-raud); }
+/* Skyveren gir fra seg plass i stedet for å tvinge fram en ny rad. Med fast
+   220 px var den det som brøt tverrpanelets verktøylinje på smal skjerm, og en
+   ekstra rad koster 29 px av tegneflaten. */
+.skyver { flex: 1 1 140px; min-width: 110px; max-width: 220px; accent-color: var(--hm-raud); }
 
 /* ── sidepanel ─────────────────────────────────────────── */
 .faner { display: flex; background: var(--flate-2); border-bottom: 2px solid var(--kant); }
@@ -470,7 +489,12 @@ body {
 .kravtabell td:first-child { text-align: left; }
 
 /* ── punkthøyder i tverrprofilet ───────────────────────── */
-.punkthoyder { display: inline-flex; align-items: center; gap: 6px; }
+/* Tallfeltene for vegkant og senterlinje skal GI FRA SEG plass før de tvinger
+   fram en ny rad. Med tre faste 74 px-felt var punkthøydene 316 px, og
+   etiketten – som er tom mesteparten av tiden – ble dyttet ned på en egen rad.
+   Én ekstra rad koster 29 px av tverrsnittet i hvert eneste vindu. */
+.punkthoyder { display: inline-flex; align-items: center; gap: 6px; min-width: 0; flex: 0 1 auto; }
+.punkthoyder input { flex: 0 1 auto; min-width: 46px; }
 .punkthoyder label { display: inline-flex; align-items: center; gap: 3px; color: var(--blekk-svak); font-size: 11px; }
 .punkthoyder input {
   width: 74px; background: var(--flate-opp); border: 2px solid var(--kant); color: var(--blekk);
@@ -723,3 +747,133 @@ body {
    minstekravet, skal den ha samme farge som resten av bruddene i programmet. */
 .bygdradius { margin-left: 5px; font-size: 11px; color: var(--blekk-svak); font-variant-numeric: tabular-nums; }
 .bygdradius.brudd { color: var(--raud); font-weight: 700; }
+
+/* ── lagvelgeren på kartet ──────────────────────────────
+   Åtte kontroller flyttet ut av panelhodet og hit. På 1280 px tok hodet 102 av
+   184 px i kartpanelet – 55 % – og kartet satt igjen med 82. Kontrollen står nå
+   der den hører hjemme: oppå det den styrer. */
+.kartlag { position: absolute; top: 12px; right: 12px; z-index: 600; }
+.kartlagknapp {
+  display: inline-flex; align-items: center; gap: 7px;
+  background: var(--flate-opp); color: var(--blekk);
+  border: 2px solid var(--kant-sterk);
+  padding: 0 11px; min-height: 32px; cursor: pointer;
+  font-size: 12px; font-family: var(--skrift); font-weight: 600;
+  box-shadow: 3px 3px 0 0 rgba(0,0,0,.35);
+}
+.kartlagknapp:hover { border-color: var(--hm-raud); }
+/* Tre streker på skrå – samme skjeve snitt som logoen, ikke et fremmed ikon. */
+.kartlagikon {
+  width: 13px; height: 11px; flex: none;
+  background:
+    linear-gradient(var(--hm-raud), var(--hm-raud)) 0 0 / 100% 3px no-repeat,
+    linear-gradient(currentColor, currentColor) 0 4px / 100% 3px no-repeat,
+    linear-gradient(currentColor, currentColor) 0 8px / 100% 3px no-repeat;
+  transform: skewX(-18deg);
+}
+.kartlagpanel {
+  margin-top: 4px; min-width: 210px;
+  /* Panelet ligg oppaa kartet, og kartet kan vere lavt. Utan taket her hang det
+     nedanfor kartflata og over lengdeprofilen. */
+  max-height: calc(100% - 52px); overflow: auto;
+  background: var(--flate-opp); border: 2px solid var(--kant-sterk);
+  padding: 9px; box-shadow: 4px 4px 0 0 rgba(0,0,0,.4);
+}
+.kartlagpanel.skjult { display: none; }
+.kartlagtittel {
+  font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--blekk-svak); margin: 0 0 5px;
+}
+.kartlagtittel + * { margin-bottom: 9px; }
+.kartlagpanel .kartknapper { display: flex; width: 100%; }
+.kartlagpanel .kartknapp { flex: 1; padding: 0 6px; }
+.kartlagpanel .kartbrikker { flex-direction: column; gap: 3px; }
+.kartlagpanel .kartbrikke { border: 0; background: none; padding: 4px 2px; min-height: 26px; }
+.kartlagpanel .kartbrikke:hover { color: var(--blekk); }
+@media (pointer: coarse) {
+  .kartlagknapp { min-height: 44px; }
+  .kartlagpanel .kartbrikke { min-height: 40px; }
+}
+
+/* ── verktøylinjene skal ikkje ete panelet ──────────────
+   Målt på 1280 px: alle tre verktøylinjene brøyt over TRE rader, og hodet tok
+   34 % av profilpanelet og 31 % av tverrpanelet. To ting gjorde det:
+   hjelpeteksten tok en hel rad for seg selv, og etiketten reserverte 190 px
+   den nesten aldri bruker.
+
+   Hjelpeteksten står fortsatt på en bred skjerm, der den er gratis. Under
+   1500 px er den det første som ryker – den sier det samme som tittelen på
+   knappen ved siden av, og en rad med hjelpetekst koster 29 px av tegneflaten
+   i hvert eneste panel. */
+@media (max-width: 1500px) {
+  .hjelpetekst { display: none; }
+}
+/* FLEKSBOKS BRYTER FØR DEN KRYMPER.
+   Et element som ikke får plass hopper ned på en ny rad – det krymper ikke de
+   som alt står der. Derfor må feltene være SMALERE fra start på trang skjerm,
+   ikke bare krympbare. Tre tallfelt à 74 px er 222 px; på 58 px er de 174, og
+   de 48 pikslene er nok til at etiketten blir med på raden i stedet for å
+   åpne en ny. Én rad er 29 px av tverrsnittet, i hvert eneste vindu. */
+@media (max-width: 1500px) {
+  .punkthoyder input { width: 58px; }
+  .minitall input { width: 44px; }
+  /* Skyveren er den som tåler å være kort: nabo­knappene ◀ ▶ gjør samme jobben
+     ett steg om gangen, og profilnummeret står i etiketten ved siden av. */
+  .skyver { min-width: 80px; flex: 1 1 80px; }
+}
+/* Etiketten viser profilnummer og avlesning. Den er tom mesteparten av tiden,
+   og 190 px reservert plass er det som dyttet skyveren ned på en egen rad. */
+/* Avlesninga kan bli lang – 409 px er malt. Med innhaldsbreidd som basis
+   dytta ho heile verktoeylinja ned paa ei eiga rad, og hovudet gjekk fra 39 til
+   72 px. Basis 0 gjer at ho tek det som er ATT og kuttar med ellipse, i staden
+   for aa krevje plass ho ikkje har. */
+.etikett {
+  min-width: 0; margin-left: auto; flex: 1 1 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  text-align: right;
+}
+
+/* ── smal skjerm: sidepanelet krymper, så tegningene får plass ────
+   Sidepanelet står på faste 400 px. På en 900 px skjerm er det 44 % av
+   vinduet, og de tre panelene deler på 500 – da bryter verktøylinjene igjen,
+   og hodene tar 95 og 102 px. Målt: tegneflaten falt fra 82 % til 55 %.
+   Under 1200 px krymper panelet, og under 1000 er det borte til man ber om
+   det med ◧-knappen. Ingenting forsvinner for godt. */
+@media (max-width: 1200px) {
+  .rute { grid-template-columns: 1fr 320px; }
+}
+@media (max-width: 1000px) {
+  .rute { grid-template-columns: 1fr; }
+  .rute .sidepanel { display: none; }
+  .rute { grid-template-areas: "kart" "profil" "tverr"; }
+  .rute.tomtemodus { grid-template-areas: "kart" "tomt"; }
+  /* ◧-knappen slår det på igjen, og da legger det seg OPPÅ i stedet for å
+     stjele bredde fra kartet. */
+  .rute.med-side .sidepanel {
+    display: flex; position: fixed; top: 52px; right: 0; bottom: 0;
+    width: min(400px, 92vw); z-index: 900;
+    box-shadow: -6px 0 0 0 rgba(0,0,0,.35);
+  }
+}
+
+/* ── 3D-kontrollene bak én knapp ────────────────────────
+   Elleve kontroller sto framme hele tiden og tok 72 av 240 px i panelhodet.
+   Nå åpner én knapp dem, og de legger seg oppå tegningen i stedet for å ta
+   plass fra den. Panelet lukker seg selv ved klikk utenfor og ved Escape. */
+.verktoygruppe { position: relative; display: inline-flex; align-items: center; gap: 5px; }
+.menyknapp { font-weight: 600; }
+.menyknapp[aria-expanded="true"] { background: var(--hm-raud); border-color: var(--hm-raud); color: #fff; }
+.menypanel {
+  position: absolute; top: calc(100% + 5px); left: 0; z-index: 700;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 7px;
+  background: var(--flate-opp); border: 2px solid var(--kant-sterk);
+  padding: 9px; min-width: 220px;
+  box-shadow: 4px 4px 0 0 rgba(0,0,0,.4);
+}
+.menypanel.skjult { display: none; }
+.menypanel .lagvalg { display: flex; flex-wrap: wrap; gap: 3px; }
+.menypanel .minivalg { width: 100%; }
+@media (pointer: coarse) {
+  .menypanel .verktoyknapp { min-height: 40px; }
+  .menypanel .minivalg { min-height: 40px; }
+}

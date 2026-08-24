@@ -213,12 +213,45 @@ const Kart = {
     }
   },
 
+  /**
+   * Lagvelgeren åpner og lukker seg.
+   *
+   * Den ligger oppå kartet, så den MÅ lukke seg selv – ellers står den i veien
+   * for nettopp det man skulle se på. Lukkes ved klikk utenfor, ved Escape, og
+   * når man har valgt en bakgrunn (da er man ferdig). Overleggene lukker den
+   * ikke: der skrur folk gjerne på to ting etter hverandre.
+   */
+  koblLagvelger() {
+    const knapp = document.getElementById('kartlagknapp');
+    const panel = document.getElementById('kartlagpanel');
+    if (!knapp || !panel) return;
+    const sett = pa => {
+      panel.classList.toggle('skjult', !pa);
+      knapp.setAttribute('aria-expanded', pa ? 'true' : 'false');
+    };
+    knapp.onclick = e => { e.stopPropagation(); sett(panel.classList.contains('skjult')); };
+    document.addEventListener('click', e => {
+      if (!panel.classList.contains('skjult') && !panel.contains(e.target) && e.target !== knapp) sett(false);
+    });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') sett(false); });
+    this._lukkLagvelger = () => sett(false);
+  },
+
+  /** Navnet på knappen skal si hva som vises nå, uten å åpne noe. */
+  visLagnavn() {
+    const e = document.getElementById('kartlagnavn');
+    if (!e) return;
+    const b = KARTLAG.bakgrunner.find(x => x.navn === this.gjeldendeBakgrunn);
+    const paa = KARTLAG.overlegg.filter(v => this.overlegg[v.navn] && this.kart.hasLayer(this.overlegg[v.navn])).length;
+    e.textContent = (b ? b.tekst : 'Kart') + (paa ? ' +' + paa : '');
+  },
+
   settOverlegg(navn, pa, stille) {
     const lag = this.overlegg[navn];
     if (!lag) return;
     if (pa) { lag.addTo(this.kart); lag.setZIndex((KARTLAG.overlegg.find(v => v.navn === navn) || {}).zIndex || 200); }
     else if (this.kart.hasLayer(lag)) this.kart.removeLayer(lag);
-    if (!stille) this.lagreValg();
+    if (!stille) { this.lagreValg(); this.visLagnavn(); }
   },
 
   /**
@@ -245,6 +278,7 @@ const Kart = {
       k.setAttribute('aria-checked', pa ? 'true' : 'false');
     });
     this.settKontrast(navn);
+    if (!forste && this._lukkLagvelger) this._lukkLagvelger();
     /* Vegnavn hører til flyfotoet. Topokartet har navnene innebygd, og to sett
        navn oppå hverandre er verre enn ingen. */
     const foto = this.erMoerk(navn);
@@ -279,6 +313,7 @@ const Kart = {
         this.settOverlegg(v.navn, i.checked, true);
       }
     }
+    this.visLagnavn();
     if (!forste) this.lagreValg();
   },
 
@@ -336,6 +371,7 @@ const Kart = {
     this.lag.markorPos = L.layerGroup().addTo(kart);
 
     this.byggKartvalg();
+    this.koblLagvelger();
     this.settBakgrunn(this.lagreteValg().bakgrunn, true);
 
     // Kartet lages før panelene har fatt endelig størrelse

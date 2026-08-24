@@ -87,6 +87,7 @@ const Nettlesertest = {
       await this.pdfavlesning();
       await this.rapport();
       await this.paneler();
+      await this.panelhoder();
       await this.tomt();
       await this.tomteksport();
       await this.tomterydding();
@@ -816,6 +817,80 @@ const Nettlesertest = {
   },
 
   /* ---------------- 11. panelene ---------------- */
+  /**
+   * PANELHODET SKAL IKKE ETE PANELET.
+   *
+   * Målt før dette ble rettet, på 1280 px: kartpanelet var 184 px høyt og
+   * hodet tok 102 av dem – 55 %. Selve kartet satt igjen med 82 px. Alle tre
+   * verktøylinjene brøt over tre rader, fordi hver eneste kontroll sto framme
+   * hele tiden: tretten på kartet, syv på profilen, seks på tverrsnittet.
+   *
+   * Prøven er en TAKHØYDE, ikke en pikselfasit. Den sier ikke hvordan hodet
+   * skal se ut – den sier at det ikke får lov til å spise tegningen. En ny
+   * knapp som bryter linja vil slå ut her, og det er hele poenget.
+   */
+  async panelhoder() {
+    const paneler = [...document.querySelectorAll('.panel')]
+      .filter(p => p.offsetParent && p.querySelector('.panelhode'));
+    this.sjekk('det finnes paneler å måle', paneler.length >= 3, paneler.length + ' paneler');
+
+    for (const p of paneler) {
+      const navn = (p.className.match(/(\w+)panel/) || [])[1] || '?';
+      const h = p.querySelector('.panelhode').getBoundingClientRect().height;
+      const hele = p.getBoundingClientRect().height;
+      /* 44 px er én rad med god klaring. To rader er 68, og det er der det
+         begynner å koste tegneflate. */
+      this.sjekk(navn + '-hodet er én rad', h <= 48, Math.round(h) + ' px');
+      this.sjekk('og tar under en tredel av ' + navn + '-panelet',
+        h / hele < 0.34, Math.round(100 * h / hele) + ' %');
+    }
+
+    /* INGEN KNAPP SKAL MISTE TEKSTEN SIN.
+       Det var det brukeren meldte. En knapp der teksten er bredere enn boksen
+       får enten to linjer eller et avkuttet ord, og begge deler ser ut som en
+       feil. */
+    {
+      const maal = document.createElement('canvas').getContext('2d');
+      const trange = [];
+      for (const e of document.querySelectorAll('.verktoyknapp, .kartknapp, .knapp, .modusknapp')) {
+        if (!e.offsetParent) continue;
+        const tekst = (e.textContent || '').trim();
+        if (!tekst) continue;
+        const st = getComputedStyle(e);
+        maal.font = st.fontWeight + ' ' + st.fontSize + ' ' + st.fontFamily;
+        const r = e.getBoundingClientRect();
+        const plass = r.width - parseFloat(st.paddingLeft) - parseFloat(st.paddingRight)
+          - parseFloat(st.borderLeftWidth) - parseFloat(st.borderRightWidth);
+        if (maal.measureText(tekst).width > plass + 1) {
+          trange.push(tekst.slice(0, 18) + ' (' + Math.round(maal.measureText(tekst).width)
+            + ' > ' + Math.round(plass) + ')');
+        }
+      }
+      this.sjekk('ingen knapp er smalere enn teksten sin', trange.length === 0,
+        trange.slice(0, 4).join(', ') || 'alle har plass');
+    }
+
+    /* Lagvelgeren på kartet: åtte kontroller som før lå i hodet. */
+    {
+      const knapp = document.getElementById('kartlagknapp');
+      const panel = document.getElementById('kartlagpanel');
+      this.sjekk('lagvelgeren ligger på kartet', !!knapp && !!panel
+        && document.querySelector('.kartflate').contains(knapp));
+      if (knapp && panel) {
+        this.sjekk('og er lukket til man ber om den', panel.classList.contains('skjult'));
+        knapp.click();
+        await this.vent(80);
+        this.sjekk('den åpner seg', !panel.classList.contains('skjult'));
+        this.sjekk('med alle bakgrunnene og overleggene i seg',
+          panel.querySelectorAll('.kartknapp').length >= 3
+          && panel.querySelectorAll('.kartbrikke').length >= 3);
+        document.body.click();
+        await this.vent(80);
+        this.sjekk('og lukker seg ved klikk utenfor', panel.classList.contains('skjult'));
+      }
+    }
+  },
+
   async paneler() {
     const storrelse = () => ({
       kart: document.getElementById('kart').clientHeight,
@@ -1326,9 +1401,13 @@ const Nettlesertest = {
          innstilling. Ligger flagget på prototypen, slår man den på for tomta og
          får den på vegen samtidig. */
       {
+        /* Prøven skal måle at feltene er UAVHENGIGE, ikke hva de tilfeldigvis
+           sto på da den startet. Ligger flagget på prototypen, slår man den på
+           for tomta og får den på vegen samtidig. */
+        Tomt3d.fyldig = false; Veg3d.fyldig = false;
         this.sjekk('tomta og vegen har hver sin fyldig-innstilling',
-          Tomt3d.fyldig === false && Veg3d.fyldig === false
-          && !Object.prototype.hasOwnProperty.call(Tegner3d, 'fyldigEier'));
+          Object.prototype.hasOwnProperty.call(Tomt3d, 'fyldig')
+          && Object.prototype.hasOwnProperty.call(Veg3d, 'fyldig'));
         Tomt3d.fyldig = true;
         this.sjekk('å slå den på for tomta rører ikke vegen', Veg3d.fyldig === false);
         Tomt3d.glemFarger();

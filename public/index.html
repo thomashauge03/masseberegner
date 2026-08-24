@@ -49,13 +49,6 @@
         <button id="verktoySondering" class="verktoyknapp" title="Registrer observert dybde til fjell">⛏ Fjellpunkt</button>
         <button id="knappAngre" class="verktoyknapp" title="Angre (Ctrl+Z)" disabled>↶</button>
         <button id="knappGjorOm" class="verktoyknapp" title="Gjør om (Ctrl+Shift+Z)" disabled>↷</button>
-        <!-- Knapper, ikke nedtrekk: i felt med hansker på et nettbrett er et
-             <select> tre handlinger, og den innebygde velgeren legger seg
-             oppå nettopp den delen av kartet man skal vurdere. Både disse og
-             overleggsboksene bygges i JS fra KARTLAG i ui-kart.js, så et valg
-             uten et lag bak seg ikke kan oppstå. -->
-        <div id="bakgrunnsvalg" class="kartknapper" role="radiogroup" aria-label="Bakgrunnskart"></div>
-        <div id="overleggsvalg" class="kartbrikker"></div>
         <label class="avkryss skjult" id="visTomtefargerBoks"><input type="checkbox" id="visTomtefarger" checked> Skjæring/fylling</label>
       </div>
     </div>
@@ -68,6 +61,28 @@
       <div class="kartsok">
         <input id="sokefelt" placeholder="Søk sted eller adresse…" spellcheck="false">
         <div id="sokeliste" class="sokeliste skjult"></div>
+      </div>
+      <!-- LAGVELGEREN HØRER TIL PÅ KARTET, IKKE I PANELHODET.
+           Åtte kontroller – fire bakgrunner og fire overlegg – lå i verktøy-
+           linja og fylte to av de tre radene der. Målt på 1280 px bredde tok
+           panelhodet 102 av 184 piksler, altså 55 % av kartpanelet, og selve
+           kartet satt igjen med 82 px. Her ligger de i stedet i et lite panel
+           oppå kartet, slik alle kartprogram gjør det: kontrollen står ved det
+           den styrer, og hodet slipper to rader.
+           Både knappene og brikkene bygges i JS fra KARTLAG i ui-kart.js, så et
+           valg uten et lag bak seg ikke kan oppstå. -->
+      <div class="kartlag">
+        <button id="kartlagknapp" class="kartlagknapp" aria-expanded="false"
+                aria-controls="kartlagpanel" title="Bakgrunnskart og overlegg">
+          <span class="kartlagikon" aria-hidden="true"></span>
+          <span id="kartlagnavn">Kart</span>
+        </button>
+        <div id="kartlagpanel" class="kartlagpanel skjult">
+          <div class="kartlagtittel">Bakgrunn</div>
+          <div id="bakgrunnsvalg" class="kartknapper" role="radiogroup" aria-label="Bakgrunnskart"></div>
+          <div class="kartlagtittel">Vis i tillegg</div>
+          <div id="overleggsvalg" class="kartbrikker"></div>
+        </div>
       </div>
       <div id="kartinfo" class="kartinfo"></div>
     </div>
@@ -84,8 +99,8 @@
         <button id="knappForeslaProfil" class="verktoyknapp">Foreslå profil</button>
         <button id="knappBalanser" class="verktoyknapp" title="Flytt profilen opp/ned slik at skjæring og fylling går i balanse">Massebalanse</button>
         <button id="knappOptimaliser" class="verktoyknapp" title="Finjuster hvert knekkpunkt for minst mulig masseflytting">Optimaliser</button>
-        <label class="minitall">VIP-avstand <input type="number" id="vipAvstand" value="40" min="10" max="200" step="5"></label>
-        <label class="minitall">K <input type="number" id="kVerdi" value="1" min="0" max="20" step="0.5"></label>
+        <label class="minitall" title="Avstand mellom knekkpunktene i høydeprofilen som foreslås">VIP <input type="number" id="vipAvstand" value="40" min="10" max="200" step="5"></label>
+        <label class="minitall" title="K-verdi: hvor slake vertikalkurvene blir">K <input type="number" id="kVerdi" value="1" min="0" max="20" step="0.5"></label>
         <span class="hjelpetekst">Dra i knekkpunktene · dobbeltklikk for å legge til/fjerne</span>
       </div>
     </div>
@@ -113,7 +128,15 @@
           <label>HK <input type="number" id="tp_hoyre" step="0.01" title="Høyde på høyre vegkant"></label>
           <button id="tp_nullstill" class="verktoyknapp" title="Tilbake til tverrfallet i vegmalen">↺</button>
         </span>
+        <!-- KONTROLLENE SOM STYRER BILDET LIGGER PÅ EN KNAPP, IKKE I HODET.
+             Elleve kontroller sto framme hele tiden og tok 72 av 240 px i
+             panelhodet – tegneflaten falt til 58 %. Samme grep som lagvelgeren
+             på kartet: én knapp åpner dem. Ingen id har flyttet seg, så alt som
+             peker hit virker som før. -->
         <span id="veg3dverktoy" class="verktoygruppe skjult">
+          <button id="v3_meny" class="verktoyknapp menyknapp" aria-expanded="false"
+                  aria-controls="v3_menypanel" title="Lag, høyde og terreng rundt">Vis ▾</button>
+          <span id="v3_menypanel" class="menypanel skjult">
           <span class="lagvalg">
             <button id="v3_terreng" class="verktoyknapp aktiv" title="Dagens terreng">Terreng</button>
             <button id="v3_grav" class="verktoyknapp aktiv" title="Flaten det graves til">Grav</button>
@@ -141,6 +164,7 @@
             <option value="30" selected>30 m rundt</option>
             <option value="60">60 m rundt</option>
           </select>
+          </span>
           <button id="v3_nullstill" class="verktoyknapp" title="Tilbake til utgangsstillingen">↺</button>
           <span class="hjelpetekst">Dra snur · høyreklikk-dra flytter · hjul zoomer · klikk velger profil · piltaster går bortover</span>
         </span>
@@ -183,7 +207,15 @@
         <!-- Lagene som små av/på-knapper, ikke avkryssingsbokser med tekst:
              seks etiketter fyller hele panelhodet på en smal skjerm, og da er
              det ikke plass igjen til modellen. -->
+        <!-- KONTROLLENE SOM STYRER BILDET LIGGER PÅ EN KNAPP, IKKE I HODET.
+             Elleve kontroller sto framme hele tiden og tok 72 av 240 px i
+             panelhodet – tegneflaten falt til 58 %. Samme grep som lagvelgeren
+             på kartet: én knapp åpner dem. Ingen id har flyttet seg, så alt som
+             peker hit virker som før. -->
         <span id="tomt3dverktoy" class="verktoygruppe skjult">
+          <button id="t3_meny" class="verktoyknapp menyknapp" aria-expanded="false"
+                  aria-controls="t3_menypanel" title="Lag, høyde og terreng rundt">Vis ▾</button>
+          <span id="t3_menypanel" class="menypanel skjult">
           <span class="lagvalg">
             <button id="t3_terreng" class="verktoyknapp aktiv" title="Dagens terreng">Terreng</button>
             <button id="t3_grav" class="verktoyknapp aktiv" title="Flaten det graves til">Grav</button>
@@ -206,6 +238,7 @@
             <option value="80">80 m rundt</option>
             <option value="150">150 m rundt</option>
           </select>
+          </span>
           <button id="t3_nullstill" class="verktoyknapp" title="Tilbake til utgangsstillingen">↺</button>
           <span class="hjelpetekst">Dra snur · høyreklikk-dra flytter · hjul zoomer</span>
         </span>

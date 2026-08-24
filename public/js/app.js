@@ -4315,8 +4315,16 @@ const App = {
     document.querySelectorAll('.utvidknapp').forEach(b => {
       b.onclick = () => settStor(b.dataset.utvid);
     });
+    /* SAMME KNAPP, TO BETYDNINGER – FORDI DET ER TO SITUASJONER.
+       På en bred skjerm står sidepanelet ved siden av, og knappen skjuler det.
+       Under 1000 px har det ikke plass ved siden av i det hele tatt: der er det
+       borte som standard, og knappen henter det fram OPPÅ. Uten skillet måtte
+       et 900 px vindu gi 400 px – 44 % – til sidepanelet, og de tre panelene
+       delte på resten. Målt falt tegneflaten fra 82 % til 55 %, og
+       verktøylinjene brøt over tre rader igjen. */
     id('knappSidepanel').onclick = () => {
-      rute.classList.toggle('uten-side');
+      const smal = window.matchMedia('(max-width: 1000px)').matches;
+      rute.classList.toggle(smal ? 'med-side' : 'uten-side');
       setTimeout(() => {
         if (Kart.kart) Kart.kart.invalidateSize();
         Lengdeprofil.tegn(); Tverrprofil.tegn(); Tomteprofil.tegn(); Tomt3d.tegn(); Veg3d.tegn();
@@ -4380,6 +4388,23 @@ const App = {
         v.tegn();
       };
     }
+    /* «Vis»-menyene i de to 3D-visningene. Samme oppførsel som lagvelgeren på
+       kartet: lukker seg ved klikk utenfor og ved Escape, men IKKE når man
+       skrur på et lag – der skrur folk gjerne på to ting etter hverandre. */
+    for (const m of ['t3', 'v3']) {
+      const knapp = id2(m + '_meny'), panel = id2(m + '_menypanel');
+      if (!knapp || !panel) continue;
+      const sett = pa => {
+        panel.classList.toggle('skjult', !pa);
+        knapp.setAttribute('aria-expanded', pa ? 'true' : 'false');
+      };
+      knapp.onclick = e => { e.stopPropagation(); sett(panel.classList.contains('skjult')); };
+      document.addEventListener('click', e => {
+        if (!panel.classList.contains('skjult') && !panel.contains(e.target) && e.target !== knapp) sett(false);
+      });
+      document.addEventListener('keydown', e => { if (e.key === 'Escape') sett(false); });
+    }
+
     if (id2('t3_nullstill')) id2('t3_nullstill').onclick = () => Tomt3d.nullstill();
 
     /* Det samme for vegen, i tverrprofil-panelet. */
