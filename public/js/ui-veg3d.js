@@ -35,7 +35,13 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
      linje som ligger for høyt. */
   pitch: 22,
   kontekst: 30,
-  vindu: 100,          // meter til hver side av snittet
+  /* HELE VEGEN, ikke et vindu.
+     Her sto det 100 – hundre meter til hver side av snittet. Det var galt av
+     samme grunn som en tverrprofil er for lite: det man vil vite er hvor på
+     STREKKET det svulmer ut, og da må strekket være i bildet. Vinduet finnes
+     fortsatt som valg for den som vil se på ett parti, men det er ikke det man
+     møter. */
+  vindu: 0,            // meter til hver side av snittet; 0 = hele vegen
   lag: { terreng: true, grav: true, vegbane: true, fjell: false, rutenett: false, grenser: true },
 
   /* Kolonneskjemaet. Likt i hver rad, så en kolonne alltid betyr det samme:
@@ -83,11 +89,39 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
   /** Meldingen når det ikke er noe å vise ennå. */
   _tomTekst() { return 'Legg inn en veglinje og en høydeprofil, så kommer modellen her'; },
 
-  /** Snittet flyttet seg – vinduet følger med, så de to viser samme sted. */
+  /**
+   * Snittet flyttet seg.
+   *
+   * Vises hele vegen, endrer ikke gitteret seg av det – bare merket for hvor
+   * snittet står. Bygges gitteret om her, kastes hele modellen og bygges opp
+   * igjen for hvert eneste dratt i skyveren, og det hakker.
+   */
   stasjonEndret() {
     if (!this.aktiv) return;
-    this._gitterFor = null;
+    if (this.vindu > 0) this._gitterFor = null;
     this.tegn();
+  },
+
+  /**
+   * Et klikk i modellen velger stedet, og snittet flytter seg dit.
+   *
+   * Dette er selve navigeringen. Uten den er den eneste måten å komme til en
+   * fylling man ser i modellen, å gjette seg fram med skyveren under – man ser
+   * stedet, men kan ikke gå dit.
+   */
+  _velg(k, g) {
+    if (!g || k < 0) return;
+    const j = (k / g.nb) | 0;
+    if (j >= 0 && j < g.nh) this.app.settTverrStasjon(g.s[j]);
+  },
+
+  /** Piltastene går bortover langs vegen, ett profil om gangen. */
+  _stegVis(n) {
+    const res = this.app && this.app.resultat;
+    if (!res || !res.profiler || !res.profiler.length) return;
+    const steg = res.profilsteg || 5;
+    const na = this.app.tverrStasjon || 0;
+    this.app.settTverrStasjon(Math.max(0, Math.min(res.lengde, na + n * steg)));
   },
 
   /**
@@ -324,6 +358,38 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
     kol(kn + this.KANT_V, Farger.veg, 1.4);                  // venstre vegkant
     kol(kn + this.KANT_H, Farger.veg, 1.4);                  // høyre vegkant
     kol(kn + this.SENTER, Farger.blekk, 1.8);                // senterlinja
+
+    /* HVOR SNITTET STÅR.
+       Vises hele vegen, er dette det eneste som knytter modellen til
+       tverrsnittet ved siden av og til skyveren under. Uten merket er de tre
+       tre løsrevne bilder av samme veg. */
+    const sNa = this.app.tverrStasjon;
+    if (sNa != null && g.nh > 1) {
+      let j = 0;
+      for (let q = 1; q < g.nh; q++) {
+        if (Math.abs(g.s[q] - sNa) < Math.abs(g.s[j] - sNa)) j = q;
+      }
+      k.strokeStyle = Farger.blekk; k.lineWidth = 2.4;
+      k.beginPath();
+      let forrige = false;
+      for (let i = 0; i < g.nb; i++) {
+        const kk = j * g.nb + i;
+        if (!g.finnes[kk]) { forrige = false; continue; }
+        const p = skjerm(g.wx[kk], g.wy[kk], g.zP[kk]);
+        if (forrige) k.lineTo(p.x, p.y); else k.moveTo(p.x, p.y);
+        forrige = true;
+      }
+      k.stroke();
+      // profilnummeret ved enden av merket, så man vet hvor man er
+      const enden = j * g.nb + g.nb - 1;
+      if (g.finnes[enden]) {
+        const p = skjerm(g.wx[enden], g.wy[enden], g.zP[enden]);
+        k.fillStyle = Farger.blekk;
+        k.font = '11px system-ui, sans-serif';
+        k.textAlign = 'left';
+        k.fillText('prof ' + Rapport.tall(g.s[j], 0), p.x + 5, p.y + 4);
+      }
+    }
   },
 
   _hudLinjer(g) {
@@ -333,7 +399,8 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
     /* TALLENE GJELDER VINDUET, IKKE HELE VEGEN – og det må stå.
        Uten det leses strekningens sum som prosjektets sum. */
     linjer.push(`Strekning ${t2(g.fra, 0)}–${t2(g.til, 0)} m`
-      + (this.vindu > 0 ? ` av ${t2(res.lengde, 0)} m` : ' (hele vegen)'));
+      + (this.vindu > 0 ? ` av ${t2(res.lengde, 0)} m` : ' (hele vegen)')
+      + ` · ${g.nh} profiler`);
     let skj = 0, fyl = 0;
     for (const iv of (res.intervaller || [])) {
       if (iv.fra < g.fra - 1e-6 || iv.til > g.til + 1e-6) continue;
@@ -372,25 +439,39 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
   },
 
   /**
-   * Utgangsstillingen: vegen går innover i bildet.
+   * Utgangsstillingen.
    *
-   * Senteret er punktet PÅ LINJA, ikke midten av omslutningsboksen – i en kurve
-   * kan boksmidten ligge utenfor vegen. Retningen dreies 90 grader, så vegen
-   * peker bortover og ikke tvers over skjermen.
+   * Senteret er midten av det som faktisk vises, ikke et punkt på linja: viser
+   * man hele vegen, ville et punkt midt på linja lagt halve modellen utenfor
+   * ruta hvis traseen svinger.
+   *
+   * DREININGEN BLIR MÅLT, IKKE GJETTET.
+   * Her sto `retning + 90` – vegen på tvers av bildet. Det er riktig for et
+   * kort strekk og galt for hele vegen: en to kilometer lang veg lagt på tvers
+   * av en rute som er høyere enn den er bred, må krympe til den smaleste kanten
+   * passer, og blir en tråd. Nå prøves begge veier mot den samme tilpasningen
+   * som tegningen bruker, og den som gjør modellen størst vinner.
    */
   nullstill() {
     const app = this.app;
     const res = app && app.resultat;
-    if (res && res.profiler && res.profiler.length && app.linje) {
-      const sMidt = app.tverrStasjon || (res.lengde / 2);
-      const p = app.linje.punktVed(Math.max(0, Math.min(res.lengde, sMidt)));
-      if (p && Number.isFinite(p.x)) {
-        this.senter = { x: p.x, y: p.y };
-        this.yaw = p.retning * 180 / Math.PI + 90;
+    this.panX = 0; this.panY = 0;
+    this.senter = null;
+    this._skalaSatt = false;
+    this.pitch = this.vindu > 0 ? 22 : 32;
+    const g = this._gitter(1);
+    if (g && res && app.linje) {
+      this.senter = { x: g.midtX, y: g.midtY };
+      const p = app.linje.punktVed(Math.max(0, Math.min(res.lengde, app.tverrStasjon || 0)));
+      const grunn = (p && Number.isFinite(p.x)) ? p.retning * 180 / Math.PI : 0;
+      const c = this.lerret;
+      if (c && c.clientWidth > 20) {
+        const dpr = Math.min(2, window.devicePixelRatio || 1);
+        this.yaw = this._besteYaw([grunn, grunn + 90], c.clientWidth * dpr, c.clientHeight * dpr, g);
+      } else {
+        this.yaw = grunn + 90;
       }
     }
-    this.pitch = 22;
-    this._skalaSatt = false;
     this.tegn();
   }
 });

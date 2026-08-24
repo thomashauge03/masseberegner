@@ -117,10 +117,10 @@
             <button id="v3_grenser" class="verktoyknapp aktiv" title="Skråningsfot, vegkant og senterlinje">Grenser</button>
           </span>
           <select id="v3_vindu" class="minivalg" title="Hvor langt strekk som vises om gangen">
-            <option value="50">±50 m</option>
-            <option value="100" selected>±100 m</option>
+            <option value="0" selected>Hele vegen</option>
             <option value="250">±250 m</option>
-            <option value="0">Hele vegen</option>
+            <option value="100">±100 m</option>
+            <option value="50">±50 m</option>
           </select>
           <select id="v3_overdriv" class="minivalg" title="Overdriv høyden så formene blir lettere å se">
             <option value="1" selected>Høyde 1×</option>
@@ -135,14 +135,15 @@
             <option value="60">60 m rundt</option>
           </select>
           <button id="v3_nullstill" class="verktoyknapp" title="Tilbake til utgangsstillingen">↺</button>
-          <span class="hjelpetekst">Dra for å snu · hjul zoomer · skyveren flytter strekket</span>
+          <span class="hjelpetekst">Dra snur · høyreklikk-dra flytter · hjul zoomer · klikk velger profil · piltaster går bortover</span>
         </span>
         <span id="tverrEtikett" class="etikett">–</span>
       </div>
     </div>
     <canvas id="tverrprofil"></canvas>
     <canvas id="veg3d" class="skjult"></canvas>
-    <canvas id="veg3dover" class="skjult"></canvas>
+    <!-- tabindex: uten den tar ikke lerretet imot piltastene -->
+    <canvas id="veg3dover" class="skjult" tabindex="0"></canvas>
   </section>
 
   <!-- ---------------- Tomt (erstatter de to profilpanelene) ---------------- -->
@@ -198,7 +199,7 @@
             <option value="150">150 m rundt</option>
           </select>
           <button id="t3_nullstill" class="verktoyknapp" title="Tilbake til utgangsstillingen">↺</button>
-          <span class="hjelpetekst">Dra for å snu · hjul zoomer</span>
+          <span class="hjelpetekst">Dra snur · høyreklikk-dra flytter · hjul zoomer</span>
         </span>
       </div>
     </div>
@@ -207,7 +208,7 @@
       <div id="tomtKanter" class="tomtekanter"></div>
       <!-- 3D: rasteret nederst, vektoroverlegget med streker og tall oppå -->
       <canvas id="tomt3d" class="skjult"></canvas>
-      <canvas id="tomt3dover" class="skjult"></canvas>
+      <canvas id="tomt3dover" class="skjult" tabindex="0"></canvas>
     </div>
   </section>
 

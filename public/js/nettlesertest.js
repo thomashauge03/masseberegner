@@ -1515,15 +1515,33 @@ const Nettlesertest = {
         this.naer('bredeste inngrep i modellen er profilens egen fot', modell, fasit, 0.02);
       }
 
-      /* 17.5 Vinduet skal FØLGE snittet, ellers viser de to hvert sitt sted. */
+      /* 17.5 Velger man et vindu, skal det FØLGE snittet – ellers viser de to
+         hvert sitt sted. Og velger man hele vegen, skal gitteret IKKE bygges om
+         for hvert dratt i skyveren: det hakker, og det er ingenting å vinne. */
       {
-        const fraFoer = g.fra;
+        Veg3d.vindu = 100;
+        Veg3d._gitterFor = null;
+        App.settTverrStasjon(App.resultat.lengde / 2);
+        Veg3d.tegn();
+        await this.vent(80);
+        const fraFoer = Veg3d._sisteGitter.fra;
         App.settTverrStasjon(Math.min(App.resultat.lengde - 5, App.resultat.lengde * 0.8));
         Veg3d.stasjonEndret();
         await this.vent(80);
         const g2 = Veg3d._sisteGitter;
         this.sjekk('vinduet flytter seg med snittet', !!g2 && g2.fra > fraFoer + 1,
           g2 ? fraFoer.toFixed(0) + ' → ' + g2.fra.toFixed(0) + ' m' : 'ingen gitter');
+
+        Veg3d.vindu = 0;
+        Veg3d._gitterFor = null;
+        Veg3d.tegn();
+        await this.vent(80);
+        const helt = Veg3d._sisteGitter;
+        App.settTverrStasjon(App.resultat.lengde * 0.2);
+        Veg3d.stasjonEndret();
+        await this.vent(80);
+        this.sjekk('hele vegen bygges ikke om når snittet flytter seg',
+          Veg3d._sisteGitter === helt);
         App.settTverrStasjon(App.resultat.lengde / 2);
         Veg3d.stasjonEndret();
         await this.vent(80);
@@ -1576,7 +1594,129 @@ const Nettlesertest = {
         Veg3d._gitterFor = null;
       }
 
-      /* 17.8 Kostnad – røykprøve mot en katastrofal regresjon. */
+      /* 17.8 NAVIGERINGEN.
+         Modellen var i orden lenge før den var til å bruke: man kunne snu og
+         zoome, men ikke flytte seg. Zoomet man inn på en fylling, var eneste
+         vei til den neste å zoome helt ut igjen. Prøvene under holder de fire
+         grepene i live. */
+      {
+        const o = document.getElementById('veg3dover');
+        const rr = () => o.getBoundingClientRect();
+        const mus = (type, x, y, opt) => o.dispatchEvent(new MouseEvent(type, Object.assign(
+          { bubbles: true, cancelable: true, clientX: rr().left + x, clientY: rr().top + y, button: 0 }, opt || {})));
+        const opp = (x, y, opt) => window.dispatchEvent(new MouseEvent('mouseup', Object.assign(
+          { bubbles: true, cancelable: true, clientX: rr().left + x, clientY: rr().top + y, button: 0 }, opt || {})));
+
+        // venstre dra snur, og bare det
+        const y0 = Veg3d.yaw, px0 = Veg3d.panX || 0;
+        mus('mousedown', 200, 200); mus('mousemove', 260, 220); opp(260, 220);
+        await this.vent(160);
+        this.sjekk('venstre dragning snur modellen', Math.abs(Veg3d.yaw - y0) > 5,
+          y0.toFixed(0) + ' → ' + Veg3d.yaw.toFixed(0));
+        this.sjekk('og flytter den ikke', Math.abs((Veg3d.panX || 0) - px0) < 1e-9);
+
+        // høyre dra flytter, og bare det
+        const y1 = Veg3d.yaw, px1 = Veg3d.panX || 0, py1 = Veg3d.panY || 0;
+        mus('mousedown', 200, 200, { button: 2 }); mus('mousemove', 245, 230, { button: 2 }); opp(245, 230, { button: 2 });
+        await this.vent(160);
+        this.naer('høyre dragning flytter like langt som musa', (Veg3d.panX || 0) - px1, 45, 0.01);
+        this.naer('også loddrett', (Veg3d.panY || 0) - py1, 30, 0.01);
+        this.sjekk('og snur den ikke', Math.abs(Veg3d.yaw - y1) < 1e-9);
+
+        // shift+dra flytter òg – for den som bare har én knapp
+        const px2 = Veg3d.panX || 0;
+        mus('mousedown', 200, 200, { shiftKey: true }); mus('mousemove', 180, 200, { shiftKey: true }); opp(180, 200, { shiftKey: true });
+        await this.vent(160);
+        this.naer('shift og dra flytter også', (Veg3d.panX || 0) - px2, -20, 0.01);
+
+        Veg3d.nullstill();
+        await this.vent(160);
+        const gg = Veg3d._sisteGitter;
+
+        /* Et klikk velger stedet. Uten dette ser man en fylling i modellen uten
+           å kunne komme til den. */
+        let treff = null;
+        for (let y = 20; y < o.clientHeight - 20 && !treff; y += 7) {
+          for (let x = 20; x < o.clientWidth - 20; x += 7) {
+            const t = Veg3d._slaOpp({ x, y }, o);
+            if (t && t.k >= 0) { treff = { x, y, k: t.k }; break; }
+          }
+        }
+        this.sjekk('det finnes noe å klikke på i modellen', !!treff);
+        if (treff) {
+          App.settTverrStasjon(0);
+          await this.vent(80);
+          mus('mousedown', treff.x, treff.y); opp(treff.x, treff.y);
+          await this.vent(160);
+          const j = (treff.k / gg.nb) | 0;
+          this.naer('klikk i modellen flytter snittet dit', App.tverrStasjon, gg.s[j], 0.01);
+        }
+
+        /* PILTASTEN SKAL GÅ ETT HAKK, IKKE TO.
+           App-en har sin egen piltasthåndtering på document. Uten
+           stopPropagation kjørte begge, og hvert trykk ble to profiler – og
+           shift-spranget på ti ble elleve. */
+        const steg = App.resultat.profilsteg || 5;
+        App.settTverrStasjon(gg.s[(gg.nh / 2) | 0]);
+        await this.vent(80);
+        const sA = App.tverrStasjon;
+        o.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+        await this.vent(120);
+        this.naer('piltast går nøyaktig ett profil', App.tverrStasjon - sA, steg, 0.01);
+        const sB = App.tverrStasjon;
+        o.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true, shiftKey: true }));
+        await this.vent(120);
+        this.naer('og shift går nøyaktig ti', App.tverrStasjon - sB, 10 * steg, 0.01);
+
+        /* HJULET SKAL ZOOME MOT MARKØREN.
+           Regnes forskyvningen fra feil nullpunkt, SIGER bildet bortover for
+           hvert hakk – man zoomer inn på noe og ender et helt annet sted.
+           Prøven zoomer inn fire hakk og krever at samme node står under
+           markøren etterpå. */
+        if (treff) {
+          const rz = rr();
+          const foer = Veg3d._slaOpp({ x: treff.x, y: treff.y }, o);
+          for (let i = 0; i < 4; i++) {
+            o.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: -100,
+              clientX: rz.left + treff.x, clientY: rz.top + treff.y }));
+            await this.vent(60);
+          }
+          const etter = Veg3d._slaOpp({ x: treff.x, y: treff.y }, o);
+          this.sjekk('hjulet zoomer mot markøren, ikke mot midten',
+            !!etter && etter.k === foer.k,
+            'node ' + (foer ? foer.k : '-') + ' → ' + (etter ? etter.k : 'bakgrunn'));
+          Veg3d.nullstill();
+          await this.vent(120);
+        }
+      }
+
+      /* 17.9 «Hele vegen» er utgangspunktet, ikke et vindu på hundre meter. */
+      {
+        this.sjekk('hele vegen vises som standard', Veg3d.vindu === 0, '±' + Veg3d.vindu + ' m');
+        const velger = document.getElementById('v3_vindu');
+        this.sjekk('og velgeren står på det samme', velger && velger.value === '0',
+          velger ? velger.value : 'ingen velger');
+        const gg = Veg3d._sisteGitter;
+        this.sjekk('alle profilene er med', gg.nh === App.resultat.profiler.length,
+          gg.nh + ' av ' + App.resultat.profiler.length);
+
+        /* Dreiningen skal MÅLES. En lang veg lagt på tvers av en høy, smal rute
+           må krympe til en tråd; prøven krever at utgangsstillingen ikke er
+           dårligere enn det andre valget. */
+        const c2 = document.getElementById('veg3d');
+        const dpr = Math.min(2, window.devicePixelRatio || 1);
+        const yaw0 = Veg3d.yaw;
+        const skalaVed = v => {
+          const f = Veg3d.yaw; Veg3d.yaw = v;
+          const t = Veg3d._tilpassSkala(c2.clientWidth * dpr, c2.clientHeight * dpr, gg);
+          Veg3d.yaw = f; return t.skala;
+        };
+        this.sjekk('utgangsstillingen er den som gjør modellen størst',
+          skalaVed(yaw0) >= skalaVed(yaw0 + 90) - 1e-9,
+          'valgt ' + skalaVed(yaw0).toFixed(3) + ' mot ' + skalaVed(yaw0 + 90).toFixed(3));
+      }
+
+      /* 17.10 Kostnad – røykprøve mot en katastrofal regresjon. */
       {
         Veg3d.tegn();
         const t0 = performance.now();
@@ -1607,6 +1747,8 @@ const Nettlesertest = {
       Veg3d.aktiver(false);
       Veg3d.overdriv = 1;
       Veg3d.kontekst = 30;
+      Veg3d.vindu = 0;
+      Veg3d.panX = 0; Veg3d.panY = 0;
       Veg3d._gitterFor = null;
       App.P = JSON.parse(foer);
       App.klargjorProsjekt(App.P);

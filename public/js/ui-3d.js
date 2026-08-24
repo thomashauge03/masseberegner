@@ -344,9 +344,14 @@ const Tegner3d = {
     /* Alt kameraet ser, regnes i RASTERPIKSLER. Skalaen og forskyvningen lagres
        i skjermpiksler, fordi det er der musa og hjulet lever. */
     const f = dpr * kvalitet;
+    /* To forskyvninger, ikke én. `_panFast` er tilpasningens egen sentrering og
+       regnes om hver gang ruta skifter størrelse; `panX/panY` er det brukeren
+       selv har dratt modellen. Slås de sammen i ett felt, mister man brukerens
+       flytting i det panelet endrer seg – og det er nettopp da man har zoomet
+       inn på noe og vil beholde det. */
     const kam = this._kamera(rb, rh, g, this.skala * f,
-      (this._panFast ? this._panFast.x : 0) * f,
-      (this._panFast ? this._panFast.y : 0) * f);
+      ((this._panFast ? this._panFast.x : 0) + (this.panX || 0)) * f,
+      ((this._panFast ? this._panFast.y : 0) + (this.panY || 0)) * f);
     const n = rb * rh;
     if (!this._bilde || this._bilde.width !== rb || this._bilde.height !== rh) {
       this._bilde = g2.createImageData(rb, rh);
@@ -514,6 +519,21 @@ const Tegner3d = {
   },
 
 
+  /**
+   * Mus, finger og tastatur.
+   *
+   * Her var det bare å snu og å zoome. Det holdt så vidt på en tomt, som er
+   * omtrent like bred som den er lang og får plass i ruta hele tiden. På en veg
+   * holdt det ikke i det hele tatt: zoomer man inn på en fylling, kan man ikke
+   * flytte seg bortover til den neste, og det eneste som finnes er å zoome ut
+   * igjen. Derfor:
+   *   venstre dra          snur modellen
+   *   høyre / midt / shift flytter den (og to fingre på skjerm)
+   *   hjul / knip          zoomer
+   *   klikk                velger stedet man peker på – vegen flytter snittet dit
+   *   piltaster            går bortover, ett profil om gangen
+   *   dobbeltklikk         tilbake til utgangsstillingen
+   */
   _musKobling() {
     const c = this.over || this.lerret;
     let dra = null;
@@ -522,16 +542,36 @@ const Tegner3d = {
       const t = e.touches ? e.touches[0] : e;
       return { x: t.clientX - r.left, y: t.clientY - r.top };
     };
+    // midtpunktet mellom to fingre – knip og flytt skjer samtidig
+    const midt = e => {
+      const r = c.getBoundingClientRect();
+      const a = e.touches[0], b = e.touches[1];
+      return { x: (a.clientX + b.clientX) / 2 - r.left, y: (a.clientY + b.clientY) / 2 - r.top };
+    };
     const start = e => {
-      if (e.touches && e.touches.length > 1) { dra = null; this._knip = this._avstand(e); return; }
-      dra = Object.assign(pos(e), { yaw: this.yaw, pitch: this.pitch });
+      if (e.touches && e.touches.length > 1) {
+        dra = null;
+        this._knip = this._avstand(e);
+        this._knipMidt = midt(e);
+        this._drar = true;
+        return;
+      }
+      /* Høyre og midtre knapp, og shift, flytter i stedet for å snu. Venstre
+         alene snur – det er den bevegelsen folk prøver først. */
+      const flytter = !e.touches && (e.button === 1 || e.button === 2 || e.shiftKey);
+      dra = Object.assign(pos(e), {
+        yaw: this.yaw, pitch: this.pitch, flytter,
+        panX: this.panX || 0, panY: this.panY || 0, flyttet: 0
+      });
       this._drar = true;
     };
     const flytt = e => {
       if (e.touches && e.touches.length > 1 && this._knip) {
-        const na = this._avstand(e);
+        const na = this._avstand(e), nm = midt(e);
         this.skala *= na / this._knip;
-        this._knip = na;
+        this.panX = (this.panX || 0) + (nm.x - this._knipMidt.x);
+        this.panY = (this.panY || 0) + (nm.y - this._knipMidt.y);
+        this._knip = na; this._knipMidt = nm;
         this._skalaSatt = true;
         this.tegn();
         e.preventDefault();
@@ -545,13 +585,30 @@ const Tegner3d = {
           c.clientWidth, c.clientHeight, Math.min(2, window.devicePixelRatio || 1));
         return;
       }
-      this.yaw = dra.yaw + (p.x - dra.x) * 0.4;
-      this.pitch = Math.max(8, Math.min(88, dra.pitch + (p.y - dra.y) * 0.3));
+      dra.flyttet = Math.max(dra.flyttet, Math.hypot(p.x - dra.x, p.y - dra.y));
+      if (dra.flytter) {
+        this.panX = dra.panX + (p.x - dra.x);
+        this.panY = dra.panY + (p.y - dra.y);
+      } else {
+        this.yaw = dra.yaw + (p.x - dra.x) * 0.4;
+        this.pitch = Math.max(8, Math.min(88, dra.pitch + (p.y - dra.y) * 0.3));
+      }
       this.tegn();
       e.preventDefault();
     };
-    const slutt = () => {
-      dra = null; this._knip = null;
+    const slutt = e => {
+      /* Et klikk er en dragning som ikke flyttet seg. Terskelen må være der:
+         på et nettbrett rikker fingeren seg alltid noen piksler, og uten den
+         ville hvert eneste forsøk på å snu endt med å velge et sted. */
+      if (dra && !dra.flytter && dra.flyttet < 4 && this._velg) {
+        const p = e && e.changedTouches
+          ? (() => { const r = c.getBoundingClientRect(), t = e.changedTouches[0];
+            return { x: t.clientX - r.left, y: t.clientY - r.top }; })()
+          : { x: dra.x, y: dra.y };
+        const traff = this._slaOpp(p, c);
+        if (traff && traff.k >= 0) this._velg(traff.k, this._sisteGitter);
+      }
+      dra = null; this._knip = null; this._knipMidt = null;
       if (this._drar) {
         this._drar = false;
         /* Full oppløsning først når man slipper. Under dragning tegnes det i
@@ -563,17 +620,53 @@ const Tegner3d = {
     c.addEventListener('mousedown', start);
     c.addEventListener('mousemove', flytt);
     window.addEventListener('mouseup', slutt);
+    // uten dette spretter nettleserens egen meny opp i det man begynner å flytte
+    c.addEventListener('contextmenu', e => e.preventDefault());
     c.addEventListener('mouseleave', () => { this._peker = null; slutt(); });
     c.addEventListener('touchstart', start, { passive: true });
     c.addEventListener('touchmove', flytt, { passive: false });
     c.addEventListener('touchend', slutt);
     c.addEventListener('wheel', e => {
       e.preventDefault();
-      this.skala *= e.deltaY < 0 ? 1.12 : 1 / 1.12;
+      /* Zoom mot MARKØREN, ikke mot midten. Zoomer man mot midten, forsvinner
+         det man ser på ut av ruta med én gang man går nærmere.
+
+         BEGGE forskyvningene må trekkes fra for å finne hvor langt markøren
+         står fra projeksjonens nullpunkt. Her sto bare `panX`, og da regnet
+         formelen fra et punkt som lå `_panFast` unna det virkelige – med det
+         resultatet at bildet SEG bortover for hvert hakk på hjulet, i stedet
+         for å stå stille. Perspektivet gjør at det ikke kan bli helt eksakt for
+         alle dybder, men feilen er da under en piksel i stedet for titalls. */
+      const p = pos(e);
+      const f = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+      const fx = this._panFast ? this._panFast.x : 0;
+      const fy = this._panFast ? this._panFast.y : 0;
+      const mx = p.x - c.clientWidth / 2 - fx - (this.panX || 0);
+      const my = p.y - c.clientHeight / 2 - fy - (this.panY || 0);
+      this.panX = (this.panX || 0) - mx * (f - 1);
+      this.panY = (this.panY || 0) - my * (f - 1);
+      this.skala *= f;
       this._skalaSatt = true;
       this.tegn();
     }, { passive: false });
     c.addEventListener('dblclick', () => this.nullstill());
+
+    /* Piltaster. Lerretet får tabIndex i HTML-en, så det kan ta imot taster når
+       man har klikket i det. Uten `_stegVis` gjør de ingenting – tomta har
+       ingen retning å gå i.
+
+       stopPropagation MÅ være der. App-en har sin egen piltasthåndtering på
+       document som flytter tverrsnittet ett hakk. Uten den ble hvert tastetrykk
+       til to hakk, og shift-spranget på ti til elleve – nøyaktig den slags feil
+       ingen melder fra om, de bare slutter å bruke tastene. */
+    c.addEventListener('keydown', e => {
+      const steg = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1 }[e.key];
+      if (steg && this._stegVis) {
+        this._stegVis(steg * (e.shiftKey ? 10 : 1));
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    });
   },
 
 
@@ -595,8 +688,31 @@ const Tegner3d = {
 
   nullstill() {
     this.yaw = 0; this.pitch = 55; this.senter = null;
+    this.panX = 0; this.panY = 0;
     this._skalaSatt = false;
     this.tegn();
+  },
+
+
+  /**
+   * Den dreiningen som gjør modellen størst på skjermen.
+   *
+   * En veg er lang og smal. Legger man den på tvers av en ruteform som er
+   * høyere enn den er bred, må hele modellen krympe til den smaleste kanten
+   * passer – og en 2 km veg blir en tråd. Kandidatene prøves derfor mot den
+   * samme tilpasningen som brukes i tegningen, og den som gir størst skala
+   * vinner. Ingen gjetning på formen: det er målt.
+   */
+  _besteYaw(kandidater, b, h, g) {
+    const foer = this.yaw;
+    let best = foer, beste = -Infinity;
+    for (const v of kandidater) {
+      this.yaw = v;
+      const t = this._tilpassSkala(b, h, g);
+      if (t.skala > beste) { beste = t.skala; best = v; }
+    }
+    this.yaw = foer;
+    return best;
   },
 
 

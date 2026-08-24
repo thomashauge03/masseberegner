@@ -950,12 +950,22 @@ function beregnMasser(o) {
     }
   }
 
-  /** Regner om ett tverrprofil med tegningsgeometri, for skjermen. */
+  /**
+   * Regner om ett tverrprofil med tegningsgeometri, for skjermen.
+   *
+   * Stasjonene ligger sortert, sa naboen finnes med halveringssok. Her sto en
+   * gjennomgang av hele lista. Det merkes ikke nar tverrsnittet ber om ett
+   * snitt, men 3D-modellen ber om ett per profil pa hele vegen: pa en veg med
+   * 2 000 stasjoner ble det fire millioner sammenligninger for a finne det
+   * programmet allerede visste hvor la.
+   */
   const geometriFor = s => {
-    let i = 0;
-    for (let j = 1; j < stasjoner.length; j++) {
-      if (Math.abs(stasjoner[j] - s) < Math.abs(stasjoner[i] - s)) i = j;
+    let lav = 0, hoy = stasjoner.length - 1;
+    while (hoy - lav > 1) {
+      const m = (lav + hoy) >> 1;
+      if (stasjoner[m] <= s) lav = m; else hoy = m;
     }
+    const i = Math.abs(stasjoner[hoy] - s) < Math.abs(stasjoner[lav] - s) ? hoy : lav;
     return ettProfil(stasjoner[i], utvidelser[i], true);
   };
 
