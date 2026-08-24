@@ -91,20 +91,58 @@
     <div class="panelhode">
       <span>Tverrprofil</span>
       <button class="utvidknapp" data-utvid="tverr" title="Stor visning (skjuler de andre)">⤢</button>
+      <!-- Samme veksler som tomta: snittet er nøyaktig, 3D-en viser hvordan
+           skråningene legger seg i terrenget langs strekket. -->
+      <div class="visvalg">
+        <button id="vegVisSnitt" class="verktoyknapp aktiv" title="Tverrsnitt gjennom vegen">Snitt</button>
+        <button id="vegVis3d" class="verktoyknapp" title="Se vegen i tre dimensjoner">3D</button>
+      </div>
       <div class="verktoy">
         <button id="tverrForrige" class="verktoyknapp">◀</button>
         <input type="range" id="tverrSkyver" min="0" max="100" value="0" class="skyver">
         <button id="tverrNeste" class="verktoyknapp">▶</button>
-        <span class="punkthoyder">
+        <span class="punkthoyder" id="tverrpunkthoyder">
           <label>VK <input type="number" id="tp_venstre" step="0.01" title="Høyde på venstre vegkant"></label>
           <label>SL <input type="number" id="tp_senter" step="0.01" title="Høyde i senterlinjen"></label>
           <label>HK <input type="number" id="tp_hoyre" step="0.01" title="Høyde på høyre vegkant"></label>
           <button id="tp_nullstill" class="verktoyknapp" title="Tilbake til tverrfallet i vegmalen">↺</button>
         </span>
+        <span id="veg3dverktoy" class="verktoygruppe skjult">
+          <span class="lagvalg">
+            <button id="v3_terreng" class="verktoyknapp aktiv" title="Dagens terreng">Terreng</button>
+            <button id="v3_grav" class="verktoyknapp aktiv" title="Flaten det graves til">Grav</button>
+            <button id="v3_vegbane" class="verktoyknapp aktiv" title="Selve vegbanen">Vegbane</button>
+            <button id="v3_fjell" class="verktoyknapp" title="Fjelloverflaten">Fjell</button>
+            <button id="v3_rutenett" class="verktoyknapp" title="10 m-rutenett drapert på flaten">10 m</button>
+            <button id="v3_grenser" class="verktoyknapp aktiv" title="Skråningsfot, vegkant og senterlinje">Grenser</button>
+          </span>
+          <select id="v3_vindu" class="minivalg" title="Hvor langt strekk som vises om gangen">
+            <option value="50">±50 m</option>
+            <option value="100" selected>±100 m</option>
+            <option value="250">±250 m</option>
+            <option value="0">Hele vegen</option>
+          </select>
+          <select id="v3_overdriv" class="minivalg" title="Overdriv høyden så formene blir lettere å se">
+            <option value="1" selected>Høyde 1×</option>
+            <option value="1.5">Høyde 1,5×</option>
+            <option value="2">Høyde 2×</option>
+            <option value="3">Høyde 3×</option>
+          </select>
+          <select id="v3_kontekst" class="minivalg" title="Hvor mye terreng utenfor inngrepet som vises">
+            <option value="0">Uten terreng rundt</option>
+            <option value="15">15 m rundt</option>
+            <option value="30" selected>30 m rundt</option>
+            <option value="60">60 m rundt</option>
+          </select>
+          <button id="v3_nullstill" class="verktoyknapp" title="Tilbake til utgangsstillingen">↺</button>
+          <span class="hjelpetekst">Dra for å snu · hjul zoomer · skyveren flytter strekket</span>
+        </span>
         <span id="tverrEtikett" class="etikett">–</span>
       </div>
     </div>
     <canvas id="tverrprofil"></canvas>
+    <canvas id="veg3d" class="skjult"></canvas>
+    <canvas id="veg3dover" class="skjult"></canvas>
   </section>
 
   <!-- ---------------- Tomt (erstatter de to profilpanelene) ---------------- -->
@@ -423,7 +461,9 @@
 <script src="js/ui-lengdeprofil.js"></script>
 <script src="js/ui-tverrprofil.js"></script>
 <script src="js/ui-tomtprofil.js"></script>
+<script src="js/ui-3d.js"></script>
 <script src="js/ui-tomt3d.js"></script>
+<script src="js/ui-veg3d.js"></script>
 <script src="js/ui-forklaring.js"></script>
 <script src="js/pdfeksport.js"></script>
 <script src="js/ui-rapport.js"></script>

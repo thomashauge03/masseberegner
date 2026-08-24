@@ -44,6 +44,18 @@ const Forklaring = {
         + 'Velger du å overdrive høyden, står det skrevet i bildet, også når du '
         + 'lagrer det: en tomt som er strukket tre ganger ser mye verre ut enn '
         + 'den er.' },
+    { navn: '3D-modellen', form: 'flate', farge: () => Farger.terreng, modus: 'veg',
+      tekst: 'Knappen «3D» over tverrsnittet viser hele strekket rundt snittet '
+        + 'sett fra siden, ikke bare ett profil. Det er her man ser hvor bredt '
+        + 'inngrepet blir: ligger linja for høyt, brer fyllingsvingene seg '
+        + 'utover, og fotavtrykket sveller. Den røde og grønne flaten er '
+        + 'skjæring og fylling, det grå oppå er dagens terreng, og den mørke '
+        + 'stripa i midten er selve vegbanen. Modellen viser 100 meter til hver '
+        + 'side av snittet – flytt snittet, så følger den med. Ringen med rent '
+        + 'terreng rundt er der for at man skal se om vegen går i ei li eller '
+        + 'over en rygg. Modellen regner ingenting selv: hver høyde er den '
+        + 'samme tverrsnittsgeometrien massene er regnet på. Tallene øverst '
+        + 'gjelder strekningen i bildet, ikke hele vegen – det står i teksten.' },
     { navn: 'Brattet opp', form: 'stipla', farge: () => Farger.skjaering, modus: 'tomt',
       tekst: 'Tykk, stiplet strek i kartet der skråningen ikke fikk plass med '
         + 'sin vanlige helning innenfor tomtegrensa. Den blir da lagt brattere – '

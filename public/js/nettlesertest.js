@@ -83,6 +83,7 @@ const Nettlesertest = {
       await this.tomteksport();
       await this.tomterydding();
       await this.tomt3d();
+      await this.veg3d();
       await this.framdrift();
       await this.opprydding();
     } catch (e) {
@@ -1272,6 +1273,28 @@ const Nettlesertest = {
           'største avvik ' + verst.toExponential(1));
       }
 
+      /* NODEKOORDINATENE MÅ TÅLE UTM.
+         Verdensposisjonen ble lagt i gitteret for at den samme tegneren skulle
+         tjene både tomt og veg. Ligger den i en Float32Array, er en nordkoordinat
+         på 6 460 000 kvantisert til en halv meter – naboceller på et 1 m-rutenett
+         faller sammen, og lyset regner kryssproduktet av kanter som ikke finnes.
+         Feilen synes ikke: flaten blir bare litt urolig i skyggeleggingen. */
+      {
+        let verst = 0, kollapsa = 0;
+        for (let j = 0; j < g.nh; j++) {
+          for (let i = 0; i < g.nb; i++) {
+            const k = j * g.nb + i;
+            verst = Math.max(verst,
+              Math.abs(g.wx[k] - (g.minX + i * g.rute)),
+              Math.abs(g.wy[k] - (g.minY + j * g.rute)));
+            if (i && g.wx[k] === g.wx[k - 1]) kollapsa++;
+          }
+        }
+        this.sjekk('nodekoordinatene er eksakte i UTM', verst < 1e-6,
+          'største avvik ' + verst.toExponential(1) + ' m');
+        this.sjekk('ingen naboceller har falt sammen', kollapsa === 0, kollapsa + ' celler');
+      }
+
       /* 6.5 Fargene kommer fra stilarket, også som tall. */
       const rgb = Farger.skjaeringFlateRgb;
       this.sjekk('fargene finnes som tre tall', Array.isArray(rgb) && rgb.length === 3
@@ -1336,6 +1359,255 @@ const Nettlesertest = {
       Tomt3d.aktiver(false);
       Tomt3d.overdriv = 1;
       Tomt3d._gitterFor = null;
+      App.P = JSON.parse(foer);
+      App.klargjorProsjekt(App.P);
+      App.resultat = null;
+      App._terrengnokkel = null;
+    }
+  },
+
+  /* ---------------- 17. vegen i tre dimensjoner ---------------- */
+  /**
+   * Vegmodellen deler tegner med tomta, men har to feil tomta ikke kan få.
+   *
+   * Den ene: gitteret er ikke i UTM. Den ene aksen er stasjon langs
+   * senterlinja, den andre avstand ut fra den, så nodene må svinge med kurven.
+   * Skriver noen `minX + i * rute` her – formelen tomta bruker – blir modellen
+   * en rett stripe i stedet for vegens trasé. Koden kompilerer, bildet ser like
+   * pent ut, og man ser på en annen veg.
+   *
+   * Den andre: desimering. Hopper man over annenhver stasjon for å spare tid,
+   * endrer volumet modellen omslutter seg titalls prosent – og heller ikke det
+   * synes. Derfor måles volumet mot masser.js her, ikke bare formen.
+   */
+  async veg3d() {
+    const foer = JSON.stringify(App.P);
+    const gz = Terreng.prototype.z, gd = Terreng.prototype.dekning, gl = Terreng.prototype.lastOmraade;
+    try {
+      App.P = App.nyttProsjekt();
+      App.P.navn = '__test_veg3d';
+      /* Prøven over jobbet i tomtebildet, og der finnes verken lengdeprofil
+         eller tverrsnitt. Uten dette står de panelene igjen med null høyde, og
+         3D-lerretet får aldri en størrelse å tegne i. */
+      await App.settModus('veg');
+      const lat0 = 58.2958, lon0 = 7.2098;
+      const dLat = m => m / 111320;
+      const dLon = m => m / (111320 * Math.cos(lat0 * Math.PI / 180));
+      /* En SVING, ikke et rett strekk. På en rett veg er en stripe og en trasé
+         det samme, og prøven under ville ikke merket forskjell. */
+      App.P.ip = [
+        { lat: lat0, lon: lon0, r: 0 },
+        { lat: lat0 + dLat(120), lon: lon0 + dLon(90), r: 60 },
+        { lat: lat0 + dLat(260), lon: lon0 + dLon(40), r: 0 }
+      ];
+      const s0 = Geo.tilUtm(lat0, lon0, App.sone);
+      Terreng.prototype.lastOmraade = async function () { };
+      Terreng.prototype.dekning = () => 1;
+      // ei li som faller mot øst: gir ekte skjæring på den ene sida og fylling på den andre
+      Terreng.prototype.z = function (x, y) { return 100 + (y - s0.y) * 0.06 - (x - s0.x) * 0.09; };
+      App._terrengnokkel = null;
+      await App.oppdater();
+      this.sjekk('vegen er regnet før 3D prøves',
+        !!App.resultat && App.resultat.profiler.length > 20,
+        App.resultat ? App.resultat.profiler.length + ' profil' : 'ingen');
+
+      /* Ingenting skal bygges før noen trykker 3D. */
+      Veg3d.aktiver(false);
+      Veg3d._gitterFor = null;
+      Veg3d.tegn();
+      this.sjekk('vegens 3D bygger ingenting når den er av', !Veg3d._sisteGitter);
+
+      App.settTverrStasjon(App.resultat.lengde / 2);
+      document.querySelector('[data-utvid="tverr"]').click();
+      await this.vent(250);
+      Veg3d.aktiver(true);
+      Veg3d._skalaSatt = false;
+      Veg3d.tegn();
+      await this.vent(120);
+      this.sjekk('vegens 3D-lerret er synlig',
+        !document.getElementById('veg3d').classList.contains('skjult'));
+      this.sjekk('tverrsnittet er skjult mens 3D står på',
+        document.getElementById('tverrprofil').classList.contains('skjult'));
+
+      const g = Veg3d._sisteGitter;
+      this.sjekk('vegens gitter ble bygd', !!g && g.nb > 10 && g.nh > 5,
+        g ? g.nb + '×' + g.nh : 'ingen');
+
+      /* 17.1 NODENE MÅ LIGGE PÅ TRASEEN, IKKE PÅ EN RETT STRIPE.
+         Hver node slås opp mot linjas eget `punktMedAvvik`. Er den regnet ut
+         med en rett-linje-formel, spriker de to med meter i svingen. */
+      {
+        let verst = 0;
+        for (let j = 0; j < g.nh; j += 3) {
+          for (let i = g.kn; i < g.nb - g.kn; i += 5) {
+            const k = j * g.nb + i;
+            if (!g.finnes[k]) continue;
+            const p = App.linje.punktMedAvvik(g.s[j], g.tAkse[k]);
+            if (!p || !Number.isFinite(p.x)) continue;
+            verst = Math.max(verst, Math.hypot(g.wx[k] - p.x, g.wy[k] - p.y));
+          }
+        }
+        this.sjekk('nodene ligger på senterlinja, ikke på en rett stripe',
+          verst < 1e-3, 'største avvik ' + verst.toExponential(1) + ' m');
+      }
+
+      /* 17.2 Radene skal ALDRI desimeres: én rad per profil i vinduet. */
+      {
+        const i = App.resultat.profiler.filter(
+          p => p.s >= g.fra - 1e-6 && p.s <= g.til + 1e-6).length;
+        this.sjekk('hver profil i vinduet har sin egen rad', g.nh === i,
+          g.nh + ' rader mot ' + i + ' profiler');
+        Veg3d._gitterFor = null;
+        const grovt = Veg3d._gitter(4);        // steget skal ikke bite på vegen
+        this.sjekk('desimeringssteget endrer ikke radene', grovt.nh === g.nh,
+          grovt.nh + ' mot ' + g.nh);
+        Veg3d._gitterFor = null;
+      }
+
+      /* 17.3 VOLUMET MODELLEN OMSLUTTER MOT masser.js.
+         Trapesregelen tvers over hver rad, mot profilens eget areal. Spriker de
+         to, viser bildet et annet inngrep enn tallene ved siden av. */
+      {
+        let verst = 0, verstS = 0, malte = 0;
+        for (let j = 0; j < g.nh; j++) {
+          const pr = App.resultat.profiler.find(p => Math.abs(p.s - g.s[j]) < 1e-9);
+          if (!pr || !pr.areal) continue;
+          let aS = 0, aF = 0;
+          for (let i = g.kn; i < g.nb - g.kn - 1; i++) {
+            const a = j * g.nb + i, b = a + 1;
+            if (!g.harGrav[a] || !g.harGrav[b]) continue;
+            const w = g.tAkse[b] - g.tAkse[a];
+            if (!(w > 0)) continue;
+            const d1 = g.zT[a] - g.zP[a], d2 = g.zT[b] - g.zP[b];
+            if (d1 >= 0 && d2 >= 0) aS += (d1 + d2) / 2 * w;
+            else if (d1 <= 0 && d2 <= 0) aF += (-d1 - d2) / 2 * w;
+            else {
+              // cella skifter fortegn: del den der, ellers blandes skjæring og fylling
+              const f = d1 / (d1 - d2), w1 = w * f, w2 = w - w1;
+              if (d1 > 0) { aS += d1 / 2 * w1; aF += -d2 / 2 * w2; }
+              else { aF += -d1 / 2 * w1; aS += d2 / 2 * w2; }
+            }
+          }
+          malte++;
+          const av = Math.abs(aS - pr.areal.skjaering) + Math.abs(aF - pr.areal.fylling);
+          if (av > verst) { verst = av; verstS = pr.s; }
+        }
+        this.sjekk('det ble målt på noe i det hele tatt', malte > 5, malte + ' profiler');
+        this.sjekk('modellen omslutter masser.js sine areal',
+          verst < 0.15, 'største avvik ' + verst.toFixed(3) + ' m² ved prof ' + verstS);
+      }
+
+      /* 17.4 Fotavtrykket er selve leveransen: modellens bredeste inngrep skal
+         være profilens egen fot, ikke en tilfeldig ytterkolonne. */
+      {
+        let modell = 0, fasit = 0;
+        for (let j = 0; j < g.nh; j++) {
+          let tmin = Infinity, tmaks = -Infinity;
+          for (let i = 0; i < g.nb; i++) {
+            const k = j * g.nb + i;
+            if (!g.finnes[k] || !g.harGrav[k]) continue;
+            tmin = Math.min(tmin, g.tAkse[k]); tmaks = Math.max(tmaks, g.tAkse[k]);
+          }
+          if (tmaks > tmin) modell = Math.max(modell, tmaks - tmin);
+          const pr = App.resultat.profiler.find(p => Math.abs(p.s - g.s[j]) < 1e-9);
+          if (pr) fasit = Math.max(fasit, pr.fotHoyre - pr.fotVenstre);
+        }
+        this.naer('bredeste inngrep i modellen er profilens egen fot', modell, fasit, 0.02);
+      }
+
+      /* 17.5 Vinduet skal FØLGE snittet, ellers viser de to hvert sitt sted. */
+      {
+        const fraFoer = g.fra;
+        App.settTverrStasjon(Math.min(App.resultat.lengde - 5, App.resultat.lengde * 0.8));
+        Veg3d.stasjonEndret();
+        await this.vent(80);
+        const g2 = Veg3d._sisteGitter;
+        this.sjekk('vinduet flytter seg med snittet', !!g2 && g2.fra > fraFoer + 1,
+          g2 ? fraFoer.toFixed(0) + ' → ' + g2.fra.toFixed(0) + ' m' : 'ingen gitter');
+        App.settTverrStasjon(App.resultat.lengde / 2);
+        Veg3d.stasjonEndret();
+        await this.vent(80);
+      }
+
+      /* 17.6 Ingen NaN, og noe faktisk tegnet. */
+      {
+        const gg = Veg3d._sisteGitter;
+        let nan = 0;
+        for (let i = 0; i < gg.zT.length; i++) {
+          if (gg.finnes[i] && (!Number.isFinite(gg.zT[i]) || !Number.isFinite(gg.zP[i]))) nan++;
+        }
+        this.sjekk('ingen NaN i vegens høyder', nan === 0, nan + ' celler');
+        const c = document.getElementById('veg3d');
+        const k = c.getContext('2d');
+        const b = k.getImageData(0, 0, c.width, c.height).data;
+        const bak = [b[0], b[1], b[2]];
+        let u = 0, n = 0;
+        for (let i = 0; i < b.length; i += 4 * 3) {
+          n++;
+          if (b[i] !== bak[0] || b[i + 1] !== bak[1] || b[i + 2] !== bak[2]) u++;
+        }
+        this.sjekk('vegmodellen dekker en reell del av lerretet', u / n > 0.02,
+          (100 * u / n).toFixed(1) + ' %');
+      }
+
+      /* 17.7 Kontekstringen: uten den slutter modellen i skråningsfoten, og man
+         ser ikke om vegen går i ei li eller over en rygg. Kolonnene i ringen har
+         terreng, men ingen prosjektert flate. */
+      {
+        const gg = Veg3d._sisteGitter;
+        this.sjekk('det er lagt kontekstkolonner på hver side', gg.kn > 0, gg.kn + ' per side');
+        let ringMedGrav = 0, ringMedTerreng = 0;
+        for (let j = 0; j < gg.nh; j++) {
+          for (const i of [0, gg.nb - 1]) {
+            const k = j * gg.nb + i;
+            if (!gg.finnes[k]) continue;
+            if (gg.harGrav[k]) ringMedGrav++;
+            if (Number.isFinite(gg.zT[k])) ringMedTerreng++;
+          }
+        }
+        this.sjekk('ringen er rent terreng, uten prosjektert flate', ringMedGrav === 0,
+          ringMedGrav + ' celler');
+        this.sjekk('og ringen har terrenghøyder', ringMedTerreng > 5, ringMedTerreng + ' celler');
+        Veg3d.kontekst = 0;
+        Veg3d._gitterFor = null;
+        const utan = Veg3d._gitter(1);
+        this.sjekk('«uten terreng rundt» gir ingen ring', utan.kn === 0, utan.kn + ' kolonner');
+        Veg3d.kontekst = 30;
+        Veg3d._gitterFor = null;
+      }
+
+      /* 17.8 Kostnad – røykprøve mot en katastrofal regresjon. */
+      {
+        Veg3d.tegn();
+        const t0 = performance.now();
+        Veg3d.tegn();
+        const tid = performance.now() - t0;
+        this.sjekk('vegmodellen tegner raskt nok', tid < 400, tid.toFixed(0) + ' ms');
+      }
+
+      /* 17.9 Ingenting som fantes ble dårligere. */
+      Veg3d.aktiver(false);
+      await this.vent(120);
+      this.sjekk('tverrsnittet kommer tilbake',
+        !document.getElementById('tverrprofil').classList.contains('skjult'));
+      this.sjekk('og vegens 3D-lerret er skjult',
+        document.getElementById('veg3d').classList.contains('skjult')
+        && document.getElementById('veg3dover').classList.contains('skjult'));
+      Tverrprofil.tegn();
+      const tp = document.getElementById('tverrprofil');
+      this.sjekk('tverrsnittet tegner fortsatt', tp.width > 20 && tp.height > 20,
+        tp.width + '×' + tp.height);
+      document.querySelector('[data-utvid="tverr"]').click();
+      await this.vent(200);
+    } catch (e) {
+      this.sjekk('vegens 3D-prøve kom seg gjennom', false,
+        e.message + ' — ' + (e.stack || '').split('\n')[1]);
+    } finally {
+      Terreng.prototype.z = gz; Terreng.prototype.dekning = gd; Terreng.prototype.lastOmraade = gl;
+      Veg3d.aktiver(false);
+      Veg3d.overdriv = 1;
+      Veg3d.kontekst = 30;
+      Veg3d._gitterFor = null;
       App.P = JSON.parse(foer);
       App.klargjorProsjekt(App.P);
       App.resultat = null;

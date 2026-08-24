@@ -818,6 +818,7 @@ const App = {
     Tverrprofil.init(this);
     Tomteprofil.init(this);
     Tomt3d.init(this);
+    Veg3d.init(this);
     Rapport.init(this);
     Pdfrapport.init(this);
     PdfUI.init(this);
@@ -1343,6 +1344,7 @@ const App = {
     this.tverrStasjon = best.s;
     Tverrprofil.vis(best);
     this.visPunkthoyder(best);
+    Veg3d.stasjonEndret();
     Kart.visStasjon(best.s);
     /* Her sto en if/else der begge greinene gjorde det samme. Parameteren
        *behold* styrte altsa ingenting - den ble sendt inn fra ett sted og
@@ -3691,7 +3693,7 @@ const App = {
 
   /* Tomt3d.tegn() returnerer sjølv med ein gong når panelet er skjult, så
      den kostar ingenting når nokon ikkje ser på 3D. */
-  tegnAlt() { Kart.tegn(); Lengdeprofil.tegn(); Tverrprofil.tegn(); Tomteprofil.tegn(); Tomt3d.tegn(); },
+  tegnAlt() { Kart.tegn(); Lengdeprofil.tegn(); Tverrprofil.tegn(); Tomteprofil.tegn(); Tomt3d.tegn(); Veg3d.tegn(); },
 
   /* ---------------- knapper og felt ---------------- */
 
@@ -3837,7 +3839,7 @@ const App = {
       });
       setTimeout(() => {
         if (Kart.kart) Kart.kart.invalidateSize();
-        Lengdeprofil.tegn(); Tverrprofil.tegn(); Tomteprofil.tegn(); Tomt3d.tegn();
+        Lengdeprofil.tegn(); Tverrprofil.tegn(); Tomteprofil.tegn(); Tomt3d.tegn(); Veg3d.tegn();
       }, 60);
     };
     document.querySelectorAll('.utvidknapp').forEach(b => {
@@ -3847,13 +3849,13 @@ const App = {
       rute.classList.toggle('uten-side');
       setTimeout(() => {
         if (Kart.kart) Kart.kart.invalidateSize();
-        Lengdeprofil.tegn(); Tverrprofil.tegn(); Tomteprofil.tegn(); Tomt3d.tegn();
+        Lengdeprofil.tegn(); Tverrprofil.tegn(); Tomteprofil.tegn(); Tomt3d.tegn(); Veg3d.tegn();
       }, 60);
     };
     this._nullstillVisning = () => {
       ['kart', 'profil', 'tverr', 'tomt'].forEach(n => rute.classList.remove('stor-' + n));
       document.querySelectorAll('.utvidknapp').forEach(b => { b.classList.remove('aktiv'); b.textContent = '⤢'; });
-      setTimeout(() => { if (Kart.kart) Kart.kart.invalidateSize(); Lengdeprofil.tegn(); Tverrprofil.tegn(); Tomteprofil.tegn(); Tomt3d.tegn(); }, 60);
+      setTimeout(() => { if (Kart.kart) Kart.kart.invalidateSize(); Lengdeprofil.tegn(); Tverrprofil.tegn(); Tomteprofil.tegn(); Tomt3d.tegn(); Veg3d.tegn(); }, 60);
     };
 
     /* FANEKLIKK SKAL GÅ GJENNOM visFane(), IKKE FORBI DEN.
@@ -3895,6 +3897,34 @@ const App = {
       Tomt3d.tegn();
     };
     if (id2('t3_nullstill')) id2('t3_nullstill').onclick = () => Tomt3d.nullstill();
+
+    /* Det samme for vegen, i tverrprofil-panelet. */
+    if (id2('vegVisSnitt')) id2('vegVisSnitt').onclick = () => Veg3d.aktiver(false);
+    if (id2('vegVis3d')) id2('vegVis3d').onclick = () => { Veg3d.aktiver(true); Veg3d.nullstill(); };
+    for (const [felt, boks] of [['terreng', 'v3_terreng'], ['grav', 'v3_grav'],
+      ['vegbane', 'v3_vegbane'], ['fjell', 'v3_fjell'],
+      ['rutenett', 'v3_rutenett'], ['grenser', 'v3_grenser']]) {
+      const e = id2(boks);
+      if (e) e.onclick = () => {
+        Veg3d.lag[felt] = !Veg3d.lag[felt];
+        e.classList.toggle('aktiv', Veg3d.lag[felt]);
+        Veg3d.tegn();
+      };
+    }
+    if (id2('v3_overdriv')) id2('v3_overdriv').onchange = e => {
+      Veg3d.overdriv = parseFloat(e.target.value) || 1;
+      Veg3d.tegn();
+    };
+    for (const [id3, felt] of [['v3_vindu', 'vindu'], ['v3_kontekst', 'kontekst']]) {
+      const e = id2(id3);
+      if (e) e.onchange = () => {
+        Veg3d[felt] = parseFloat(e.value) || 0;
+        Veg3d._gitterFor = null;           // begge endrer selve gitteret
+        Veg3d._skalaSatt = false;
+        Veg3d.tegn();
+      };
+    }
+    if (id2('v3_nullstill')) id2('v3_nullstill').onclick = () => Veg3d.nullstill();
 
     document.addEventListener('keydown', e => {
       // Ctrl+S skal virke ogsa rett etter at man har skrevet prosjektnavnet

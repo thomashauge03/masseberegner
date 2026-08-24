@@ -244,11 +244,13 @@ const Rapport = {
       document.documentElement.setAttribute('data-utskrift', '1');
       Farger.glem();
       if (typeof Tomt3d !== 'undefined') Tomt3d.glemFarger();
+      if (typeof Veg3d !== 'undefined') Veg3d.glemFarger();
     };
     const tilbake = () => {
       document.documentElement.removeAttribute('data-utskrift');
       Farger.glem();
       if (typeof Tomt3d !== 'undefined') Tomt3d.glemFarger();
+      if (typeof Veg3d !== 'undefined') Veg3d.glemFarger();
     };
 
     const midlertidig = (bredde, hoyde, tegn) => {
