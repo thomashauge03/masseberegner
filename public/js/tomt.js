@@ -145,9 +145,6 @@ const StandardTomtemal = {
   veggHelning: 0.1,          // 10:1 - N200 kap. 223.1: "nær vertikale (10:1)"
   losmasseOverFjell: 2.0,    // 1:2 - løsmasse som blir staende over bergveggen
   maksVeggHoyde: 10.0,       // N200 kap. 202.1: over 10 m -> geoteknisk kategori 3
-  bermeBredde: 1.5,          // hylle mellom paller; 4-6 m først over ca. 25 m
-  bermeFall: 0.05,           // innover, sa vann ikke renner utfor
-  renskUtenforVegg: 2.0,     // N200 kap. 223.4: avdekking min. 2 m utenfor kant
 
   /* Overberg - fjell som faktisk sprenges ut utenfor prosjektert kontur.
      Star pa null med vilje. R761 prosess 22.1: "Det gis ikke tillegg for
@@ -156,7 +153,6 @@ const StandardTomtemal = {
      EGEN post i rapporten - aldri bakt inn i fjellvolumet, for da ville et
      tilbud sett dyrere ut enn oppgjøret blir. */
   overberg: 0,
-  kontursprengning: false,
 
   /* R761 prosess 22 c): avstanden fra ferdig niva ned til fast berg ma vaere
      større enn 0,75 m, ellers ma det dypsprenges. Utløser en merknad. */
@@ -165,29 +161,20 @@ const StandardTomtemal = {
   /* --- støttemur ---
      Fundamentgrøfta og den drenerende bakfyllinga er to volum folk glemmer
      nar de bytter skraning med mur. Begge ma kjøres. */
-  murtype: 'naturstein',     // naturstein | betongL | gabion | torrmur
   maksMurHoyde: 3.0,
   murAnlegg: 0.15,           // muren heller innover, H:V
   fundamentDybde: 0.6,
   fundamentBredde: 0.8,
   bakfylling: 0.5,           // drenerende masse bak muren, meter
 
-  /* --- hjørner --- */
-  hjornebehandling: 'vifte', // vifte | avrunding | skjaer
-  hjorneradius: 3.0,         // ved 'avrunding'
-  overgangslengde: 4.0,      // der to ulike kanttyper møtes
-
   /* --- lagene over og under ferdig nivå --- */
   matjordDybde: 0.25,
-  matjordMellomlagres: true,
   renskDybde: 0.20,
-  renskUtenfor: 1.0,
   frostsikring: 0.0,
   forsterkningslag: 0.40,
   baerelagTykkelse: 0.10,
   slitelagTykkelse: 0.05,
   avrettingslag: 0.0,
-  fiberduk: true,
 
   /* --- grenser --- */
   maksFyllingshoyde: 4.0,
@@ -195,12 +182,10 @@ const StandardTomtemal = {
   maksUtslag: 15.0,
   minstefall: 0.01,          // under dette blir det staende vann
   maksfall: 0.08,            // over dette blir plassen ubehagelig a bruke
-  holdInnenforGrense: false,
 
   /* --- beregning --- */
   rutestorrelse: 1.0,        // terrenget kommer som 1 m rutenett fra Kartverket
-  maksSokebredde: 45,
-  beregningsbredde: 0
+  maksSokebredde: 45
 };
 
 /** Et tomt, nytt tomteanlegg. */

@@ -510,6 +510,26 @@ function beregnTomtemasser(o) {
      tallene så riktige ut, men beskrev en annen tomt enn den man hadde valgt.
      Det samme gjaldt en modusstreng som ikke fantes i det hele tatt, slik en
      håndredigert eller eldre prosjektfil kan komme med. */
+  /* FALLGRENSENE HØRER HJEMME HER, SAMMEN MED DE ANDRE.
+     `minstefall` ble sjekket i høydepanelet og `maksfall` ingen steder. De tre
+     andre grensene – skjæringsdybde, fyllingshøyde, vegghøyde – meldes herfra
+     og følger med til rapporten og PDF-en. En fallgrense som bare vises i et
+     panel man kanskje ikke står i, veier ikke like tungt som resten. */
+  {
+    const n = o.tomt.nivaa || {};
+    const f = n.modus === 'flat' ? 0 : (n.fall || 0);
+    if (mal.maksfall > 0 && f > mal.maksfall + 1e-9) {
+      merknader.push({ type: 'fall',
+        tekst: `Fallet er ${(f * 100).toFixed(1)} %, grensen i malen er `
+          + `${(mal.maksfall * 100).toFixed(1)} %. Over det blir plassen tung å bruke – `
+          + 'lass og maskiner står ustøtt, og snø og vann får fart.' });
+    }
+    if (mal.minstefall > 0 && n.modus !== 'flat' && f > 1e-9 && f < mal.minstefall - 1e-9) {
+      merknader.push({ type: 'fall',
+        tekst: `Fallet er ${(f * 100).toFixed(1)} %, under minstefallet på `
+          + `${(mal.minstefall * 100).toFixed(1)} %. Da blir det stående vann.` });
+    }
+  }
   {
     const m = (o.tomt.nivaa || {}).modus;
     if (m && !NIVAAMODUSER.includes(m)) {
@@ -558,7 +578,8 @@ function beregnTomtemasser(o) {
   if (mal.maksVeggHoyde > 0 && hoyesteVegg > mal.maksVeggHoyde) {
     merknader.push({ type: 'vegg',
       tekst: `Bergveggen blir ${hoyesteVegg.toFixed(1)} m høy. Over ${mal.maksVeggHoyde} m `
-        + 'krever N200 geoteknisk kategori 3, og det bør legges inn en hylle (berme).' });
+        + 'krever N200 geoteknisk kategori 3, og det bør legges inn en hylle (berme). '
+        + 'Bermen er ikke med i volumet under – den må prosjekteres for hånd.' });
   }
   /* Naar skraningen aldri møter terrenget, blir volumet bestemt av
      søkebredden i stedet for av bakken. Samme tomt ga 21 788 m³ fylling med

@@ -2911,7 +2911,10 @@ const App = {
       ['berg', 'veggHelning', 'Vegghelning', 0, 2, 0.05],
       ['los', 'losmasseOverFjell', 'Løsmasse over veggen', 0.5, 5, 0.1],
       ['m', 'maksVeggHoyde', 'Maks vegghøyde før berme', 0, 30, 0.5],
-      ['m', 'bermeBredde', 'Bermebredde', 0, 10, 0.5],
+      /* «Bermebredde» sto her. Feltet ble vist, endret og lagret – og lest av
+         ingenting: skråningsflaten har to helninger og ingen hylle. Et tall man
+         kan skru på uten at noe skjer, er verre enn intet felt. Merknaden om at
+         det bør legges inn en berme sier nå at den må prosjekteres for hånd. */
       ['m', 'overberg', 'Overberg (egen post)', 0, 2, 0.05],
       ['h3', 'Lag under ferdig nivå'],
       ['m', 'matjordDybde', 'Matjord som tas av', 0, 1, 0.05],
