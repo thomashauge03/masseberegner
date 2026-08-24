@@ -623,17 +623,31 @@ function innerflate(o, runder = 14) {
   let na = p.map(q => ({ x: q.x, y: q.y }));
   let innrykk = new Array(p.length).fill(0);
   let forrigeKant = null;
+  const loperUt = new Set();
   for (let r = 0; r < runder; r++) {
     const fot = skraningsfot(Object.assign({}, o, { tomt: Object.assign({}, o.tomt, { punkter: na }) }));
     if (!fot.length) break;
     /* Hvor langt hver kant stakk ut, malt som det største pa kanten.
        Apne kanter gir 0 - de krever ingen plass, og skal derfor ikke rykke
        noe inn. */
+    /* En kant der skraningen ALDRI møter terrenget skal ikke rykke noe inn.
+       Tallet den melder er søkebredden, ikke et utslag - skraningen jager
+       bakken nedover uten a lande, og a kreve fem og førti meter innrykk for
+       det gjør hele modusen ubrukelig. Malt pa en ekte tomt: kantene krevde
+       40,7 · 14,4 · 1,9 · 2,2 · 2,3 · 2,6 · 2,5 · 16,9 m, og de 40,7 var
+       søkebredden pa den ene sida som falt ned i en dal.
+
+       Grensa er der skraningen skal STARTE. Lander den ikke innenfor, er det
+       noe brukeren ma vite - ikke noe som skal krympe tomta til ingenting.
+       Kanten samles opp og meldes i stedet. */
     const raaKant = new Array(p.length).fill(0);
+    const landet = new Array(p.length).fill(true);
     for (const f of fot) {
       if (f.type === 'apen') continue;
+      if (!f.traff) { landet[f.kant] = false; continue; }
       raaKant[f.kant] = Math.max(raaKant[f.kant], f.ut);
     }
+    for (let i = 0; i < landet.length; i++) if (!landet[i]) loperUt.add(i);
     /* Demping.
        Uten den svinger søket: pa skranende terreng ga rundene 1280, 1618, 1501,
        1527, 1530 - og de faste tre rundene landet 1,9 % feil, tilfeldig hvor i
@@ -703,11 +717,79 @@ function innerflate(o, runder = 14) {
     let a2 = 0;
     for (let i = 0, j = na.length - 1; i < na.length; j = i++) a2 += na[j].x * na[i].y - na[i].x * na[j].y;
     if (snudd || Math.sign(a2) !== Math.sign(areal2) || Math.abs(a2) < 4) {
-      return { punkter: null, innrykk, forLiten: true };
+      /* IKKE GI OPP - VIS DET SOM GAR, OG SI HVA SOM IKKE GJØR DET.
+         Her ble det svart «ingen flate igjen», og det var teknisk riktig: pa en
+         tomt som faller mot en dal jager fyllingsskraningen bakken nedover og
+         kan ta førti meter, og da er det ikke plass. Men et blankt nei er
+         ubrukelig - man far verken vite hvor mye som mangler eller pa hvilken
+         side.
+
+         Na skrus innrykket ned til det som faktisk far plass, og hver side der
+         skraningen ma ga forbi grensa blir meldt med hvor mange meter. Da ser
+         man at det er side 1 som er problemet, og at svaret er mur eller
+         sprengt vegg der - ikke at hele tomta er umulig. */
+      const trygg = tilpassInnrykk(p, perKant, tegn);
+      if (!trygg) return { punkter: null, innrykk, forLiten: true, loperUt: [...loperUt] };
+      const mangler = [];
+      for (let i = 0; i < perKant.length; i++) {
+        const fikk = perKant[i] * trygg.k;
+        if (perKant[i] - fikk > 0.2) mangler.push({ kant: i, trengs: perKant[i], fikk, mangler: perKant[i] - fikk });
+      }
+      return { punkter: trygg.punkter, innrykk: perKant.map(v => v * trygg.k),
+        loperUt: [...loperUt], mangler, avkortet: true };
     }
     if (stillestaaende) break;
   }
-  return { punkter: na, innrykk };
+  return { punkter: na, innrykk, loperUt: [...loperUt] };
+}
+
+/**
+ * Skrur innrykket ned til det største som fortsatt gir en gyldig flate.
+ *
+ * Halvering pa en felles faktor: alle kantene skrus ned like mye, sa formen
+ * holder seg. Alternativet - a skru ned bare den verste kanten - ville flyttet
+ * flaten mot den sida og gitt en tomt som ikke ligner den man tegnet.
+ */
+function tilpassInnrykk(p, perKant, tegn) {
+  const bygg = k => {
+    const nye = [];
+    for (let i = 0; i < p.length; i++) {
+      const bak = perKant[(i - 1 + p.length) % p.length] * k;
+      const foran = perKant[i] * k;
+      const a = p[(i - 1 + p.length) % p.length], b = p[i], c = p[(i + 1) % p.length];
+      const n1 = normal(a, b, tegn), n2 = normal(b, c, tegn);
+      const det = n1.x * n2.y - n1.y * n2.x;
+      if (Math.abs(det) < 1e-9) {
+        const inn = Math.max(bak, foran);
+        nye.push({ x: b.x - n1.x * inn, y: b.y - n1.y * inn });
+        continue;
+      }
+      nye.push({ x: b.x + (-bak * n2.y + foran * n1.y) / det,
+        y: b.y + (-n1.x * foran + n2.x * bak) / det });
+    }
+    return nye;
+  };
+  const gyldig = na => {
+    for (let i = 0; i < p.length; i++) {
+      const j = (i + 1) % p.length;
+      const gx = p[j].x - p[i].x, gy = p[j].y - p[i].y;
+      if (gx * (na[j].x - na[i].x) + gy * (na[j].y - na[i].y) <= 0) return false;
+    }
+    let a2 = 0;
+    for (let i = 0, j = na.length - 1; i < na.length; j = i++) a2 += na[j].x * na[i].y - na[i].x * na[j].y;
+    let a0 = 0;
+    for (let i = 0, j = p.length - 1; i < p.length; j = i++) a0 += p[j].x * p[i].y - p[i].x * p[j].y;
+    // minst en tidel av det tegnede arealet, ellers er det ingen tomt igjen
+    return Math.sign(a2) === Math.sign(a0) && Math.abs(a2) > Math.abs(a0) * 0.1;
+  };
+  let lav = 0, hoy = 1;
+  if (gyldig(bygg(1))) return { k: 1, punkter: bygg(1) };
+  if (!gyldig(bygg(0.02))) return null;
+  for (let i = 0; i < 20; i++) {
+    const m = (lav + hoy) / 2;
+    if (gyldig(bygg(m))) lav = m; else hoy = m;
+  }
+  return { k: lav, punkter: bygg(lav) };
 }
 
 function normal(a, b, tegn) {

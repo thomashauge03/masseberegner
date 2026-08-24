@@ -1330,13 +1330,17 @@ const App = {
        av skraningen havner nøyaktig pa grensa. */
     let bruktPolygon = p;
     this._innerflate = null;
+    this._tomtMangler = [];
     if (t.omrissBetyr === 'yttergrense') {
       const inn = Tomtmasser.innerflate({
         tomt: { punkter: p, kanter: t.kanter, nivaa: this.tomtenivaaIUtm(t) },
         mal: this.P.mal, terreng: this.terreng, fjell: this.fjellmodellIUtm()
       });
-      if (inn.punkter) { bruktPolygon = inn.punkter; this._innerflate = inn.punkter; }
-      else {
+      if (inn.punkter) {
+        bruktPolygon = inn.punkter;
+        this._innerflate = inn.punkter;
+        this._tomtMangler = inn.mangler || [];
+      } else {
         /* Si HVA som ikke gar opp, ikke bare at det ikke gar.
            Pa en tomt med fjorten meters fall trenger skraningene titalls meter,
            og da er svaret nesten alltid det samme: sett mur eller sprengt vegg
@@ -1369,6 +1373,22 @@ const App = {
       bakkefaktor: this.bakkefaktor()
     });
     this.resultat.balanse = this.tomtebalanse(this.resultat.sum);
+    /* Sider der skraningen ikke far plass innenfor grensa.
+       Her ble hele beregningen nektet med «ingen flate igjen». Na vises det som
+       gar, og det sies HVILKEN side som er problemet og hvor mange meter som
+       mangler - for det er den ene opplysningen man trenger for a vite hvor
+       muren skal sta. */
+    if (this._tomtMangler && this._tomtMangler.length) {
+      const verst = this._tomtMangler.slice().sort((a, b) => b.mangler - a.mangler);
+      const topp = verst.slice(0, 3)
+        .map(m => `side ${m.kant + 1} mangler ${m.mangler.toFixed(0)} m`).join(', ');
+      this.resultat.merknader.push({ type: 'grense',
+        tekst: `Skråningene får ikke plass innenfor grensa: ${topp}`
+          + (verst.length > 3 ? ` og ${verst.length - 3} til` : '')
+          + '. Sett mur eller sprengt vegg på de sidene – en mur tar omtrent en '
+          + 'sjettedel av bredden til en jordskråning. Den ferdige flaten under er '
+          + 'regnet med det som faktisk fikk plass.' });
+    }
     this.visTomtemasser();
     this.tomthoydeTilSkjema();
     this.status(`Tomta regnet på ${Math.round(performance.now() - t0)} ms`);

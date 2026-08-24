@@ -667,12 +667,29 @@ console.log('\n21b. Muren er støtte, ikke en skråning');
     mal, terreng: bratt, fjell: new M.Fjellmodell({ standarddybde: 100 }),
     rutestorrelse: 1, bakkefaktor: 1
   });
-  paastand('bratt tomt med bare skråninger: ingen plass',
-    T.innerflate(lag([])).forLiten === true);
+  /* Nar skraningene ikke far plass, skal den ikke NEKTE - den skal vise det som
+     gar og si hvilken side som mangler hvor mange meter. Et blankt «ingen flate
+     igjen» er teknisk riktig, men ubrukelig: man far verken vite hvor mye som
+     mangler eller pa hvilken side, og da vet man ikke hvor muren skal sta. */
+  const bare = T.innerflate(lag([]));
+  paastand('bratt tomt med bare skråninger gir likevel en flate', !!bare.punkter,
+    bare.forLiten ? 'FOR LITEN' : Tomt.areal(bare.punkter).toFixed(0) + ' m²');
+  paastand('og den sier hvilke sider som mangler plass',
+    Array.isArray(bare.mangler) && bare.mangler.length > 0,
+    JSON.stringify((bare.mangler || []).map(m => `side ${m.kant + 1}: ${m.mangler.toFixed(1)} m`)));
+  paastand('flaten er mindre enn den man tegnet',
+    Tomt.areal(bare.punkter) < 2400);
+
   const medMur = T.innerflate(lag([0, 1, 2, 3].map(() => ({ type: 'mur' }))));
   paastand('men med mur rundt blir det plass',
     !!medMur.punkter && Tomt.areal(medMur.punkter) > 2000,
     medMur.punkter ? Tomt.areal(medMur.punkter).toFixed(0) + ' m² av 2400' : 'FOR LITEN');
+  paastand('og da mangler ingen side plass',
+    !medMur.mangler || medMur.mangler.length === 0,
+    JSON.stringify(medMur.mangler || []));
+  paastand('muren gir vesentlig mer tomt enn skråninger',
+    Tomt.areal(medMur.punkter) > Tomt.areal(bare.punkter) * 1.5,
+    `${Tomt.areal(bare.punkter).toFixed(0)} → ${Tomt.areal(medMur.punkter).toFixed(0)} m²`);
 
   /* Muren har to volum folk glemmer: grøfta under den og den drenerende
      bakfyllinga bak. Begge ma kjøres, og ingen av dem kommer fram om man bare
