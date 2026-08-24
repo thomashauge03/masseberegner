@@ -450,12 +450,6 @@ const Kart = {
     if (p.length < 3 || t.nivaa.kote == null) return;
 
     /* Gikk innrykket ikke opp, finnes det ingen ferdig flate a marsjere fra.
-       Her sto , og da ble skraningen tegnet fra det man
-       hadde TEGNET - altsa fra yttergrensa og enda lenger ut. Streken gikk
-       titalls meter forbi grensa man nettopp hadde sagt at ingenting skulle
-       utenfor. */
-    if (t.omrissBetyr === 'yttergrense' && !app._innerflate) return;
-    /* Gikk innrykket ikke opp, finnes det ingen ferdig flate a marsjere fra.
        Her sto `app._innerflate || p`, og da ble skraningen tegnet fra det man
        hadde TEGNET - altsa fra yttergrensa og enda lenger ut. Streken gikk
        titalls meter forbi grensa man nettopp hadde sagt at ingenting skulle
