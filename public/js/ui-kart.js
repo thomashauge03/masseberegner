@@ -195,6 +195,9 @@ const Kart = {
     if (m === 'tegnTomt') {
       this.app.status('Klikk rundt tomta. Dobbeltklikk eller Enter for å lukke den.');
     }
+    if (m === 'settSluk') {
+      this.app.status('Klikk der sluket skal stå – flaten kommer til å falle mot det punktet.');
+    }
   },
 
   /**
@@ -313,6 +316,20 @@ const Kart = {
       this.app.merk('nytt tomtehjørne');
       P.tomt.punkter.push({ lat: e.latlng.lat, lon: e.latlng.lng });
       this.app.tomtEndret();
+    } else if (this.modus === 'settSluk') {
+      /* Sluket er ferdig regnet i tre filer – i beregningen, i HTML-rapporten
+         og i PDF-en – men ingenting skrev noen gang punktet. `nivaa.punkt` sto
+         på null i hver eneste tomt, så modusen kunne ikke velges og ville ikke
+         virket om den ble det. En grusplass med sluk måtte legges som «flat». */
+      if (!this.app.erTomt()) { this.app.status('Bytt til et tomteanlegg først'); return; }
+      this.app.merk('satte sluket');
+      const t = this.app.P.tomt;
+      t.nivaa.punkt = { lat: e.latlng.lat, lon: e.latlng.lng };
+      t.nivaa.modus = 'sluk';
+      this.settModus('rediger');
+      this.app.tomthoydeTilSkjema();
+      this.app.beregnTomt();
+      this.app.status('Sluket er satt – flaten faller mot det punktet');
     } else if (this.modus === 'sondering') {
       this.app.merk('ny fjellobservasjon');
       const punkt = { lat: e.latlng.lat, lon: e.latlng.lng, dybde: P.fjell.standarddybde };

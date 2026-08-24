@@ -135,9 +135,15 @@ function nivaaVed(n, x, y, ref) {
       if (!n.punkt || !Number.isFinite(n.punkt.x)) return k;
       return k + Math.hypot(x - n.punkt.x, y - n.punkt.y) * (n.fall || 0);
     }
+    /* En modus som ikke finnes gir en flat flate på koten. Det er den eneste
+       forsvarlige reserven – men den skal ikke skje i stillhet, og
+       beregnTomtemasser melder fra om den. Se NIVAAMODUSER under. */
     default: return k;
   }
 }
+
+/** Modusene nivaaVed faktisk kan. Alt annet er flatt, og skal meldes. */
+const NIVAAMODUSER = ['flat', 'fall', 'sluk'];
 
 /**
  * Jordarbeidsflaten i et punkt utenfor tomta.
@@ -497,6 +503,21 @@ function beregnTomtemasser(o) {
   if (utenData) {
     merknader.push({ type: 'data',
       tekst: `${utenData} ruter mangler terrengdata – volumet er regnet uten dem` });
+  }
+  /* EN MODUS SOM IKKE FINNES SKAL IKKE FALLE STILLE TIL FLATT.
+     Nivåmodus-lista lovet ni former; motoren kunne tre. De seks andre traff
+     «default: return k» og ga en helt flat flate uten et eneste ord om det –
+     tallene så riktige ut, men beskrev en annen tomt enn den man hadde valgt.
+     Det samme gjaldt en modusstreng som ikke fantes i det hele tatt, slik en
+     håndredigert eller eldre prosjektfil kan komme med. */
+  {
+    const m = (o.tomt.nivaa || {}).modus;
+    if (m && !NIVAAMODUSER.includes(m)) {
+      merknader.push({ type: 'nivaa',
+        tekst: `Det ferdige nivået står i modus «${m}», som programmet ikke kan regne. `
+          + `Flaten er lagt helt flat på koten. Modusene som virker er `
+          + `${NIVAAMODUSER.join(', ')}.` });
+    }
   }
   if (mal.maksSkjaeringsdybde > 0 && dypesteSkjaering > mal.maksSkjaeringsdybde) {
     merknader.push({ type: 'skjaering',

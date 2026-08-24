@@ -2755,11 +2755,28 @@ const App = {
     }
 
     ut += '<h3>Form</h3>';
-    ut += '<div class="felt"><label>Nivået</label>'
-      + `<select id="th_modus">
-           <option value="flat"${n.modus === 'flat' ? ' selected' : ''}>Flatt</option>
-           <option value="fall"${n.modus === 'fall' ? ' selected' : ''}>Fall i én retning</option>
-         </select><span class="enhet"></span></div>`;
+    /* Valgene bygges av Tomt.Nivaamoduser, som nå bare inneholder det motoren
+       faktisk kan. Sto de hardkodet her, kunne de to komme i utakt igjen – og
+       en modus i lista som ikke finnes i beregningen gir en helt flat flate
+       uten at noe sier fra. */
+    ut += '<div class="felt"><label>Nivået</label><select id="th_modus">'
+      + Object.entries(Tomt.Nivaamoduser).map(([v, navn]) =>
+        `<option value="${v}"${n.modus === v ? ' selected' : ''}>${escapeHtml(navn)}</option>`).join('')
+      + '</select><span class="enhet"></span></div>';
+    if (n.modus === 'sluk') {
+      const satt = n.punkt && (Number.isFinite(n.punkt.lat) || Number.isFinite(n.punkt.x));
+      const f = (n.fall || 0) * 100;
+      ut += `<div class="felt"><label>Fall mot sluket</label>`
+        + `<input type="number" id="th_fall" step="0.5" min="0" max="15" value="${f.toFixed(1)}">`
+        + '<span class="enhet">%</span></div>';
+      ut += '<div class="knapperad hoydeverktoy"><button class="knapp" id="th_settSluk">'
+        + (satt ? 'Flytt sluket' : 'Sett sluket i kartet') + '</button></div>';
+      ut += satt
+        ? '<p class="notis">Flaten faller jevnt mot sluket. Punktet står i kartet – '
+          + 'trykk på knappen for å flytte det.</p>'
+        : '<p class="notis">⚠ Sluket er ikke satt ennå, så flaten er regnet flat. '
+          + 'Trykk på knappen og klikk der sluket skal stå.</p>';
+    }
     if (n.modus === 'fall') {
       const f = (n.fall || 0) * 100;
       const somForhold = f > 0.001 ? '1:' + Math.round(100 / f) : 'flatt';
@@ -2852,6 +2869,8 @@ const App = {
         await this.beregnTomt();
       };
     };
+    const sluk = document.getElementById('th_settSluk');
+    if (sluk) sluk.onclick = () => Kart.settModus('settSluk');
     const arb = document.getElementById('th_arbeidstype');
     if (arb) arb.onchange = () => {
       this.merk('endret arbeidstype');

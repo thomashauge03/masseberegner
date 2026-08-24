@@ -48,17 +48,27 @@ const Arbeidstyper = {
   }
 };
 
-/** Måtene det ferdige nivået kan settes på. */
+/**
+ * Måtene det ferdige nivået kan settes på.
+ *
+ * LISTA SKAL IKKE LOVE MER ENN MOTOREN GJØR.
+ * Her sto ni moduser: trePunkt, rennelinje, takfall, terreng, balansert og fri
+ * i tillegg til de tre under. Ingen av de seks fantes i `nivaaVed()` – de falt
+ * alle til «default: return k», altså helt flatt, uten en eneste merknad.
+ * Målt på en skrånende tomt ga de nøyaktig samme volum som «flat», og det samme
+ * gjorde en modusstreng som ikke fantes i det hele tatt.
+ *
+ * `balansert` var dessuten overflødig, ikke manglende: den koten finnes alt som
+ * knappen «Massebalanse», som halverer seg fram til der skjæring og fylling går
+ * opp mot hverandre.
+ *
+ * De tre som står igjen er implementert og prøvd. Skal en av de andre inn, hører
+ * den hjemme i `nivaaVed()` FØRST og i denne lista etterpå.
+ */
 const Nivaamoduser = {
   flat: 'Fast kote – helt flatt',
   fall: 'Fall i én retning',
-  trePunkt: 'Plan gjennom tre punkt',
-  sluk: 'Faller mot ett punkt',
-  rennelinje: 'Faller mot en linje',
-  takfall: 'Faller til begge sider fra en rygg',
-  terreng: 'Følger terrenget med et fast avvik',
-  balansert: 'Koten som gir massebalanse',
-  fri: 'Egne høydepunkt, resten interpoleres'
+  sluk: 'Faller mot ett punkt'
 };
 
 /** Hva som kan stå langs en kant. */
@@ -227,10 +237,10 @@ function nyTomt() {
       kote: null,            // null = ikke satt enda, foreslas fra terrenget
       fall: 0.02,            // brukes nar man velger fall
       fallretning: 0,        // grader fra nord, dit vannet renner
-      punkt: null,           // for 'sluk'
-      linje: null,           // for 'rennelinje'
-      offset: 0,             // for 'terreng'
-      hoydepunkter: []       // for 'fri'
+      punkt: null            // for 'sluk' - {lat, lon} eller {x, y}
+      /* `linje`, `offset` og `hoydepunkter` sto her, for rennelinje, terreng og
+         fri. De tre modusene fantes aldri i motoren, og feltene ble aldri lest
+         av noe – bare lagret i hver eneste prosjektfil. */
     }
   };
 }

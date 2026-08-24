@@ -1033,6 +1033,47 @@ const Nettlesertest = {
       this.sjekk('massepanelet viser tomta, ikke vegteksten',
         !/Tegn en senterlinje/.test(document.getElementById('massesammendrag').textContent));
 
+      /* SLUKET VAR FERDIG REGNET, MEN KUNNE IKKE VELGES.
+         Beregningen, HTML-rapporten og PDF-en hadde alle sin sluk-gren, men
+         ingenting skrev noen gang `nivaa.punkt`, og modusen sto ikke i
+         velgeren. En grusplass med sluk måtte legges som «flat». */
+      Terreng.prototype.lastOmraade = async function () { };
+      Terreng.prototype.dekning = () => 1;
+      Terreng.prototype.z = () => 100;
+      App.P.tomt.nivaa = { modus: 'flat', kote: 100 };
+      App._terrengnokkel = null;
+      await App.beregnTomt();
+      const flatVolum = App.resultat.sum.fylling;
+      App.visFane('tomthoyde');
+      const velger = document.getElementById('th_modus');
+      this.sjekk('velgeren tilbyr bare modusene motoren kan',
+        [...velger.options].map(o => o.value).join(',') === Object.keys(Tomt.Nivaamoduser).join(','),
+        [...velger.options].map(o => o.value).join(','));
+      App.P.tomt.nivaa = { modus: 'sluk', kote: 100, fall: 0.03, punkt: null };
+      App.tomthoydeTilSkjema();
+      this.sjekk('et sluk som ikke er satt sier fra',
+        /ikke satt/.test(document.getElementById('fane-tomthoyde').textContent));
+      const slukknapp = document.getElementById('th_settSluk');
+      this.sjekk('og det finnes en knapp for å sette det', !!slukknapp);
+      slukknapp.onclick();
+      this.sjekk('knappen setter kartet i sluk-modus', Kart.modus === 'settSluk', Kart.modus);
+      Kart.klikk({ latlng: { lat: lat0 + dLat(15), lng: lon0 + dLon(20) } });
+      await this.vent(400);
+      this.sjekk('kartklikket setter sluket', !!App.P.tomt.nivaa.punkt
+        && Number.isFinite(App.P.tomt.nivaa.punkt.lat));
+      this.sjekk('og slipper kartet tilbake til rediger', Kart.modus === 'rediger', Kart.modus);
+      this.sjekk('sluket endrer volumet – modusen virker',
+        Math.abs(App.resultat.sum.fylling - flatVolum) > 1,
+        App.resultat.sum.fylling.toFixed(1) + ' mot ' + flatVolum.toFixed(1));
+
+      /* En modus motoren ikke kjenner ga en helt flat flate uten et ord om det.
+         Lista lovet ni former, motoren kunne tre. */
+      App.P.tomt.nivaa = { modus: 'takfall', kote: 100 };
+      App._terrengnokkel = null;
+      await App.beregnTomt();
+      this.sjekk('en ukjent nivåmodus blir meldt, ikke stilltiende flat',
+        (App.resultat.merknader || []).some(m => m.type === 'nivaa'));
+
       /* BAKKEFAKTOREN BLE HENTET FRA VEGENS MIDTPUNKT.
          `bakkefaktor()` leste `this.linje` – veglinja. På en tomt betydde det
          ett av to, og begge var gale: uten veglinje i prosjektet ble faktoren
