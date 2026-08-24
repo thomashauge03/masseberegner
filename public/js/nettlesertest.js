@@ -830,9 +830,20 @@ const Nettlesertest = {
    * knapp som bryter linja vil slå ut her, og det er hele poenget.
    */
   async panelhoder() {
+    /* KARTET SKAL IKKE HA HODE I DET HELE TATT.
+       Et panelhode er en 40 px stripe over hele bredden som ikke viser noe.
+       Over et kart er den unødvendig – det som dekkes kan panoreres fram – og
+       verktøyene ligger derfor PÅ kartet. En graf har ingen slik reserve, og
+       beholder sitt hode. */
+    this.sjekk('kartet har ikke panelhode',
+      !document.querySelector('.kartpanel .panelhode'));
+    this.sjekk('og verktøyene ligger på kartflaten',
+      !!document.querySelector('.kartflate .kartverktoy')
+      && !!document.getElementById('verktoyTegn'));
+
     const paneler = [...document.querySelectorAll('.panel')]
       .filter(p => p.offsetParent && p.querySelector('.panelhode'));
-    this.sjekk('det finnes paneler å måle', paneler.length >= 3, paneler.length + ' paneler');
+    this.sjekk('de andre panelene har hoder å måle', paneler.length >= 2, paneler.length + ' paneler');
 
     for (const p of paneler) {
       const navn = (p.className.match(/(\w+)panel/) || [])[1] || '?';
@@ -868,6 +879,75 @@ const Nettlesertest = {
       }
       this.sjekk('ingen knapp er smalere enn teksten sin', trange.length === 0,
         trange.slice(0, 4).join(', ') || 'alle har plass');
+    }
+
+    /* FELTBILDET: 44 PIKSLER.
+       Målt på et nettbrett før dette: 45 av 48 synlige betjeningsflater var
+       under 44 px – verktøyknappene 25 px høye, tallfeltene 23, ⤢ 20×18,
+       skyveren 16. En finger treffer 8–10 mm. De tre `pointer: coarse`-reglene
+       som fantes traff nøyaktig én av de 45.
+       Regelen henger på `data-peker` og ikke på en media-spørring nettopp
+       fordi den skal kunne prøves her. */
+    {
+      const foer = document.documentElement.getAttribute('data-peker');
+      document.documentElement.setAttribute('data-peker', 'grov');
+      await this.vent(120);
+      const smaa = [];
+      const velg = 'button, input, select, label.kartbrikke, .fane';
+      let alle = 0;
+      for (const e of document.querySelectorAll(velg)) {
+        if (!e.offsetParent) continue;
+        const r = e.getBoundingClientRect();
+        if (r.width < 2 || r.height < 2) continue;
+        alle++;
+        if (r.height < 43.5 || r.width < 43.5) {
+          smaa.push((e.id || e.className.toString().split(' ')[0]) + ' '
+            + Math.round(r.width) + '×' + Math.round(r.height));
+        }
+      }
+      this.sjekk('prøven fant noe å måle', alle >= 20, alle + ' flater');
+      this.sjekk('hver betjeningsflate er minst 44 px med finger',
+        smaa.length === 0, smaa.slice(0, 5).join(', ') || 'alle er store nok');
+      document.documentElement.setAttribute('data-peker', foer || 'fin');
+      await this.vent(80);
+    }
+
+    /* MAN MÅ KOMME TILBAKE FRA 3D.
+       3D-lerretene er `inset: 0`, og de målte fra HELE tverrpanelet –
+       panelhodet inkludert. Med 3D på lå de derfor oppå «Snitt»-knappen, og
+       veien tilbake til tverrsnittet var ikke klikkbar. Man kunne slå på 3D og
+       ikke komme ut igjen. */
+    {
+      const paa = document.getElementById('vegVis3d');
+      const av = document.getElementById('vegVisSnitt');
+      if (paa && av && paa.offsetParent) {
+        paa.click();
+        await this.vent(200);
+        const r = av.getBoundingClientRect();
+        const truffet = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+        this.sjekk('«Snitt»-knappen er klikkbar mens 3D står på',
+          truffet === av || av.contains(truffet),
+          truffet ? (truffet.id || truffet.tagName) : 'ingenting');
+        av.click();
+        await this.vent(150);
+        this.sjekk('og snittet kommer tilbake',
+          !document.getElementById('tverrprofil').classList.contains('skjult'));
+      }
+    }
+
+    /* AVLESNINGEN SKAL VÆRE LESELIG.
+       Den sto i verktøylinja og fikk 240 px av de 465 den trenger – 52 % av
+       tallet man blar for å lese var usynlig, og på et nettbrett i portrett
+       var 96 % borte. */
+    {
+      const e = document.getElementById('tverrEtikett');
+      this.sjekk('avlesningen ligger ved tegningen, ikke i verktøylinja',
+        !!e && !e.closest('.verktoy') && !!e.closest('.tverrinnhold'));
+      if (e && e.offsetParent) {
+        this.sjekk('og har plass til hele teksten',
+          e.scrollWidth <= e.clientWidth + 2,
+          e.clientWidth + ' av ' + e.scrollWidth + ' px');
+      }
     }
 
     /* Lagvelgeren på kartet: åtte kontroller som før lå i hodet. */
@@ -1821,13 +1901,18 @@ const Nettlesertest = {
 
         /* Et klikk velger stedet. Uten dette ser man en fylling i modellen uten
            å kunne komme til den. */
-        let treff = null;
-        for (let y = 20; y < o.clientHeight - 20 && !treff; y += 7) {
+        /* MIDT I MODELLEN, IKKE PÅ KANTEN.
+           Første treff i en skanning ovenfra-og-ned er alltid ytterkanten, og
+           fire zoomsteg der tar punktet utenfor. Punktet i midten av treffene
+           er det prøven egentlig vil måle på. */
+        const alle = [];
+        for (let y = 20; y < o.clientHeight - 20; y += 7) {
           for (let x = 20; x < o.clientWidth - 20; x += 7) {
             const t = Veg3d._slaOpp({ x, y }, o);
-            if (t && t.k >= 0) { treff = { x, y, k: t.k }; break; }
+            if (t && t.k >= 0) alle.push({ x, y, k: t.k });
           }
         }
+        const treff = alle.length ? alle[(alle.length / 2) | 0] : null;
         this.sjekk('det finnes noe å klikke på i modellen', !!treff);
         if (treff) {
           App.settTverrStasjon(0);
@@ -1874,15 +1959,19 @@ const Nettlesertest = {
              eksakt likhet ville falt tilfeldig. Feilen prøven finnes for –
              forskyvningen regnet fra feil nullpunkt – sendte markøren titalls
              celler unna, som regel helt ut i bakgrunnen. */
+          /* MÅLT I METER, IKKE I CELLER.
+             Cellene på tvers av vegen er en tredels meter brede, så nitten
+             celler er seks meter – men de er også bare et par piksler på
+             skjermen, og et par piksler er ikke det prøven er til for. Feilen
+             den finnes for – forskyvningen regnet fra feil nullpunkt – flyttet
+             markøren titalls meter, som regel helt ut i bakgrunnen. */
           const gg3 = Veg3d._sisteGitter;
-          const avstand = (etter && etter.k >= 0 && foer && foer.k >= 0)
-            ? Math.max(Math.abs(((etter.k / gg3.nb) | 0) - ((foer.k / gg3.nb) | 0)),
-              Math.abs((etter.k % gg3.nb) - (foer.k % gg3.nb)))
-            : 999;
+          const meter = (etter && etter.k >= 0 && foer && foer.k >= 0)
+            ? Math.hypot(gg3.wx[etter.k] - gg3.wx[foer.k], gg3.wy[etter.k] - gg3.wy[foer.k])
+            : Infinity;
           this.sjekk('hjulet zoomer mot markøren, ikke mot midten',
-            avstand <= 1,
-            'node ' + (foer ? foer.k : '-') + ' → ' + (etter && etter.k >= 0 ? etter.k : 'bakgrunn')
-            + ' (' + (avstand === 999 ? 'utenfor modellen' : avstand + ' celler unna') + ')');
+            meter <= 8,
+            Number.isFinite(meter) ? meter.toFixed(1) + ' m unna' : 'markøren havnet i bakgrunnen');
           Veg3d.nullstill();
           await this.vent(120);
         }

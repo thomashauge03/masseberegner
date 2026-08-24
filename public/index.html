@@ -39,19 +39,7 @@
 
   <!-- ---------------- Kart ---------------- -->
   <section class="panel kartpanel">
-    <div class="panelhode">
-      <span>Kart</span>
-      <button class="utvidknapp" data-utvid="kart" title="Stor visning (skjuler de andre)">⤢</button>
-      <div class="verktoy">
-        <button id="verktoyTegn" class="verktoyknapp" title="Klikk i kartet for å legge inn knekkpunkt. Dobbeltklikk for å avslutte.">✏️ Tegn senterlinje</button>
-        <button id="verktoyTomt" class="verktoyknapp skjult" title="Klikk rundt tomta i kartet. Dobbeltklikk for å lukke den.">⬟ Tegn tomt</button>
-        <button id="verktoyFlytt" class="verktoyknapp aktiv" title="Flytt og rediger punkt">✥ Rediger</button>
-        <button id="verktoySondering" class="verktoyknapp" title="Registrer observert dybde til fjell">⛏ Fjellpunkt</button>
-        <button id="knappAngre" class="verktoyknapp" title="Angre (Ctrl+Z)" disabled>↶</button>
-        <button id="knappGjorOm" class="verktoyknapp" title="Gjør om (Ctrl+Shift+Z)" disabled>↷</button>
-        <label class="avkryss skjult" id="visTomtefargerBoks"><input type="checkbox" id="visTomtefarger" checked> Skjæring/fylling</label>
-      </div>
-    </div>
+
     <!-- Søkefeltet og infoboksen ligger OPPÅ kartet, og må derfor måle fra
          kartflaten – ikke fra toppen av panelet. Med `top: 46px` fra panelet la
          søkefeltet seg over verktøylinja med én gang hodet brøt over to rader,
@@ -84,6 +72,23 @@
           <div id="overleggsvalg" class="kartbrikker"></div>
         </div>
       </div>
+      <!-- KARTET HAR IKKE PANELHODE.
+           Et panelhode er en 40 px høy stripe over hele bredden som ikke viser
+           noe. Over kartet er den unødvendig: et kart tåler at noe ligger oppå,
+           fordi det som dekkes kan panoreres fram – en graf har ingen slik
+           reserve, og derfor beholder profilene sine hoder. Alt som styrer
+           kartet ligger nå PÅ kartet. Ingen id har flyttet seg. -->
+      <div class="kartverktoy">
+        <button id="verktoyTegn" class="verktoyknapp" title="Klikk i kartet for å legge inn knekkpunkt. Dobbeltklikk for å avslutte.">✏️ Tegn senterlinje</button>
+        <button id="verktoyTomt" class="verktoyknapp skjult" title="Klikk rundt tomta i kartet. Dobbeltklikk for å lukke den.">⬟ Tegn tomt</button>
+        <button id="verktoyFlytt" class="verktoyknapp aktiv" title="Flytt og rediger punkt">✥ Rediger</button>
+        <button id="verktoySondering" class="verktoyknapp" title="Registrer observert dybde til fjell">⛏ Fjellpunkt</button>
+        <span class="skilje" aria-hidden="true"></span>
+        <button id="knappAngre" class="verktoyknapp" title="Angre (Ctrl+Z)" disabled>↶</button>
+        <button id="knappGjorOm" class="verktoyknapp" title="Gjør om (Ctrl+Shift+Z)" disabled>↷</button>
+        <label class="avkryss skjult" id="visTomtefargerBoks"><input type="checkbox" id="visTomtefarger" checked> Skjæring/fylling</label>
+      </div>
+      <button class="utvidknapp kartutvid" data-utvid="kart" title="Stor visning (skjuler de andre)">⤢</button>
       <div id="kartinfo" class="kartinfo"></div>
     </div>
   </section>
@@ -168,13 +173,25 @@
           <button id="v3_nullstill" class="verktoyknapp" title="Tilbake til utgangsstillingen">↺</button>
           <span class="hjelpetekst">Dra snur · høyreklikk-dra flytter · hjul zoomer · klikk velger profil · piltaster går bortover</span>
         </span>
-        <span id="tverrEtikett" class="etikett">–</span>
       </div>
     </div>
-    <canvas id="tverrprofil"></canvas>
-    <canvas id="veg3d" class="skjult"></canvas>
-    <!-- tabindex: uten den tar ikke lerretet imot piltastene -->
-    <canvas id="veg3dover" class="skjult" tabindex="0"></canvas>
+    <!-- LERRETENE MÅ LIGGE I EN EGEN BOKS.
+         3D-lerretene er `position: absolute; inset: 0` – og var det i forhold til
+         HELE panelet, panelhodet inkludert. Med 3D på lå de derfor oppå «Snitt»-
+         knappen: elementFromPoint midt på den ga `veg3dover`, så veien tilbake
+         til tverrsnittet var ikke klikkbar. Man kunne slå på 3D og ikke komme
+         ut igjen. (Tomtepanelet gjorde dette riktig fra før, med .tomtinnhold.) -->
+    <div class="tverrinnhold">
+      <canvas id="tverrprofil"></canvas>
+      <canvas id="veg3d" class="skjult"></canvas>
+      <!-- tabindex: uten den tar ikke lerretet imot piltastene -->
+      <canvas id="veg3dover" class="skjult" tabindex="0"></canvas>
+      <!-- AVLESNINGEN HØRER TIL VED TEGNINGEN, IKKE I VERKTØYLINJA.
+           Der var den 240 px av de 465 den trengte – 52 % av tallet han blar
+           for å lese var usynlig, og på 1024 px var det 4 %. Her har den hele
+           bredden, og den kan aldri presse verktøylinja over på en ny rad. -->
+      <div id="tverrEtikett" class="avlesning">–</div>
+    </div>
   </section>
 
   <!-- ---------------- Tomt (erstatter de to profilpanelene) ---------------- -->

@@ -797,7 +797,28 @@ const App = {
     return m;
   },
 
+  /**
+   * Grov peker: finger eller hanske i stedet for mus.
+   *
+   * STYRT AV ET ATTRIBUTT, IKKE AV EN MEDIA-SPØRRING.
+   * `@media (pointer: coarse)` kan ikke slås på fra en prøve, og kan ikke
+   * overstyres av den som sitter med en berøringsskjerm og en mus. Målt på et
+   * nettbrett: 45 av 48 synlige betjeningsflater var under 44 px, og de tre
+   * coarse-reglene som fantes traff nøyaktig én av dem. Nå setter dette
+   * attributtet, og CSS-en henger på det.
+   */
+  settPekertype() {
+    const grov = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+    document.documentElement.setAttribute('data-peker', grov ? 'grov' : 'fin');
+  },
+
   async start() {
+    this.settPekertype();
+    if (window.matchMedia) {
+      const q = window.matchMedia('(pointer: coarse)');
+      // et nettbrett med tastatur bytter pekertype midt i økten
+      if (q.addEventListener) q.addEventListener('change', () => this.settPekertype());
+    }
     /* Prosjektet settes fra fem forskjellige steder - nytt prosjekt, apning,
        import, angre og nettlesertesten. Klargjøringen ma skje hver eneste
        gang, ellers star koden med et prosjekt uten vinduene inn i anlegget,

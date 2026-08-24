@@ -13,6 +13,48 @@ const Lengdeprofil = {
     this.ctx = this.lerret.getContext('2d');
     const l = this.lerret;
 
+    /* FINGEREN MÅ KUNNE DRA, IKKE BARE TRYKKE.
+       Panelet lytter bare på mus. Nettleseren lager et museklikk av et TRYKK,
+       men ikke av et DRAG – så «dra i knekkpunktene», som er hovedgesten i
+       panelet og står i hjelpeteksten, var umulig med finger. På et nettbrett
+       kunne man se høydeprofilen og ikke røre den.
+
+       Pekerhendelser dekker mus, finger og penn i ett, og `setPointerCapture`
+       gjør at draget følger fingeren også utenfor lerretet. Museopplyttingen
+       under står igjen: eldre nettlesere uten pointerevents faller tilbake på
+       den, og to like hendelser gjør ingen skade her (draget er idempotent). */
+    if (window.PointerEvent) {
+      l.style.touchAction = 'none';       // ellers ruller/zoomer nettleseren i stedet
+      l.addEventListener('pointerdown', e => {
+        if (e.pointerType === 'mouse') return;         // musa har sin egen vei under
+        const i = this.finnVip(e);
+        if (i >= 0 && this.app.P.vip[i].laast) {
+          this.app.status(`Profil ${this.app.P.vip[i].s.toFixed(0)} er låst – lås den opp under «Høyder» for å flytte den`);
+          return;
+        }
+        if (i >= 0) {
+          this.dragIndeks = i;
+          l.setPointerCapture(e.pointerId);
+          e.preventDefault();
+          return;
+        }
+        this.app.settTverrStasjon(this.fraSkjerm(e).s);
+      });
+      l.addEventListener('pointermove', e => {
+        if (e.pointerType === 'mouse' || this.dragIndeks < 0) return;
+        this.app.P.vip[this.dragIndeks].z = this.fraSkjerm(e).z;
+        this.app.profilEndret(true);
+        e.preventDefault();
+      });
+      const slipp = e => {
+        if (e.pointerType === 'mouse' || this.dragIndeks < 0) return;
+        this.dragIndeks = -1;
+        this.app.profilEndret(false);
+      };
+      l.addEventListener('pointerup', slipp);
+      l.addEventListener('pointercancel', slipp);
+    }
+
     l.addEventListener('mousedown', e => {
       const { s, z } = this.fraSkjerm(e);
       const i = this.finnVip(e);
@@ -96,7 +138,10 @@ const Lengdeprofil = {
   finnVip(e) {
     const r = this.lerret.getBoundingClientRect();
     const px = e.clientX - r.left, py = e.clientY - r.top;
-    let best = -1, bestD = 11;
+    /* 11 px er en musepil. En finger treffer 8-10 mm, altså rundt 30 px, og en
+       finger med hanske mer. Radiusen følger derfor pekeren: presis der pekeren
+       er presis, romslig der den ikke er. */
+    let best = -1, bestD = matchMedia('(pointer: coarse)').matches ? 26 : 11;
     this.app.P.vip.forEach((v, i) => {
       const p = this.tilSkjerm(v.s, v.z);
       const d = Math.hypot(p.x - px, p.y - py);

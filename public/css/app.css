@@ -124,6 +124,15 @@ body {
   font-size: 13px;
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
+  /* HØYDEN MÅ IKKE VÆRE ET REGNESTYKKE MED 52 I.
+     Rutenettet sto på `calc(100vh - 52px)`, altså en fast antakelse om at
+     topplinja er nøyaktig 52 px høy. Da kan den aldri bryte over to rader – og
+     på et nettbrett i portrett (768 px) trengte den 872 px. Resultatet var at
+     ◧-knappen, den eneste veien til massetallene, lå 104 px UTENFOR skjermen,
+     med `overflow: hidden` på body så det ikke gikk an å rulle bort til den.
+     Hele svaret programmet regner ut var utilgjengelig på et nettbrett. */
+  display: flex;
+  flex-direction: column;
 }
 
 /* Fokus skal alltid vere synleg, aldri fjerna. */
@@ -142,7 +151,10 @@ body {
 
 /* ── topplinje ─────────────────────────────────────────── */
 .topp {
-  height: 52px;
+  flex: none;
+  min-height: 52px;
+  flex-wrap: wrap;
+  row-gap: 6px;
   display: flex; align-items: center; gap: 14px;
   padding: 0 14px;
   background: var(--hm-svart);
@@ -198,7 +210,8 @@ body {
 /* ── rutenett ──────────────────────────────────────────── */
 .rute {
   display: grid;
-  height: calc(100vh - 52px);
+  flex: 1;
+  min-height: 0;
   grid-template-columns: 1fr 400px;
   /* ALLE TRE VOKSER, IKKE BARE KARTET.
      Her sto `1fr 250px 230px`. Målt: på en 1080 px høy skjerm fikk kartet
@@ -259,7 +272,9 @@ body {
 #tomt3dover:active, #veg3dover:active { cursor: grabbing; }
 #tomt3d.skjult, #tomt3dover.skjult, #veg3d.skjult, #veg3dover.skjult { display: none; }
 /* Tverrpanelet må ha ei ramme dei absolutt plasserte lerreta kan feste seg i. */
-.tverrpanel { position: relative; }
+/* Boksen lerretene måler fra. Uten den la 3D-lerretet seg over panelhodet. */
+.tverrinnhold { position: relative; flex: 1; min-height: 0; display: flex; }
+#tverrprofil { flex: 1; min-width: 0; }
 
 /* Vekslaren mellom snitt og 3D. Står i panelhovudet, rett etter tittelen. */
 .visvalg { display: flex; gap: 2px; margin-left: 6px; flex: none; }
@@ -887,3 +902,96 @@ body {
   .menypanel .verktoyknapp { min-height: 40px; }
   .menypanel .minivalg { min-height: 40px; }
 }
+
+
+/* ── avlesningen under tegningen ────────────────────────
+   Den sto i verktøylinja og fikk 240 px av de 465 den trenger – halve tallet
+   var borte, og på et nettbrett i portrett var 96 % borte. Her ligger den langs
+   nedre kant av tegningen, med hele bredden, og kan ikke presse noe. */
+.avlesning {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 5;
+  padding: 3px 10px; pointer-events: none;
+  background: color-mix(in srgb, var(--flate) 82%, transparent);
+  border-top: 1px solid var(--kant);
+  color: var(--blekk); font-size: 11.5px; font-variant-numeric: tabular-nums;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+
+/* ── topplinja paa smal skjerm ──────────────────────────
+   Malt paa 768x1024 (nettbrett i portrett): topplinja bad om 872 px av 768.
+   Alt fraa knapperada og ut laag utanfor skjermen, inkludert ◧-knappen som er
+   einaste vegen til massetala naar sidepanelet er skjult. Her gir delane fraa
+   seg plass i staden, og statuslinja faar si eiga rad naar det trengst. */
+.topp .merke { flex: none; }
+.navnefelt { flex: 1 1 120px; min-width: 90px; width: auto; }
+.topp .knapperad { flex: none; }
+.status { flex: 1 1 auto; min-width: 0; }
+@media (max-width: 900px) {
+  /* Merket er logoen. Ordet ved sida er 87 px som seier det same. */
+  .merke .navn, .hm-skrastrek { display: none; }
+  .status { flex-basis: 100%; margin-left: 0; text-align: left; max-width: none; }
+}
+
+
+/* ── verktøyene på kartet ───────────────────────────────
+   Kartpanelets hode var 40 px som ikke viste noe. Verktøyene ligger nå nede til
+   venstre på kartet, lagvelgeren oppe til høyre, søket oppe til venstre.
+   Kartlerretet ved 1280 px gikk fra 144 til 188 px – 31 % mer – uten at
+   profilene mistet en piksel. */
+.kartverktoy {
+  position: absolute; left: 12px; bottom: 12px; z-index: 600;
+  display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+  max-width: calc(100% - 24px);
+  background: color-mix(in srgb, var(--flate-opp) 92%, transparent);
+  border: 2px solid var(--kant-sterk);
+  padding: 4px; box-shadow: 3px 3px 0 0 rgba(0,0,0,.35);
+}
+.kartverktoy .skilje { width: 1px; align-self: stretch; background: var(--kant); margin: 0 2px; }
+.kartutvid {
+  position: absolute; top: 12px; right: 122px; z-index: 600;
+  background: var(--flate-opp); border: 2px solid var(--kant-sterk);
+  min-height: 32px; min-width: 32px; box-shadow: 3px 3px 0 0 rgba(0,0,0,.35);
+}
+/* Kartpanelet har ikke lenger noe hode – innholdet fyller det. */
+.kartpanel > .kartflate { flex: 1; }
+
+
+/* ── finger og hanske ───────────────────────────────────
+   Malt paa eit nettbrett: 45 av 48 synlege betjeningsflater var under 44 px.
+   Verktoeyknappane 25 px hoege, tallfelta 23, ⤢ 20x18, hjelpeknappen 18x18,
+   skyvaren 16 px hoeg. Ein finger treffer 8-10 mm - rundt 44 px - og med hanske
+   meir. 44 px er ikkje pynt, det er skiljet mellom brukbar og ubrukbar i felt.
+
+   Regelen heng paa eit ATTRIBUTT, ikkje paa ei media-spoerjing, slik at ho kan
+   proevast og overstyrast. */
+html[data-peker="grov"] .verktoyknapp,
+html[data-peker="grov"] .knapp,
+html[data-peker="grov"] .kartknapp,
+html[data-peker="grov"] .modusknapp,
+html[data-peker="grov"] .fane,
+html[data-peker="grov"] .utvidknapp,
+html[data-peker="grov"] .kartlagknapp,
+html[data-peker="grov"] .menyknapp {
+  min-height: 44px;
+  padding-left: 12px; padding-right: 12px;
+}
+html[data-peker="grov"] .utvidknapp { min-width: 44px; }
+html[data-peker="grov"] .hjelpknapp { min-width: 44px; min-height: 44px; }
+html[data-peker="grov"] .minitall input,
+html[data-peker="grov"] .punkthoyder input,
+html[data-peker="grov"] .felt input,
+html[data-peker="grov"] .minivalg,
+html[data-peker="grov"] .navnefelt { min-height: 44px; font-size: 13px; }
+/* Skyvaren er 16 px hoeg som standard; ho skal kunne treffast utan aa sikte. */
+/* Skyvaren har ingen eigen hoegd i CSS - nettlesaren gir henne 16 px. Med
+   hanske treffer ein ikkje 16 px utan aa sikte. */
+html[data-peker="grov"] .skyver { height: 44px; }
+html[data-peker="grov"] .kartbrikke { min-height: 44px; }
+/* Litt meir luft mellom kontrollar naar dei er store, saa ein ikkje treffer feil. */
+html[data-peker="grov"] .verktoy,
+html[data-peker="grov"] .kartverktoy { gap: 7px; }
+html[data-peker="grov"] .knapp,
+html[data-peker="grov"] .verktoyknapp { min-width: 44px; }
+html[data-peker="grov"] .kartsok input,
+html[data-peker="grov"] .navnefelt { min-height: 44px; }
