@@ -49,22 +49,28 @@
         <button id="verktoySondering" class="verktoyknapp" title="Registrer observert dybde til fjell">⛏ Fjellpunkt</button>
         <button id="knappAngre" class="verktoyknapp" title="Angre (Ctrl+Z)" disabled>↶</button>
         <button id="knappGjorOm" class="verktoyknapp" title="Gjør om (Ctrl+Shift+Z)" disabled>↷</button>
-        <select id="bakgrunnskart" class="minivalg">
-          <option value="topo">Topografisk</option>
-          <option value="toporaster">Turkart (raster)</option>
-          <option value="topograatone">Gråtone</option>
-        </select>
-        <label class="avkryss"><input type="checkbox" id="visSkygge" checked> Terrengskygge</label>
-        <label class="avkryss"><input type="checkbox" id="visLosmasse"> Løsmasser (NGU)</label>
+        <!-- Knapper, ikke nedtrekk: i felt med hansker på et nettbrett er et
+             <select> tre handlinger, og den innebygde velgeren legger seg
+             oppå nettopp den delen av kartet man skal vurdere. Både disse og
+             overleggsboksene bygges i JS fra KARTLAG i ui-kart.js, så et valg
+             uten et lag bak seg ikke kan oppstå. -->
+        <div id="bakgrunnsvalg" class="kartknapper" role="radiogroup" aria-label="Bakgrunnskart"></div>
+        <div id="overleggsvalg" class="kartbrikker"></div>
         <label class="avkryss skjult" id="visTomtefargerBoks"><input type="checkbox" id="visTomtefarger" checked> Skjæring/fylling</label>
       </div>
     </div>
-    <div id="kart"></div>
-    <div class="kartsok">
-      <input id="sokefelt" placeholder="Søk sted eller adresse…" spellcheck="false">
-      <div id="sokeliste" class="sokeliste skjult"></div>
+    <!-- Søkefeltet og infoboksen ligger OPPÅ kartet, og må derfor måle fra
+         kartflaten – ikke fra toppen av panelet. Med `top: 46px` fra panelet la
+         søkefeltet seg over verktøylinja med én gang hodet brøt over to rader,
+         og det gjør det nå som lagvelgeren har flyttet inn dit. -->
+    <div class="kartflate">
+      <div id="kart"></div>
+      <div class="kartsok">
+        <input id="sokefelt" placeholder="Søk sted eller adresse…" spellcheck="false">
+        <div id="sokeliste" class="sokeliste skjult"></div>
+      </div>
+      <div id="kartinfo" class="kartinfo"></div>
     </div>
-    <div id="kartinfo" class="kartinfo"></div>
   </section>
 
   <!-- ---------------- Lengdeprofil ---------------- -->

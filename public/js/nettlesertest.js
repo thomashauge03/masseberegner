@@ -51,6 +51,14 @@ const Nettlesertest = {
     const feilILoggen = [];
     const gammelFeil = window.onerror;
     window.onerror = (m) => { feilILoggen.push(String(m)); };
+    /* window.onerror ALENE ER IKKE NOK.
+       App.start() er async. Et kast inne i Kart.init blir derfor en avvist
+       promise, ikke en onerror – og testen meldte «ingen feil i konsollen» selv
+       med et helt dødt kart. Det er nettopp den feilen som er lettest å lage
+       når man rører bakgrunnslagene, og den som er vanskeligst å se. */
+    const paaAvvist = e => feilILoggen.push('ufanget avvisning: '
+      + String((e && e.reason && e.reason.message) || (e && e.reason) || e));
+    window.addEventListener('unhandledrejection', paaAvvist);
 
     /* Testen laner prosjektet som star apent, legger inn punkt og fjerner dem
        igjen. Med autolagring pa ble de mellomtilstandene skrevet inn i
@@ -84,6 +92,7 @@ const Nettlesertest = {
       await this.tomterydding();
       await this.tomt3d();
       await this.veg3d();
+      await this.kartlag();
       await this.framdrift();
       await this.opprydding();
     } catch (e) {
@@ -91,6 +100,7 @@ const Nettlesertest = {
     }
 
     window.onerror = gammelFeil;
+    window.removeEventListener('unhandledrejection', paaAvvist);
 
     /* Legg prosjektet tilbake slik det sto, ogsa i lageret dersom det var
        lagret der fra før. Testen skal ikke etterlate seg spor i noe brukeren
@@ -1767,6 +1777,202 @@ const Nettlesertest = {
       App.klargjorProsjekt(App.P);
       App.resultat = null;
       App._terrengnokkel = null;
+    }
+  },
+
+  /* ---------------- 18. bakgrunnskart og overlegg ---------------- */
+  /**
+   * Bakgrunnslagene hadde null dekning før dette, og feilen de kunne få er av
+   * den verste sorten: bytteren fjernet det gamle laget FØR den slo opp det
+   * nye, så et valg uten et lag bak seg etterlot kartet uten bakgrunn OG med en
+   * ugyldig gjeldende nøkkel – hvorpå også NESTE bytte kastet. Ingen vei
+   * tilbake uten å laste siden på nytt.
+   *
+   * Den andre fella er stillere: flyfototjenesten svarer HTTP 200 med en grå
+   * «Map data not yet available»-rute fra zoom 19 og oppover i distrikts-Norge.
+   * Leaflet ser ingen feil. Uten maxNativeZoom ville man zoomet inn for å
+   * plassere et hjørne og fått grå skjerm med tegningen svevende oppå.
+   */
+  async kartlag() {
+    const startBakgrunn = Kart.gjeldendeBakgrunn;
+    const startValg = (() => { try { return localStorage.getItem('massekalk.kartvalg'); } catch (e) { return null; } })();
+    try {
+      /* 18.1 HVER KNAPP HAR ET LAG, OG HVERT LAG HAR EN KNAPP.
+         Begge veier. Én vei ville sluppet gjennom nettopp det tilfellet som
+         ødelegger kartet permanent. */
+      const knapper = [...document.querySelectorAll('#bakgrunnsvalg .kartknapp')];
+      this.sjekk('bakgrunnsknappene ble bygd', knapper.length >= 3, knapper.length + ' knapper');
+      const navn = knapper.map(k => k.dataset.bakgrunn);
+      this.sjekk('hver knapp peker på et lag som finnes',
+        navn.every(n => !!Kart.bakgrunner[n]),
+        navn.filter(n => !Kart.bakgrunner[n]).join(', ') || 'alle');
+      const nokler = Object.keys(Kart.bakgrunner);
+      this.sjekk('og hvert lag har sin knapp',
+        nokler.every(n => navn.includes(n)),
+        nokler.filter(n => !navn.includes(n)).join(', ') || 'alle');
+
+      /* 18.2 Rundtur gjennom alle, og TILBAKE igjen – det er det andre byttet
+         som avslører en ødelagt tilstand. */
+      for (const n of navn.concat([navn[0]])) {
+        Kart.settBakgrunn(n);
+        await this.vent(30);
+        const pa = nokler.filter(k => Kart.kart.hasLayer(Kart.bakgrunner[k]));
+        this.sjekk('bytte til «' + n + '» gir nøyaktig ett bakgrunnslag',
+          Kart.gjeldendeBakgrunn === n && pa.length === 1 && pa[0] === n,
+          'gjeldende ' + Kart.gjeldendeBakgrunn + ', på kartet: ' + (pa.join(', ') || 'ingen'));
+      }
+
+      /* 18.3 Et ukjent navn skal ikke gjøre noe som helst. */
+      const foer = Kart.gjeldendeBakgrunn;
+      Kart.settBakgrunn('finnesikke');
+      await this.vent(30);
+      this.sjekk('ukjent bakgrunn lar kartet stå som det står',
+        Kart.gjeldendeBakgrunn === foer && Kart.kart.hasLayer(Kart.bakgrunner[foer]),
+        'gjeldende ' + Kart.gjeldendeBakgrunn);
+
+      /* 18.4 GRENSEN MOT DE GRÅ FLISENE. */
+      const f = Kart.bakgrunner.flyfoto;
+      this.sjekk('flyfotoet finnes som lag', !!f);
+      if (f) {
+        this.sjekk('flyfotoet stopper på siste ekte zoomnivå',
+          f.options.maxNativeZoom === 18,
+          'maxNativeZoom ' + f.options.maxNativeZoom);
+        this.sjekk('men lar Leaflet strekke lenger inn',
+          f.options.maxZoom >= 21, 'maxZoom ' + f.options.maxZoom);
+        this.sjekk('og attribusjonen står i laget',
+          /Esri/.test(f.options.attribution || ''), f.options.attribution || 'ingen');
+
+        Kart.settBakgrunn('flyfoto');
+        await this.vent(60);
+        const gammelZoom = Kart.kart.getZoom();
+        Kart.kart.setZoom(20);
+        await this.vent(400);
+        const forDypt = [...document.querySelectorAll('.leaflet-tile-pane img')]
+          .filter(i => /arcgisonline/.test(i.src) && /\/(19|20|21)\/\d+\/\d+/.test(i.src));
+        this.sjekk('ingen flis hentes fra de grå nivåene', forDypt.length === 0,
+          forDypt.length + ' fliser · f.eks. ' + (forDypt[0] ? forDypt[0].src.slice(-30) : '–'));
+        Kart.kart.setZoom(gammelZoom);
+        await this.vent(120);
+
+        /* 18.5 Tegningen må kunne ses mot et mørkt foto. Den svarte haloen
+           forsvinner mot skog og asfalt akkurat som linjen selv gjør. */
+        this.sjekk('haloen under linjen blir lys på flyfoto',
+          Kart.lag.linjeSkygge.options.color === '#ffffff',
+          Kart.lag.linjeSkygge.options.color);
+        this.sjekk('og tomtefyllet blir tynnere',
+          Kart.lag.tomt.options.fillOpacity <= 0.12,
+          String(Kart.lag.tomt.options.fillOpacity));
+        Kart.settBakgrunn('topo');
+        await this.vent(60);
+        this.sjekk('begge deler kommer tilbake på topokartet',
+          Kart.lag.linjeSkygge.options.color === '#0b0b0c'
+          && Kart.lag.tomt.options.fillOpacity > 0.12,
+          Kart.lag.linjeSkygge.options.color + ' / ' + Kart.lag.tomt.options.fillOpacity);
+      }
+
+      /* 18.6 FLISENE SKAL ALDRI NÅ ET CANVAS.
+         Betingelsen for å bruke flyfotoet er at bildet blir stående på skjermen.
+         `crossOrigin` er nettopp bryteren som avgjør om et canvas i det hele
+         tatt KAN lese pikslene – står den på, kan noen senere legge fotoet i en
+         PDF uten å merke at det skjer. */
+      if (f) {
+        this.sjekk('flyfotoet kan ikke leses av et canvas',
+          typeof f.options.crossOrigin !== 'string', String(f.options.crossOrigin));
+        this.sjekk('mens Kartverkets fliser kan det',
+          Kart.bakgrunner.topo.options.crossOrigin === 'anonymous',
+          String(Kart.bakgrunner.topo.options.crossOrigin));
+        this.sjekk('og rapporten rører ikke kartet i det hele tatt',
+          !/\bKart\./.test(String(Rapport.lagTegninger)));
+      }
+
+      /* 18.7 Overleggene: brikke og lag skal følges at. */
+      const brikker = [...document.querySelectorAll('#overleggsvalg .kartbrikke')];
+      this.sjekk('overleggsbrikkene ble bygd', brikker.length >= 3, brikker.length + ' brikker');
+      this.sjekk('hver brikke peker på et lag som finnes',
+        brikker.every(b => !!Kart.overlegg[b.dataset.overlegg]));
+      Kart.settOverlegg('matrikkel', true);
+      await this.vent(30);
+      this.sjekk('eiendomsgrensene kan slås på', Kart.kart.hasLayer(Kart.overlegg.matrikkel));
+      Kart.settOverlegg('matrikkel', false);
+      await this.vent(30);
+      this.sjekk('og av igjen', !Kart.kart.hasLayer(Kart.overlegg.matrikkel));
+
+      /* 18.8 Rekkefølgen i flisruta. Med fire overlegg holder ikke ett
+         bringToBack: vegnavnene havner under skyggen etter et bakgrunnsbytte. */
+      Kart.settBakgrunn('flyfoto');
+      await this.vent(40);
+      for (const n of ['skygge', 'losmasse', 'matrikkel', 'vegnavn']) Kart.settOverlegg(n, true);
+      Kart.settBakgrunn('topo');
+      Kart.settBakgrunn('flyfoto');
+      await this.vent(60);
+      const z = n => Kart.overlegg[n].options.zIndex;
+      this.sjekk('lagene ligger i fast rekkefølge',
+        Kart.bakgrunner.flyfoto.options.zIndex < z('skygge')
+        && z('skygge') < z('losmasse') && z('losmasse') < z('matrikkel')
+        && z('matrikkel') < z('vegnavn'),
+        [Kart.bakgrunner.flyfoto.options.zIndex, z('skygge'), z('losmasse'), z('matrikkel'), z('vegnavn')].join(' < '));
+
+      /* 18.9 SKYGGEN GÅR AV NÅR FOTOET KOMMER.
+         Tjenesten strekker kontrasten per flis. Over et topokart merkes det
+         ikke; over et foto ser man rutene som lysere og mørkere firkanter, og
+         det ser ut som en feil i programmet. Men slår brukeren den på igjen
+         mens fotoet står, er det hans valg – og da skal den bli stående. */
+      Kart.settBakgrunn('topo');
+      await this.vent(40);
+      const boksSkygge = document.getElementById('vis_skygge');
+      boksSkygge.checked = true; boksSkygge.onchange();
+      await this.vent(30);
+      this.sjekk('terrengskyggen står på over kartet', Kart.kart.hasLayer(Kart.overlegg.skygge));
+      this.naer('med full styrke', Kart.overlegg.skygge.options.opacity, 0.45, 1e-9);
+
+      Kart.settBakgrunn('flyfoto');
+      await this.vent(40);
+      this.sjekk('og går av av seg selv når fotoet kommer',
+        !Kart.kart.hasLayer(Kart.overlegg.skygge) && !boksSkygge.checked);
+      this.naer('men er dempet om noen tar den fram', Kart.overlegg.skygge.options.opacity, 0.25, 1e-9);
+
+      Kart.settBakgrunn('topo');
+      await this.vent(40);
+      this.sjekk('den kommer tilbake når kartet gjør det',
+        Kart.kart.hasLayer(Kart.overlegg.skygge) && boksSkygge.checked);
+
+      // tar brukeren den fram selv på fotoet, skal den bli stående
+      Kart.settBakgrunn('flyfoto');
+      await this.vent(30);
+      boksSkygge.checked = true; boksSkygge.onchange();
+      await this.vent(30);
+      Kart.settBakgrunn('graatone');
+      Kart.settBakgrunn('flyfoto');
+      await this.vent(40);
+      this.sjekk('brukerens eget valg overstyrer, og blir stående',
+        Kart.kart.hasLayer(Kart.overlegg.skygge) && boksSkygge.checked);
+
+      /* 18.10 Valget huskes, og søppel i lageret velter ingenting. */
+      Kart.settBakgrunn('graatone');
+      Kart.lagreValg();
+      this.sjekk('valget blir lagret', Kart.lagreteValg().bakgrunn === 'graatone',
+        Kart.lagreteValg().bakgrunn);
+      localStorage.setItem('massekalk.kartvalg', '{ikke json');
+      this.sjekk('ødelagt lagret valg faller tilbake til topokartet',
+        Kart.lagreteValg().bakgrunn === 'topo');
+      localStorage.setItem('massekalk.kartvalg', JSON.stringify({ v: 1, bakgrunn: 'finnesikke' }));
+      this.sjekk('og et lag som ikke finnes lenger gjør det samme',
+        Kart.lagreteValg().bakgrunn === 'topo');
+    } catch (e) {
+      this.sjekk('kartlagsprøven kom seg gjennom', false,
+        e.message + ' — ' + (e.stack || '').split('\n')[1]);
+    } finally {
+      try {
+        if (startValg == null) localStorage.removeItem('massekalk.kartvalg');
+        else localStorage.setItem('massekalk.kartvalg', startValg);
+      } catch (e) { /* privat modus */ }
+      Kart._paaFoto = null; Kart._avAvOss = null;
+      for (const v of KARTLAG.overlegg) {
+        const i = document.getElementById('vis_' + v.navn);
+        if (i) i.checked = !!v.standard;
+        Kart.settOverlegg(v.navn, !!v.standard, true);
+      }
+      Kart.settBakgrunn(startBakgrunn || 'topo');
     }
   },
 

@@ -1,6 +1,93 @@
 'use strict';
 /** Kartdelen: bakgrunnskart, tegning av senterlinje og observasjonspunkt. */
 
+/**
+ * Bakgrunnene og overleggene som ET REGISTER, ikke som kall spredt i init.
+ *
+ * Grunnen er en felle som var innebygd i den gamle koden: bytteren fjernet det
+ * gamle laget FØR den slo opp det nye. En knapp med en verdi som ikke fantes i
+ * ordboka kastet da på `undefined.addTo` etter at bakgrunnen alt var borte, og
+ * `gjeldendeBakgrunn` sto igjen ugyldig – så NESTE bytte kastet allerede på
+ * `removeLayer(undefined)`. Kartet ble aldri friskt igjen uten å laste siden på
+ * nytt. Nå bygges både knappene og lagene fra det samme registeret, så de to kan
+ * ikke drive fra hverandre i det hele tatt.
+ *
+ * FLYFOTO – HVA SOM FINNES OG HVA SOM IKKE GJØR DET
+ * Norge i bilder er stengt for oss. Kartverkets åpne WMTS-cache har bare topo,
+ * toporaster, topograatone og sjokartraster – null ortofoto. `wms.nib` svarer
+ * med BAAT-autentiseringsfeil, `tilecache.norgeibilder.no` med «Token
+ * Required», og gamle `opencache.statkart.no` svarer ikke i det hele tatt. Det
+ * som står igjen uten nøkkel er Esri World Imagery, og det er brukt her til det
+ * ene Esri uttrykkelig gir rett til: å tegne omriss oppå bildet. Derfor tre
+ * betingelser som er bygd inn nedenfor og ikke kan skrus av: attribusjonen står
+ * alltid, flisene når aldri et canvas eller en fil, og bildet er
+ * orienteringsgrunnlag – ikke målegrunnlag. Kilden oppgir 5 m horisontal
+ * nøyaktighet, så man plasserer en tomt etter det, men måler ikke på det.
+ */
+const KARTLAG = {
+  bakgrunner: [
+    { navn: 'topo', tekst: 'Kart', tittel: 'Kartverkets topografiske kart', kv: 'topo' },
+    { navn: 'toporaster', tekst: 'Turkart', tittel: 'Turkart (raster)', kv: 'toporaster' },
+    { navn: 'graatone', tekst: 'Gråtone', tittel: 'Dempet gråtonekart – tegningen kommer tydelig fram', kv: 'topograatone' },
+    {
+      navn: 'flyfoto', tekst: 'Flyfoto', tittel: 'Flyfoto – for å se hva som står der i dag',
+      url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      /* maxNativeZoom er IKKE en finjustering her. Fra zoom 19 og oppover svarer
+         tjenesten `200 image/jpeg` med en grå rute der det står «Map data not
+         yet available» – 2 521 byte, samme bilde over hele distrikts-Norge.
+         Leaflet ser ingen feil og viser den. Uten grensen ville man zoomet inn
+         for å plassere et hjørne og fått grå skjerm med sin egen tegning
+         svevende oppå. maxZoom 21 gjør at Leaflet strekker zoom 18-flisen i
+         stedet; tegningen er vektor og forblir skarp. */
+      maksEkte: 18,
+      attribusjon: 'Flyfoto © Esri, Vantor, Microsoft, Earthstar Geographics',
+      /* crossOrigin settes bevisst IKKE på denne. Tjenestens egen metadata sier
+         `exportTilesAllowed: false`, og et canvas som aldri kan lese pikslene
+         kan heller ikke komme til å legge dem i en PDF eller en fil. */
+      moerkt: true
+    }
+  ],
+  overlegg: [
+    {
+      navn: 'skygge', tekst: 'Terrengskygge', standard: true, zIndex: 200,
+      tittel: 'Skyggerelieff av laserdataene – viser terrengformene',
+      arcgis: 'las_dtm_somlos', opacity: 0.45,
+      /* Halv styrke om noen slår den på oppå et flyfoto. */
+      opacityFoto: 0.25,
+      /* AV AV SEG SJØL PÅ FLYFOTO.
+         Skyggen finnes for å lese terrengformer ut av et flatt kart. Et foto
+         viser bakken i seg selv, og skyggen oppå gjør to ting galt: den legger
+         et grønngrått slør over bildet, og – verre – tjenesten strekker
+         kontrasten PER FLIS, så over et foto ser man rutene som lysere og
+         mørkere firkanter. Det ser ut som en feil i programmet. Slår man den på
+         igjen mens fotoet står, blir den stående. */
+      avPaaFoto: true
+    },
+    {
+      navn: 'matrikkel', tekst: 'Eiendomsgrenser', standard: false, zIndex: 400,
+      tittel: 'Eiendomsgrenser og teiger fra matrikkelen',
+      wms: 'https://wms.geonorge.no/skwms1/wms.matrikkelkart',
+      /* Begge lag må bes om samtidig: grensene kommer på vanlig arbeidszoom,
+         mens teigene med matrikkelnummer først slår inn lenger inn. */
+      lag: 'eiendomsgrense,teig', opacity: 0.85, attribusjon: '© Kartverket (matrikkel)'
+    },
+    {
+      navn: 'vegnavn', tekst: 'Vegnavn', standard: true, zIndex: 500, kunFoto: true,
+      tittel: 'Vegnavn og skiltnummer – topokartet har dem innebygd',
+      wms: 'https://wms.geonorge.no/skwms1/wms.vegnett2',
+      /* Bare navnene, ikke veglinjene. De fargede linjene konkurrerer med
+         brukerens egen vegtegning og gjør bildet uleselig. */
+      lag: 'vegnavn,vegnavn_nr', opacity: 1, attribusjon: '© Kartverket (vegnett)'
+    },
+    {
+      navn: 'losmasse', tekst: 'Løsmasser', standard: false, zIndex: 300,
+      tittel: 'Løsmassekart fra NGU',
+      wms: 'https://geo.ngu.no/mapserver/LosmasserWMS2',
+      lag: 'Losmasse_flate', opacity: 0.45, attribusjon: '© NGU'
+    }
+  ]
+};
+
 const Kart = {
   kart: null,
   lag: {},
@@ -9,27 +96,222 @@ const Kart = {
   modus: 'rediger',
   app: null,
 
+  /* ---------------- bakgrunn og overlegg ---------------- */
+
+  /** Lagene, laget én gang fra registeret. Ingen av dem er lagt på kartet ennå. */
+  byggLag() {
+    this.bakgrunner = {};
+    for (const b of KARTLAG.bakgrunner) {
+      const url = b.kv
+        ? `https://cache.kartverket.no/v1/wmts/1.0.0/${b.kv}/default/webmercator/{z}/{y}/{x}.png`
+        : b.url;
+      const o = {
+        maxZoom: 21,
+        maxNativeZoom: b.maksEkte || 18,
+        zIndex: 100,
+        attribution: b.attribusjon || '© Kartverket'
+      };
+      /* crossOrigin må settes FØR src for at nettleseren skal gjøre en
+         CORS-henting i det hele tatt – serverens header alene hjelper ikke.
+         Uten den blir et canvas som tegner flisen «tainted», og toDataURL
+         kaster. Den står derfor på alt vi selv har lov til å ta bilde av, og
+         bevisst ikke på flyfotoet. */
+      if (!b.moerkt) o.crossOrigin = 'anonymous';
+      this.bakgrunner[b.navn] = L.tileLayer(url, o);
+    }
+
+    this.overlegg = {};
+    for (const v of KARTLAG.overlegg) {
+      let lag;
+      if (v.arcgis) {
+        lag = L.tileLayer.arcgisBilde(v.arcgis, { opacity: v.opacity, zIndex: v.zIndex });
+      } else {
+        lag = L.tileLayer.wms(v.wms, {
+          layers: v.lag, format: 'image/png', transparent: true,
+          opacity: v.opacity, zIndex: v.zIndex,
+          attribution: v.attribusjon, crossOrigin: 'anonymous'
+        });
+      }
+      this.overlegg[v.navn] = lag;
+    }
+    // gamle navn, så ingenting utenfor denne fila trenger å vite om omskrivingen
+    this.skygge = this.overlegg.skygge;
+    this.losmasse = this.overlegg.losmasse;
+  },
+
+  /** Det brukeren valgte sist, validert mot registeret. */
+  lagreteValg() {
+    const fallback = { bakgrunn: 'topo' };
+    for (const v of KARTLAG.overlegg) fallback[v.navn] = !!v.standard;
+    try {
+      const raa = localStorage.getItem('massekalk.kartvalg');
+      if (!raa) return fallback;
+      const j = JSON.parse(raa);
+      /* Valideres mot registeret, ikke bare mot at det er et objekt. Er et lag
+         fjernet eller omdøpt siden sist, ville en lagret nøkkel ellers gitt
+         nøyaktig den døde tilstanden hele denne omskrivingen skal hindre. */
+      const ut = Object.assign({}, fallback);
+      if (this.bakgrunner && this.bakgrunner[j.bakgrunn]) ut.bakgrunn = j.bakgrunn;
+      for (const v of KARTLAG.overlegg) if (typeof j[v.navn] === 'boolean') ut[v.navn] = j[v.navn];
+      return ut;
+    } catch (e) { return fallback; }
+  },
+
+  lagreValg() {
+    try {
+      const v = { v: 1, bakgrunn: this.gjeldendeBakgrunn };
+      for (const o of KARTLAG.overlegg) v[o.navn] = this.kart.hasLayer(this.overlegg[o.navn]);
+      localStorage.setItem('massekalk.kartvalg', JSON.stringify(v));
+    } catch (e) { /* privat modus eller fullt lager: valget huskes bare ikke */ }
+  },
+
+  /** Knappene og avkryssingsboksene, bygd fra det samme registeret som lagene. */
+  byggKartvalg() {
+    const rad = document.getElementById('bakgrunnsvalg');
+    const boks = document.getElementById('overleggsvalg');
+    if (!rad || !boks) return;
+    const valg = this.lagreteValg();
+
+    rad.innerHTML = '';
+    for (const b of KARTLAG.bakgrunner) {
+      const k = document.createElement('button');
+      k.className = 'kartknapp';
+      k.dataset.bakgrunn = b.navn;
+      k.textContent = b.tekst;
+      k.title = b.tittel;
+      k.setAttribute('role', 'radio');
+      k.onclick = () => this.settBakgrunn(b.navn);
+      rad.appendChild(k);
+    }
+
+    boks.innerHTML = '';
+    for (const v of KARTLAG.overlegg) {
+      const l = document.createElement('label');
+      l.className = 'kartbrikke';
+      l.dataset.overlegg = v.navn;
+      l.title = v.tittel;
+      const i = document.createElement('input');
+      i.type = 'checkbox';
+      i.id = 'vis_' + v.navn;
+      i.checked = !!valg[v.navn];
+      i.onchange = () => {
+        // brukeren har tatt over dette laget: da skal vi ikke slå det på igjen selv
+        if (this._avAvOss) delete this._avAvOss[v.navn];
+        /* Rører han bryteren mens fotoet står, er det et svar på nettopp det
+           spørsmålet, og det huskes. */
+        if (this.erMoerk(this.gjeldendeBakgrunn)) {
+          this._paaFoto = this._paaFoto || {};
+          this._paaFoto[v.navn] = i.checked;
+        }
+        this.settOverlegg(v.navn, i.checked);
+        this.lagreValg();
+      };
+      l.appendChild(i);
+      l.appendChild(document.createTextNode(' ' + v.tekst));
+      boks.appendChild(l);
+      this.settOverlegg(v.navn, i.checked, true);
+    }
+  },
+
+  settOverlegg(navn, pa, stille) {
+    const lag = this.overlegg[navn];
+    if (!lag) return;
+    if (pa) { lag.addTo(this.kart); lag.setZIndex((KARTLAG.overlegg.find(v => v.navn === navn) || {}).zIndex || 200); }
+    else if (this.kart.hasLayer(lag)) this.kart.removeLayer(lag);
+    if (!stille) this.lagreValg();
+  },
+
+  /**
+   * Bytter bakgrunn.
+   *
+   * SLÅ OPP FØRST, FJERN ETTERPÅ. Den gamle rekkefølgen – fjern, så slå opp –
+   * gjorde at en ukjent nøkkel etterlot kartet uten bakgrunn OG med en ugyldig
+   * `gjeldendeBakgrunn`, slik at også neste bytte kastet. Det finnes ingen vei
+   * tilbake fra det uten å laste siden på nytt.
+   */
+  settBakgrunn(navn, forste) {
+    const nytt = this.bakgrunner[navn];
+    if (!nytt) return;                          // ukjent navn: la alt stå som det står
+    if (!forste && this.gjeldendeBakgrunn === navn) return;
+    const gammelt = this.bakgrunner[this.gjeldendeBakgrunn];
+    nytt.addTo(this.kart);
+    nytt.setZIndex(100);
+    if (gammelt && gammelt !== nytt && this.kart.hasLayer(gammelt)) this.kart.removeLayer(gammelt);
+    this.gjeldendeBakgrunn = navn;
+
+    document.querySelectorAll('#bakgrunnsvalg .kartknapp').forEach(k => {
+      const pa = k.dataset.bakgrunn === navn;
+      k.classList.toggle('aktiv', pa);
+      k.setAttribute('aria-checked', pa ? 'true' : 'false');
+    });
+    this.settKontrast(navn);
+    /* Vegnavn hører til flyfotoet. Topokartet har navnene innebygd, og to sett
+       navn oppå hverandre er verre enn ingen. */
+    const foto = this.erMoerk(navn);
+    for (const v of KARTLAG.overlegg) {
+      const l = document.querySelector(`#overleggsvalg [data-overlegg="${v.navn}"]`);
+      const i = document.getElementById('vis_' + v.navn);
+      if (v.kunFoto) {
+        if (l) l.classList.toggle('skjult', !foto);
+        this.settOverlegg(v.navn, foto && i && i.checked, true);
+      }
+      if (v.opacityFoto != null && this.overlegg[v.navn]) {
+        this.overlegg[v.navn].setOpacity(foto ? v.opacityFoto : v.opacity);
+      }
+      /* Slås av når fotoet kommer, og PÅ IGJEN når kartet kommer tilbake – men
+         bare så lenge brukeren ikke har sagt noe selv. Rører han bryteren MENS
+         fotoet står, har han uttalt seg om nettopp dette tilfellet, og da
+         gjelder det fra da av. Uten det siste ble valget hans overstyrt igjen
+         ved neste bakgrunnsbytte, og bryteren så ut til å ha sitt eget liv. */
+      if (v.avPaaFoto && i) {
+        const vil = this._paaFoto ? this._paaFoto[v.navn] : undefined;
+        if (foto) {
+          if (vil !== undefined) i.checked = vil;
+          else if (i.checked) {
+            this._avAvOss = this._avAvOss || {};
+            this._avAvOss[v.navn] = true;
+            i.checked = false;
+          }
+        } else if (this._avAvOss && this._avAvOss[v.navn]) {
+          i.checked = true;
+          delete this._avAvOss[v.navn];
+        }
+        this.settOverlegg(v.navn, i.checked, true);
+      }
+    }
+    if (!forste) this.lagreValg();
+  },
+
+  erMoerk(navn) {
+    const b = KARTLAG.bakgrunner.find(x => x.navn === navn);
+    return !!(b && b.moerkt);
+  },
+
+  /**
+   * Tegningen må kunne ses mot bakgrunnen den ligger på.
+   *
+   * Streken og tomta er stilt for et hvitt topokart. Verre er haloen under
+   * senterlinjen: den er SVART, og forsvinner mot skog og asfalt akkurat som
+   * linjen selv gjør. Ett sted skal vite om dette, og det er her.
+   */
+  settKontrast(navn) {
+    const foto = this.erMoerk(navn);
+    if (this.lag.linjeSkygge) {
+      this.lag.linjeSkygge.setStyle(foto
+        ? { color: '#ffffff', opacity: 0.85, weight: 7 }
+        : { color: '#0b0b0c', opacity: 0.55, weight: 6 });
+    }
+    if (this.lag.linje) this.lag.linje.setStyle({ weight: foto ? 4 : 3 });
+    // fotoet under trenger mindre fyll for at tomta skal leses som en flate
+    if (this.lag.tomt) this.lag.tomt.setStyle({ fillOpacity: foto ? 0.10 : 0.18 });
+  },
+
   init(app) {
     this.app = app;
     const kart = L.map('kart', { zoomControl: true, doubleClickZoom: false }).setView([58.14, 7.07], 13);
     this.kart = kart;
 
-    const kv = navn => L.tileLayer(
-      `https://cache.kartverket.no/v1/wmts/1.0.0/${navn}/default/webmercator/{z}/{y}/{x}.png`,
-      { maxZoom: 20, maxNativeZoom: 18, attribution: '© Kartverket' }
-    );
-    this.bakgrunner = { topo: kv('topo'), toporaster: kv('toporaster'), topograatone: kv('topograatone') };
-    this.bakgrunner.topo.addTo(kart);
-    this.gjeldendeBakgrunn = 'topo';
-
-    // Skyggerelieff laget av laserdataene - viser terrengformene tydelig
-    this.skygge = L.tileLayer.arcgisBilde('las_dtm_somlos', { opacity: 0.45 });
-    this.skygge.addTo(kart);
-
-    this.losmasse = L.tileLayer.wms('https://geo.ngu.no/mapserver/LosmasserWMS2', {
-      layers: 'Losmasse_flate', format: 'image/png', transparent: true, opacity: 0.45,
-      attribution: '© NGU'
-    });
+    this.byggLag();
 
     /* Senterlinjen far svart omriss under den lyse streken. Uten det
        forsvinner den i lyse partier av kartet. */
@@ -52,6 +334,9 @@ const Kart = {
     this.lag.vegkant = L.layerGroup().addTo(kart);
     this.lag.stasjoner = L.layerGroup().addTo(kart);
     this.lag.markorPos = L.layerGroup().addTo(kart);
+
+    this.byggKartvalg();
+    this.settBakgrunn(this.lagreteValg().bakgrunn, true);
 
     // Kartet lages før panelene har fatt endelig størrelse
     setTimeout(() => kart.invalidateSize(), 60);
@@ -145,14 +430,10 @@ const Kart = {
     if (p('tm_balanser')) p('tm_balanser').onclick = () => this.app.balanserTomt();
     p('knappAngre').onclick = () => this.app.angre();
     if (p('knappGjorOm')) p('knappGjorOm').onclick = () => this.app.gjorOm();
-    p('bakgrunnskart').onchange = e => {
-      this.kart.removeLayer(this.bakgrunner[this.gjeldendeBakgrunn]);
-      this.gjeldendeBakgrunn = e.target.value;
-      this.bakgrunner[this.gjeldendeBakgrunn].addTo(this.kart);
-      this.bakgrunner[this.gjeldendeBakgrunn].bringToBack();
-    };
-    p('visSkygge').onchange = e => e.target.checked ? this.skygge.addTo(this.kart) : this.kart.removeLayer(this.skygge);
-    p('visLosmasse').onchange = e => e.target.checked ? this.losmasse.addTo(this.kart) : this.kart.removeLayer(this.losmasse);
+    /* Bakgrunnsknappene og overleggsboksene kobles i byggKartvalg(), fordi de
+       lages derfra. Her sto tre uvernede oppslag – `p('bakgrunnskart').onchange`
+       uten `if (p(...))` – som tok hele oppstarten med seg om noen døpte om en
+       id i HTML-en. */
 
     const sok = p('sokefelt'), liste = p('sokeliste');
     let tidsavbrudd = null;
@@ -863,7 +1144,9 @@ const Kart = {
 L.TileLayer.ArcgisBilde = L.TileLayer.extend({
   initialize(tjeneste, opsjoner) {
     this._tjeneste = tjeneste;
-    L.TileLayer.prototype.initialize.call(this, '', Object.assign({ maxZoom: 20, attribution: '© Kartverket høydedata' }, opsjoner));
+    L.TileLayer.prototype.initialize.call(this, '', Object.assign({
+      maxZoom: 21, attribution: '© Kartverket høydedata', crossOrigin: 'anonymous'
+    }, opsjoner));
   },
   getTileUrl(kord) {
     // Flisrutenettet i web-mercator: hele verden er 2 * 20037508,34 m bredt

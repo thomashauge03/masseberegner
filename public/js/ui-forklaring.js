@@ -44,6 +44,20 @@ const Forklaring = {
         + 'Velger du å overdrive høyden, står det skrevet i bildet, også når du '
         + 'lagrer det: en tomt som er strukket tre ganger ser mye verre ut enn '
         + 'den er.' },
+    { navn: 'Flyfoto i kartet', form: 'flate', farge: () => Farger.terreng, modus: 'begge',
+      tekst: 'Knapperaden over kartet bytter mellom topokart, turkart, gråtone '
+        + 'og flyfoto. Flyfotoet er til å se HVA som står der i dag – bygg, '
+        + 'kjøreveier, grøfter, hvor skogen slutter – før du plasserer tomta '
+        + 'eller linja. Det er ikke et målegrunnlag: kilden oppgir 5 meter '
+        + 'horisontal nøyaktighet, så bildet kan ligge et par meter ved siden '
+        + 'av virkeligheten. Skal du vite hvor grensa går, slå på '
+        + 'Eiendomsgrenser – de kommer fra matrikkelen. Høydene og volumene '
+        + 'regnes uansett fra laserdataene, aldri fra bildet. '
+        + 'Norge i bilder er dessverre stengt uten avtale med Norge digitalt; '
+        + 'fotoet her kommer derfor fra Esri og er noe eldre og grovere enn det '
+        + 'norske. Terrengskyggen slår seg av når fotoet kommer – den legger et '
+        + 'slør over bildet – men du kan slå den på igjen, og da blir den '
+        + 'stående.' },
     { navn: '3D-modellen', form: 'flate', farge: () => Farger.terreng, modus: 'veg',
       tekst: 'Knappen «3D» over tverrsnittet viser hele strekket rundt snittet '
         + 'sett fra siden, ikke bare ett profil. Det er her man ser hvor bredt '
