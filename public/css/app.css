@@ -995,3 +995,25 @@ html[data-peker="grov"] .knapp,
 html[data-peker="grov"] .verktoyknapp { min-width: 44px; }
 html[data-peker="grov"] .kartsok input,
 html[data-peker="grov"] .navnefelt { min-height: 44px; }
+
+
+/* ── nøkkeltallene i topplinja ──────────────────────────
+   Fire tall, alltid synlige. Tabulære sifre så de ikke danser når de endrer
+   seg, og en tynn skillestrek mellom hvert. Differansen er det eneste som får
+   farge: rødt når det MANGLER masse, ellers vanlig. */
+.nokkeltal {
+  display: flex; align-items: center; gap: 0;
+  margin-left: auto; flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.nokkeltal .post { display: flex; flex-direction: column; padding: 0 11px; line-height: 1.15; }
+.nokkeltal .post + .post { border-left: 1px solid #3f3f46; }
+.nokkeltal .merke { font-size: 8.5px; letter-spacing: .09em; text-transform: uppercase; color: #a1a1aa; }
+.nokkeltal .verdi { font-size: 13px; font-weight: 700; color: #fafafa; }
+.nokkeltal .verdi.mangler { color: #ff6b73; }
+.nokkeltal .verdi small { font-size: 9px; font-weight: 400; color: #a1a1aa; margin-left: 2px; }
+.nokkeltal.tom { display: none; }
+/* På smal skjerm er det de to viktigste som blir igjen. */
+@media (max-width: 1150px) { .nokkeltal .post:nth-child(n+3) { display: none; } }
+@media (max-width: 820px) { .nokkeltal { display: none; } }
+html[data-peker="grov"] .nokkeltal .verdi { font-size: 15px; }

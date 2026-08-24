@@ -857,6 +857,37 @@ const App = {
   status(t) { document.getElementById('statuslinje').textContent = t; },
 
   /**
+   * De fire tallene som avgjør, alltid synlige i topplinja.
+   *
+   * De sto i Masser-fanen, som er 36 % synlig uten å rulle og krever et
+   * fanebytte for å nå. Det er hele poenget med programmet – det skal ikke
+   * ligge bak et klikk.
+   */
+  visNokkeltal() {
+    const e = document.getElementById('nokkeltal');
+    if (!e) return;
+    const r = this.resultat;
+    if (!r || !r.sum) { e.className = 'nokkeltal tom'; e.innerHTML = ''; return; }
+    const t = v => Rapport.tall(v);
+    const b = r.balanse || {};
+    const mangler = b.manglerTotalt > 1;
+    const poster = [
+      ['Skjæring', t(r.sum.skjaering), 'm³', false],
+      ['Fylling', t(r.sum.fylling), 'm³', false],
+      /* Differansen er det eneste tallet som får farge, og bare når det
+         MANGLER masse – da må noe kjøres inn, og det koster. */
+      [mangler ? 'Må inn' : 'Overskudd',
+        t(mangler ? b.manglerTotalt : Math.abs(b.balanse || 0)), 'm³', mangler],
+      ['Sprengning', t(r.sum.skjaeringFjell), 'm³', false]
+    ];
+    e.className = 'nokkeltal';
+    e.innerHTML = poster.map(([navn, verdi, enhet, roed]) =>
+      `<span class="post"><span class="merke">${escapeHtml(navn)}</span>`
+      + `<span class="verdi${roed ? ' mangler' : ''}">${escapeHtml(verdi)}<small>${enhet}</small></span></span>`
+    ).join('');
+  },
+
+  /**
    * Ja/nei-boks i programmets egen stil.
    *
    * Nettleserens confirm() blir blokkert i noen sammenhenger, og da forsvant
@@ -1190,6 +1221,7 @@ const App = {
     const tid = performance.now() - t0;
 
     Rapport.visSammendrag(this.resultat);
+    this.visNokkeltal();
     Kart.tegnResultat(this.resultat);
     Lengdeprofil.tegn();
     this.settTverrStasjon(this.tverrStasjon);
@@ -1523,6 +1555,7 @@ const App = {
           tekst: 'Skråningene tar hele arealet innenfor grensa. ' + detalj + rad }], areal: 0 };
         this._innerflate = null;
         this.visTomtemasser();
+      this.visNokkeltal();
         this.status('⚠ Ikke plass til skråningene innenfor grensa – prøv mur eller sprengt vegg på de bratteste sidene');
         return this.resultat;
       }
