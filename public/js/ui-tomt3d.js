@@ -138,6 +138,9 @@ const Tomt3d = Object.assign(Object.create(Tegner3d), {
       }
     }
 
+    /* Speilbildet av harGrav: terrenget rundt, uten det som skal graves. I
+       fyldig tegnes terrenget bare der, så massen under ikke blir slørt. */
+    const utenGrav = new Uint8Array(n);
     const zT = new Float32Array(n), zP = new Float32Array(n), zF = new Float32Array(n);
     const zFerdig = new Float32Array(n), harFerdig = new Uint8Array(n);
     const finnes = new Uint8Array(n), harGrav = new Uint8Array(n);
@@ -156,7 +159,7 @@ const Tomt3d = Object.assign(Object.create(Tegner3d), {
          Ingen gravflate her – det er nettopp poenget: dette er marka rundt,
          ikke noe som skal røres. */
       const z = terr ? terr.z(minX + (k % nb) * rute, minY + ((k / nb) | 0) * rute) : NaN;
-      if (Number.isFinite(z)) { finnes[k] = 1; zT[k] = z; zP[k] = z; zF[k] = z; iKontekst++; }
+      if (Number.isFinite(z)) { finnes[k] = 1; utenGrav[k] = 1; zT[k] = z; zP[k] = z; zF[k] = z; iKontekst++; }
       else hoppet++;
     }
 
@@ -200,6 +203,7 @@ const Tomt3d = Object.assign(Object.create(Tegner3d), {
        av. På et rett rutenett gir de nøyaktig det samme som formelen gjorde. */
     const g = {
       nb, nh, rute, minX, minY, lav, hoy, maksAvvik: Math.max(0.5, maksAvvik),
+      utenGrav,
       midtX: (minX + maksX) / 2, midtY: (minY + maksY) / 2,
       diagonal: Math.hypot(maksX - minX, maksY - minY),
       wx, wy, zT, zP, zF, zFerdig, harFerdig, harGrav, d: maksD, finnes, inne, usikker,
@@ -304,7 +308,16 @@ const Tomt3d = Object.assign(Object.create(Tegner3d), {
         }
       });
     }
-    if (this.lag.terreng) ut.push({ hoyde: g.zT, farge: enkel(Farger.terrengRgb), blanding: 0.45 });
+    /* I FYLDIG blir terrenget stående igjen der det IKKE røres.
+       Legges det halvgjennomsiktig oppå graveflaten – slik den vanlige
+       visningen gjør – blir massen en blek gjenskinn av seg selv, og en grunn
+       skjæring ved siden av en grunn fylling er nesten samme grå. Her ser man
+       volumet i stedet, med terrenget rundt som ramme. */
+    if (this.lag.terreng) {
+      ut.push(this.fyldig
+        ? { hoyde: g.zT, farge: enkel(Farger.terrengRgb), blanding: 0, krev: g.utenGrav }
+        : { hoyde: g.zT, farge: enkel(Farger.terrengRgb), blanding: 0.45 });
+    }
     if (this.lag.fjell) ut.push({ hoyde: g.zF, farge: enkel(Farger.fjellRgb), blanding: 0.5 });
     if (this.lag.overbygning) {
       ut.push({ hoyde: g.zFerdig, blanding: 0.6, krev: g.harFerdig,

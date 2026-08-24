@@ -64,12 +64,25 @@ const Forklaring = {
         + 'inngrepet blir: ligger linja for høyt, brer fyllingsvingene seg '
         + 'utover, og fotavtrykket sveller. Den røde og grønne flaten er '
         + 'skjæring og fylling, det grå oppå er dagens terreng, og den mørke '
-        + 'stripa i midten er selve vegbanen. Modellen viser 100 meter til hver '
-        + 'side av snittet – flytt snittet, så følger den med. Ringen med rent '
-        + 'terreng rundt er der for at man skal se om vegen går i ei li eller '
-        + 'over en rygg. Modellen regner ingenting selv: hver høyde er den '
-        + 'samme tverrsnittsgeometrien massene er regnet på. Tallene øverst '
-        + 'gjelder strekningen i bildet, ikke hele vegen – det står i teksten.' },
+        + 'stripa i midten er selve vegbanen. Hele vegen vises, med en strek '
+        + 'som viser hvor snittet står – klikk et sted i modellen, så flytter '
+        + 'snittet seg dit, og piltastene går videre derfra. Vil du studere ett '
+        + 'parti, velg ±50, ±100 eller ±250 m i stedet. Ringen med rent terreng '
+        + 'rundt er der for at man skal se om vegen går i ei li eller over en '
+        + 'rygg. Dra for å snu, høyreklikk-dra for å flytte, hjulet zoomer mot '
+        + 'markøren. Modellen regner ingenting selv: hver høyde er den samme '
+        + 'tverrsnittsgeometrien massene er regnet på. Tallene øverst gjelder '
+        + 'strekningen i bildet – det står i teksten.' },
+    { navn: 'Fyldig', form: 'flate', farge: () => Farger.skjaering, modus: 'begge',
+      tekst: 'Knappen «Fyldig» i 3D-verktøylinja bytter lesemåte. Vanligvis '
+        + 'ligger terrenget halvgjennomsiktig oppå graveflaten, så du ser '
+        + 'hvordan inngrepet ligger i bakken – men da blir en grunn skjæring og '
+        + 'en grunn fylling nesten samme grå. Med Fyldig males massen helt: '
+        + 'rødt der det skal graves, grønt der det skal fylles, og terrenget '
+        + 'står igjen bare der det ikke røres. Det er den innstillingen du vil '
+        + 'ha når noen skal se hvor massene ligger. Dybden vises fortsatt som '
+        + 'sterkere farge, men skalaen starter langt oppe – så selv en halvmeter '
+        + 'er tydelig. Tallene endrer seg ikke av dette; det er bare fargen.' },
     { navn: 'Brattet opp', form: 'stipla', farge: () => Farger.skjaering, modus: 'tomt',
       tekst: 'Tykk, stiplet strek i kartet der skråningen ikke fikk plass med '
         + 'sin vanlige helning innenfor tomtegrensa. Den blir da lagt brattere – '

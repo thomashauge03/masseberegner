@@ -189,6 +189,8 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
     const finnes = new Uint8Array(n), harGrav = new Uint8Array(n);
     const harVeg = new Uint8Array(n), usikker = new Uint8Array(n);
     const celleSperre = new Uint8Array(n);
+    // speilbildet av harGrav – terrenget rundt, uten korridoren
+    const utenGrav = new Uint8Array(n);
     const sRad = new Float64Array(nh);
 
     let lav = Infinity, hoy = -Infinity, utenGeo = 0;
@@ -247,7 +249,7 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
           const z = app.terreng ? app.terreng.z(p.x, p.y) : NaN;
           if (!Number.isFinite(z)) continue;
           zT[k] = z; zJord[k] = z; zFjell[k] = z;
-          finnes[k] = 1;
+          finnes[k] = 1; utenGrav[k] = 1;
           lav = Math.min(lav, z); hoy = Math.max(hoy, z);
         }
       }
@@ -293,7 +295,7 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
       diagonal: Math.hypot(maksX - minX, maksY - minY),
       linjebredde: 1,
       wx, wy, zT, zP: zJord, zF: zFjell, zVeg, harVeg,
-      d, tAkse, s: sRad, finnes, harGrav, usikker, celleSperre,
+      d, tAkse, s: sRad, finnes, harGrav, utenGrav, usikker, celleSperre,
       sperret, utenGeo, fra: rader[0].s, til: rader[rader.length - 1].s,
       totalt: n, kn
     };
@@ -332,7 +334,16 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
       ut.push({ hoyde: g.zVeg, krev: g.harVeg, blanding: 0,
         farge: enkel(Farger.rgb('data-slitelag')) });
     }
-    if (this.lag.terreng) ut.push({ hoyde: g.zT, farge: enkel(Farger.terrengRgb), blanding: 0.45 });
+    /* I FYLDIG blir terrenget stående igjen der det IKKE røres.
+       Legges det halvgjennomsiktig oppå graveflaten – slik den vanlige
+       visningen gjør – blir massen en blek gjenskinn av seg selv, og en grunn
+       skjæring ved siden av en grunn fylling er nesten samme grå. Her ser man
+       volumet i stedet, med terrenget rundt som ramme. */
+    if (this.lag.terreng) {
+      ut.push(this.fyldig
+        ? { hoyde: g.zT, farge: enkel(Farger.terrengRgb), blanding: 0, krev: g.utenGrav }
+        : { hoyde: g.zT, farge: enkel(Farger.terrengRgb), blanding: 0.45 });
+    }
     if (this.lag.fjell) ut.push({ hoyde: g.zF, krev: g.harGrav, farge: enkel(Farger.fjellRgb), blanding: 0.5 });
     return ut;
   },

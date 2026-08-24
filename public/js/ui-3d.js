@@ -56,6 +56,14 @@ const Tegner3d = {
      søkk – og det er nettopp det man vil vite. Ringen koster ingenting å hente:
      terrengdataene er alt lastet ned med margin utenfor beregningen. */
   kontekst: 40,
+  /* FYLDIG: massen som skal flyttes, malt helt.
+     Standardvisningen legger terrenget halvgjennomsiktig OVER graveflaten, så
+     man ser begge to. Det er riktig når man vil se hvordan inngrepet ligger i
+     bakken – men det gjør at selve massen blir en blek gjenskinn av seg selv,
+     og en grunn skjæring ved siden av en grunn fylling er nesten samme grå.
+     I fyldig blir terrenget stående IGJEN der det ikke røres, og massen males
+     med full farge. Da ser man volumet, ikke sløret. */
+  fyldig: false,
 
 
   /**
@@ -67,7 +75,8 @@ const Tegner3d = {
    * ene punktet som er seks meter dypt.
    */
   _palett() {
-    const tema = Farger.hent('flate') + '|' + Farger.hent('data-skjaering-flate');
+    const tema = Farger.hent('flate') + '|' + Farger.hent('data-skjaering-flate')
+      + '|' + (this.fyldig ? 'fyldig' : 'lett');
     if (this._palettFor === tema) return this._palettBuffer;
     const skj = Farger.skjaeringFlateRgb, fyl = Farger.fyllingFlateRgb;
     const grunn = Farger.terrengRgb;
@@ -82,9 +91,19 @@ const Tegner3d = {
       }
       return ut;
     };
-    // fra nøytral grå (ingen forskjell) til full styrke
+    /* Fra nøytral grå (ingen forskjell) til full styrke.
+       I FYLDIG er bunnen løftet: der avviket er lite, står fargen likevel på
+       drøyt halv styrke. Poenget med den innstillingen er å SE hvor massen er,
+       ikke å lese av hvor dypt det er hvert sted – og da er en flate som toner
+       ut i grått nettopp det som gjør at man ikke ser den. */
     const noytral = [Math.round((grunn[0] + 255) / 2), Math.round((grunn[1] + 255) / 2), Math.round((grunn[2] + 255) / 2)];
-    this._palettBuffer = { N, skjaering: bygg(noytral, skj), fylling: bygg(noytral, fyl) };
+    const bunn = this.fyldig ? 0.6 : 0;
+    const fra = til => [0, 1, 2].map(i => Math.round(noytral[i] + (til[i] - noytral[i]) * bunn));
+    this._palettBuffer = {
+      N,
+      skjaering: bygg(fra(skj), skj),
+      fylling: bygg(fra(fyl), fyl)
+    };
     this._palettFor = tema;
     return this._palettBuffer;
   },

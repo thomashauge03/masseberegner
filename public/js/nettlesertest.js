@@ -1305,6 +1305,30 @@ const Nettlesertest = {
         this.sjekk('ingen naboceller har falt sammen', kollapsa === 0, kollapsa + ' celler');
       }
 
+      /* Fyldig gjelder tomta òg – og de to visningene må ha HVER SIN
+         innstilling. Ligger flagget på prototypen, slår man den på for tomta og
+         får den på vegen samtidig. */
+      {
+        this.sjekk('tomta og vegen har hver sin fyldig-innstilling',
+          Tomt3d.fyldig === false && Veg3d.fyldig === false
+          && !Object.prototype.hasOwnProperty.call(Tegner3d, 'fyldigEier'));
+        Tomt3d.fyldig = true;
+        this.sjekk('å slå den på for tomta rører ikke vegen', Veg3d.fyldig === false);
+        Tomt3d.glemFarger();
+        const pf = Tomt3d._palett();
+        Tomt3d.fyldig = false; Tomt3d.glemFarger();
+        const pl = Tomt3d._palett();
+        this.sjekk('paletten bygges om når fyldig slås på', pf !== pl);
+        /* Bunnen av skalaen – der avviket er null – skal være LANGT sterkere i
+           fyldig. Det er nettopp den enden som gjør at en grunn skjæring ikke
+           kan skilles fra en grunn fylling i den vanlige visningen. */
+        const bunn = t => [t[0], t[1], t[2]];
+        const skille = t => Math.abs(bunn(t.skjaering)[0] - bunn(t.fylling)[0]);
+        this.sjekk('og bunnen av skalaen skiller mye tydeligere',
+          skille(pf) > skille(pl) * 3,
+          Math.round(skille(pl)) + ' → ' + Math.round(skille(pf)));
+      }
+
       /* 6.5 Fargene kommer fra stilarket, også som tall. */
       const rgb = Farger.skjaeringFlateRgb;
       this.sjekk('fargene finnes som tre tall', Array.isArray(rgb) && rgb.length === 3
@@ -1368,6 +1392,7 @@ const Nettlesertest = {
       Terreng.prototype.z = gz; Terreng.prototype.dekning = gd; Terreng.prototype.lastOmraade = gl;
       Tomt3d.aktiver(false);
       Tomt3d.overdriv = 1;
+      Tomt3d.fyldig = false; Tomt3d.glemFarger();
       Tomt3d._gitterFor = null;
       App.P = JSON.parse(foer);
       App.klargjorProsjekt(App.P);
@@ -1739,6 +1764,83 @@ const Nettlesertest = {
           'valgt ' + skalaVed(yaw0).toFixed(3) + ' mot ' + skalaVed(yaw0 + 90).toFixed(3));
       }
 
+      /* 17.11 FYLDIG: MASSEN MALT HELT.
+         Standardvisningen legger terrenget halvgjennomsiktig over graveflaten.
+         Da blir en grunn skjæring og en grunn fylling nesten samme grå – man
+         ser at det er gjort noe, men ikke hva. Prøven måler den faktiske
+         fargen på skjermen, ikke at et flagg er satt: det er bildet som er
+         leveransen her. */
+      {
+        const c3 = document.getElementById('veg3d');
+        const snittfarge = () => {
+          const kk = c3.getContext('2d');
+          const b = kk.getImageData(0, 0, c3.width, c3.height).data;
+          const id = Veg3d._id, gg = Veg3d._sisteGitter;
+          const gr = { skjaering: [0, 0, 0, 0], fylling: [0, 0, 0, 0] };
+          for (let p = 0; p < id.length; p++) {
+            const k2 = id[p];
+            if (k2 < 0 || !gg.harGrav[k2] || gg.harVeg[k2]) continue;
+            const v = gr[gg.d[k2] >= 0 ? 'skjaering' : 'fylling'];
+            v[0] += b[p * 4]; v[1] += b[p * 4 + 1]; v[2] += b[p * 4 + 2]; v[3]++;
+          }
+          const snitt = v => v[3] ? [v[0] / v[3], v[1] / v[3], v[2] / v[3]] : null;
+          return { skj: snitt(gr.skjaering), fyl: snitt(gr.fylling) };
+        };
+        const avstand = (a, b2) => (a && b2)
+          ? Math.hypot(a[0] - b2[0], a[1] - b2[1], a[2] - b2[2]) : 0;
+
+        Veg3d.fyldig = false; Veg3d.glemFarger(); Veg3d.tegn();
+        await this.vent(200);
+        const lett = snittfarge();
+        Veg3d.fyldig = true; Veg3d.glemFarger(); Veg3d.tegn();
+        await this.vent(200);
+        const fyldig = snittfarge();
+
+        this.sjekk('prøven fant både skjæring og fylling på skjermen',
+          !!(lett.skj && lett.fyl && fyldig.skj && fyldig.fyl));
+        if (lett.skj && fyldig.skj) {
+          /* Kravet er at de to blir LETTERE Å SKILLE. Et absolutt fargekrav
+             ville låst fargevalget i stilarket; dette måler nettopp det
+             innstillingen er til for. */
+          this.sjekk('fyldig skiller skjæring og fylling tydeligere',
+            avstand(fyldig.skj, fyldig.fyl) > avstand(lett.skj, lett.fyl) * 1.5,
+            'avstand ' + avstand(lett.skj, lett.fyl).toFixed(0)
+            + ' → ' + avstand(fyldig.skj, fyldig.fyl).toFixed(0));
+          this.sjekk('og skjæringen blir tydelig rød',
+            fyldig.skj[0] > fyldig.skj[1] + 60 && fyldig.skj[0] > fyldig.skj[2] + 60,
+            '[' + fyldig.skj.map(v => Math.round(v)).join(',') + ']');
+          this.sjekk('mens fyllingen blir tydelig grønn',
+            fyldig.fyl[1] > fyldig.fyl[0] + 40 && fyldig.fyl[1] > fyldig.fyl[2] + 25,
+            '[' + fyldig.fyl.map(v => Math.round(v)).join(',') + ']');
+        }
+
+        /* Terrenget må ut av veien der det graves – ellers hjelper ingen
+           farge, fordi sløret ligger oppå uansett. */
+        const lagF = Veg3d._lagliste(Veg3d._sisteGitter, Veg3d._palett());
+        const terrF = lagF.find(l => l.hoyde === Veg3d._sisteGitter.zT);
+        this.sjekk('terrenget tegnes ugjennomsiktig utenfor inngrepet i fyldig',
+          !!terrF && !(terrF.blanding > 0) && terrF.krev === Veg3d._sisteGitter.utenGrav);
+        Veg3d.fyldig = false; Veg3d.glemFarger();
+        const lagL = Veg3d._lagliste(Veg3d._sisteGitter, Veg3d._palett());
+        const terrL = lagL.find(l => l.hoyde === Veg3d._sisteGitter.zT);
+        this.sjekk('og halvgjennomsiktig over alt i den vanlige visningen',
+          !!terrL && terrL.blanding > 0 && !terrL.krev);
+
+        /* utenGrav må være det eksakte speilbildet. Er den bare «nesten»,
+           faller en stripe celler ut av begge lag og modellen får hull. */
+        const gg2 = Veg3d._sisteGitter;
+        let feil = 0;
+        for (let i = 0; i < gg2.finnes.length; i++) {
+          if (!gg2.finnes[i]) continue;
+          if (!!gg2.utenGrav[i] === !!gg2.harGrav[i]) feil++;
+        }
+        this.sjekk('terrengringen er det eksakte speilbildet av inngrepet',
+          feil === 0, feil + ' celler i begge eller ingen');
+
+        Veg3d.tegn();
+        await this.vent(120);
+      }
+
       /* 17.10 Kostnad – røykprøve mot en katastrofal regresjon. */
       {
         Veg3d.tegn();
@@ -1771,6 +1873,7 @@ const Nettlesertest = {
       Veg3d.overdriv = 1;
       Veg3d.kontekst = 30;
       Veg3d.vindu = 0;
+      Veg3d.fyldig = false; Veg3d.glemFarger();
       Veg3d.panX = 0; Veg3d.panY = 0;
       Veg3d._gitterFor = null;
       App.P = JSON.parse(foer);

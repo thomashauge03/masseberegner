@@ -3896,6 +3896,20 @@ const App = {
       Tomt3d._skalaSatt = false;         // og hvor mye som skal få plass
       Tomt3d.tegn();
     };
+    /* «Fyldig» bytter hele lesemåten, ikke bare en farge: paletten bygges om
+       med løftet bunn, og terrenget flyttes ut av veien der det graves. Derfor
+       må paletten glemmes – den er bufret på tema. */
+    for (const [id3, vis] of [['t3_fyldig', () => Tomt3d], ['v3_fyldig', () => Veg3d]]) {
+      const e = id2(id3);
+      if (!e) continue;
+      e.onclick = () => {
+        const v = vis();
+        v.fyldig = !v.fyldig;
+        e.classList.toggle('aktiv', v.fyldig);
+        v.glemFarger();
+        v.tegn();
+      };
+    }
     if (id2('t3_nullstill')) id2('t3_nullstill').onclick = () => Tomt3d.nullstill();
 
     /* Det samme for vegen, i tverrprofil-panelet. */
