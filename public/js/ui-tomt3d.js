@@ -218,8 +218,13 @@ const Tomt3d = {
       }
     }
 
+    /* Midtpunkt og diagonal som ekte tall, ikke som formel av nb og rute.
+       Kameraet trenger dem, og for en veg finnes det ingen `rute` å regne dem
+       av. På et rett rutenett gir de nøyaktig det samme som formelen gjorde. */
     const g = {
       nb, nh, rute, minX, minY, lav, hoy, maksAvvik: Math.max(0.5, maksAvvik),
+      midtX: (minX + maksX) / 2, midtY: (minY + maksY) / 2,
+      diagonal: Math.hypot(maksX - minX, maksY - minY),
       wx, wy, zT, zP, zF, zFerdig, harFerdig, harGrav, d: maksD, finnes, inne, usikker,
       hoppet, iKontekst, totalt: n, celler: celler.length
     };
@@ -287,9 +292,9 @@ const Tomt3d = {
   _kamera(b, h, g, skala, panX, panY) {
     const a = this.yaw * Math.PI / 180, p = this.pitch * Math.PI / 180;
     const ca = Math.cos(a), sa = Math.sin(a), cp = Math.cos(p), sp = Math.sin(p);
-    const s = this.senter || { x: g.minX + g.nb * g.rute / 2, y: g.minY + g.nh * g.rute / 2 };
+    const s = this.senter || { x: g.midtX, y: g.midtY };
     const z0 = (g.lav + g.hoy) / 2;
-    const dist = Math.max(60, Math.hypot(g.nb * g.rute, g.nh * g.rute) * 1.6);
+    const dist = Math.max(60, g.diagonal * 1.6);
     const cx = b / 2 + (panX || 0), cy = h / 2 + (panY || 0);
     const ov = this.overdriv;
     return {
@@ -361,7 +366,7 @@ const Tomt3d = {
    * ser ut som en tredje tilstand.
    */
   _raster(g, hoyde, farge, ut, dyp, id, b, h, kam, krev) {
-    const nb = g.nb, nh = g.nh, rute = g.rute;
+    const nb = g.nb, nh = g.nh;
     // projiser hver node én gang, ikke fire ganger per celle
     const px = this._px || (this._px = []);
     const py = this._py || (this._py = []);
@@ -414,6 +419,10 @@ const Tomt3d = {
         /* «krev» er et ekstra krav for laget: gravflaten finnes bare der det
            faktisk er regnet, ikke ute i terrengringen rundt. */
         if (krev && (!krev[k00] || !krev[k10] || !krev[k01] || !krev[k11])) continue;
+        /* Celler der korridoren har foldet seg over seg selv – bare mulig i
+           krappe kurver på en veg – tegnes ikke. Dybdebufferet ville tegnet
+           dem uten et ord. Tomta setter aldri feltet. */
+        if (g.celleSperre && g.celleSperre[k00]) continue;
         this._idNa = k00;
         const f = farge(k00, k10, k01, k11, hoyde);
         if (f === 0) continue;
@@ -431,11 +440,25 @@ const Tomt3d = {
    * blir en mørkt belyst grønn like mørk som en rød, og da forsvinner nettopp
    * det man skal se.
    */
-  _lys(z00, z10, z01, rute) {
-    const dx = (z10 - z00) / rute, dy = (z01 - z00) / rute;
-    // normalen er (-dx, -dy, 1) normalisert; lyset kommer fra nordvest og oppe
-    const len = Math.sqrt(dx * dx + dy * dy + 1);
-    const l = (-dx * -0.4 + -dy * 0.4 + 1 * 0.82) / len;
+  _lys(g, k00, k10, k01, z) {
+    /* NORMALEN FRA DE TO EKTE KANTENE, IKKE FRA ETT STEG PER AKSE.
+       Her sto `(z10 - z00) / rute` for begge retningene. På en tomt er det
+       riktig – rutenettet er kvadratisk. På en VEG er det ikke i nærheten:
+       tverrsteget er målt til 0,33 m mens steget langs vegen er 5 m, altså
+       15:1. Da blir hellingen på tvers femten ganger for stor, og hele
+       modellen ser ut som en riflet plate.
+       Kryssproduktet av de to kantene, med de virkelige avstandene fra wx/wy,
+       gir riktig normal på begge – og er bit-identisk med den gamle formelen
+       på et kvadratisk rutenett. */
+    const ax = g.wx[k10] - g.wx[k00], ay = g.wy[k10] - g.wy[k00], az = z[k10] - z[k00];
+    const bx = g.wx[k01] - g.wx[k00], by = g.wy[k01] - g.wy[k00], bz = z[k01] - z[k00];
+    let nx = ay * bz - az * by;
+    let ny = az * bx - ax * bz;
+    let nz = ax * by - ay * bx;
+    if (nz < 0) { nx = -nx; ny = -ny; nz = -nz; }   // normalen skal peke opp
+    const len = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
+    // lyset kommer fra nordvest og litt oppe: retningen er (-0,4  0,4  0,82)
+    const l = (-nx * 0.4 + ny * 0.4 + nz * 0.82) / len;
     return 0.55 + 0.45 * Math.max(0, Math.min(1, l));
   },
 
@@ -473,7 +496,7 @@ const Tomt3d = {
     let g = this._gitter(steg);
     if (!g) { this._tomMelding(g2, rb, rh, dpr * kvalitet, 'For stort rutenett til å tegnes i 3D'); return; }
 
-    if (!this.senter) this.senter = { x: g.minX + g.nb * g.rute / 2, y: g.minY + g.nh * g.rute / 2 };
+    if (!this.senter) this.senter = { x: g.midtX, y: g.midtY };
     if (!this._skalaSatt) {
       const t = this._tilpassSkala(rb, rh, g);
       this.skala = t.skala / (dpr * kvalitet);
@@ -503,52 +526,38 @@ const Tomt3d = {
 
     const pal = this._palett();
 
-    // 1) gravflaten, ugjennomsiktig
-    if (this.lag.grav) {
-      const fargeGrav = (k00, k10, k01, k11, z) => {
-        const d = g.d[k00];
-        const t = Math.min(1, Math.sqrt(Math.abs(d) / g.maksAvvik));
-        const tab = d >= 0 ? pal.skjaering : pal.fylling;
-        const i = Math.min(pal.N - 1, Math.round(t * (pal.N - 1))) * 3;
-        let r = tab[i], gg = tab[i + 1], bl = tab[i + 2];
-        const ly = this._lys(z[k00], z[k10], z[k01], g.rute);
-        // celler der skråningen ikke sto på egne ben tones ned
-        const m = g.usikker[k00] ? 0.82 : 1;
-        r = Math.min(255, r * ly * m); gg = Math.min(255, gg * ly * m); bl = Math.min(255, bl * ly * m);
-        if (this.lag.rutenett && this._paaRutelinje(g, k00)) { r *= 0.72; gg *= 0.72; bl *= 0.72; }
-        return (255 << 24) | (bl << 16) | (gg << 8) | r;
-      };
-      this._raster(g, g.zP, fargeGrav, this._piksler, this._dyp, this._id, rb, rh, kam, g.harGrav);
-    }
-
-    // 2) terrenget og fjellet, halvgjennomsiktig oppå
-    const blandLag = (hoyde, rgb, styrke, hopp) => {
-      this._lag2.fill(0);
-      this._dyp2.fill(Infinity);
-      const f = (k00, k10, k01, k11, z) => {
-        if (hopp && hopp(k00)) return 0;
-        const ly = this._lys(z[k00], z[k10], z[k01], g.rute);
-        const r = Math.min(255, rgb[0] * ly), gg = Math.min(255, rgb[1] * ly), bl = Math.min(255, rgb[2] * ly);
-        return (255 << 24) | (bl << 16) | (gg << 8) | r;
-      };
+    /* LAGENE KOMMER FRA VISNINGEN, IKKE FRA TEGNEREN.
+       Hver visning – tomt eller veg – sier hvilke flater som skal tegnes, i
+       hvilken rekkefølge, med hvilken farge og hvor gjennomsiktige. Tegneren
+       under vet ingenting om hva en gravflate eller en vegbane er.
+       Alternativet var en `if (kilde === 'veg')` spredt gjennom hele
+       tegneveien, og da blir hver tomtefeil en vegfeil og omvendt. */
+    for (const lag of this._lagliste(g, pal)) {
+      if (!lag) continue;
+      if (!(lag.blanding > 0)) {
+        // ugjennomsiktig: rett inn i bildet, med det felles dybdebufferet
+        this._raster(g, lag.hoyde, lag.farge, this._piksler, this._dyp,
+          lag.idBuffer === false ? null : this._id, rb, rh, kam, lag.krev);
+        continue;
+      }
       /* Hvert gjennomsiktige lag får SITT EGET dybdebuffer. Slår man i stedet
          av dybdeskrivingen, blander to firkanter av samme lag seg der de
          overlapper, og flaten får flekker. */
-      this._raster(g, hoyde, f, this._lag2, this._dyp2, null, rb, rh, kam);
+      this._lag2.fill(0);
+      this._dyp2.fill(Infinity);
+      this._raster(g, lag.hoyde, lag.farge, this._lag2, this._dyp2, null, rb, rh, kam, lag.krev);
+      const styrke = lag.blanding;
       const p = this._piksler, d1 = this._dyp, d2 = this._dyp2, l2 = this._lag2;
       for (let i = 0; i < n; i++) {
         if (!l2[i]) continue;
-        if (d2[i] > d1[i]) continue;                 // ligger bak gravflaten
+        if (d2[i] > d1[i]) continue;                 // ligger bak det ugjennomsiktige
         const s = l2[i], u = p[i];
         const r = ((s & 255) * styrke + (u & 255) * (1 - styrke)) | 0;
         const gg = (((s >> 8) & 255) * styrke + ((u >> 8) & 255) * (1 - styrke)) | 0;
         const bl = (((s >> 16) & 255) * styrke + ((u >> 16) & 255) * (1 - styrke)) | 0;
         p[i] = (255 << 24) | (bl << 16) | (gg << 8) | r;
       }
-    };
-    if (this.lag.terreng) blandLag(g.zT, Farger.terrengRgb, 0.45);
-    if (this.lag.fjell) blandLag(g.zF, Farger.fjellRgb, 0.5);
-    if (this.lag.overbygning) blandLag(g.zFerdig, Farger.rgb('data-baerelag'), 0.6, k => !g.harFerdig[k]);
+    }
 
     g2.putImageData(this._bilde, 0, 0);
     this._sisteGitter = g;
@@ -557,11 +566,56 @@ const Tomt3d = {
     this._tegnOverlegg(g, kam, b, h, dpr);
   },
 
+  /**
+   * Lagene tomta viser, i tegnerekkefølge.
+   *
+   * @returns {Array<{hoyde, farge, blanding, krev}>}
+   *   hoyde    Float32Array med koten i hver node
+   *   farge    (k00, k10, k01, k11, z) → 0xAABBGGRR, eller 0 for «hopp over»
+   *   blanding 0 = ugjennomsiktig, ellers hvor mye laget slipper gjennom
+   *   krev     Uint8Array som må være satt i alle fire hjørner
+   */
+  _lagliste(g, pal) {
+    const enkel = (rgb, hopp) => (k00, k10, k01, k11, z) => {
+      if (hopp && hopp(k00)) return 0;
+      const ly = this._lys(g, k00, k10, k01, z);
+      const r = Math.min(255, rgb[0] * ly), gg = Math.min(255, rgb[1] * ly), bl = Math.min(255, rgb[2] * ly);
+      return (255 << 24) | (bl << 16) | (gg << 8) | r;
+    };
+    const ut = [];
+    if (this.lag.grav) {
+      ut.push({
+        hoyde: g.zP, krev: g.harGrav, blanding: 0,
+        farge: (k00, k10, k01, k11, z) => {
+          const d = g.d[k00];
+          const t = Math.min(1, Math.sqrt(Math.abs(d) / g.maksAvvik));
+          const tab = d >= 0 ? pal.skjaering : pal.fylling;
+          const i = Math.min(pal.N - 1, Math.round(t * (pal.N - 1))) * 3;
+          let r = tab[i], gg = tab[i + 1], bl = tab[i + 2];
+          const ly = this._lys(g, k00, k10, k01, z);
+          // celler der skråningen ikke sto på egne ben tones ned
+          const m = g.usikker[k00] ? 0.82 : 1;
+          r = Math.min(255, r * ly * m); gg = Math.min(255, gg * ly * m); bl = Math.min(255, bl * ly * m);
+          if (this.lag.rutenett && this._paaRutelinje(g, k00)) { r *= 0.72; gg *= 0.72; bl *= 0.72; }
+          return (255 << 24) | (bl << 16) | (gg << 8) | r;
+        }
+      });
+    }
+    if (this.lag.terreng) ut.push({ hoyde: g.zT, farge: enkel(Farger.terrengRgb), blanding: 0.45 });
+    if (this.lag.fjell) ut.push({ hoyde: g.zF, farge: enkel(Farger.fjellRgb), blanding: 0.5 });
+    if (this.lag.overbygning) {
+      ut.push({ hoyde: g.zFerdig, blanding: 0.6, krev: g.harFerdig,
+        farge: enkel(Farger.rgb('data-baerelag')) });
+    }
+    return ut;
+  },
+
   /** Er cella nær en 10 m-linje i UTM? Da tones den ned, som et drapert rutenett. */
   _paaRutelinje(g, k) {
-    const i = k % g.nb, j = (k / g.nb) | 0;
     const x = g.wx[k], y = g.wy[k];
-    const naer = v => Math.abs(v - Math.round(v / 10) * 10) < g.rute * 0.6;
+    // toleransen er en halv nodeavstand, som gitteret selv oppgir
+    const t = (g.linjebredde || g.rute || 1) * 0.6;
+    const naer = v => Math.abs(v - Math.round(v / 10) * 10) < t;
     return naer(x) || naer(y);
   },
 
@@ -665,8 +719,8 @@ const Tomt3d = {
 
     // målestokk: en to meters pinne i det laveste punktet
     const pinne = 2;
-    const p0 = skjerm(g.minX, g.minY, g.lav);
-    const p1 = skjerm(g.minX, g.minY, g.lav + pinne);
+    const p0 = skjerm(g.wx[0], g.wy[0], g.lav);
+    const p1 = skjerm(g.wx[0], g.wy[0], g.lav + pinne);
     k.strokeStyle = Farger.blekk; k.lineWidth = 2;
     k.beginPath(); k.moveTo(p0.x, p0.y); k.lineTo(p1.x, p1.y); k.stroke();
     k.fillStyle = Farger.blekk; k.font = '10px system-ui, sans-serif'; k.textAlign = 'left';

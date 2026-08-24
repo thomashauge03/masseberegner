@@ -1241,6 +1241,37 @@ const Nettlesertest = {
       this.naer('desimeringen beholder det største avviket', maks(grovt), maks(fint), 1e-6);
       Tomt3d._gitterFor = null;
 
+      /* LYSET MÅ VÆRE UENDRET PÅ ET KVADRATISK RUTENETT.
+         Lysformelen ble skrevet om fra «ett steg per akse» til flatenormalen
+         fra kryssproduktet av de to ekte kantene, for at den samme tegneren
+         skal kunne brukes på en veg – der tverrsteget er 0,33 m mens steget
+         langs vegen er 5 m. På tomtas kvadratiske rutenett skal de to gi
+         nøyaktig samme tall. Uten denne prøven endrer tomtas skyggelegging seg
+         umerkelig, og ingen ser hvilken versjon som var riktig. */
+      {
+        const gammel = (z00, z10, z01, rute) => {
+          const dx = (z10 - z00) / rute, dy = (z01 - z00) / rute;
+          const len = Math.sqrt(dx * dx + dy * dy + 1);
+          const l = (-dx * -0.4 + -dy * 0.4 + 0.82) / len;
+          return 0.55 + 0.45 * Math.max(0, Math.min(1, l));
+        };
+        let verst = 0;
+        const prov = { wx: new Float32Array(4), wy: new Float32Array(4) };
+        for (let a = -3; a <= 3; a += 0.5) {
+          for (let bb = -3; bb <= 3; bb += 0.5) {
+            const r = g.rute;
+            prov.wx[0] = 0; prov.wy[0] = 0;
+            prov.wx[1] = r; prov.wy[1] = 0;
+            prov.wx[2] = 0; prov.wy[2] = r;
+            const z = new Float32Array([100, 100 + a, 100 + bb, 0]);
+            verst = Math.max(verst, Math.abs(
+              Tomt3d._lys(prov, 0, 1, 2, z) - gammel(100, 100 + a, 100 + bb, r)));
+          }
+        }
+        this.sjekk('lyset er uendret på et kvadratisk rutenett', verst < 1e-6,
+          'største avvik ' + verst.toExponential(1));
+      }
+
       /* 6.5 Fargene kommer fra stilarket, også som tall. */
       const rgb = Farger.skjaeringFlateRgb;
       this.sjekk('fargene finnes som tre tall', Array.isArray(rgb) && rgb.length === 3
