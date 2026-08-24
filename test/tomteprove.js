@@ -824,5 +824,66 @@ console.log('\n24. Det som meldes er det som faktisk skjer i kartet');
 }
 
 /* ------------------------------------------------------------------ */
+console.log('\n25. Grensa er en grense: ingenting utenfor den');
+{
+  /* Så man streken gå titalls meter utenfor omrisset man nettopp hadde satt som
+     yttergrense, var svaret ikke å merke den med rødt - det var at modellen var
+     feil. Setter man en tomtegrense, kan man ikke grave på naboens eiendom.
+     Skråningen stopper i streken, og noe må holde den der.
+
+     Her prøves åtte kanter over et terreng som faller kraftig, på fire nivåer
+     fra dyp skjæring til høy fylling. Ikke ett fotpunkt skal ligge utenfor. */
+  const p8 = [{ x: 0, y: 0 }, { x: 34, y: 6 }, { x: 46, y: 20 }, { x: 44, y: 38 },
+    { x: 30, y: 46 }, { x: 12, y: 44 }, { x: 2, y: 30 }, { x: -2, y: 14 }];
+  const bratt = { z: (x, y) => { const l = x * 0.6 + y * 0.8; return l < 0 ? 207 + l * 0.9 : 207 + l * 0.21; } };
+  const g25 = Object.assign(grunnmal(), { maksSokebredde: 60 });
+  const fj25 = new M.Fjellmodell({ standarddybde: 100 });
+  let verstAlle = 0, kuttet = 0, ialt = 0;
+  for (const kote of [210, 213, 216, 219]) {
+    const nivaa = { modus: 'flat', kote };
+    const inn = T.innerflate({ tomt: { punkter: p8, kanter: [], nivaa }, mal: g25, terreng: bratt, fjell: fj25, grense: p8 });
+    if (!inn.punkter) continue;
+    const fot = T.skraningsfot({ tomt: { punkter: inn.punkter, kanter: [], nivaa },
+      mal: g25, terreng: bratt, fjell: fj25, grense: p8 });
+    for (const f of fot) {
+      ialt++;
+      if (f.moterGrense) kuttet++;
+      if (T.innenforPolygon(p8, f.x, f.y)) continue;
+      verstAlle = Math.max(verstAlle, T.naermestePaOmriss(p8, f.x, f.y).d);
+    }
+  }
+  sjekk('ikke ett fotpunkt utenfor grensa på noe nivå', verstAlle, 0, 0.05);
+  if (!(kuttet > 0 && kuttet < ialt)) {
+    feil++; console.log('  FEIL  kuttede punkt meldes ikke: ' + kuttet + ' av ' + ialt);
+  } else { ok++; console.log('  ok    sidene som ble kuttet i grensa meldes (' + kuttet + ' av ' + ialt + ')'); }
+
+  /* Innrykket må fortsatt måles på det VIRKELIGE behovet. Arver søket grensa,
+     melder hver kant at den lander pent i streken, innrykket blir null, og hele
+     omrisset står igjen som ferdig flate med skråninger klemt til null bredde. */
+  const medGrense = T.innerflate({ tomt: { punkter: p8, kanter: [], nivaa: { modus: 'flat', kote: 216 } },
+    mal: g25, terreng: bratt, fjell: fj25, grense: p8 });
+  const utenGrense = T.innerflate({ tomt: { punkter: p8, kanter: [], nivaa: { modus: 'flat', kote: 216 } },
+    mal: g25, terreng: bratt, fjell: fj25 });
+  sjekk('grensa endrer ikke innrykket - den klipper bare skråningen',
+    Tomt.areal(medGrense.punkter), Tomt.areal(utenGrense.punkter), 0.5);
+  if (!(Tomt.areal(medGrense.punkter) < Tomt.areal(p8) * 0.95)) {
+    feil++; console.log('  FEIL  innrykket ble borte: flaten er like stor som omrisset');
+  } else { ok++; console.log('  ok    flaten er fortsatt rykket inn fra grensa'); }
+
+  /* Volumet må følge streken. Regnes det masser utenfor grensa, forteller
+     rapporten om graving på naboens eiendom - som kartet ikke engang tegner. */
+  const n25 = { modus: 'flat', kote: 219 };
+  const inn25 = T.innerflate({ tomt: { punkter: p8, kanter: [], nivaa: n25 }, mal: g25, terreng: bratt, fjell: fj25, grense: p8 });
+  const felles = { tomt: { punkter: inn25.punkter, kanter: [], nivaa: n25 }, mal: g25, terreng: bratt,
+    fjell: fj25, rutestorrelse: 1, bakkefaktor: 1 };
+  const med = T.beregnTomtemasser(Object.assign({ grense: p8 }, felles));
+  const uten = T.beregnTomtemasser(felles);
+  if (!(med.sum.fylling < uten.sum.fylling * 0.999)) {
+    feil++; console.log('  FEIL  volumet regnes likt med og uten grense: ' + med.sum.fylling.toFixed(0));
+  } else { ok++; console.log('  ok    volumet stopper i grensa (' + med.sum.fylling.toFixed(0)
+    + ' mot ' + uten.sum.fylling.toFixed(0) + ' m³ fylling)'); }
+}
+
+/* ------------------------------------------------------------------ */
 console.log(`\n${ok} tester ok, ${feil} feil`);
 process.exit(feil ? 1 : 0);

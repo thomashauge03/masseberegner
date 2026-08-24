@@ -33,6 +33,13 @@ const Forklaring = {
     { navn: 'Ferdig nivå', form: 'strek', farge: () => Farger.veg, modus: 'tomt',
       tekst: 'Overflaten man kjører på når alt er ferdig. Ligger overbygningen '
         + 'over planum, så avstanden mellom de to strekene er summen av lagene.' },
+    { navn: 'Må støttes', form: 'stipla', farge: () => Farger.skjaering, modus: 'tomt',
+      tekst: 'Tykk, stiplet strek i kartet der skråningen ble stoppet av '
+        + 'tomtegrensa. Setter du omrisset som yttergrense, kan ingenting gå '
+        + 'utenfor den – du kan ikke grave på naboens eiendom. Skråningen '
+        + 'stopper i streken, og der må noe holde den: mur, sprengt vegg eller '
+        + 'en brattere skråning. Verken masser eller linje er regnet utenfor, '
+        + 'så tallene mangler det disse sidene trenger av støttekonstruksjon.' },
     { navn: 'Veglinje', form: 'strek', farge: () => Farger.veg, modus: 'veg',
       tekst: 'Vegoverflaten – der hjulet går. Under den ligger bærelag og '
         + 'slitelag, og under dem igjen planum.' },

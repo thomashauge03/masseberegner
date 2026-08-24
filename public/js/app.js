@@ -476,6 +476,8 @@ const App = {
       const r = Tomtmasser.beregnTomtemasser({
         tomt: { punkter, kanter: t.kanter, nivaa: this.tomtenivaaIUtm(t) },
         mal: this.P.mal, terreng: this.terreng, fjell: this.fjellmodellIUtm(),
+        // samme grense som beregningen bruker, ellers balanserer den mot andre tall
+        grense: t.omrissBetyr === 'yttergrense' ? this.tomtIUtm(t) : null,
         rutestorrelse: Math.max(1, this.P.mal.rutestorrelse), bakkefaktor: this.bakkefaktor()
       });
       return this.tomtebalanse(r.sum).balanse;
@@ -1424,6 +1426,10 @@ const App = {
       faktorer: this.P.faktorer,
       terreng: this.terreng,
       fjell: this.fjellmodellIUtm(),
+      /* Er omrisset yttergrensen, er det en grense i ordets egentlige forstand:
+         ingenting regnes utenfor den. Uten dette talte rapporten masser pa
+         naboens eiendom - masser kartet ikke engang tegnet. */
+      grense: t.omrissBetyr === 'yttergrense' ? p : null,
       rutestorrelse: this.P.mal.rutestorrelse,
       bakkefaktor: this.bakkefaktor()
     });
@@ -1436,13 +1442,13 @@ const App = {
     if (this._tomtMangler && this._tomtMangler.length) {
       const verst = this._tomtMangler.slice().sort((a, b) => b.mangler - a.mangler);
       const topp = verst.slice(0, 3)
-        .map(m => `side ${m.kant + 1} mangler ${m.mangler.toFixed(0)} m`).join(', ');
+        .map(m => `side ${m.kant + 1} (${m.mangler.toFixed(0)} m for lite plass)`).join(', ');
       this.resultat.merknader.push({ type: 'grense',
-        tekst: `Skråningene får ikke plass innenfor grensa: ${topp}`
-          + (verst.length > 3 ? ` og ${verst.length - 3} til` : '')
-          + '. Sett mur eller sprengt vegg på de sidene – en mur tar omtrent en '
-          + 'sjettedel av bredden til en jordskråning. Den ferdige flaten under er '
-          + 'regnet med det som faktisk fikk plass.' });
+        tekst: `Skråningen er kuttet i grensa på ${topp}`
+          + (verst.length > 3 ? ` og ${verst.length - 3} side(r) til` : '')
+          + '. Der må noe holde den: mur, sprengt vegg eller brattere skråning. '
+          + 'Ingenting er regnet utenfor grensa – verken masser eller linje – så '
+          + 'tallene under mangler det disse sidene trenger av støttekonstruksjon.' });
     }
     this.visTomtemasser();
     this.tomthoydeTilSkjema();

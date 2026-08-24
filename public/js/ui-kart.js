@@ -464,7 +464,9 @@ const Kart = {
     const indre = app._innerflate || p;
     const fot = Tomtmasser.skraningsfot({
       tomt: { punkter: indre, kanter: t.kanter, nivaa: app.tomtenivaaIUtm(t) },
-      mal: app.P.mal, terreng: app.terreng, fjell: app.fjellmodellIUtm()
+      mal: app.P.mal, terreng: app.terreng, fjell: app.fjellmodellIUtm(),
+      // streken stopper i grensa, akkurat som gravemaskinen ma
+      grense: t.omrissBetyr === 'yttergrense' ? p : null
     });
     if (!fot.length) return;
     const hj = q => { const g = Geo.fraUtm(q.x, q.y, app.sone); return [g.lat, g.lon]; };
@@ -476,9 +478,12 @@ const Kart = {
        tykk og varslende. Ellers ser det ut som en feil at streken krysser
        grensa - og det er nettopp den strekningen som er svaret pa hvor muren ma
        sta. */
-    const utenfor = f => t.omrissBetyr === 'yttergrense'
-      && !Tomtmasser.innenforPolygon(p, f.x, f.y)
-      && Tomtmasser.naermestePaOmriss(p, f.x, f.y).d > 0.15;
+    /* Der skraningen ble STOPPET av grensa - ikke der den landet av seg selv.
+       Streken gar aldri utenfor lenger, sa a lete etter punkt utenfor omrisset
+       finner ingenting. Det man ma se, er hvilke sider som star og trenger
+       stotte: mur, sprengt vegg eller brattere skraning. De males opp tykke og
+       stipla. */
+    const utenfor = f => t.omrissBetyr === 'yttergrense' && f.moterGrense === true;
 
     let bit = [], forrige = null, forrigeUte = null;
     const tøm = () => {

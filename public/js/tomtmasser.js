@@ -33,6 +33,49 @@
  *   kant hvilken kant det nærmeste punktet ligger pa
  *   u    hvor langt ut pa kanten, 0..1
  */
+/**
+ * Hvor langt en stråle kan gå før den treffer polygonets omriss.
+ *
+ * Brukes til a stoppe skraningen i tomtegrensa. Kan man ikke grave pa naboens
+ * eiendom, hjelper det ikke at skraningen «egentlig» ville landet tjue meter
+ * lenger ute - den stopper i grensa, og noe ma holde den der.
+ *
+ * @returns {number} avstand til omrisset, eller Infinity om strålen aldri
+ *   treffer (punktet ligger allerede utenfor og peker bort)
+ */
+function tilOmriss(p, x, y, dx, dy) {
+  let naermest = Infinity;
+  for (let i = 0; i < p.length; i++) {
+    const a = p[i], b = p[(i + 1) % p.length];
+    const ex = b.x - a.x, ey = b.y - a.y;
+    const nevner = dx * ey - dy * ex;
+    if (Math.abs(nevner) < 1e-12) continue;          // strålen er parallell
+    const t = ((a.x - x) * ey - (a.y - y) * ex) / nevner;
+    if (t < 1e-9) continue;                          // bak oss
+    const u = ((a.x - x) * dy - (a.y - y) * dx) / nevner;
+    if (u < -1e-9 || u > 1 + 1e-9) continue;         // utenfor kantstykket
+    if (t < naermest) naermest = t;
+  }
+  return naermest;
+}
+
+/**
+ * Hvor langt ut skraningen far ga før den star i tomtegrensa.
+ *
+ * Startpunktet ligger pa den innrykkede flaten, og det kan ligge en brøkdels
+ * millimeter utenfor grensa etter innrykket. Da bommer en stråle rett utover pa
+ * hele polygonet og svarer Infinity - og skraningen fikk lov a ga de fulle
+ * seksti meterne, tvers over grensa man nettopp hadde satt. Derfor kastes
+ * strålen fra et halvmeterssteg bakover, og svaret trekkes fra igjen.
+ */
+function tilGrensa(grense, x, y, nx, ny) {
+  const bak = 0.5;
+  const t = tilOmriss(grense, x - nx * bak, y - ny * bak, nx, ny);
+  if (Number.isFinite(t)) return Math.max(0, t - bak);
+  // strålen traff ingenting: punktet ligger utenfor og peker bort fra tomta
+  return innenforPolygon(grense, x, y) ? Infinity : 0;
+}
+
 function naermestePaOmriss(p, x, y) {
   let best = { d: Infinity, kant: 0, u: 0, x: 0, y: 0 };
   for (let i = 0; i < p.length; i++) {
@@ -221,6 +264,10 @@ function beregnTomtemasser(o) {
       const inne = innenforPolygon(p, x, y);
       const naer = naermestePaOmriss(p, x, y);
       if (!inne && naer.d > maksUt) continue;              // langt utenfor alt
+      /* Er det satt en tomtegrense, regnes ingenting utenfor den. Ellers ville
+         rapporten talt masser pa naboens eiendom - masser som ikke kan graves,
+         og som kartet heller ikke tegner. */
+      if (o.grense && !inne && !innenforPolygon(o.grense, x, y)) continue;
 
       const zT = o.terreng.z(x, y);
       if (!(typeof zT === 'number' && Number.isFinite(zT))) {
@@ -516,6 +563,7 @@ function tyngdepunktAv(p) {
  * @returns {Array<{x,y,ut,type,kant}>} ett punkt per steg rundt omrisset
  */
 function skraningsfot(o) {
+  // o.grense: skraningen stopper der, om den er satt
   const p = o.tomt.punkter || [];
   const mal = o.mal || {};
   if (p.length < 3) return [];
@@ -528,7 +576,10 @@ function skraningsfot(o) {
     const a = p[i], b = p[(i + 1) % p.length];
     const dx = b.x - a.x, dy = b.y - a.y;
     const len = Math.hypot(dx, dy);
-    if (len < 1e-9) continue;
+    /* En kant pa en brøkdels millimeter har ingen retning verdt navnet:
+       normalen den gir peker en tilfeldig vei, og skraningen ble marsjert dit.
+       Det var slik en enkelt strek endte seksti meter pa tvers av tomta. */
+    if (len < 1e-4) continue;
     kanter.push({ i, a, b, len, dx: dx / len, dy: dy / len });
   }
   // utoverrettet normal: samme regel som Tomt.kanter
@@ -559,6 +610,13 @@ function skraningsfot(o) {
         ut.push({ x, y, ut: 0, kant: k.i, type: 'apen', traff: true });
         continue;
       }
+      /* Grensa er en hard vegg. Er omrisset en tomtegrense, kan skraningen ikke
+         ga forbi den - man kan ikke grave pa naboens eiendom. Da stopper den
+         der, og noe ma holde den: mur, sprengt vegg eller en brattere skraning.
+         Her fortsatte den utover og ble bare flagget, og da la det en strek
+         flere titalls meter utenfor grensa man nettopp hadde satt. */
+      const grenseUt = o.grense ? tilGrensa(o.grense, x, y, nx, ny) : Infinity;
+      const maksHer = Math.min(maksUt, grenseUt);
       const skjaerer = zT > zK;
       let traff = 0;
       const over = d => {
@@ -578,12 +636,12 @@ function skraningsfot(o) {
          den første kryssingen, sa linja og tallene ble uenige.
          Derfor gas det først i grove steg til fortegnet snur, og halveringen
          gjøres innenfor det ene steget. */
-      const grovSteg = Math.max(0.5, maksUt / 60);
-      let funnet = false, lav = 0, hoy = maksUt;
-      for (let d = grovSteg; d <= maksUt + 1e-9; d += grovSteg) {
+      const grovSteg = Math.max(0.25, maksHer / 60);
+      let funnet = false, lav = 0, hoy = maksHer;
+      for (let d = grovSteg; d <= maksHer + 1e-9; d += grovSteg) {
         if (over(d) === true) { lav = d - grovSteg; hoy = d; funnet = true; break; }
       }
-      if (!funnet) { traff = maksUt; }
+      if (!funnet) { traff = maksHer; }
       else {
         for (let b = 0; b < 14; b++) {
           const midt = (lav + hoy) / 2;
@@ -593,7 +651,9 @@ function skraningsfot(o) {
       }
       ut.push({ x: x + nx * traff, y: y + ny * traff, ut: traff, kant: k.i,
         type: skjaerer ? 'skjaering' : 'fylling',
-        traff: funnet });
+        traff: funnet,
+        // stoppet av grensa, ikke av terrenget - her ma noe holde skraningen
+        moterGrense: !funnet && grenseUt <= maksUt + 1e-9 });
     }
   }
   return ut;
@@ -624,8 +684,15 @@ function innerflate(o, runder = 14) {
   let innrykk = new Array(p.length).fill(0);
   let forrigeKant = null;
   const loperUt = new Set();
+  /* SØKET MA SE DET VERKELIGE BEHOVET, IKKE DET AVKLIPPEDE.
+     Klippes skraningen i tomtegrensa allerede her, melder hver kant at den
+     lander pent i streken, innrykket blir null, og hele flaten star igjen med
+     skraninger klemt til null bredde. Innrykket er jo nettopp det som gjør at
+     skraningen far plass innenfor grensa. Derfor males kravet uten grensa, og
+     klippet legges pa etterpa - pa det som fortsatt stikker utenfor. */
+  const so = Object.assign({}, o, { grense: null });
   for (let r = 0; r < runder; r++) {
-    const fot = skraningsfot(Object.assign({}, o, { tomt: Object.assign({}, o.tomt, { punkter: na }) }));
+    const fot = skraningsfot(Object.assign({}, so, { tomt: Object.assign({}, o.tomt, { punkter: na }) }));
     if (!fot.length) break;
     /* Hvor langt hver kant stakk ut, malt som det største pa kanten.
        Apne kanter gir 0 - de krever ingen plass, og skal derfor ikke rykke
@@ -731,7 +798,7 @@ function innerflate(o, runder = 14) {
       const trygg = tilpassInnrykk(p, perKant, tegn);
       if (!trygg) return { punkter: null, innrykk, forLiten: true, loperUt: [...loperUt] };
       return { punkter: trygg.punkter, innrykk: perKant.map(v => Math.min(v, trygg.tak)),
-        loperUt: [...loperUt], mangler: maalOverskridelse(p, trygg.punkter, o), avkortet: true };
+        loperUt: [...loperUt], mangler: maalOverskridelse(p, trygg.punkter, so), avkortet: true };
     }
     if (stillestaaende) break;
   }
@@ -741,7 +808,7 @@ function innerflate(o, runder = 14) {
      enn den var da kravet ble satt. Uten denne malingen meldte programmet
      mangel pa noen sider mens streken i kartet krysset grensa pa andre. */
   return { punkter: na, innrykk, loperUt: [...loperUt],
-    mangler: maalOverskridelse(p, na, o) };
+    mangler: maalOverskridelse(p, na, so) };
 }
 
 /**

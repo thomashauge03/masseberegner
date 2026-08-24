@@ -107,7 +107,13 @@ const Tomteprofil = {
          i kanten, og skraningen, som er halve poenget med a se pa et snitt,
          var rett og slett ikke tegnet. */
       let zSkraning = null;
-      if (!inne && Number.isFinite(zT)) {
+      /* Er omrisset yttergrensen, slutter inngrepet i den streken. Snittet ma
+         vise det samme som kartet og volumet: skraningen tegnes fram til grensa
+         og ikke en meter lenger. Uten dette fortsatte streken i snittet ut over
+         grensa mens kartet stoppet i den, og de to fortalte hver sin historie. */
+      const utenforGrensa = t.omrissBetyr === 'yttergrense'
+        && !Tomtmasser.innenforPolygon(p, x, y);
+      if (!inne && !utenforGrensa && Number.isFinite(zT)) {
         const naer = Tomtmasser.naermestePaOmriss(flate, x, y);
         const kant = kantFor(naer.kant);
         const zKant = Tomtmasser.nivaaVed(nivaa, naer.x, naer.y, tp);
