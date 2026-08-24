@@ -3888,6 +3888,12 @@ const App = {
       Tomt3d.overdriv = parseFloat(e.target.value) || 1;
       Tomt3d.tegn();
     };
+    if (id2('t3_kontekst')) id2('t3_kontekst').onchange = e => {
+      Tomt3d.kontekst = parseFloat(e.target.value) || 0;
+      Tomt3d._gitterFor = null;          // ringen endrer selve gitteret
+      Tomt3d._skalaSatt = false;         // og hvor mye som skal få plass
+      Tomt3d.tegn();
+    };
     if (id2('t3_nullstill')) id2('t3_nullstill').onclick = () => Tomt3d.nullstill();
 
     document.addEventListener('keydown', e => {

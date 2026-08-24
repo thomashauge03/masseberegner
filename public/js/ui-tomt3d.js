@@ -45,6 +45,11 @@ const Tomt3d = {
   skala: 1,            // piksler per meter i bakkeplanet
   overdriv: 1,         // vertikal overdrivning
   senter: null,        // {x, y} i UTM, det bildet dreier om
+  /* Hvor mange meter terreng rundt selve arbeidet som tas med. Uten en ring
+     rundt ser man flaten, men ikke om den ligger i ei li, på en rygg eller i en
+     søkk – og det er nettopp det man vil vite. Ringen koster ingenting å hente:
+     terrengdataene er alt lastet ned med margin utenfor beregningen. */
+  kontekst: 40,
 
   lag: { terreng: true, grav: true, fjell: false, overbygning: false, rutenett: false, grenser: true },
 
@@ -112,6 +117,16 @@ const Tomt3d = {
       minX = Math.min(minX, c.x); maksX = Math.max(maksX, c.x);
       minY = Math.min(minY, c.y); maksY = Math.max(maksY, c.y);
     }
+    /* TERRENGET RUNDT ARBEIDET, SÅ MAN SER HVA TOMTA LIGGER I.
+       Beregningen slutter der skråningen møter bakken, og en modell som slutter
+       der henger i løse lufta: man ser flaten, men ikke om den ligger i en
+       skråning, på en rygg eller i en søkk.
+       Ringen rundt koster ingenting å hente – terrengdataene er alt lastet ned
+       med god margin utenfor beregningen, og ble bare kastet. Går den utenfor
+       det som er lastet, svarer terrenget NaN, og da faller de nodene bort av
+       seg selv. */
+    const marg = Math.max(0, this.kontekst || 0);
+    minX -= marg; maksX += marg; minY -= marg; maksY += marg;
     const nb = Math.round((maksX - minX) / rute) + 1;
     const nh = Math.round((maksY - minY) / rute) + 1;
     if (!(nb > 0 && nh > 0) || nb * nh > 4e6) return null;
@@ -156,30 +171,57 @@ const Tomt3d = {
 
     const zT = new Float32Array(n), zP = new Float32Array(n), zF = new Float32Array(n);
     const zFerdig = new Float32Array(n), harFerdig = new Uint8Array(n);
-    const finnes = new Uint8Array(n);
-    let hoppet = 0;
+    const finnes = new Uint8Array(n), harGrav = new Uint8Array(n);
+    const terr = this.app.terreng;
+    let hoppet = 0, iKontekst = 0;
     for (let k = 0; k < n; k++) {
-      if (!antall[k]) { hoppet++; continue; }
-      finnes[k] = 1;
-      zT[k] = sumT[k] / antall[k];
-      zP[k] = sumP[k] / antall[k];
-      zF[k] = sumF[k] / antall[k];
-      if (antallFerdig[k]) { zFerdig[k] = sumFerdig[k] / antallFerdig[k]; harFerdig[k] = 1; }
+      if (antall[k]) {
+        finnes[k] = 1; harGrav[k] = 1;
+        zT[k] = sumT[k] / antall[k];
+        zP[k] = sumP[k] / antall[k];
+        zF[k] = sumF[k] / antall[k];
+        if (antallFerdig[k]) { zFerdig[k] = sumFerdig[k] / antallFerdig[k]; harFerdig[k] = 1; }
+        continue;
+      }
+      /* Utenfor beregningen: bare terrenget, hentet rett fra høydemodellen.
+         Ingen gravflate her – det er nettopp poenget: dette er marka rundt,
+         ikke noe som skal røres. */
+      const z = terr ? terr.z(minX + (k % nb) * rute, minY + ((k / nb) | 0) * rute) : NaN;
+      if (Number.isFinite(z)) { finnes[k] = 1; zT[k] = z; zP[k] = z; zF[k] = z; iKontekst++; }
+      else hoppet++;
     }
 
     let lav = Infinity, hoy = -Infinity, maksAvvik = 0;
     for (let k = 0; k < n; k++) {
       if (!finnes[k]) continue;
-      lav = Math.min(lav, zT[k], zP[k]);
-      hoy = Math.max(hoy, zT[k], zP[k]);
-      maksAvvik = Math.max(maksAvvik, Math.abs(maksD[k]));
+      lav = Math.min(lav, zT[k]);
+      hoy = Math.max(hoy, zT[k]);
+      if (harGrav[k]) {
+        lav = Math.min(lav, zP[k]); hoy = Math.max(hoy, zP[k]);
+        maksAvvik = Math.max(maksAvvik, Math.abs(maksD[k]));
+      }
     }
     if (!Number.isFinite(lav)) return null;
 
+    /* VERDSPOSISJONEN LIGGER I GITTERET, IKKE I EN FORMEL.
+       For en tomt er noden alltid `minX + i * rute` – et rett rutenett i UTM.
+       En VEG er ikke det: der er den ene aksen stasjon langs senterlinja og den
+       andre avstand ut fra den, så noden svinger med kurven. Skulle tegneren
+       tjene begge, kan den ikke gjette hvor en node ligger; den må få det
+       oppgitt. To Float32Array til koster 8 byte per node, og gjør at nøyaktig
+       den samme rasteriseringen kan brukes på begge. */
+    const wx = new Float32Array(n), wy = new Float32Array(n);
+    for (let j = 0; j < nh; j++) {
+      for (let i = 0; i < nb; i++) {
+        const k = j * nb + i;
+        wx[k] = minX + i * rute; wy[k] = minY + j * rute;
+      }
+    }
+
     const g = {
       nb, nh, rute, minX, minY, lav, hoy, maksAvvik: Math.max(0.5, maksAvvik),
-      zT, zP, zF, zFerdig, harFerdig, d: maksD, finnes, inne, usikker,
-      hoppet, totalt: n, celler: celler.length
+      wx, wy, zT, zP, zF, zFerdig, harFerdig, harGrav, d: maksD, finnes, inne, usikker,
+      hoppet, iKontekst, totalt: n, celler: celler.length
     };
     this._gitterFor = celler; this._gitterSteg = steg; this._gitterBuffer = g;
     return g;
@@ -282,7 +324,7 @@ const Tomt3d = {
     const legg = (i, j) => {
       if (i < 0 || j < 0 || i >= g.nb || j >= g.nh) return;
       for (const z of [g.lav, g.hoy]) {
-        const q = k.punkt(g.minX + i * g.rute, g.minY + j * g.rute, z);
+        const q = k.punkt(g.wx[j * g.nb + i], g.wy[j * g.nb + i], z);
         const rx = q.px - b / 2, ry = q.py - h / 2;      // skala er 1 her
         minX = Math.min(minX, rx); maksX = Math.max(maksX, rx);
         minY = Math.min(minY, ry); maksY = Math.max(maksY, ry);
@@ -318,7 +360,7 @@ const Tomt3d = {
    * skjæringscelle ved siden av en fyllingscelle fått en rødgrønn overgang som
    * ser ut som en tredje tilstand.
    */
-  _raster(g, hoyde, farge, ut, dyp, id, b, h, kam) {
+  _raster(g, hoyde, farge, ut, dyp, id, b, h, kam, krev) {
     const nb = g.nb, nh = g.nh, rute = g.rute;
     // projiser hver node én gang, ikke fire ganger per celle
     const px = this._px || (this._px = []);
@@ -330,7 +372,7 @@ const Tomt3d = {
       for (let i = 0; i < nb; i++) {
         const k = j * nb + i;
         if (!g.finnes[k]) { pd[k] = NaN; continue; }
-        const q = kam.punkt(g.minX + i * rute, g.minY + j * rute, hoyde[k]);
+        const q = kam.punkt(g.wx[k], g.wy[k], hoyde[k]);
         px[k] = q.px; py[k] = q.py; pd[k] = q.dk;
       }
     }
@@ -369,6 +411,9 @@ const Tomt3d = {
            terrenget, slutter cellene. En firkant der ett hjørne mangler kan
            ikke tegnes, og skal ikke gjettes. */
         if (!g.finnes[k00] || !g.finnes[k10] || !g.finnes[k01] || !g.finnes[k11]) continue;
+        /* «krev» er et ekstra krav for laget: gravflaten finnes bare der det
+           faktisk er regnet, ikke ute i terrengringen rundt. */
+        if (krev && (!krev[k00] || !krev[k10] || !krev[k01] || !krev[k11])) continue;
         this._idNa = k00;
         const f = farge(k00, k10, k01, k11, hoyde);
         if (f === 0) continue;
@@ -473,7 +518,7 @@ const Tomt3d = {
         if (this.lag.rutenett && this._paaRutelinje(g, k00)) { r *= 0.72; gg *= 0.72; bl *= 0.72; }
         return (255 << 24) | (bl << 16) | (gg << 8) | r;
       };
-      this._raster(g, g.zP, fargeGrav, this._piksler, this._dyp, this._id, rb, rh, kam);
+      this._raster(g, g.zP, fargeGrav, this._piksler, this._dyp, this._id, rb, rh, kam, g.harGrav);
     }
 
     // 2) terrenget og fjellet, halvgjennomsiktig oppå
@@ -515,7 +560,7 @@ const Tomt3d = {
   /** Er cella nær en 10 m-linje i UTM? Da tones den ned, som et drapert rutenett. */
   _paaRutelinje(g, k) {
     const i = k % g.nb, j = (k / g.nb) | 0;
-    const x = g.minX + i * g.rute, y = g.minY + j * g.rute;
+    const x = g.wx[k], y = g.wy[k];
     const naer = v => Math.abs(v - Math.round(v / 10) * 10) < g.rute * 0.6;
     return naer(x) || naer(y);
   },
@@ -630,8 +675,7 @@ const Tomt3d = {
     // avlesning under markøren
     if (this._peker && this._peker.k >= 0 && g.finnes[this._peker.k]) {
       const kk = this._peker.k;
-      const i = kk % g.nb, j = (kk / g.nb) | 0;
-      const x = g.minX + i * g.rute, y = g.minY + j * g.rute;
+      const x = g.wx[kk], y = g.wy[kk];
       const d = g.d[kk];
       const tekst = [
         `Terreng ${t2(g.zT[kk], 2)} · planum ${t2(g.zP[kk], 2)}`,
