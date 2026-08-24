@@ -692,6 +692,12 @@ Dybden til fjell er den største usikkerheten i sprengningsvolumet.
         return { ok: false, grunn: 'Tomta er ikke ferdig regnet – '
           + (m ? m.tekst : 'sett et ferdig nivå og prøv igjen') };
       }
+      /* En stikningsfil for noe som ikke kan bygges er akkurat den filen som
+         «ser ferdig ut»: den åpnes i instrumentet uten en eneste innsigelse, og
+         punktene står der som om de skulle settes ut. */
+      if (res.ubyggelig) {
+        return { ok: false, grunn: res.ubyggelig.tekst };
+      }
       return { ok: true, form: 'tomt' };
     }
     if (!Array.isArray(res.profiler) || res.profiler.length < 2) {

@@ -1091,9 +1091,13 @@ console.log('\n27. Skråningen treffer bakken – den blir aldri kappet loddrett
       verstSkj = Math.max(verstSkj, Math.abs(z - opp.z(f.x)));
     }
     sjekk('den brattede skjæringen møter terrenget i grensa', verstSkj, 0, 0.02);
-    if (fotSkj.filter(f => f.type !== 'apen').some(f => !f.traff)) {
-      feil++; console.log('  FEIL  skjæringen lander ikke overalt');
-    } else { ok++; console.log('  ok    skjæringen lander overalt'); }
+    /* Hvert punkt skal enten lande, eller være merket UMULIG. Det som ikke går
+       an, er å verken lande eller si fra – da tegnes en utslagslinje rundt noe
+       som ikke er regnet. */
+    const stille = fotSkj.filter(f => f.type !== 'apen' && !f.traff && !f.umulig);
+    if (stille.length) {
+      feil++; console.log('  FEIL  ' + stille.length + ' punkt verken lander eller sier fra');
+    } else { ok++; console.log('  ok    hvert punkt lander eller er merket umulig'); }
   }
 
   /* Uten grense skal ingenting brattes – da er det bakken som bestemmer. */
@@ -1115,6 +1119,91 @@ console.log('\n27. Skråningen treffer bakken – den blir aldri kappet loddrett
   if (rom.filter(f => f.type !== 'apen').some(f => f.tvunget > 0)) {
     feil++; console.log('  FEIL  brattes opp selv om det er god plass');
   } else { ok++; console.log('  ok    god plass gir standardhelningen'); }
+}
+
+/* ------------------------------------------------------------------ */
+console.log('\n28. En høyde som ikke går, skal si at den ikke går');
+{
+  /* Setter man ferdig kote til 300 der terrenget ligger på 210, er ikke svaret
+     162 366 m³ fylling – svaret er at dette ikke er en tomt.
+
+     Verre: oppbrattingen gjorde det til et gyldig svar. Hvert eneste fotpunkt
+     «landet», hvert av dem på en 98 m høy loddrett vegg, og siden en loddrett
+     vegg ikke trenger plass, slapp innrykket unna – så den ferdige flaten ble
+     STØRRE enn på en kote som faktisk gikk: 1750 m² mot 852.
+
+     Det bratteste noe kan stå i, er en sprengt bergvegg. Kreves det mer, finnes
+     det ingen konstruksjon. */
+  const p28 = [{ x: 0, y: 0 }, { x: 40, y: 0 }, { x: 40, y: 30 }, { x: 0, y: 30 }];
+  const terr28 = { z: (x, y) => 210 + x * 0.04 + y * 0.02 };
+  const g28 = Object.assign(grunnmal(), { maksSokebredde: 45, veggHelning: 0.1 });
+  const fj28 = new M.Fjellmodell({ standarddybde: 100 });
+  const kjor = kote => {
+    const nivaa = { modus: 'flat', kote };
+    const inn = T.innerflate({ tomt: { punkter: p28, kanter: [], nivaa },
+      mal: g28, terreng: terr28, fjell: fj28 });
+    return T.beregnTomtemasser({ tomt: { punkter: inn.punkter || p28, kanter: [], nivaa },
+      mal: g28, terreng: terr28, fjell: fj28, rutestorrelse: 1, bakkefaktor: 1, grense: p28 });
+  };
+
+  const hoyt = kjor(300);
+  if (!hoyt.ubyggelig) {
+    feil++; console.log('  FEIL  kote 300 over et terreng på 210 blir godtatt');
+  } else { ok++; console.log('  ok    kote 300 blir stoppet (' + hoyt.ubyggelig.del + ' % av omkretsen)'); }
+  if (!/OVER det høyeste terrenget/.test((hoyt.ubyggelig || {}).tekst || '')) {
+    feil++; console.log('  FEIL  meldingen sier ikke hvor mye for høyt det er');
+  } else { ok++; console.log('  ok    og sier hvor mange meter over terrenget koten ligger'); }
+  if (!(hoyt.skraningsfot || []).some(f => f.umulig)) {
+    feil++; console.log('  FEIL  ingen fotpunkt er merket umulig');
+  } else { ok++; console.log('  ok    ' + hoyt.skraningsfot.filter(f => f.umulig).length + ' fotpunkt er umulige'); }
+  /* Et umulig punkt skal ikke telle som landet. Gjør det det, ser omkretsen
+     hel ut og kartet tegner en sammenhengende utslagslinje rundt noe som ikke
+     finnes. */
+  if ((hoyt.skraningsfot || []).some(f => f.umulig && f.traff)) {
+    feil++; console.log('  FEIL  umulige punkt teller som landet');
+  } else { ok++; console.log('  ok    umulige punkt teller ikke som landet'); }
+
+  const lavt = kjor(120);
+  if (!lavt.ubyggelig || !/UNDER det laveste terrenget/.test(lavt.ubyggelig.tekst)) {
+    feil++; console.log('  FEIL  kote 120 under terrenget blir ikke stoppet på samme vis');
+  } else { ok++; console.log('  ok    en kote langt UNDER terrenget stoppes også'); }
+
+  /* Og en kote som faktisk går, skal ikke stoppes. En stoppmelding på et
+     lovlig oppsett er verre enn ingen stoppmelding: da slutter man å tro på
+     den. */
+  for (const kote of [210, 212, 214]) {
+    const ok28 = kjor(kote);
+    if (ok28.ubyggelig) {
+      feil++; console.log('  FEIL  kote ' + kote + ' stoppes selv om den går: ' + ok28.ubyggelig.tekst.slice(0, 80));
+    } else { ok++; console.log('  ok    kote ' + kote + ' går gjennom som den skal'); }
+    /* Et vellykket yttergrense-oppsett har punkt der den ferdige flaten
+       TANGERER grensa: null bredde igjen, men heller ingen høydeforskjell –
+       skråningen landet nøyaktig der. Spør man om bredden før man spør om
+       høydeforskjellen, blir de punktene stemplet umulige, og et oppsett som
+       går helt opp meldes som at det ikke lar seg bygge. */
+    const umulige28 = (ok28.skraningsfot || []).filter(f => f.umulig);
+    if (umulige28.length) {
+      feil++; console.log('  FEIL  kote ' + kote + ' har ' + umulige28.length
+        + ' punkt stemplet umulig selv om oppsettet går');
+    } else { ok++; console.log('  ok    og ingen punkt blir stemplet umulig der'); }
+  }
+
+  /* Grensen mellom det som går og det som ikke går skal ligge samme sted
+     uansett hvor man treffer den. En prøve på to enkelttall kan gå gjennom på
+     flaks; en sveip viser om skillet faktisk finnes. */
+  const gikk = [], stoppet = [];
+  for (let kote = 206; kote <= 400; kote += kote < 240 ? 2 : 20) {
+    (kjor(kote).ubyggelig ? stoppet : gikk).push(kote);
+  }
+  if (!gikk.length || !stoppet.length) {
+    feil++; console.log('  FEIL  sveipen skiller ikke: ' + gikk.length + ' gikk, ' + stoppet.length + ' stoppet');
+  } else if (Math.max(...gikk) > Math.min(...stoppet)) {
+    feil++; console.log('  FEIL  skillet er ikke entydig – gikk opp til ' + Math.max(...gikk)
+      + ' men stoppet allerede på ' + Math.min(...stoppet));
+  } else {
+    ok++; console.log('  ok    entydig skille: går til kote ' + Math.max(...gikk)
+      + ', stoppes fra ' + Math.min(...stoppet));
+  }
 }
 
 /* ------------------------------------------------------------------ */

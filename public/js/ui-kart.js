@@ -486,6 +486,11 @@ const Kart = {
     const mal = app.P.mal;
     const kantFor = i => (t.kanter && t.kanter[i]) || {};
     const alvor = f => {
+      /* Punkt der det kreves brattere enn en sprengt bergvegg har ingen
+         helning å måle – de har ingen løsning i det hele tatt. De skal merkes
+         sterkest, ikke svakest, og uten dette tegnet de seg som helt vanlige
+         streker fordi `tvunget` står på null der. */
+      if (f.umulig) return 2;
       if (t.omrissBetyr !== 'yttergrense' || !(f.tvunget > 0)) return 0;
       const k = kantFor(f.kant);
       const standard = f.type === 'skjaering'

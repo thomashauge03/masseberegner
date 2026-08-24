@@ -500,11 +500,21 @@ function beregnTomtemasser(o) {
   }
   if (mal.maksSkjaeringsdybde > 0 && dypesteSkjaering > mal.maksSkjaeringsdybde) {
     merknader.push({ type: 'skjaering',
-      tekst: `Dypeste skjæring er ${dypesteSkjaering.toFixed(1)} m, grensen er ${mal.maksSkjaeringsdybde} m` });
+      tekst: `Dypeste skjæring er ${dypesteSkjaering.toFixed(1)} m, grensen er ${mal.maksSkjaeringsdybde} m`
+        + (dypesteSkjaering > mal.maksSkjaeringsdybde * 3
+          ? `. Det er ${(dypesteSkjaering / mal.maksSkjaeringsdybde).toFixed(0)} ganger grensen – `
+            + 'kontroller at den ferdige koten står riktig.' : '') });
   }
   if (mal.maksFyllingshoyde > 0 && hoyesteFylling > mal.maksFyllingshoyde) {
+    /* Er fyllingen mange ganger grensen, er det som regel koten som er skrevet
+       feil – ikke prosjektet som er dristig. Da hjelper det å se tallet mot
+       terrenget: «47 m over det høyeste terrenget» kjennes igjen med én gang,
+       mens «50,0 m, grensen er 4 m» like gjerne kan leses som en stor jobb. */
     merknader.push({ type: 'fylling',
-      tekst: `Høyeste fylling er ${hoyesteFylling.toFixed(1)} m, grensen er ${mal.maksFyllingshoyde} m` });
+      tekst: `Høyeste fylling er ${hoyesteFylling.toFixed(1)} m, grensen er ${mal.maksFyllingshoyde} m`
+        + (hoyesteFylling > mal.maksFyllingshoyde * 3
+          ? `. Det er ${(hoyesteFylling / mal.maksFyllingshoyde).toFixed(0)} ganger grensen – `
+            + 'kontroller at den ferdige koten står riktig.' : '') });
   }
   if (mal.maksVeggHoyde > 0 && hoyesteVegg > mal.maksVeggHoyde) {
     merknader.push({ type: 'vegg',
@@ -517,6 +527,41 @@ function beregnTomtemasser(o) {
      innstilling og ikke av virkeligheten.
      `traff: false` ble skrevet i skraningsfot, men lest ingen steder. Na
      kontrolleres det, og brukeren far vite at tallet ikke star pa egne ben. */
+  /* DET SOM IKKE GÅR, SKAL SI AT DET IKKE GÅR.
+     Setter man ferdig kote til 300 der terrenget ligger på 210, er ikke svaret
+     162 366 m³ fylling – svaret er at dette ikke er en tomt. Her ble tallet
+     regnet ut og vist fram i et helt vanlig massesammendrag, med en merknad om
+     fyllingshøyde nede i lista blant fire andre. Det er lett å lese forbi, og
+     et tall som ser ut som et svar blir brukt som et svar. */
+  const umulige = foten.filter(f => f.umulig);
+  if (umulige.length) {
+    const sider = [...new Set(umulige.map(f => f.kant + 1))].sort((a, b) => a - b);
+    const del = Math.round(100 * umulige.length / foten.length);
+    let lav = Infinity, hoy = -Infinity;
+    for (const c of rutenett) {
+      if (!c.inne || !Number.isFinite(c.zT)) continue;
+      lav = Math.min(lav, c.zT); hoy = Math.max(hoy, c.zT);
+    }
+    const kote = nivaaVed(o.tomt.nivaa || {}, senter.x, senter.y, senter);
+    const forhold = Number.isFinite(lav) && Number.isFinite(kote)
+      ? (kote > hoy
+        ? `Ferdig nivå ${kote.toFixed(1)} m ligger ${(kote - hoy).toFixed(0)} m OVER det `
+          + `høyeste terrenget på tomta (${hoy.toFixed(1)} m).`
+        : kote < lav
+          ? `Ferdig nivå ${kote.toFixed(1)} m ligger ${(lav - kote).toFixed(0)} m UNDER det `
+            + `laveste terrenget på tomta (${lav.toFixed(1)} m).`
+          : '')
+      : '';
+    tom.ubyggelig = {
+      sider, del,
+      tekst: `Dette lar seg ikke bygge. ${forhold} Skråningen måtte vært brattere enn `
+        + `en sprengt bergvegg på ${del} % av omkretsen (side ${sider.join(', ')}), og det `
+        + 'finnes ingen konstruksjon som står slik. Kontroller den ferdige koten – '
+        + 'ligger den riktig? Tallene under beskriver ikke noe som kan settes ut.'
+    };
+    merknader.unshift({ type: 'ubyggelig', tekst: tom.ubyggelig.tekst });
+  }
+
   if (foten.length) {
     /* Nå søker skråningen til den lander. Da er det bare to grunner igjen til
        at den ikke gjør det, og de betyr helt forskjellige ting. */
@@ -847,7 +892,7 @@ function skraningsfot(o) {
          kanten til terrenget i grensa. Hvor bratt det ble, meldes etterpa - det
          er DET tallet som forteller om det holder med en skraning eller ma
          støpes en mur. */
-      let tvunget = 0, tvingesTilGrensa = false;
+      let tvunget = 0, tvingesTilGrensa = false, umulig = false;
       if (!funnet && Number.isFinite(zVedGrensa) && grenseUt <= tak + 1e-9) {
         const fall = Math.abs(zVedGrensa - zK);
         /* Null bredde ved grensa er ikke «henger i lufta» - det er en LODDRETT
@@ -855,8 +900,32 @@ function skraningsfot(o) {
            være høydeforskjell, må noe stå og holde den. Meldes det som «lander
            ikke», leter man etter feil sted: svaret er ikke mer søkebredde, det
            er mur, sprengt vegg, eller et nivå nærmere terrenget. */
-        tvunget = fall < 0.02 ? 0 : Math.max(0.01, grenseUt / fall);
-        tvingesTilGrensa = true;
+        /* Null bredde og nitti meter fall er ikke «trenger ingen oppbratting» -
+           det er uendelig bratt. Her sto det `fall < 0.02 ? 0 : …`, sa begge
+           tilfellene ga null, og da slapp en ferdig kote pa 300 over et terreng
+           pa 210 gjennom som et helt vanlig svar.
+           Møttes de i grensa, ville marsjen ha landet og vi hadde ikke statt
+           her - vakten star bare sa en deling pa null ikke kan sende NaN inn i
+           flategeometrien. */
+        const bratteste = Math.max(0.02, mal.veggHelning || 0.1);
+        const krav = fall > 1e-6 ? grenseUt / fall : bratteste;
+        /* MEN OPPBRATTINGEN MÅ HA EN GRENSE.
+           Uten den «landet» alt: en ferdig kote på 300 der terrenget ligger
+           210 ga 93 av 93 fotpunkt som traff bakken - hvert eneste av dem på en
+           98 m høy loddrett vegg. Og siden en loddrett vegg ikke trenger plass,
+           slapp innrykket unna, sa den ferdige flaten ble STØRRE enn på en kote
+           som faktisk gikk: 1750 m² mot 852. Programmet svarte 162 366 m³ pa et
+           spørsmal som ikke har noe svar.
+
+           Det bratteste noe kan sta i, er en sprengt bergvegg. Kreves det mer
+           enn det, finnes det ingen konstruksjon - da har man ikke en bratt
+           skraning, man har en umulig tomt. */
+        if (krav < bratteste) {
+          umulig = true;                       // ingen vegg star sa bratt
+        } else {
+          tvunget = krav;
+          tvingesTilGrensa = true;
+        }
       }
       if (tvingesTilGrensa) { traff = grenseUt; }
       else if (!funnet) { traff = Math.min(maksHer, tak); }
@@ -884,8 +953,11 @@ function skraningsfot(o) {
         tvunget,
         // stoppet i grensa: her holder ikke den vanlige skraningen
         moterGrense: tvingesTilGrensa,
+        /* Det kreves brattere enn en sprengt bergvegg. Ingen konstruksjon star
+           slik - dette punktet kan ikke bygges i det hele tatt. */
+        umulig,
         // hverken landet eller stoppet i en grense: den star fortsatt i lufta
-        iLufta: !funnet && !tvingesTilGrensa,
+        iLufta: !funnet && !tvingesTilGrensa && !umulig,
         // ... og her var det terrengdataene som tok slutt, ikke bakken som kom
         manglerData: slappOppData });
     }

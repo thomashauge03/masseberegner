@@ -549,8 +549,20 @@ const App = {
       + `<span>${navn}</span><span class="verdi">${verdi}</span></div>`;
 
     const r = this.resultat;
-    const merk = (r && r.merknader ? r.merknader : []).concat(t.merknader || []);
-    let ut = merk.length
+    const merk = (r && r.merknader ? r.merknader : []).concat(t.merknader || [])
+      .filter(m => m.type !== 'ubyggelig');
+    /* GÅR DET IKKE, SKAL DET STÅ ØVERST OG ALENE.
+       Her lå meldingen om at tomta ikke lot seg bygge som én linje blant fire
+       andre merknader, over et helt vanlig massesammendrag. En ferdig kote på
+       300 der terrenget ligger 210 ga «162 366 m³ fylling» i store tall og en
+       merknad om fyllingshøyde nede i lista. Tallet ser ut som et svar, og et
+       tall som ser ut som et svar blir brukt som et svar. */
+    let ut = '';
+    if (r && r.ubyggelig) {
+      ut += '<div class="varselboks stoppboks"><b class="merke-varsel">⛔ Dette lar seg ikke bygge</b>'
+        + `<div>${escapeHtml(r.ubyggelig.tekst)}</div></div>`;
+    }
+    ut += merk.length
       ? `<div class="varselboks"><b>${merk.length} merknad${merk.length === 1 ? '' : 'er'}</b>`
         + merk.slice(0, 20).map(m => `<div>${escapeHtml(m.tekst)}</div>`).join('') + '</div>'
       : '';
@@ -575,6 +587,21 @@ const App = {
       ut += '<div class="sumkort"><h4>Masser</h4>'
         + '<span class="tomtekst">Sett et ferdig nivå under «Høyde» for å få massene.</span></div>';
       boks.innerHTML = ut;
+      return;
+    }
+    /* Massene holdes tilbake når det ikke lar seg bygge. De beskriver ingenting
+       som kan settes ut, og et massesammendrag ved siden av en stoppmelding
+       leses som om det gjaldt likevel. Knappen henter dem fram for den som
+       vil se hva regnestykket faktisk ga. */
+    if (r.ubyggelig && !this._visUbyggeligeTall) {
+      ut += '<div class="sumkort"><h4>Masser</h4>'
+        + '<span class="tomtekst">Ikke vist – de gjelder en flate som ikke kan bygges. '
+        + 'Flytt den ferdige koten nærmere terrenget, så kommer de fram.</span>'
+        + '<div class="knappekolonne"><button class="knapp bred" id="visLikevel">'
+        + 'Vis tallene likevel</button></div></div>';
+      boks.innerHTML = ut;
+      const knapp = boks.querySelector('#visLikevel');
+      if (knapp) knapp.onclick = () => { this._visUbyggeligeTall = true; this.visTomtemasser(); };
       return;
     }
     const s = r.sum, b = r.balanse;
@@ -1431,6 +1458,10 @@ const App = {
         return this.resultat;
       }
     }
+    /* «Vis likevel» gjelder ett svar, ikke for alltid. Setter man en ny kote,
+       skal stoppmeldingen komme igjen – ellers får man aldri se den andre
+       gangen man skriver feil. */
+    this._visUbyggeligeTall = false;
     this.resultat = Tomtmasser.beregnTomtemasser({
       tomt: { punkter: bruktPolygon, kanter: t.kanter, nivaa: this.tomtenivaaIUtm(t) },
       mal: this.P.mal,

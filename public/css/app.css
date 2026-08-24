@@ -500,6 +500,16 @@ body {
 .varselboks div { padding: 1px 0; color: var(--blekk-svak); }
 .varselboks b { color: var(--blekk); }
 
+/* Stoppmelding: det som IKKE lar seg bygge. Den skal ikke se ut som en merknad
+   blant andre merknader – det er nettopp slik den ble lest forbi, over et
+   massesammendrag som så ut som et gyldig svar. */
+.stoppboks {
+  background: color-mix(in srgb, var(--hm-raud) 14%, var(--flate-2));
+  border-width: 3px; border-left-width: 7px; max-height: none;
+}
+.stoppboks b { display: block; font-size: 13.5px; margin-bottom: 4px; }
+.stoppboks div { color: var(--blekk); }
+
 /* Sperreband – same motiv som anleggsvarsel i dei andre appane. */
 .hm-varselstriper {
   height: 6px;
