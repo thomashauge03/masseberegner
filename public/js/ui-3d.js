@@ -79,7 +79,7 @@ const Tegner3d = {
       + '|' + (this.fyldig ? 'fyldig' : 'lett');
     if (this._palettFor === tema) return this._palettBuffer;
     const skj = Farger.skjaeringFlateRgb, fyl = Farger.fyllingFlateRgb;
-    const grunn = Farger.terrengRgb;
+    const grunn = Farger.terrengFlateRgb;
     const N = 64;
     const bygg = (fra, til) => {
       const ut = new Uint8Array(N * 3);

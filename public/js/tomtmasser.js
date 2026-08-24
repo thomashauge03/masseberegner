@@ -1,4 +1,14 @@
 'use strict';
+
+/* Norsk desimaltegn i meldingene.
+   Merknadene skrev tallene sine med `toFixed()`, altså med punktum: «Høyeste
+   fylling er 5.3 m». Tallene i tabellene ved siden av gikk gjennom
+   Rapport.tall og fikk komma. Samme dokument, to desimaltegn – det ser ut som
+   om to forskjellige programmer har skrevet rapporten. */
+function kom(v, d = 1) {
+  if (!Number.isFinite(v)) return '–';
+  return v.toLocaleString('nb-NO', { minimumFractionDigits: d, maximumFractionDigits: d });
+}
 /**
  * Masseberegning for en tomt.
  *
@@ -525,14 +535,14 @@ function beregnTomtemasser(o) {
     const f = n.modus === 'flat' ? 0 : (n.fall || 0);
     if (mal.maksfall > 0 && f > mal.maksfall + 1e-9) {
       merknader.push({ type: 'fall',
-        tekst: `Fallet er ${(f * 100).toFixed(1)} %, grensen i malen er `
-          + `${(mal.maksfall * 100).toFixed(1)} %. Over det blir plassen tung å bruke – `
+        tekst: `Fallet er ${kom((f * 100), 1)} %, grensen i malen er `
+          + `${kom((mal.maksfall * 100), 1)} %. Over det blir plassen tung å bruke – `
           + 'lass og maskiner står ustøtt, og snø og vann får fart.' });
     }
     if (mal.minstefall > 0 && n.modus !== 'flat' && f > 1e-9 && f < mal.minstefall - 1e-9) {
       merknader.push({ type: 'fall',
-        tekst: `Fallet er ${(f * 100).toFixed(1)} %, under minstefallet på `
-          + `${(mal.minstefall * 100).toFixed(1)} %. Da blir det stående vann.` });
+        tekst: `Fallet er ${kom((f * 100), 1)} %, under minstefallet på `
+          + `${kom((mal.minstefall * 100), 1)} %. Da blir det stående vann.` });
     }
   }
   {
@@ -546,9 +556,9 @@ function beregnTomtemasser(o) {
   }
   if (mal.maksSkjaeringsdybde > 0 && dypesteSkjaering > mal.maksSkjaeringsdybde) {
     merknader.push({ type: 'skjaering',
-      tekst: `Dypeste skjæring er ${dypesteSkjaering.toFixed(1)} m, grensen er ${mal.maksSkjaeringsdybde} m`
+      tekst: `Dypeste skjæring er ${kom(dypesteSkjaering, 1)} m, grensen er ${mal.maksSkjaeringsdybde} m`
         + (dypesteSkjaering > mal.maksSkjaeringsdybde * 3
-          ? `. Det er ${(dypesteSkjaering / mal.maksSkjaeringsdybde).toFixed(0)} ganger grensen – `
+          ? `. Det er ${kom((dypesteSkjaering / mal.maksSkjaeringsdybde), 0)} ganger grensen – `
             + 'kontroller at den ferdige koten står riktig.' : '') });
   }
   if (mal.maksFyllingshoyde > 0 && hoyesteFylling > mal.maksFyllingshoyde) {
@@ -557,9 +567,9 @@ function beregnTomtemasser(o) {
        terrenget: «47 m over det høyeste terrenget» kjennes igjen med én gang,
        mens «50,0 m, grensen er 4 m» like gjerne kan leses som en stor jobb. */
     merknader.push({ type: 'fylling',
-      tekst: `Høyeste fylling er ${hoyesteFylling.toFixed(1)} m, grensen er ${mal.maksFyllingshoyde} m`
+      tekst: `Høyeste fylling er ${kom(hoyesteFylling, 1)} m, grensen er ${mal.maksFyllingshoyde} m`
         + (hoyesteFylling > mal.maksFyllingshoyde * 3
-          ? `. Det er ${(hoyesteFylling / mal.maksFyllingshoyde).toFixed(0)} ganger grensen – `
+          ? `. Det er ${kom((hoyesteFylling / mal.maksFyllingshoyde), 0)} ganger grensen – `
             + 'kontroller at den ferdige koten står riktig.' : '') });
   }
   /* HVOR LANGT UT MOT NABOEN INNGREPET GÅR.
@@ -575,14 +585,14 @@ function beregnTomtemasser(o) {
       const sider = [...new Set(over.map(f => f.kant + 1))].sort((a, b) => a - b);
       const lengst = over.reduce((m, f) => Math.max(m, f.ut), 0);
       merknader.push({ type: 'utslag',
-        tekst: `Inngrepet går ${lengst.toFixed(1)} m ut fra tomtekanten på side ${sider.join(', ')} `
+        tekst: `Inngrepet går ${kom(lengst, 1)} m ut fra tomtekanten på side ${sider.join(', ')} `
           + `– grensen i malen er ${mal.maksUtslag} m. Sett tomtegrensa som yttergrense, `
           + 'bruk mur eller sprengt vegg på de sidene, eller legg nivået nærmere terrenget.' });
     }
   }
   if (mal.maksVeggHoyde > 0 && hoyesteVegg > mal.maksVeggHoyde) {
     merknader.push({ type: 'vegg',
-      tekst: `Bergveggen blir ${hoyesteVegg.toFixed(1)} m høy. Over ${mal.maksVeggHoyde} m `
+      tekst: `Bergveggen blir ${kom(hoyesteVegg, 1)} m høy. Over ${mal.maksVeggHoyde} m `
         + 'krever N200 geoteknisk kategori 3, og det bør legges inn en hylle (berme). '
         + 'Bermen er ikke med i volumet under – den må prosjekteres for hånd.' });
   }
@@ -625,11 +635,11 @@ function beregnTomtemasser(o) {
     const kote = nivaaVed(o.tomt.nivaa || {}, senter.x, senter.y, senter);
     const forhold = Number.isFinite(lav) && Number.isFinite(kote)
       ? (kote > hoy
-        ? `Ferdig nivå ${kote.toFixed(1)} m ligger ${(kote - hoy).toFixed(0)} m OVER det `
-          + `høyeste terrenget på tomta (${hoy.toFixed(1)} m).`
+        ? `Ferdig nivå ${kom(kote, 1)} m ligger ${kom((kote - hoy), 0)} m OVER det `
+          + `høyeste terrenget på tomta (${kom(hoy, 1)} m).`
         : kote < lav
-          ? `Ferdig nivå ${kote.toFixed(1)} m ligger ${(lav - kote).toFixed(0)} m UNDER det `
-            + `laveste terrenget på tomta (${lav.toFixed(1)} m).`
+          ? `Ferdig nivå ${kom(kote, 1)} m ligger ${kom((lav - kote), 0)} m UNDER det `
+            + `laveste terrenget på tomta (${kom(lav, 1)} m).`
           : '')
       : '';
     tom.ubyggelig = {
@@ -690,7 +700,7 @@ function beregnTomtemasser(o) {
         .sort((a, b) => a.tvunget - b.tvunget);
       const verst = sider[0];
       const liste = sider.map(v =>
-        `side ${v.kant + 1}: 1:${v.tvunget.toFixed(1)} mot 1:${v.standard.toFixed(1)}`).join(', ');
+        `side ${v.kant + 1}: 1:${kom(v.tvunget, 1)} mot 1:${kom(v.standard, 1)}`).join(', ');
       const rad = verst.tvunget < (mal.veggHelning || 0.1)
         ? 'Det er brattere enn selv en sprengt bergvegg står. Her må nivået flyttes '
           + 'eller grensa utvides – ingen konstruksjon holder det.'
@@ -764,14 +774,14 @@ function beregnTomtemasser(o) {
     tom.murHoyde = murMaks;
     if (mal.maksMurHoyde > 0 && murMaks > mal.maksMurHoyde) {
       merknader.push({ type: 'mur',
-        tekst: `Muren blir ${murMaks.toFixed(1)} m høy. Over ${mal.maksMurHoyde} m må den `
+        tekst: `Muren blir ${kom(murMaks, 1)} m høy. Over ${mal.maksMurHoyde} m må den `
           + 'prosjekteres, og en tørrmur holder ikke – regn med betong eller L-element.' });
     }
     /* SAK10 § 4-1: en mur pa inntil 1 m kan sta 1 m fra nabogrensen, en pa
        inntil 1,5 m ma sta 4 m unna. Over det er den søknadspliktig. */
     if (murMaks > 1.5) {
       merknader.push({ type: 'mur',
-        tekst: `Mur over 1,5 m er søknadspliktig (SAK10 § 4-1). Denne blir ${murMaks.toFixed(1)} m.` });
+        tekst: `Mur over 1,5 m er søknadspliktig (SAK10 § 4-1). Denne blir ${kom(murMaks, 1)} m.` });
     }
   }
   /* Overgang har fortsatt ingen egen geometri og regnes som planert skraning.

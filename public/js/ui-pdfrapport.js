@@ -16,15 +16,42 @@ const Pdfrapport = {
 
   init(app) { this.app = app; return this; },
 
-  // Hauge Maskin: svart, rødt, hvitt
+  /* FIRE BLEKK. IKKE FEM.
+     Regelen skal kunne følges uten skjønn:
+       SVART   alt som ER informasjon – tall, brødtekst, overskrifter
+       GRA     alt som FORKLARER informasjon – etiketter, enheter, bildetekst.
+               Grått brukes aldri på et tall.
+       LYSGRA  streker og rammer. Aldri tekstfarge.
+       PANEL   flater bak tekst. Aldri tekstfarge.
+       ROD     fire steder i hele dokumentet, og ingen andre: streken under
+               sidehodet, streken over bunnen, inne i logoen, og tallet som
+               sier at det MANGLER masse. Er tallet et overskudd, er det svart.
+     Rødt er aldri en overskrift, aldri en tabellstrek, aldri en flate. */
   SVART: [0.043, 0.043, 0.047],
   ROD: [0.847, 0.118, 0.157],
-  GRA: [0.32, 0.32, 0.35],
-  LYSGRA: [0.816, 0.816, 0.835],
+  GRA: [0.42, 0.42, 0.45],
+  LYSGRA: [0.894, 0.894, 0.906],
   BAKGRUNN: [0.957, 0.957, 0.961],
+  PANEL: [0.957, 0.957, 0.961],
 
-  MARG: 38,
-  BUNNMARG: 46,
+  /* Fire spalter à 121,82 pt med 8 pt mellomrom. Alt som settes har EN av
+     disse bredddene – 1, 2, 3 eller 4 spalter. Ingen femte bredde finnes.
+     Det er den regelen som gjør at sidene fylles: to nøkkeltabeller som før
+     sto under hverandre over hele arket, står nå side ved side. */
+  MARG: 42,
+  BUNNMARG: 68,
+  SPALTE: 121.82,
+  MELLOMROM: 8,
+
+  /* Fem tekststørrelser. Ikke ni. Trinnene er 1,25 / 1,18 / 1,21 – jevnt nok
+     til å leses som ett system, stort nok til at hvert trinn synes på papir.
+     Spranget opp til T1 er 1,78, og det finnes bare på forsiden, der ett ord
+     skal vinne over alt annet. */
+  T1: 24,      // prosjektnavnet på forsiden
+  T2: 13.5,    // prosjektnavn i sidehodet
+  T3: 10,      // seksjonsoverskrifter, VERSALER
+  T4: 8.5,     // arbeidshesten: tabellrader, tall, lesetekst
+  T5: 7,       // tabellhode, bildetekst, etiketter, bunntekst
 
   /**
    * Lager rapporten og laster den ned.
@@ -73,28 +100,54 @@ const Pdfrapport = {
        Logoen hentes som bilde en gang og deles mellom alle sidene. */
     const logo = await this._logo();
 
+    /** Undertittelen: hva slags arbeid dette er. Én linje, aldri to. */
+    const undertittel = app.erTomt()
+      ? (Tomt.Arbeidstyper[app.P.tomt.arbeidstype] || { navn: 'Tomt' }).navn
+      /* «Veiklasse 5 – Klasse 5 – Sommerbilvei …» sa tallet to ganger. */
+      : this._klassenavn(app).replace(/^Veiklasse (\S+) – Klasse \S+ – /, 'Veiklasse $1 – ');
+
+    /**
+     * Sidehodet.
+     *
+     * HVIT BUNN, IKKE SVART BJELKE.
+     * Bjelken var det største på siden og sa ingenting – ordet
+     * «MASSEBEREGNING» står på hver side i hver eneste rapport programmet har
+     * laget. Verre: den drepte logoen. Det mest særpregede ved HM-merket er den
+     * tunge svarte 3D-ekstruderingen, og på svart bunn er den usynlig – det som
+     * står igjen er en flat hvit-og-rød «HM» som svever. På hvitt leses den som
+     * den utstansede metallplaten den er.
+     *
+     * Og hierarkiet er snudd rett vei: prosjektnavnet er tittelen, for det er
+     * det eneste som skiller denne rapporten fra alle andre.
+     */
     const nySide = () => {
       P.nySide();
       tilstand.sidetall++;
-      P.rektangel(0, 0, P.bredde, 52, { fyll: this.SVART });
-      P.rektangel(0, 52, P.bredde, 3, { fyll: this.ROD });
-      if (logo) P.bilde(logo.bytes, logo.bredde, logo.hoyde, this.MARG, 13, logo.vis, logo.visHoyde);
-      const xTekst = this.MARG + (logo ? logo.vis + 14 : 0);
-      P.tekst(xTekst, 26, 'MASSEBEREGNING', { storrelse: 15, fet: true, farge: [1, 1, 1] });
-      P.tekst(xTekst, 40, String(app.P.navn), { storrelse: 9, farge: [0.82, 0.82, 0.84] });
-      P.tekst(innmarg, 22, dato, { storrelse: 8, farge: [0.82, 0.82, 0.84], juster: 'h' });
-      /* En tomt har ingen veglengde og ingen veiklasse. Sto det «Veglengde – m»
-         og «Egen vegmal» øverst på hver side i en tomterapport, leste man en
-         rapport som handlet om noe annet enn det man hadde regnet. */
-      P.tekst(innmarg, 33, app.erTomt()
-        ? 'Areal ' + t(res.areal, 0) + ' m²'
-        : 'Veglengde ' + t(res.lengde, 1) + ' m',
-      { storrelse: 8, farge: [0.82, 0.82, 0.84], juster: 'h' });
-      P.tekst(innmarg, 44, app.erTomt()
-        ? (Tomt.Arbeidstyper[app.P.tomt.arbeidstype] || { navn: 'Tomt' }).navn
-        : this._klassenavn(app),
-      { storrelse: 8, farge: [0.82, 0.82, 0.84], juster: 'h' });
-      tilstand.y = 76;
+      if (logo) {
+        const h = 30, b = h * logo.bredde / logo.hoyde;
+        P.bilde(logo.bytes, logo.bredde, logo.hoyde, this.MARG, 16, b, h, logo.alfa);
+        P.linje(this.MARG + b + 16, 16, this.MARG + b + 16, 48, { farge: this.LYSGRA, tykkelse: 0.4 });
+      }
+      const xTekst = this.MARG + (logo ? 30 * logo.bredde / logo.hoyde + 28 : 0);
+      /* Hva slags dokument dette er, står ÉN gang – på første side. Før sto
+         «MASSEBEREGNING» i 15 pt fet hvit på hver eneste side, dobbelt så stort
+         som prosjektnavnet. Men det ordet er likt i hver rapport programmet har
+         laget; prosjektnavnet er det eneste som skiller denne fra alle andre. */
+      if (tilstand.sidetall === 1) {
+        P.tekst(xTekst, 22, this._sperret('MASSEBEREGNING'),
+          { storrelse: 6.4, fet: true, farge: this.ROD });
+        P.tekst(xTekst, 38, String(app.P.navn), { storrelse: this.T2, fet: true, farge: this.SVART });
+        P.tekst(xTekst, 50, this._kort(P, undertittel, 300, this.T4),
+          { storrelse: this.T4, farge: this.GRA });
+      } else {
+        P.tekst(xTekst, 32, String(app.P.navn), { storrelse: this.T2, fet: true, farge: this.SVART });
+        P.tekst(xTekst, 45, this._kort(P, undertittel, 300, this.T4),
+          { storrelse: this.T4, farge: this.GRA });
+      }
+      P.tekst(innmarg, 28, dato, { storrelse: this.T5, farge: this.GRA, juster: 'h' });
+
+      P.rektangel(this.MARG, 60, innmarg - this.MARG, 2.5, { fyll: this.ROD });
+      tilstand.y = 84;
     };
 
     /** Ny side hvis det som kommer ikke far plass under det som star na. */
@@ -102,12 +155,19 @@ const Pdfrapport = {
       if (tilstand.y + hoyde > P.hoyde - this.BUNNMARG) nySide();
     };
 
-    const overskrift = (tekst) => {
-      plass(46);
+    /**
+     * @param {number} [behov] hvor mye plass det som KOMMER trenger.
+     *   Uten den ba overskriften bare om plass til seg selv, og «Tverrsnitt»
+     *   ble stående alene nederst på siden med tegningene på den neste.
+     */
+    const overskrift = (tekst, behov) => {
+      plass((behov != null ? behov : 12) + 34);
       tilstand.y += 12;
-      P.tekst(this.MARG, tilstand.y, tekst.toUpperCase(), { storrelse: 11, fet: true });
+      P.tekst(this.MARG, tilstand.y, tekst.toUpperCase(),
+        { storrelse: this.T3, fet: true, farge: this.SVART });
       tilstand.y += 4;
-      P.linje(this.MARG, tilstand.y, innmarg, tilstand.y, { tykkelse: 1.4, farge: this.SVART });
+      // 0,8 pt, ikke 1,4: streken skal merke av, ikke rope
+      P.linje(this.MARG, tilstand.y, innmarg, tilstand.y, { tykkelse: 0.8, farge: this.SVART });
       tilstand.y += 12;
     };
 
@@ -115,16 +175,83 @@ const Pdfrapport = {
      * To kolonner: venstre tekst, høyre tall. Brukes til alle nøkkeltallene.
      * @param {Array<[string,string,boolean]>} rader tekst, verdi, uthevet
      */
+    const rad = (x, bredde, venstre, hoyre, uthevet, roedVerdi) => {
+      const y = tilstand.y;
+      if (uthevet) P.rektangel(x, y - 8.5, bredde, 13, { fyll: this.PANEL });
+      P.tekst(x + 3, y, venstre, { storrelse: this.T4, fet: !!uthevet, farge: this.SVART });
+      P.tekst(x + bredde - 3, y, hoyre,
+        { storrelse: this.T4, fet: !!uthevet, farge: roedVerdi ? this.ROD : this.SVART, juster: 'h' });
+      P.linje(x, y + 4.5, x + bredde, y + 4.5, { farge: this.LYSGRA, tykkelse: 0.4 });
+      tilstand.y += 13;
+    };
+
     const nokkeltabell = (rader, x, bredde) => {
-      for (const [venstre, hoyre, uthevet] of rader) {
+      for (const r2 of rader) {
         plass(15);
-        const y = tilstand.y;
-        if (uthevet) P.rektangel(x, y - 8.5, bredde, 13, { fyll: this.BAKGRUNN });
-        P.tekst(x + 3, y, venstre, { storrelse: 8.2, fet: !!uthevet });
-        P.tekst(x + bredde - 3, y, hoyre, { storrelse: 8.2, fet: !!uthevet, juster: 'h' });
-        P.linje(x, y + 4.5, x + bredde, y + 4.5, { farge: this.LYSGRA, tykkelse: 0.4 });
-        tilstand.y += 13;
+        rad(x, bredde, r2[0], r2[1], r2[2], r2[3]);
       }
+    };
+
+    /**
+     * Sammendragsbåndet: tallene som avgjør, øverst.
+     *
+     * DET VAR FOR TRANGT.
+     * Båndet var 17 pt høyt og skulle romme 6,8 pt etikett og 11 pt tall.
+     * J-en og ø-en i «Må kjøres inn» stakk rett ned i sifrene under, og
+     * etiketten lå null komma én punkt fra bokskanten. Nå: 34 pt høyde, luft
+     * over og under, etiketten i grå versaler og tallet stort. Enheten står i
+     * grått etter tallet – den er en forklaring, ikke informasjon.
+     */
+    const band = (felt) => {
+      const bredde = innmarg - this.MARG;
+      const kb = bredde / felt.length;
+      plass(44);
+      const y = tilstand.y;
+      P.rektangel(this.MARG, y, bredde, 34, { fyll: this.PANEL });
+      felt.forEach(([navn, verdi, enhet, roed], i) => {
+        const x = this.MARG + i * kb;
+        if (i) P.linje(x, y + 5, x, y + 29, { farge: this.LYSGRA, tykkelse: 0.4 });
+        P.tekst(x + 9, y + 13, navn.toUpperCase(), { storrelse: 6.4, farge: this.GRA });
+        const br = P.tekst(x + 9, y + 27, verdi,
+          { storrelse: 14, fet: true, farge: roed ? this.ROD : this.SVART });
+        if (enhet) P.tekst(x + 9 + br + 3, y + 27, enhet, { storrelse: this.T5, farge: this.GRA });
+      });
+      tilstand.y = y + 34 + 10;
+    };
+
+    /**
+     * To nøkkeltabeller ved siden av hverandre.
+     *
+     * DETTE ER DET SOM FYLLER SIDENE.
+     * En nøkkeltabell sto strukket over hele arket: etiketten på venstre marg,
+     * verdien høyrestilt på høyre marg, og 415 pt tomrom mellom dem. Målt over
+     * de 25 radene i tomterapporten var blekket 19 % av bredden. Øyet mister
+     * sammenhengen mellom navn og tall over den avstanden, og dokumentet leses
+     * som en gissen hovedbok. Halv bredde er tett nok til å lese som par, og
+     * to av dem ved siden av hverandre halverer høyden.
+     */
+    const toSpalter = (v1, v2) => {
+      const sb = 2 * this.SPALTE + this.MELLOMROM;
+      const hoyre = this.MARG + sb + 2 * this.MELLOMROM;
+      const linjer = Math.max(v1 ? v1.rader.length : 0, v2 ? v2.rader.length : 0);
+      plass(linjer * 13 + 42);
+      // samme luft over som en vanlig overskrift, ellers klistrer tittelen seg
+      // til det som sto rett over – bildeteksten spiste ringen over Å-en
+      tilstand.y += 12;
+      const y0 = tilstand.y;
+      let bunn = y0;
+      for (const [side, x] of [[v1, this.MARG], [v2, hoyre]]) {
+        if (!side) continue;
+        tilstand.y = y0;
+        P.tekst(x, tilstand.y, side.tittel.toUpperCase(),
+          { storrelse: 8.6, fet: true, farge: this.SVART });
+        tilstand.y += 3.5;
+        P.linje(x, tilstand.y, x + sb, tilstand.y, { tykkelse: 0.8, farge: this.SVART });
+        tilstand.y += 12;
+        for (const r2 of side.rader) rad(x, sb, r2[0], r2[1], r2[2], r2[3]);
+        bunn = Math.max(bunn, tilstand.y);
+      }
+      tilstand.y = bunn + 4;
     };
 
     /**
@@ -137,42 +264,50 @@ const Pdfrapport = {
       const samlet = kolonner.reduce((a, k) => a + k.bredde, 0);
       const skala = (innmarg - this.MARG) / samlet;
 
+      /* TABELLHODET ER IKKE EN SVART BJELKE.
+         En full svart bjelke over hver tabell er tyngre enn innholdet den
+         merker, og med fire tabeller på en side blir siden stripet. Grå
+         versaler over en tynn svart strek sier det samme uten å rope. */
       const hode = () => {
         plass(radhoyde * 2);
-        P.rektangel(this.MARG, tilstand.y - 8, innmarg - this.MARG, radhoyde + 1, { fyll: this.SVART });
         let x = this.MARG;
         for (const k of kolonner) {
           const bre = k.bredde * skala;
           P.tekst(k.venstre ? x + 3 : x + bre - 3, tilstand.y, k.tekst,
-            { storrelse: st, fet: true, farge: [1, 1, 1], juster: k.venstre ? 'v' : 'h' });
+            { storrelse: this.T5, fet: true, farge: this.GRA, juster: k.venstre ? 'v' : 'h' });
           x += bre;
         }
-        tilstand.y += radhoyde + 3;
+        tilstand.y += 4;
+        P.linje(this.MARG, tilstand.y, innmarg, tilstand.y, { tykkelse: 0.8, farge: this.SVART });
+        tilstand.y += radhoyde - 1;
       };
       hode();
 
-      for (const rad of rader) {
+      for (const rad2 of rader) {
         // brytes tabellen, skal hodet med over - ellers star kolonnene navnløse
         if (tilstand.y + radhoyde > P.hoyde - this.BUNNMARG) { nySide(); hode(); }
-        const uthevet = rad.sum;
-        if (uthevet) P.rektangel(this.MARG, tilstand.y - 8, innmarg - this.MARG, radhoyde, { fyll: this.BAKGRUNN });
+        const uthevet = rad2.sum;
+        if (uthevet) P.rektangel(this.MARG, tilstand.y - 8, innmarg - this.MARG, radhoyde, { fyll: this.PANEL });
         let x = this.MARG;
-        rad.celler.forEach((celle, i) => {
+        rad2.celler.forEach((celle, i) => {
           const k = kolonner[i], bre = k.bredde * skala;
           P.tekst(k.venstre ? x + 3 : x + bre - 3, tilstand.y, celle,
-            { storrelse: st, fet: !!uthevet, juster: k.venstre ? 'v' : 'h' });
+            { storrelse: st, fet: !!uthevet, farge: this.SVART, juster: k.venstre ? 'v' : 'h' });
           x += bre;
         });
         P.linje(this.MARG, tilstand.y + 3.5, innmarg, tilstand.y + 3.5,
-          { farge: uthevet ? this.SVART : this.LYSGRA, tykkelse: uthevet ? 0.9 : 0.35 });
+          { farge: uthevet ? this.SVART : this.LYSGRA, tykkelse: uthevet ? 0.8 : 0.4 });
         tilstand.y += radhoyde;
       }
       tilstand.y += 6;
     };
 
+    /* Lesetekst settes over TO spalter, ikke fire. 8,5 pt over 511 pt gir 95
+       tegn per linje – dobbelt så mye som øyet klarer å følge tilbake til
+       neste linjestart. */
     const brodtekst = (tekst, o = {}) => {
-      const st = o.storrelse || 7.6;
-      const bredde = o.bredde || (innmarg - this.MARG);
+      const st = o.storrelse || this.T5;
+      const bredde = o.bredde || (2 * this.SPALTE + this.MELLOMROM);
       const x = o.x != null ? o.x : this.MARG;
       for (const linje of this._brytOpp(P, tekst, bredde, st)) {
         plass(11);
@@ -188,7 +323,7 @@ const Pdfrapport = {
        felt ville tatt åtte krasj på rad. */
     if (app.erTomt()) {
       await this._tomteinnhold(app, res, {
-        P, t, tilstand, innmarg, nySide, plass, overskrift, nokkeltabell, tabell, brodtekst
+        P, t, tilstand, innmarg, nySide, plass, overskrift, nokkeltabell, toSpalter, band, tabell, brodtekst
       });
       this._bunn(P, innmarg);
       return P.bygg();
@@ -197,46 +332,67 @@ const Pdfrapport = {
     /* ---------------- side 1 ---------------- */
     nySide();
     P.tekst(this.MARG, tilstand.y, `Terrengmodell: Kartverket DTM1 (1 m laserdata) · EUREF89 UTM${app.sone}`,
-      { storrelse: 7.6, farge: this.GRA });
-    tilstand.y += 6;
+      { storrelse: this.T5, farge: this.GRA });
+    tilstand.y += 10;
 
-    overskrift('Sammendrag');
-    nokkeltabell([
-      [`Rensk / avdekking (${m.renskDybde} m + ${m.renskUtenfor} m utenfor)`, t(s.rensk) + ' m³'],
-      ['Skjæring i løsmasse', t(s.skjaeringLosmasse) + ' p.f.m³'],
-      ['Skjæring i fjell (sprengning)', t(s.skjaeringFjell) + ' p.f.m³'],
-      ['Skjæring totalt', t(s.skjaering) + ' p.f.m³', true],
-      ['Fylling (geometrisk volum)', t(s.fylling) + ' m³'],
-      [`Bærelag ${m.baerelagTykkelse} m × ${m.vegbredde} m`, t(s.baerelag) + ' p.a.m³'],
-      [`Slitelag ${m.slitelagTykkelse} m × ${m.slitelagBredde} m`, t(s.slitelag) + ' p.a.m³'],
-      ['Fylling + bærelag', t(s.fylling + s.baerelag) + ' p.a.m³', true]
-    ], this.MARG, innmarg - this.MARG);
+    /* SAMME BÅND SOM TOMTA. Vegrapporten begynte med tjuefem tabellrader og
+       ingen bilder – én grå masse å lete i. */
+    {
+      const mangler = b.manglerTotalt > 1;
+      band([
+        ['Veglengde', t(res.lengde, 1), 'm'],
+        ['Skjæring', t(s.skjaering), 'p.f.m³'],
+        ['Fylling', t(s.fylling), 'm³'],
+        ['Sprengning', t(s.skjaeringFjell), 'p.f.m³'],
+        [mangler ? 'Må kjøres inn' : 'Overskudd',
+          t(mangler ? b.manglerTotalt : b.overskuddFjell), 'm³', mangler]
+      ]);
+    }
 
-    overskrift('Massebalanse');
-    nokkeltabell([
-      [`Tilgjengelig fra fjellskjæring (× ${f.fjellIFylling})`, t(b.fraFjell) + ' m³'],
-      [`Tilgjengelig brukbar løsmasse (${Math.round(f.brukbarLosmasse * 100)} % × ${f.losmasseIFylling})`, t(b.brukbarLos) + ' m³'],
-      ['Fylling dekket av egne masser', `${t(b.fyllFraLos + b.fyllFraFjell)} av ${t(b.fyllingBehov)} m³`],
-      ['Bærelag dekket av egen sprengstein', `${t(b.baerelagFraFjell)} av ${t(b.baerelagBehov)} m³`],
-      [b.manglerTotalt > 1 ? 'Må kjøres inn' : 'Overskudd av sprengstein',
-        t(b.manglerTotalt > 1 ? b.manglerTotalt : b.overskuddFjell) + ' m³', true],
-      ['Overskudd av brukbar løsmasse', t(b.overskuddLos) + ' m³'],
-      ['Til deponi (rensk + ubrukbar løsmasse)', t(b.tilDeponi) + ' m³'],
-      [`Sprengt fjell, løst volum (× ${f.sprengningsfaktor})`, t(b.fjellSprengtLos) + ' p.a.m³']
-    ], this.MARG, innmarg - this.MARG);
+    toSpalter(
+      { tittel: 'Sammendrag', rader: [
+        [`Rensk / avdekking (${t(m.renskDybde, 2)} m)`, t(s.rensk) + ' m³'],
+        ['Skjæring i løsmasse', t(s.skjaeringLosmasse) + ' p.f.m³'],
+        ['Skjæring i fjell (sprengning)', t(s.skjaeringFjell) + ' p.f.m³'],
+        ['Skjæring totalt', t(s.skjaering) + ' p.f.m³', true],
+        ['Fylling (geometrisk volum)', t(s.fylling) + ' m³'],
+        [`Bærelag ${t(m.baerelagTykkelse, 2)} m x ${t(m.vegbredde, 2)} m`, t(s.baerelag) + ' p.a.m³'],
+        [`Slitelag ${t(m.slitelagTykkelse, 2)} m x ${t(m.slitelagBredde, 2)} m`, t(s.slitelag) + ' p.a.m³'],
+        ['Fylling + bærelag', t(s.fylling + s.baerelag) + ' p.a.m³', true]
+      ] },
+      { tittel: 'Massebalanse', rader: [
+        [`Fra fjellskjæring (x ${t(f.fjellIFylling, 2)})`, t(b.fraFjell) + ' m³'],
+        [`Brukbar løsmasse (${Math.round(f.brukbarLosmasse * 100)} %)`, t(b.brukbarLos) + ' m³'],
+        ['Fylling av egne masser', `${t(b.fyllFraLos + b.fyllFraFjell)} av ${t(b.fyllingBehov)} m³`],
+        ['Bærelag av egen stein', `${t(b.baerelagFraFjell)} av ${t(b.baerelagBehov)} m³`],
+        [b.manglerTotalt > 1 ? 'Må kjøres inn' : 'Overskudd av sprengstein',
+          t(b.manglerTotalt > 1 ? b.manglerTotalt : b.overskuddFjell) + ' m³', true,
+          b.manglerTotalt > 1],
+        ['Overskudd brukbar løsmasse', t(b.overskuddLos) + ' m³'],
+        ['Til deponi', t(b.tilDeponi) + ' m³'],
+        [`Sprengt fjell, løst (x ${t(f.sprengningsfaktor, 2)})`, t(b.fjellSprengtLos) + ' p.a.m³']
+      ] });
 
+    /* HVERT TALL GJENNOM t(), OGSÅ MALTALLENE.
+       Her sto `toFixed()` og rå interpolering side om side med `t()`, og
+       resultatet var at samme side skrev «270,35 m» i én tabell og «5.0 %»,
+       «0.70 m», «1:1.5» og «× 1.000300» i den neste. Et norsk dokument har
+       komma som desimaltegn hele veien; blandingen ser ut som om to
+       forskjellige programmer har skrevet rapporten. */
     overskrift('Forutsetninger');
     nokkeltabell([
       ['Veiklasse', this._klassenavn(app)],
-      ['Vegbredde inkl. skulder', m.vegbredde + ' m'],
-      ['Tverrfall', `${(m.tverrfall * 100).toFixed(1)} % ${m.tverrfallType === 'tak' ? '(tosidig)' : '(ensidig)'}`],
-      ['Overbygning (bærelag + slitelag)', (m.baerelagTykkelse + m.slitelagTykkelse).toFixed(2) + ' m'],
-      ['Grøftedybde under planum / grøftebunn', `${m.grofteDybdePlanum} m / ${m.grofteBunn} m`],
-      ['Skjæring løsmasse / fjell / fylling', `1:${m.skjaeringLosmasse} · 1:${m.skjaeringFjell} · 1:${m.fylling}`],
+      ['Vegbredde inkl. skulder', t(m.vegbredde, 2) + ' m'],
+      ['Tverrfall', `${t(m.tverrfall * 100, 1)} % ${m.tverrfallType === 'tak' ? '(tosidig)' : '(ensidig)'}`],
+      ['Overbygning (bærelag + slitelag)', t(m.baerelagTykkelse + m.slitelagTykkelse, 2) + ' m'],
+      ['Grøftedybde under planum / grøftebunn', `${t(m.grofteDybdePlanum, 2)} m / ${t(m.grofteBunn, 2)} m`],
+      ['Skjæring løsmasse / fjell / fylling',
+        `1:${t(m.skjaeringLosmasse, 1)} · 1:${t(m.skjaeringFjell, 1)} · 1:${t(m.fylling, 1)}`],
       ['Profilavstand', t(res.stasjoner[1] - res.stasjoner[0], 1) + ' m'],
-      ['Standard dybde til fjell', app.P.fjell.standarddybde + ' m'],
+      ['Standard dybde til fjell', t(app.P.fjell.standarddybde, 2) + ' m'],
       ['Observasjoner av fjelldybde', app.P.fjell.punkter.length + ' stk'],
-      ['Lengdekorreksjon UTM → bakke', res.bakkefaktor === 1 ? 'ikke brukt' : '× ' + res.bakkefaktor.toFixed(6)]
+      ['Lengdekorreksjon UTM til bakke',
+        res.bakkefaktor === 1 ? 'ikke brukt' : 'x ' + t(res.bakkefaktor, 6)]
     ], this.MARG, innmarg - this.MARG);
 
     tilstand.y += 4;
@@ -248,7 +404,7 @@ const Pdfrapport = {
     const tegninger = Rapport.lagTegninger(res, 6);
     const lengdeBilde = await this._tilJpeg(tegninger.lengdeprofil);
     if (lengdeBilde) {
-      overskrift('Lengdeprofil');
+      overskrift('Lengdeprofil', (innmarg - this.MARG) * lengdeBilde.hoyde / lengdeBilde.bredde + 10);
       const bredde = innmarg - this.MARG;
       const hoyde = bredde * lengdeBilde.hoyde / lengdeBilde.bredde;
       plass(hoyde + 6);
@@ -258,7 +414,7 @@ const Pdfrapport = {
     }
 
     if (tegninger.tverrsnitt.length) {
-      overskrift('Tverrsnitt');
+      overskrift('Tverrsnitt', 200);
       const bredde = (innmarg - this.MARG - 12) / 2;
       for (let i = 0; i < tegninger.tverrsnitt.length; i += 2) {
         const par = [];
@@ -273,8 +429,8 @@ const Pdfrapport = {
           P.bilde(q.bilde.bytes, q.bilde.bredde, q.bilde.hoyde, x, tilstand.y - 6, bredde, hoyde);
           P.rektangel(x, tilstand.y - 6, bredde, hoyde, { strek: this.LYSGRA, tykkelse: 0.5 });
           const a = q.post.areal;
-          P.tekst(x, tilstand.y + hoyde + 2, `Profil ${q.post.s.toFixed(0)} · skjæring ${a.skjaering.toFixed(1)} m²`
-            + ` (fjell ${a.skjaeringFjell.toFixed(1)}) · fylling ${a.fylling.toFixed(1)} m²`,
+          P.tekst(x, tilstand.y + hoyde + 2, `Profil ${t(q.post.s, 0)} · skjæring ${t(a.skjaering, 1)} m²`
+            + ` (fjell ${t(a.skjaeringFjell, 1)}) · fylling ${t(a.fylling, 1)} m²`,
             { storrelse: 6.6, farge: this.GRA });
         });
         tilstand.y += hoyde + 16;
@@ -352,17 +508,19 @@ const Pdfrapport = {
 
   /** Bunnteksten på hver side. Felles for veg og tomt. */
   _bunn(P, innmarg) {
-    const bunntekst = 'Terrenghøydene er hentet fra Kartverket sin nasjonale høydemodell (DTM1, 1×1 m fra '
+    const bunntekst = 'Terrenghøydene er hentet fra Kartverket sin nasjonale høydemodell (DTM1, 1x1 m fra '
       + 'flybåren laserskanning). Modellen viser terrenget slik det var ved siste skanning – kontroller mot '
       + 'befaring før kontrahering. Dybden til fjell er den største usikkerheten i sprengningsvolumet.';
-    const bunnlinjer = this._brytOpp(P, bunntekst, P.bredde - 2 * this.MARG - 60, 6.2);
+    const bunnlinjer = this._brytOpp(P, bunntekst, 3 * this.SPALTE + 2 * this.MELLOMROM, this.T5 - 0.5);
     P.sider.forEach((side, i) => {
       P.side = side;
-      const yb = P.hoyde - 34;
-      P.linje(this.MARG, yb - 8, innmarg, yb - 8, { tykkelse: 1.6, farge: this.ROD });
-      bunnlinjer.forEach((linje, j) => P.tekst(this.MARG, yb + j * 7.4, linje, { storrelse: 6.2, farge: this.GRA }));
-      P.tekst(innmarg, yb, 'Hauge Maskin', { storrelse: 7.4, fet: true, juster: 'h' });
-      P.tekst(innmarg, yb + 9, `Side ${i + 1} av ${P.sider.length}`, { storrelse: 6.8, farge: this.GRA, juster: 'h' });
+      const yb = P.hoyde - 42;
+      P.linje(this.MARG, yb - 10, innmarg, yb - 10, { tykkelse: 2.5, farge: this.ROD });
+      bunnlinjer.forEach((linje, j) =>
+        P.tekst(this.MARG, yb + j * 8, linje, { storrelse: this.T5 - 0.5, farge: this.GRA }));
+      P.tekst(innmarg, yb, 'HAUGE MASKIN', { storrelse: this.T5, fet: true, farge: this.SVART, juster: 'h' });
+      P.tekst(innmarg, yb + 9.5, `Side ${i + 1} av ${P.sider.length}`,
+        { storrelse: this.T5, farge: this.GRA, juster: 'h' });
     });
   },
 
@@ -375,7 +533,7 @@ const Pdfrapport = {
    * en annen orden.
    */
   async _tomteinnhold(app, res, r) {
-    const { P, t, tilstand, innmarg, nySide, plass, overskrift, nokkeltabell, tabell, brodtekst } = r;
+    const { P, t, tilstand, innmarg, nySide, plass, overskrift, nokkeltabell, toSpalter, band, tabell, brodtekst } = r;
     const s = res.sum, b = res.balanse, m = app.P.mal, tt = app.P.tomt;
     const p = app.tomtIUtm(tt);
     const flate = app._innerflate || p;
@@ -406,25 +564,15 @@ const Pdfrapport = {
        fikk den tilsendt måtte lese hele for å finne ut hva saken gjaldt. Her
        står de fem tallene som avgjør, store nok til å leses på en telefon. */
     {
-      const bredde = innmarg - this.MARG;
-      const felt = [
-        ['Areal', t(res.areal) + ' m²'],
-        ['Ferdig nivå', t((tt.nivaa || {}).kote, 2) + ' m'],
-        ['Skjæring', t(s.skjaering) + ' m³'],
-        ['Fylling', t(s.fylling) + ' m³'],
-        [b && b.manglerTotalt > 1 ? 'Må kjøres inn' : 'Overskudd',
-          t(b ? (b.manglerTotalt > 1 ? b.manglerTotalt : Math.abs(b.balanse)) : 0) + ' m³']
-      ];
-      const kb = bredde / felt.length;
-      plass(20);
-      P.rektangel(this.MARG, tilstand.y - 4, bredde, 17, { fyll: [0.96, 0.96, 0.97] });
-      felt.forEach(([navn, verdi], i) => {
-        const x = this.MARG + i * kb;
-        if (i) P.linje(x, tilstand.y - 4, x, tilstand.y + 13, { farge: this.LYSGRA, tykkelse: 0.4 });
-        P.tekst(x + 4, tilstand.y + 1, navn, { storrelse: 6.8, farge: this.GRA });
-        P.tekst(x + 4, tilstand.y + 9, verdi, { storrelse: 11, fet: true });
-      });
-      tilstand.y += 20;
+      const mangler = !!(b && b.manglerTotalt > 1);
+      band([
+        ['Areal', t(res.areal), 'm²'],
+        ['Ferdig nivå', t((tt.nivaa || {}).kote, 2), 'm'],
+        ['Skjæring', t(s.skjaering), 'm³'],
+        ['Fylling', t(s.fylling), 'm³'],
+        [mangler ? 'Må kjøres inn' : 'Overskudd',
+          t(b ? (mangler ? b.manglerTotalt : Math.abs(b.balanse)) : 0), 'm³', mangler]
+      ]);
     }
 
     /* TEGNINGENE FØR TABELLENE.
@@ -435,11 +583,16 @@ const Pdfrapport = {
       if (!dataUrl) return;
       const bilde = await this._tilJpeg(dataUrl);
       if (!bilde) return;
-      overskrift(tittel);
       let bredde = innmarg - this.MARG;
       let hoyde = bredde * bilde.hoyde / bilde.bredde;
       if (maksHoyde && hoyde > maksHoyde) { bredde *= maksHoyde / hoyde; hoyde = maksHoyde; }
-      plass(hoyde + (undertekst ? 12 : 6));
+      /* OVERSKRIFTEN OG BILDET HØRER SAMMEN.
+         Her sto `overskrift()` først, og den ber bare om plass til seg selv.
+         Da kunne «Snitt gjennom tomta» bli stående alene nederst på siden med
+         tegningen på den neste. Plassen bes om for hele blokken, før noe av den
+         er skrevet. */
+      plass(hoyde + 46 + (undertekst ? 12 : 6));
+      overskrift(tittel);
       P.bilde(bilde.bytes, bilde.bredde, bilde.hoyde, this.MARG, tilstand.y - 6, bredde, hoyde);
       P.rektangel(this.MARG, tilstand.y - 6, bredde, hoyde, { strek: this.LYSGRA, tykkelse: 0.5 });
       tilstand.y += hoyde;
@@ -448,30 +601,41 @@ const Pdfrapport = {
         tilstand.y += 6;
       }
     };
+    /* Full sidebredde på alle tre. Formatene er valgt slik at de får plass i
+       høyden av seg selv – ingen nedskalering, ingen tomme felt ved siden av. */
     await settInn(teg.plan, 'Tomta ovenfra',
       'Rødt skal graves bort, grønt skal fylles opp. Sterkere farge er større avvik. '
-      + 'Rutene er 10 m. Blek farge betyr at skråningen der ikke sto på egne ben.', 110);
+      + 'Rutene er 10 m. Blek farge betyr at skråningen der ikke sto på egne ben.');
     await settInn(teg.perspektiv, 'Sett fra siden',
-      'Samme tall, sett på skrå, så man ser hvordan skråningene legger seg i terrenget.', 95);
-    await settInn(teg.snitt, 'Snitt gjennom tomta', null, 60);
+      'Samme tall, sett på skrå, så man ser hvordan skråningene legger seg i terrenget.');
+    await settInn(teg.snitt, 'Snitt gjennom tomta',
+      'Snittet står der du satte det i programmet.');
 
-    overskrift('Mål og nivå');
     const niv = tt.nivaa || {};
     const nivaatekst = niv.modus === 'fall'
-      ? `${t(niv.kote, 2)} m med fall ${t((niv.fall || 0) * 100, 1)} % mot ${t(niv.fallretning || 0, 0)}°`
+      ? `${t(niv.kote, 2)} m, fall ${t((niv.fall || 0) * 100, 1)} % mot ${t(niv.fallretning || 0, 0)}°`
       : niv.modus === 'sluk'
-        ? `${t(niv.kote, 2)} m, faller mot ett punkt`
+        ? `${t(niv.kote, 2)} m, mot sluk`
         : `${t(niv.kote, 2)} m, flatt`;
-    nokkeltabell([
-      ['Areal, ferdig flate', t(res.areal) + ' m²'],
-      ['Areal med skråninger', t(res.arealMedSkraning) + ' m²'],
-      ['Omkrets', t(Tomt.omkrets(flate) * bf, 1) + ' m'],
-      ['Hjørner', String(flate.length)],
-      ['Ferdig nivå (NN2000)', nivaatekst, true],
-      ['Overbygning over planum', t(res.overbygning, 2) + ' m'],
-      ['Omrisset betyr', tt.omrissBetyr === 'yttergrense'
-        ? 'yttergrense – ferdig flate er regnet innover' : 'ferdig flate – skråninger kommer utenfor']
-    ], this.MARG, innmarg - this.MARG);
+    const nk = [
+      ['Dypeste skjæring', t(res.dypesteSkjaering, 2) + ' m'],
+      ['Høyeste fylling', t(res.hoyesteFylling, 2) + ' m']
+    ];
+    if (res.hoyesteVegg > 0.05) nk.push(['Høyeste bergvegg', t(res.hoyesteVegg, 2) + ' m']);
+    if (res.rekkevidde > 0) nk.push(['Skråningen går lengst ut', t(res.rekkevidde, 1) + ' m']);
+    nk.push(['Omrisset betyr', tt.omrissBetyr === 'yttergrense' ? 'yttergrense' : 'ferdig flate']);
+    /* To og to ved siden av hverandre. Én tabell strukket over hele arket har
+       415 pt tomrom mellom navnet og tallet; to halve har ingen. */
+    toSpalter(
+      { tittel: 'Mål og nivå', rader: [
+        ['Areal, ferdig flate', t(res.areal) + ' m²'],
+        ['Areal med skråninger', t(res.arealMedSkraning) + ' m²'],
+        ['Omkrets', t(Tomt.omkrets(flate) * bf, 1) + ' m'],
+        ['Hjørner', String(flate.length)],
+        ['Ferdig nivå (NN2000)', nivaatekst, true],
+        ['Overbygning over planum', t(res.overbygning, 2) + ' m']
+      ] },
+      { tittel: 'Nøkkeltall', rader: nk });
 
     overskrift('Sidene');
     tabell(
@@ -490,16 +654,6 @@ const Pdfrapport = {
       })
     );
 
-    overskrift('Nøkkeltall');
-    const nk = [
-      ['Dypeste skjæring', t(res.dypesteSkjaering, 2) + ' m'],
-      ['Høyeste fylling', t(res.hoyesteFylling, 2) + ' m']
-    ];
-    if (res.hoyesteVegg > 0.05) nk.push(['Høyeste bergvegg', t(res.hoyesteVegg, 2) + ' m']);
-    if (res.rekkevidde > 0) nk.push(['Skråningen går lengst ut', t(res.rekkevidde, 1) + ' m']);
-    nokkeltabell(nk, this.MARG, innmarg - this.MARG);
-
-    overskrift('Masser – prosjektert fast volum');
     const poster = [];
     const legg = (navn, v, uthevet) => { if (v > 0.5) poster.push([navn, t(v) + ' m³', uthevet]); };
     legg('Matjord som tas av', s.matjord);
@@ -509,43 +663,47 @@ const Pdfrapport = {
     legg('– fjell (sprengning)', s.skjaeringFjell);
     legg('– overberg', s.overberg);
     legg('Fylling', s.fylling, true);
-    nokkeltabell(poster, this.MARG, innmarg - this.MARG);
 
-    if (res.murLengde > 0.5) {
-      overskrift('Støttemur');
-      nokkeltabell([
-        ['Lengde', t(res.murLengde, 1) + ' m'],
-        ['Høyeste punkt', t(res.murHoyde, 2) + ' m'],
-        ['Fundamentgrøft', t(s.murFundament, 1) + ' m³'],
-        ['Drenerende bakfylling', t(s.murBakfylling, 1) + ' m³']
-      ], this.MARG, innmarg - this.MARG);
-    }
-
-    const lag = s.slitelag + s.baerelag + s.forsterkningslag + s.frostsikring + s.avrettingslag;
-    if (lag > 0.5) {
-      overskrift('Byggeklart – lag som skal inn');
-      const rader = [];
-      const lagrad = (navn, v, tykk) => { if (v > 0.005) rader.push([navn + (tykk ? ` (${t(tykk, 2)} m)` : ''), t(v) + ' m³']); };
+    const lagrader = [];
+    {
+      const lagrad = (navn, v, tykk) => {
+        if (v > 0.005) lagrader.push([navn + (tykk ? ` (${t(tykk, 2)} m)` : ''), t(v) + ' m³']);
+      };
       lagrad('Frostsikring', s.frostsikring, m.frostsikring);
       lagrad('Forsterkningslag', s.forsterkningslag, m.forsterkningslag);
       lagrad('Bærelag', s.baerelag, m.baerelagTykkelse);
       lagrad('Avretting', s.avrettingslag, m.avrettingslag);
       lagrad('Slitelag', s.slitelag, m.slitelagTykkelse);
-      rader.push(['Sum overbygning', t(lag) + ' m³', true]);
-      nokkeltabell(rader, this.MARG, innmarg - this.MARG);
+      const sum = s.slitelag + s.baerelag + s.forsterkningslag + s.frostsikring + s.avrettingslag;
+      if (lagrader.length) lagrader.push(['Sum overbygning', t(sum) + ' m³', true]);
     }
+    toSpalter(
+      { tittel: 'Masser – prosjektert fast volum', rader: poster },
+      lagrader.length ? { tittel: 'Byggeklart – lag som skal inn', rader: lagrader } : null);
+
 
     if (b) {
-      overskrift('Massebalanse');
       const f = app.P.faktorer;
-      nokkeltabell([
-        [`Sprengt fjell, løst på lass (× ${f.sprengningsfaktor})`, t(b.fjellSprengtLos) + ' p.a.m³'],
-        [`Tilgjengelig til fylling (fjell × ${f.fjellIFylling})`, t(b.tilgjengelig) + ' m³'],
+      const bal = [
+        [`Sprengt fjell, løst på lass (x ${t(f.sprengningsfaktor, 2)})`, t(b.fjellSprengtLos) + ' p.a.m³'],
+        [`Tilgjengelig til fylling (fjell x ${t(f.fjellIFylling, 2)})`, t(b.tilgjengelig) + ' m³'],
         ['Fyllingsbehov', t(b.fyllingBehov) + ' m³'],
+        /* Rødt bare når det MANGLER masse. Er tallet et overskudd, er det svart
+           – rødt betyr én ting i dette dokumentet, og det er «her må det inn». */
         [b.manglerTotalt > 1 ? 'Må kjøres inn' : 'Overskudd',
-          t(b.manglerTotalt > 1 ? b.manglerTotalt : Math.abs(b.balanse)) + ' m³', true],
+          t(b.manglerTotalt > 1 ? b.manglerTotalt : Math.abs(b.balanse)) + ' m³', true,
+          b.manglerTotalt > 1],
         ['Til deponi', t(b.tilDeponi) + ' m³']
-      ], this.MARG, innmarg - this.MARG);
+      ];
+      const mur = res.murLengde > 0.5 ? {
+        tittel: 'Støttemur', rader: [
+          ['Lengde', t(res.murLengde, 1) + ' m'],
+          ['Høyeste punkt', t(res.murHoyde, 2) + ' m'],
+          ['Fundamentgrøft', t(s.murFundament, 1) + ' m³'],
+          ['Drenerende bakfylling', t(s.murBakfylling, 1) + ' m³']
+        ]
+      } : null;
+      toSpalter({ tittel: 'Massebalanse', rader: bal }, mur);
     }
 
     if (res.merknader && res.merknader.length) {
@@ -611,20 +769,37 @@ const Pdfrapport = {
         b.onerror = () => avvis(new Error('fant ikke logoen'));
         b.src = 'bilde/hm-logo.png';
       });
+      /* LOGOEN SKAL LIGGE FRITT, IKKE I EN BOKS.
+         Her ble den malt mot #0b0b0c og lagret som JPEG. To ting gikk galt:
+         JPEG kan ikke gjennomsikt, så bunnen måtte flates ut på forhånd, og
+         siden JPEG er tapsbasert traff ikke den flatede svarten den svarte
+         bjelken eksakt. Rundt logoen lå et lysere rektangel med ringing rundt
+         bokstavene. Nå går den inn som rå RGB med en egen alfamaske, og kan
+         legges på svart, hvitt eller hva som helst uten en kant.
+         Fire ganger opp: Flate komprimerer flate farger nesten gratis, så
+         oppløsningen koster nesten ingenting i filstørrelse. */
       const h = 26, bre = Math.round(h * bilde.naturalWidth / bilde.naturalHeight);
       const l = document.createElement('canvas');
-      l.width = bre * 3; l.height = h * 3;      // tre ganger opp, sa den ikke blir grøtete
+      l.width = bre * 4; l.height = h * 4;
       const c = l.getContext('2d');
-      c.fillStyle = '#0b0b0c';                  // samme svart som bjelken bak
-      c.fillRect(0, 0, l.width, l.height);
+      c.clearRect(0, 0, l.width, l.height);
       c.drawImage(bilde, 0, 0, l.width, l.height);
+      const d = c.getImageData(0, 0, l.width, l.height).data;
+      const n = l.width * l.height;
+      const rgb = new Uint8Array(n * 3), alfa = new Uint8Array(n);
+      for (let i = 0; i < n; i++) {
+        rgb[i * 3] = d[i * 4]; rgb[i * 3 + 1] = d[i * 4 + 1]; rgb[i * 3 + 2] = d[i * 4 + 2];
+        alfa[i] = d[i * 4 + 3];
+      }
       this._logoBufret = {
-        bytes: bytesFraDataUrl(l.toDataURL('image/jpeg', 0.92)),
-        bredde: l.width, hoyde: l.height, vis: bre, visHoyde: h
+        bytes: rgb, alfa, bredde: l.width, hoyde: l.height, vis: bre, visHoyde: h
       };
     } catch (e) { /* uten logo gar det ogsa */ }
     return this._logoBufret;
   },
+
+  /** Mellomrom mellom bokstavene. Helvetica sperrer ikke selv, så det gjøres her. */
+  _sperret(tekst) { return String(tekst).split('').join(' '); },
 
   /** Deler en tekst i linjer som far plass i bredden. */
   _brytOpp(P, tekst, bredde, storrelse) {

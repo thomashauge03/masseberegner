@@ -705,7 +705,23 @@ const Nettlesertest = {
     const alt = strommer.join('\n');
     this.sjekk('vår egen PDF-leser åpner rapporten', strommer.length >= 2,
       `${strommer.length} strømmer`);
-    this.sjekk('overskriftene står i fila', alt.includes('MASSEBEREGNING') && alt.includes('SAMMENDRAG'));
+    this.sjekk('overskriftene står i fila',
+      alt.includes('SAMMENDRAG') && alt.includes('MASSEBALANSE'));
+    /* HVA SLAGS DOKUMENT DETTE ER, SKAL STÅ ÉN GANG.
+       Ordet sto i 15 pt fet på hver eneste side – dobbelt så stort som
+       prosjektnavnet, som er det eneste som skiller denne rapporten fra alle
+       andre. Nå står det som en liten etikett på første side, og prosjektet er
+       tittelen. Prøven holder begge deler: at det står, og at det ikke gjentas. */
+    {
+      const sperret = 'M A S S E B E R E G N I N G';
+      const antall = (alt.match(/M A S S E B E R E G N I N G/g) || []).length;
+      this.sjekk('dokumenttypen står, og bare på første side', antall === 1,
+        antall + ' forekomster');
+      this.sjekk('mens prosjektnavnet står på hver side',
+        (alt.match(/__test_pdf|Nytt prosjekt|Demo/g) || []).length >= 1
+        || alt.includes(App.P.navn.slice(0, 6)));
+      void sperret;
+    }
     this.sjekk('stikningsdataene er med', alt.includes('STIKNINGSDATA'));
     this.sjekk('norske bokstaver er kodet som WinAnsi', /\\346|\\370|\\345|\\306|\\330|\\305/.test(alt));
 

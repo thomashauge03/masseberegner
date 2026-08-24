@@ -45,6 +45,7 @@
      byggjast. Fjellet er ein del av skjeringa, ikkje ein fjerde
      ting, og blir difor skravur oppå skjeringsfargen. */
   --data-terreng: #8e8e97;
+  --data-terrengflate: #8e8e97;
   --data-rensk: rgba(142, 142, 151, 0.55);
   --data-veg: #fafafa;
   --data-planum: #ef8a90;
@@ -70,6 +71,8 @@
   --blekk: #0b0b0c;
   --blekk-svak: #52525b;
   --data-terreng: #3f3f46;
+  /* Flata, ikkje streken: lys nok til at raudt og grønt er motivet på arket. */
+  --data-terrengflate: #c8c8cf;
   --data-rensk: rgba(63, 63, 70, 0.45);
   --data-veg: #0b0b0c;
   --data-planum: #a8151d;
@@ -96,6 +99,7 @@
     --raud: #a8151d;
 
     --data-terreng: #3f3f46;
+    --data-terrengflate: #b4b4bc;
     --data-rensk: rgba(63, 63, 70, 0.45);
     --data-veg: #0b0b0c;
     --data-planum: #a8151d;

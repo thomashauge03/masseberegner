@@ -357,11 +357,16 @@ const Rapport = {
          nettopp terrenget rundt det man ser etter. */
       Tomt3d.lag.rutenett = true;
       Tomt3d.kontekst = 8;
-      bilder.plan = lag(1500, 1050, 0, 89.5, true);
+      /* Formatet er valgt etter SIDEBREDDEN, ikke etter skjermen. A4 er
+         595 pt bred med 38 pt marg, altså 519 pt innhold. Et bilde som er
+         høyere enn det er bredt måtte krympes for å få plass i høyden – og
+         da krympet bredden med, så tegningen endte som en frimerkestor
+         flekk i venstre tredel med et tomt felt ved siden av. */
+      bilder.plan = lag(1560, 900, 0, 89.5, true);
       Tomt3d.lag.rutenett = false;
       Tomt3d.kontekst = 30;
       // og på skrå, så man ser hvordan skråningene legger seg
-      bilder.perspektiv = lag(1500, 720, 32, 34, true);
+      bilder.perspektiv = lag(1560, 680, 32, 34, true);
     } catch (e) {
       /* Et bilde som ikke lot seg lage skal ikke ta rapporten med seg. */
     } finally {
@@ -384,9 +389,9 @@ const Rapport = {
       const gml = Tomteprofil.lerret, gmlCtx = Tomteprofil.ctx;
       try {
         const c = document.createElement('canvas');
-        c.width = 1400; c.height = 520;
-        Object.defineProperty(c, 'clientWidth', { value: 1400 });
-        Object.defineProperty(c, 'clientHeight', { value: 520 });
+        c.width = 1560; c.height = 440;
+        Object.defineProperty(c, 'clientWidth', { value: 1560 });
+        Object.defineProperty(c, 'clientHeight', { value: 440 });
         Tomteprofil.lerret = c;
         if ('ctx' in Tomteprofil) Tomteprofil.ctx = c.getContext('2d');
         Tomteprofil.tegn();

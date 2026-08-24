@@ -55,6 +55,23 @@ const HELVETICA_FET_BREDDER = {
   197: 722, 198: 1000, 216: 778, 229: 556, 230: 889, 248: 611
 };
 
+/* HULL I BREIDDETABELLEN.
+   Uten en bredde blir reserven 556 brukt, og da havner alt som er høyre- eller
+   midtstilt på feil sted. «m²» står seks steder i rapporten, og «²» ble målt
+   til 556 der den er 333 – hver eneste tallkolonne med kvadratmeter var 2 pt
+   for langt til venstre. Tallene under er fra Adobe sin egen AFM for
+   Helvetica og Helvetica-Bold. */
+Object.assign(HELVETICA_BREDDER, {
+  133: 1000, 137: 1000, 145: 222, 146: 222, 147: 333, 148: 333, 149: 350,
+  150: 333, 151: 1000, 169: 737, 171: 556, 173: 333, 178: 333, 179: 333,
+  183: 278, 187: 556, 215: 584
+});
+Object.assign(HELVETICA_FET_BREDDER, {
+  133: 1000, 137: 1000, 145: 278, 146: 278, 147: 500, 148: 500, 149: 350,
+  150: 333, 151: 1000, 169: 737, 171: 556, 173: 333, 178: 333, 179: 333,
+  183: 278, 187: 556, 215: 584
+});
+
 class PdfSkriver {
   /**
    * @param {object} [o]
@@ -85,13 +102,30 @@ class PdfSkriver {
   /**
    * WinAnsi-koding. Tegn utenfor det som far plass byttes mot noe som
    * ligner, sa en ukjent bokstav aldri velter fila.
+   *
+   * SPØRSMÅLSTEGN ER IKKE ET SVAR.
+   * Her sto det fire bytter, og alt annet over 255 ble til «?». I vegrapporten
+   * leste kunden «Lengdekorreksjon UTM ? bakke» – pilen er U+2192 og fikk
+   * ingen. Et spørsmålstegn midt i en setning ser ut som om programmet ikke vet
+   * hva det snakker om.
+   *
+   * Erstatningene under er ETTER BETYDNING, ikke etter utseende: pilen blir
+   * «->», «tilnærmet lik» blir «~=». Da leses linjen fortsatt riktig i et
+   * dokument som skal ut av huset. Tabellen dekker hvert eneste tegn over 255
+   * som finnes i programmet i dag – talt opp, ikke gjettet.
    */
   _tekstbytes(streng) {
-    const bytt = { '–': 150, '—': 150, '−': 45, ' ': 32, '’': 39, '·': 183 };
     const ut = [];
     for (const tegn of String(streng)) {
-      let k = bytt[tegn] != null ? bytt[tegn] : tegn.codePointAt(0);
-      if (k > 255) k = 63;                 // spørsmalstegn heller enn søppel
+      const ett = PdfSkriver.ETTBYTE[tegn];
+      if (ett != null) { ut.push(ett); continue; }
+      const flere = PdfSkriver.FLERBYTE[tegn];
+      if (flere != null) { for (const t of flere) ut.push(t.charCodeAt(0)); continue; }
+      const k = tegn.codePointAt(0);
+      /* Ukjent tegn over 255 slippes HELT. Et spørsmålstegn ser ut som en
+         påstand programmet ikke kan stå for; ingen glyf ser ut som ingenting,
+         og det er ærligere. */
+      if (k > 255) continue;
       ut.push(k);
     }
     return ut;
@@ -153,10 +187,22 @@ class PdfSkriver {
    * en tegning som gjentas ikke gjør fila dobbelt sa stor.
    * @param {Uint8Array} bytes rene JPEG-bytes
    */
-  bilde(bytes, pikselBredde, pikselHoyde, x, y, bredde, hoyde) {
+  /**
+   * @param {Uint8Array} bytes JPEG-bytes, ELLER raa RGB naar `alfa` er med
+   * @param {Uint8Array} [alfa] gjennomsikt, ett byte per piksel
+   *
+   * GJENNOMSIKT MAA VAERE MULIG.
+   * Her gikk alt gjennom JPEG. Logoen har gjennomsiktig bunn, og JPEG kan ikke
+   * det: den ble flatet mot bakgrunnsfargen paa forhaand, og siden JPEG er
+   * tapsbasert traff ikke den flatede svarten den svarte bjelken eksakt. Rundt
+   * logoen laa det et lysere rektangel med ringing rundt bokstavene - den ene
+   * detaljen som mest av alt fikk dokumentet til aa se hjemmesnekret ut.
+   * Med SMask ligger logoen fritt, paa svart som paa hvitt.
+   */
+  bilde(bytes, pikselBredde, pikselHoyde, x, y, bredde, hoyde, alfa) {
     let post = this.bilder.find(b => b.bytes === bytes);
     if (!post) {
-      post = { id: 'Bi' + (this.bilder.length + 1), bytes, bredde: pikselBredde, hoyde: pikselHoyde };
+      post = { id: 'Bi' + (this.bilder.length + 1), bytes, bredde: pikselBredde, hoyde: pikselHoyde, alfa };
       this.bilder.push(post);
     }
     if (!this.side.bilder.includes(post.id)) this.side.bilder.push(post.id);
@@ -192,8 +238,12 @@ class PdfSkriver {
        en gang: 1 katalog, 2 sidetre, 3-4 skrifter, sa ett bilde og to objekt
        (side + innhold) per side. */
     const nBilde = {};
+    const nMaske = {};
     let neste = 5;
-    for (const b of this.bilder) nBilde[b.id] = neste++;
+    for (const b of this.bilder) {
+      nBilde[b.id] = neste++;
+      if (b.alfa) nMaske[b.id] = neste++;      // maska er eit eige objekt
+    }
     const nSide = this.sider.map(() => ({ side: neste++, innhold: neste++ }));
     const antall = neste;
 
@@ -213,10 +263,30 @@ class PdfSkriver {
     objekt(4, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
 
     for (const b of this.bilder) {
+      if (!b.alfa) {
+        objekt(nBilde[b.id],
+          `<< /Type /XObject /Subtype /Image /Width ${b.bredde} /Height ${b.hoyde} `
+          + `/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${b.bytes.length} >>`,
+          b.bytes);
+        continue;
+      }
+      /* Raa RGB pluss ei graatonemaske. Flate komprimerer flate fargar nesten
+         gratis, saa logoen kan liggje inne i firedobbel opplosning uten at fila
+         merkar det. */
+      const rgb = await PdfSkriver.pakk(b.bytes);
+      const maske = await PdfSkriver.pakk(b.alfa);
+      objekt(nMaske[b.id],
+        `<< /Type /XObject /Subtype /Image /Width ${b.bredde} /Height ${b.hoyde} `
+        + `/ColorSpace /DeviceGray /BitsPerComponent 8`
+        + (maske ? ' /Filter /FlateDecode' : '')
+        + ` /Length ${(maske || b.alfa).length} >>`,
+        maske || b.alfa);
       objekt(nBilde[b.id],
         `<< /Type /XObject /Subtype /Image /Width ${b.bredde} /Height ${b.hoyde} `
-        + `/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${b.bytes.length} >>`,
-        b.bytes);
+        + `/ColorSpace /DeviceRGB /BitsPerComponent 8 /SMask ${nMaske[b.id]} 0 R`
+        + (rgb ? ' /Filter /FlateDecode' : '')
+        + ` /Length ${(rgb || b.bytes).length} >>`,
+        rgb || b.bytes);
     }
 
     for (let i = 0; i < this.sider.length; i++) {
@@ -245,6 +315,36 @@ class PdfSkriver {
     return ut;
   }
 }
+
+/* Tegn som finnes i programmet og ikke i WinAnsi. Ett byte der det finnes en
+   ekte glyf, flere der betydningen må skrives ut. */
+PdfSkriver.ETTBYTE = {
+  '\u2013': 150,          // – tankestrek
+  '\u2014': 151,          // — lang tankestrek
+  '\u2212': 45,           // − minus
+  '\u00a0': 32,           // hardt mellomrom
+  '\u2019': 39,           // ' apostrof
+  '\u2018': 39,
+  '\u201c': 34, '\u201d': 34,
+  '\u00b7': 183,          // · midtprikk
+  '\u2022': 149,          // • kulepunkt
+  '\u2500': 45,           // ─ rammestrek
+  '\u25ac': 45,           // ▬
+  '\u00ab': 171, '\u00bb': 187
+};
+PdfSkriver.FLERBYTE = {
+  '\u2192': '->',         // → «UTM -> bakke», ikke «UTM ? bakke»
+  '\u2190': '<-',
+  '\u2191': 'opp', '\u2193': 'ned',
+  '\u2026': '...',        // …
+  '\u2264': '<=', '\u2265': '>=',
+  '\u2248': '~=', '\u2260': '!=',
+  '\u00d7': 'x',          // × ganger – WinAnsi har 215, men x leses tryggere
+  '\u26a0': 'OBS',        // ⚠
+  '\u26d4': 'STOPP',      // ⛔
+  '\u2713': 'ja',         // ✓
+  '\u21ba': ''            // ↺ knappesymbol, hører ikke hjemme på papir
+};
 
 /** Gjør en data-URL fra et lerret om til rene bytes. */
 function bytesFraDataUrl(url) {

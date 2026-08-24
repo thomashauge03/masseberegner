@@ -57,6 +57,12 @@ const Farger = {
   get skjaeringFlateRgb() { return this.rgb('data-skjaering-flate'); },
   get fyllingFlateRgb() { return this.rgb('data-fylling-flate'); },
   get terrengRgb() { return this.rgb('data-terreng'); },
+  /* Terrenget som FLATE i 3D, ikke som strek i et snitt.
+     De to trenger hver sin farge. På papir er terrengstreken nesten svart, som
+     den skal være for en tynn strek på hvitt – men 3D-modellen fyller halve
+     bildet med den, og da blir arket en svart blokk med et lite fargefelt oppå.
+     Målt på tomterapporten dekket den mørke flaten 42 % av bildet. */
+  get terrengFlateRgb() { return this.rgb('data-terrengflate'); },
   get fjellRgb() { return this.rgb('data-fjell'); },
   get flateRgb() { return this.rgb('flate'); },
 

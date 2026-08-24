@@ -315,8 +315,8 @@ const Tomt3d = Object.assign(Object.create(Tegner3d), {
        volumet i stedet, med terrenget rundt som ramme. */
     if (this.lag.terreng) {
       ut.push(this.fyldig
-        ? { hoyde: g.zT, farge: enkel(Farger.terrengRgb), blanding: 0, krev: g.utenGrav }
-        : { hoyde: g.zT, farge: enkel(Farger.terrengRgb), blanding: 0.45 });
+        ? { hoyde: g.zT, farge: enkel(Farger.terrengFlateRgb), blanding: 0, krev: g.utenGrav }
+        : { hoyde: g.zT, farge: enkel(Farger.terrengFlateRgb), blanding: 0.45 });
     }
     if (this.lag.fjell) ut.push({ hoyde: g.zF, farge: enkel(Farger.fjellRgb), blanding: 0.5 });
     if (this.lag.overbygning) {

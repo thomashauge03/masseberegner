@@ -1,4 +1,14 @@
 'use strict';
+
+/* Norsk desimaltegn i meldingene.
+   Merknadene skrev tallene sine med `toFixed()`, altså med punktum: «Høyeste
+   fylling er 5.3 m». Tallene i tabellene ved siden av gikk gjennom
+   Rapport.tall og fikk komma. Samme dokument, to desimaltegn – det ser ut som
+   om to forskjellige programmer har skrevet rapporten. */
+function kom(v, d = 1) {
+  if (!Number.isFinite(v)) return '–';
+  return v.toLocaleString('nb-NO', { minimumFractionDigits: d, maximumFractionDigits: d });
+}
 /**
  * Masseberegning.
  *
@@ -1069,7 +1079,7 @@ function beregnMasser(o) {
       merknader.push({
         s: 0, type: 'kurvatur',
         tekst: `Knekkpunkt ${h.kilde + 1} er et skarpt hjørne – avbøyningen er `
-          + `${grader.toFixed(0)}°, og det er ingen kurve der. Minstekravet er `
+          + `${kom(grader, 0)}°, og det er ingen kurve der. Minstekravet er `
           + `${mal.minRadius} m.`
       });
     }
@@ -1096,10 +1106,10 @@ function beregnMasser(o) {
       const iKurven = isFinite(pr.radius);
       merknader.push({
         s: pr.s, type: 'stigning',
-        tekst: `Stigning ${(Math.abs(stign) * 100).toFixed(1)} % overstiger ${(maks * 100).toFixed(0)} % `
+        tekst: `Stigning ${kom((Math.abs(stign) * 100), 1)} % overstiger ${kom((maks * 100), 0)} % `
           + `${lassetKlatrer ? 'i lassretningen' : 'i returretningen'} `
-          + (iKurven ? `(radius ${pr.radius.toFixed(0)} m)`
-            : isFinite(kravRadius) ? `(utflating mot kurve med radius ${kravRadius.toFixed(0)} m)` : '(rettstrekk)')
+          + (iKurven ? `(radius ${kom(pr.radius, 0)} m)`
+            : isFinite(kravRadius) ? `(utflating mot kurve med radius ${kom(kravRadius, 0)} m)` : '(rettstrekk)')
           + (rad ? ` – holder med radius ${rad > 1e8 ? 'over 60' : rad} m` : ''),
         raad: rad ? { type: 'radius', radius: rad > 1e8 ? 60 : rad } : { type: 'stigning', maks }
       });
@@ -1107,7 +1117,7 @@ function beregnMasser(o) {
     if (isFinite(pr.radius) && mal.minRadius && pr.radius < mal.minRadius - 1e-6) {
       merknader.push({
         s: pr.s, type: 'kurvatur',
-        tekst: `Radius ${pr.radius.toFixed(1)} m er under minstekravet på ${mal.minRadius} m`
+        tekst: `Radius ${kom(pr.radius, 1)} m er under minstekravet på ${mal.minRadius} m`
       });
     }
     if (!isFinite(pr.terrengSenter)) {
@@ -1116,13 +1126,13 @@ function beregnMasser(o) {
     if (mal.maksFyllingshoyde > 0 && pr.maksFylling > mal.maksFyllingshoyde) {
       merknader.push({
         s: pr.s, type: 'fylling',
-        tekst: `Fyllingshøyde ${pr.maksFylling.toFixed(1)} m over grensen på ${mal.maksFyllingshoyde} m`
+        tekst: `Fyllingshøyde ${kom(pr.maksFylling, 1)} m over grensen på ${mal.maksFyllingshoyde} m`
       });
     }
     if (mal.maksSkjaeringsdybde > 0 && pr.maksSkjaering > mal.maksSkjaeringsdybde) {
       merknader.push({
         s: pr.s, type: 'skjaering',
-        tekst: `Skjæringsdybde ${pr.maksSkjaering.toFixed(1)} m over grensen på ${mal.maksSkjaeringsdybde} m`
+        tekst: `Skjæringsdybde ${kom(pr.maksSkjaering, 1)} m over grensen på ${mal.maksSkjaeringsdybde} m`
       });
     }
     if (mal.maksUtslag > 0) {
@@ -1130,7 +1140,7 @@ function beregnMasser(o) {
       if (utslag > mal.maksUtslag) {
         merknader.push({
           s: pr.s, type: 'utslag',
-          tekst: `Skråningen stikker ${utslag.toFixed(1)} m ut fra vegkant, grensen er ${mal.maksUtslag} m`
+          tekst: `Skråningen stikker ${kom(utslag, 1)} m ut fra vegkant, grensen er ${mal.maksUtslag} m`
         });
       }
     }
@@ -1183,15 +1193,15 @@ function beregnMasser(o) {
         /* Laste høyder har K=0 og far ingen kurve. Da hjelper det ikke a be om
            en høyere K - punktet har ingen. Si hva knekken er og hvor mye
            avrunding kravet ber om. */
-        tekst = `Knekk på ${(v.A * 100).toFixed(1)} % i ${sted} uten avrunding. `
-          + `Kravet er radius ${v.krav} m, som trenger ${v.kreves.toFixed(0)} m vertikalkurve`
-          + (v.trangt ? `, men det er bare ${v.plass.toFixed(0)} m til nærmeste høyde` : '');
+        tekst = `Knekk på ${kom((v.A * 100), 1)} % i ${sted} uten avrunding. `
+          + `Kravet er radius ${v.krav} m, som trenger ${kom(v.kreves, 0)} m vertikalkurve`
+          + (v.trangt ? `, men det er bare ${kom(v.plass, 0)} m til nærmeste høyde` : '');
       } else {
-        tekst = `Vertikalkurve i ${sted} har radius ${v.radius.toFixed(0)} m, `
+        tekst = `Vertikalkurve i ${sted} har radius ${kom(v.radius, 0)} m, `
           + `kravet er ${v.krav} m – `
           + (v.trangt
-            ? `bruddet på ${(v.A * 100).toFixed(1)} % er for skarpt for avstanden mellom høydepunktene`
-            : `øk K til ${(v.krav / 100).toFixed(1)}`);
+            ? `bruddet på ${kom((v.A * 100), 1)} % er for skarpt for avstanden mellom høydepunktene`
+            : `øk K til ${kom((v.krav / 100), 1)}`);
       }
       merknader.push({ s: v.s, type: 'vertikalkurve', tekst });
     }
