@@ -748,7 +748,11 @@ const MALGRENSER = {
 /** Samme for omregningsfaktorene: en faktor under null snur et volum. */
 const FAKTORGRENSER = {
   sprengningsfaktor: [1, 3, 'Sprengningsfaktor'],
-  losmasseFaktor: [1, 3, 'Løsmassefaktor'],
+  /* Her sto en regel for en faktor som ikke finnes i StandardFaktorer og som
+     ikke rører et eneste volum. Programmets eget skjema skriver den aldri –
+     men en håndredigert eller fremmed prosjektfil tar nøkkelen med inn, og da
+     SLO regelen ut og løy: «Løsmassefaktor var 99 – utenfor 1 til 3, regnet
+     med 3» om et tall ingenting leser. Den ekte er `losmasseIFylling` under. */
   brukbarLosmasse: [0, 1, 'Andel brukbar løsmasse'],
   losmasseIFylling: [0.5, 1.5, 'Løsmasse i fylling'],
   fjellIFylling: [0.5, 2, 'Sprengstein i fylling']

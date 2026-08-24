@@ -120,11 +120,13 @@ const Kart = {
     };
     if (p('tp_forrige')) p('tp_forrige').onclick = () => flyttSnitt(-5);
     if (p('tp_neste')) p('tp_neste').onclick = () => flyttSnitt(5);
-    for (const [id, felt] of [['tm_kote', 1], ['tm_nivaamodus', 1], ['tm_fall', 1],
-      ['tm_fallretning', 1], ['tm_rutestorrelse', 1]]) {
-      const e = p(id);
-      if (!e) continue;
-      e.onchange = () => {
+    /* Bare tm_kote finnes. Lista hadde fire id-er til – tm_nivaamodus, tm_fall,
+       tm_fallretning og tm_rutestorrelse – som alle ble flyttet til
+       Høyde-fanen. Vakten «if (!e) continue» gjorde at løkka gikk stille rundt
+       fire ganger uten å finne noe. */
+    {
+      const e = p('tm_kote');
+      if (e) e.onchange = () => {
         this.app.merk('endret ferdig nivå');
         this.app.skjemaTilTomt();
         this.app.tomtTilSkjema();

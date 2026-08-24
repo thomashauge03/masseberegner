@@ -308,51 +308,36 @@ const App = {
     if (!this.erTomt()) return;
     const t = this.P.tomt, n = t.nivaa, mal = this.P.mal;
     const sett = (id, v) => { const e = document.getElementById(id); if (e && document.activeElement !== e) e.value = v; };
+    /* Bare `tm_kote` finnes i verktøylinja. Fall, fallretning, nivåmodus og
+       rutestørrelse ble flyttet til Høyde-fanen, men oppslagene ble stående
+       her og traff `null` hver eneste gang. */
     sett('tm_kote', n.kote == null ? '' : n.kote.toFixed(2));
-    sett('tm_nivaamodus', n.modus || 'flat');
-    sett('tm_fall', ((n.fall || 0) * 100).toFixed(1));
-    sett('tm_fallretning', Math.round(n.fallretning || 0));
-    sett('tm_rutestorrelse', mal.rutestorrelse);
-    const fall = (n.modus || 'flat') === 'fall';
-    for (const id of ['tm_fall', 'tm_fallretning']) {
-      const e = document.getElementById(id);
-      if (e && e.parentElement) e.parentElement.classList.toggle('skjult', !fall);
-    }
     this.visKanttabell();
     this.visSnittvelger();
   },
 
   /**
-   * Leser de feltene som fortsatt star i verktøylinja under snittet.
+   * Leser den ferdige koten fra verktøylinja under snittet.
    *
-   * Hvert oppslag ma tale at feltet ikke finnes. Fall, retning og rutestørrelse
-   * ble flyttet til Høyde-fanen, men denne funksjonen leste dem fortsatt med
-   * `document.getElementById('tm_nivaamodus').value` - som kaster pa null. Da
-   * røk hele funksjonen, og med den kallet til beregnTomt() som skulle kommet
-   * etterpa: man skrev en ny ferdig kote, feltet viste den nye verdien, og
-   * ingenting ble regnet om. Panelet sto igjen med de gamle massene.
+   * FIRE FELT SOM IKKE FANTES, OG ETT AV DEM ØDELA DATA.
+   * Denne leste `tm_nivaamodus`, `tm_fall`, `tm_fallretning` og
+   * `tm_rutestorrelse` – ingen av dem finnes i DOM-en. Tre av oppslagene falt
+   * bare tilbake på sin egen verdi og var harmløse. Det fjerde var det ikke:
+   *
+   *     n.fall = Math.max(0, tall('tm_fall', (n.fall || 0.02) * 100)) / 100;
+   *
+   * `n.fall || 0.02` gjør 0 om til 0,02. Satte man fallet til null i
+   * Høyde-fanen og deretter rørte koten i verktøylinja, kom det stille tilbake
+   * som 2 %. Feltet i skjemaet viste fortsatt 0.
    */
   skjemaTilTomt() {
     if (!this.erTomt()) return;
-    const t = this.P.tomt, n = t.nivaa, mal = this.P.mal;
-    const tall = (id, standard) => {
-      const e = document.getElementById(id);
-      const v = e ? parseFloat(e.value) : NaN;
-      return Number.isFinite(v) ? v : standard;
-    };
-    const tekst = (id, standard) => {
-      const e = document.getElementById(id);
-      return e && e.value ? e.value : standard;
-    };
+    const t = this.P.tomt, n = t.nivaa;
     const koteFelt = document.getElementById('tm_kote');
     if (koteFelt) {
       const k = parseFloat(koteFelt.value);
       n.kote = Number.isFinite(k) ? k : null;
     }
-    n.modus = tekst('tm_nivaamodus', n.modus || 'flat');
-    n.fall = Math.max(0, tall('tm_fall', (n.fall || 0.02) * 100)) / 100;
-    n.fallretning = ((tall('tm_fallretning', n.fallretning || 0) % 360) + 360) % 360;
-    mal.rutestorrelse = Math.max(0.25, Math.min(5, tall('tm_rutestorrelse', mal.rutestorrelse || 1)));
   },
 
   /**
@@ -998,7 +983,24 @@ const App = {
   },
 
   bakkefaktor() {
-    if (!this.P.bakkekorreksjon || !this.linje || !this.linje.lengde) return 1;
+    if (!this.P.bakkekorreksjon) return 1;
+    /* EN TOMT HAR INGEN SENTERLINJE, OG DEN SKAL IKKE LÅNE VEGENS.
+       Her sto bare vegveien. På en tomt betydde det ett av to, og begge var
+       gale: fantes det ingen veglinje i prosjektet, ble faktoren 1 og
+       bakkekorreksjonen falt stille bort – på et anlegg der avkrysningen var
+       på. Fantes det en veglinje, ble faktoren regnet på VEGENS midtpunkt og
+       VEGENS middelhøyde, og brukt på tomtas volumer, som kan ligge en
+       kilometer og hundre høydemeter unna.
+       Målt: samme tomt ga 903 m³ med en veglinje i prosjektet og 904 m³ uten.
+       Nå regnes den der tomta faktisk ligger. */
+    if (this.erTomt()) {
+      const p = this.tomtIUtm();
+      if (p.length < 3) return 1;
+      const tp = Tomtmasser.tyngdepunktAv(p);
+      const T = this.terrengOverTomta();
+      return Geo.bakkefaktor(tp.x, tp.y, this.sone, T ? T.middel : 0);
+    }
+    if (!this.linje || !this.linje.lengde) return 1;
     const p = this.linje.punktVed(this.linje.lengde / 2);
     let h = 0;
     if (this.terrengProfil && this.terrengProfil.z.length) {
@@ -1096,6 +1098,15 @@ const App = {
   },
 
   async oppdater() {
+    /* ÉN PORT INN, OG DEN MÅ KJENNE BEGGE ARBEIDSFORMENE.
+       Alle veier til en ny beregning går gjennom her – angre, gjør om, åpne,
+       bytte anlegg. For en tomt er `P.ip` tom, så vakten under slo inn,
+       `resultat` ble satt til null, og `Rapport.visSammendrag(null)` skrev
+       vegteksten «Tegn en senterlinje i kartet for å komme i gang» over
+       massepanelet. På et anlegg med fire hjørner og lagret kote.
+       Angret man en kotebytte på en tomt, ble koten riktig tilbakestilt – og
+       alle tallene forsvant. */
+    if (this.erTomt()) { await this.beregnTomt(); return; }
     this.byggLinje();
     Kart.tegn();
     if (!this.linje || this.linje.lengde <= 1) {
@@ -3511,7 +3522,13 @@ const App = {
     // et prosjekt uten navn har brukeren ikke bestemt seg for enna
     const navn = (document.getElementById('prosjektnavn').value || '').trim();
     if (!navn || navn === 'Nytt prosjekt') return;
-    if (!(this.P.ip || []).length) return;
+    /* Her sto `!(this.P.ip || []).length`. En tomt har ingen knekkpunkt, så
+       P.ip er alltid tom og autolagringen returnerte alltid tidlig – på en tomt
+       lagret den bokstavelig talt aldri. `harUlagret()` hadde nøyaktig samme
+       feil og ble rettet, men denne linja ble ikke med, så «ulagret»-merket på
+       Lagre-knappen slo av og på som normalt. Det så trygt ut. Trykte man ikke
+       Lagre selv, var tomta borte ved neste omlasting. */
+    if (!this.harInnhold()) return;
 
     /* Autolagringen skal aldri skrive over noe annet enn seg selv. Skriver
        brukeren et navn som alt er i bruk, ma det gaa om Lagre-knappen, der det
@@ -3810,13 +3827,16 @@ const App = {
       setTimeout(() => { if (Kart.kart) Kart.kart.invalidateSize(); Lengdeprofil.tegn(); Tverrprofil.tegn(); Tomteprofil.tegn(); }, 60);
     };
 
+    /* FANEKLIKK SKAL GÅ GJENNOM visFane(), IKKE FORBI DEN.
+       Her sto en egen kopi som bare byttet aktiv-klasse. Den gjorde alt
+       visFane() gjør, bortsett fra den ene linja som fyller innholdet:
+       `if (navn === 'forklaring') Forklaring.vis(this)`. Løkka kjører ved
+       oppstart på alle de statiske faneknappene, så Forklaring-knappen fikk
+       aldri visFane – og hele ui-forklaring.js, 235 linjer med tegnforklaring,
+       har aldri vært vist for en bruker. To kopier av samme jobb der bare den
+       ene blir vedlikeholdt. */
     document.querySelectorAll('.fane').forEach(f => {
-      f.onclick = () => {
-        document.querySelectorAll('.fane').forEach(x => x.classList.remove('aktiv'));
-        document.querySelectorAll('.faneinnhold').forEach(x => x.classList.remove('aktiv'));
-        f.classList.add('aktiv');
-        document.getElementById('fane-' + f.dataset.fane).classList.add('aktiv');
-      };
+      f.onclick = () => this.visFane(f.dataset.fane);
     });
 
     document.addEventListener('keydown', e => {

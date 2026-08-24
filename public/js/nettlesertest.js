@@ -81,6 +81,7 @@ const Nettlesertest = {
       await this.paneler();
       await this.tomt();
       await this.tomteksport();
+      await this.tomterydding();
       await this.framdrift();
       await this.opprydding();
     } catch (e) {
@@ -954,6 +955,126 @@ const Nettlesertest = {
       App.P = JSON.parse(foer);
       App.klargjorProsjekt(App.P);
       App.resultat = null;
+    }
+  },
+
+  /* ---------------- 15. det som bare gikk galt i tomtemodus ---------------- */
+  /**
+   * Hele denne testpakka kjørte i vegmodus, og det er nettopp derfor tre feil
+   * fikk stå: autolagringen som aldri lagret en tomt, angre som tømte
+   * massepanelet, og et fall satt til null som kom tilbake som 2 %.
+   */
+  async tomterydding() {
+    const foer = JSON.stringify(App.P);
+    const gz = Terreng.prototype.z, gd = Terreng.prototype.dekning, gl = Terreng.prototype.lastOmraade;
+    const gammelLagre = Lager.lagre;
+    const felt = document.getElementById('prosjektnavn');
+    const gammeltFelt = felt.value;
+    try {
+      App.P = App.nyttProsjekt();
+      App.P.navn = '__test_tomterydding';
+      App.leggTilAnlegg('tomt');
+      const lat0 = 58.2958, lon0 = 7.2098;
+      const dLat = m => m / 111320;
+      const dLon = m => m / (111320 * Math.cos(lat0 * Math.PI / 180));
+      App.P.tomt.punkter = [[0, 0], [40, 0], [40, 30], [0, 30]]
+        .map(([x, y]) => ({ lat: lat0 + dLat(y), lon: lon0 + dLon(x) }));
+      App.P.tomt.nivaa = { modus: 'flat', kote: 100 };
+
+      /* AUTOLAGRINGEN VAR AV PÅ TOMTER.
+         Vakten spurte etter knekkpunkt, og en tomt har ingen – så den
+         returnerte alltid tidlig. «Ulagret»-merket på Lagreknappen slo av og på
+         som normalt, så det så trygt ut. Trykte man ikke Lagre selv, var alt
+         borte ved neste omlasting. */
+      this.sjekk('en tomt teller som innhold', App.harInnhold());
+      this.sjekk('og som ulagret arbeid', App.harUlagret());
+      let lagret = 0;
+      Lager.lagre = async (n, d) => { lagret++; return { navn: n, endret: '', data: d }; };
+      felt.value = '__test_tomterydding';
+      App._aapnetSom = '__test_tomterydding';
+      App._lagretSom = null;
+      App.autolagringPause--;
+      await App.autolagre();
+      App.autolagringPause++;
+      Lager.lagre = gammelLagre;
+      this.sjekk('autolagringen lagrer en tomt', lagret === 1, lagret + ' lagringer');
+
+      /* ET FALL SATT TIL NULL BLE STILLE SKREVET OM TIL 2 %.
+         `n.fall || 0.02` i en lesning av et felt som ikke fantes. */
+      App.P.tomt.nivaa = { modus: 'fall', kote: 100, fall: 0, fallretning: 90 };
+      App.skjemaTilTomt();
+      this.sjekk('et fall satt til null blir stående på null',
+        App.P.tomt.nivaa.fall === 0, String(App.P.tomt.nivaa.fall));
+      this.sjekk('og fallretningen blir ikke rørt',
+        App.P.tomt.nivaa.fallretning === 90, String(App.P.tomt.nivaa.fallretning));
+
+      /* ANGRE REGNET ALDRI TOMTA OM.
+         Begge veier endte i oppdater(), som er vegveien: for en tomt er P.ip
+         tom, resultat ble satt til null, og massepanelet fikk vegteksten
+         «Tegn en senterlinje i kartet for å komme i gang» – på et anlegg med
+         fire hjørner og lagret kote. */
+      Terreng.prototype.lastOmraade = async function () { };
+      Terreng.prototype.dekning = () => 1;
+      Terreng.prototype.z = () => 99;
+      App.P.tomt.nivaa = { modus: 'flat', kote: 100 };
+      App._terrengnokkel = null;
+      await App.beregnTomt();
+      const foerAngre = App.resultat && App.resultat.sum.fylling;
+      this.sjekk('tomta er regnet før vi angrer', foerAngre > 0, String(foerAngre));
+      App.merk('prøve: endret kote');
+      App.P.tomt.nivaa.kote = 104;
+      await App.beregnTomt();
+      await App.angre();
+      this.sjekk('angre setter koten tilbake', App.P.tomt.nivaa.kote === 100,
+        String(App.P.tomt.nivaa.kote));
+      this.sjekk('og regner tomta om i stedet for å tømme panelet',
+        !!App.resultat && Math.abs(App.resultat.sum.fylling - foerAngre) < 1,
+        App.resultat ? App.resultat.sum.fylling.toFixed(2) + ' mot ' + foerAngre : 'resultat er null');
+      this.sjekk('massepanelet viser tomta, ikke vegteksten',
+        !/Tegn en senterlinje/.test(document.getElementById('massesammendrag').textContent));
+
+      /* BAKKEFAKTOREN BLE HENTET FRA VEGENS MIDTPUNKT.
+         `bakkefaktor()` leste `this.linje` – veglinja. På en tomt betydde det
+         ett av to, og begge var gale: uten veglinje i prosjektet ble faktoren
+         1 og korreksjonen falt stille bort, med veglinje ble den regnet der
+         VEGEN ligger og brukt på tomta. Samme tomt ga 903 m³ med en veglinje i
+         prosjektet og 904 m³ uten. */
+      const utenVeg = App.bakkefaktor();
+      App.P.anlegg[0].ip = [
+        { lat: lat0 + dLat(4000), lon: lon0 + dLon(4000), r: 0 },
+        { lat: lat0 + dLat(4300), lon: lon0 + dLon(4300), r: 0 }
+      ];
+      App.byggLinje();
+      const medVeg = App.bakkefaktor();
+      this.sjekk('bakkefaktoren for tomta er ikke 1 når korreksjonen er på',
+        Math.abs(utenVeg - 1) > 1e-9, String(utenVeg));
+      this.sjekk('og den endrer seg ikke av at prosjektet har en veg et annet sted',
+        Math.abs(medVeg - utenVeg) < 1e-12, medVeg + ' mot ' + utenVeg);
+      App.P.anlegg[0].ip = [];
+      App.byggLinje();
+
+      /* FORKLARING-FANEN BLE ALDRI FYLT.
+         En egen kopi av faneklikket manglet linja som kaller Forklaring.vis(),
+         så 235 linjer tegnforklaring hadde aldri vært vist for en bruker. */
+      document.querySelector('.fane[data-fane="forklaring"]').click();
+      const boks = document.getElementById('fane-forklaring');
+      this.sjekk('Forklaring-fanen blir fylt når man klikker på den',
+        !!boks && boks.textContent.trim().length > 500,
+        boks ? boks.textContent.trim().length + ' tegn' : 'fant ikke fanen');
+      document.querySelector('.fane[data-fane="masser"]').click();
+    } catch (e) {
+      this.sjekk('tomteryddingen kom seg gjennom', false,
+        e.message + ' — ' + (e.stack || '').split('\n')[1]);
+    } finally {
+      Terreng.prototype.z = gz; Terreng.prototype.dekning = gd; Terreng.prototype.lastOmraade = gl;
+      Lager.lagre = gammelLagre;
+      felt.value = gammeltFelt;
+      try { await Lager.slett('__test_tomterydding'); } catch (e) { /* fantes ikke */ }
+      App.P = JSON.parse(foer);
+      App.klargjorProsjekt(App.P);
+      App.resultat = null;
+      App._terrengnokkel = null;
+      App._lagretSom = null;
     }
   },
 

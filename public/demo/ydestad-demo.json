@@ -92,11 +92,6 @@
    "s": 428,
    "z": 267.593,
    "k": 1
-  },
-  {
-   "s": 428.5786599382211,
-   "z": 267.6337955256446,
-   "k": 1
   }
  ],
  "standardRadius": 30,
@@ -225,6 +220,5 @@
   "punkter": []
  },
  "profilAvstand": 5,
- "bakkekorreksjon": true,
- "tverrfall": []
+ "bakkekorreksjon": true
 }
