@@ -711,6 +711,18 @@ const Kart = {
       return;
     }
 
+    /* ... OG TOMTAS LAG SKAL IKKE HENGE IGJEN PÅ VEGEN.
+       Vegens lag ble ryddet over, men ikke tomtas. `tegnTomt()` tømmer bare
+       selve polygonet; kantetikettene, arealetiketten, skråningslinja,
+       fargeoverlegget og den stiplede snittlinja tegnes fra `visTomtemasser()`,
+       som selv starter med `if (!this.erTomt()) return`. Ingen av dem kunne
+       altså ryddes i vegmodus. Etter tomtearbeid og et trykk på «▬ Veg» ble de
+       liggende oppå veganlegget – og siden polygonet forsvant, så det ut som
+       etikettene hørte til vegen. */
+    if (this.lag.tomtemal) this.lag.tomtemal.clearLayers();
+    if (this.lag.skraningsfot) this.lag.skraningsfot.clearLayers();
+    if (this.lag.tomtefarger) { this.kart.removeLayer(this.lag.tomtefarger); this.lag.tomtefarger = null; }
+
     this.ipMarkorer.forEach(m => this.kart.removeLayer(m));
     this.ipMarkorer = [];
     P.ip.forEach((pt, i) => {

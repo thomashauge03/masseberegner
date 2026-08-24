@@ -100,7 +100,9 @@ const Losmassetyper = {
 };
 
 const StandardTomtemal = {
-  arbeidstype: 'planering',
+  /* `arbeidstype` sto her, men hører til jobben og ikke til malen – se nyTomt().
+     Begge rapportene leste den fra tomt-objektet, så feltet her ble aldri lest
+     av noen. */
 
   /* --- skråninger. Alle tall er VANNRETT UTLEGG PER METER HØYDE, som i
      vegmalen. Standardverdiene er morene, som er det vanligste i Agder.
@@ -194,6 +196,14 @@ const StandardTomtemal = {
 /** Et tomt, nytt tomteanlegg. */
 function nyTomt() {
   return {
+    /* Arbeidstypen hører til JOBBEN, ikke til innstillingsmalen.
+       Feltet lå i StandardTomtemal, mens begge rapportene leste det fra
+       tomt-objektet – så begge traff undefined hver gang og skrev hver sin
+       reserveverdi: PDF-en alltid «Tomt», HTML-en alltid «Planering». To
+       rapporter om samme tomt som var uenige om hva slags jobb det var.
+       Ligger det her, overlever valget «Tilbakestill til standard» også, som
+       skriver hele malen på nytt. */
+    arbeidstype: 'planering',
     form: 'polygon',         // polygon | rektangel | sirkel
     /* Hva omrisset man tegner betyr.
        'planum'      - det man tegner er selve tomta, og skraningene kommer
@@ -336,62 +346,7 @@ function kanter(p) {
   return ut;
 }
 
-/**
- * Er hjørnet mellom to kanter konvekst sett utenfra?
- *
- * Konvekst hjørne: skraningene fra de to kantene møtes ikke, og gapet ma
- * fylles med en vifte eller en avrunding.
- * Konkavt hjørne: skraningene overlapper, og ma trimmes mot hverandre -
- * ellers telles volumet to ganger.
- */
-function hjorneErKonvekst(k1, k2) {
-  const kryss = k1.nx * k2.ny - k1.ny * k2.nx;
-  return kryss < 0;
-}
 
-/**
- * Hva den ferdige flaten star i, i et gitt punkt.
- *
- * @param {object} nivaa   fra tomt.nivaa
- * @param {number} x,y     UTM
- * @param {object} referanse  {x, y} som `kote` gjelder for - som regel tomtas
- *                            tyngdepunkt
- * @returns {number} kote, eller NaN om nivaet ikke lar seg regne enda
- */
-function nivaaVed(nivaa, x, y, referanse) {
-  if (!nivaa || !erTall(nivaa.kote)) return NaN;
-  const k = nivaa.kote;
-  switch (nivaa.modus) {
-    case 'flat':
-      return k;
-
-    case 'fall': {
-      if (!referanse) return k;
-      /* Fallretningen er grader fra nord, den veien vannet renner. Enhets-
-         vektoren dit er (sin, cos) i (øst, nord) - ikke (cos, sin). Bytter
-         man om, faller flaten 90 grader feil vei, og det synes ikke pa
-         volumet i det hele tatt: en plan flate over et areal gir omtrent
-         samme masse uansett hvilken vei den heller. */
-      const rad = (nivaa.fallretning || 0) * Math.PI / 180;
-      const ex = Math.sin(rad), ey = Math.cos(rad);
-      const langs = (x - referanse.x) * ex + (y - referanse.y) * ey;
-      return k - langs * (nivaa.fall || 0);
-    }
-
-    case 'sluk': {
-      if (!nivaa.punkt || !erTall(nivaa.punkt.x)) return k;
-      const d = Math.hypot(x - nivaa.punkt.x, y - nivaa.punkt.y);
-      return k - d * (nivaa.fall || 0) * -1;   // stiger utover fra sluket
-    }
-
-    default:
-      return k;
-  }
-}
-
-function erTall(v) {
-  return typeof v === 'number' && Number.isFinite(v);
-}
 
 /* ------------------------------------------------------------------ *
  *  Kontroll av det brukeren har tegnet
@@ -457,7 +412,19 @@ function segmenterKrysser(a, b, c, d) {
 const Tomt = {
   Arbeidstyper, Nivaamoduser, Kanttyper, Kantkort, Losmassetyper, StandardTomtemal, nyTomt,
   signertAreal, areal, omkrets, tyngdepunkt, innenfor, kanter,
-  hjorneErKonvekst, nivaaVed, sjekkTomt, selvkryssende
+  /* `nivaaVed` og `hjorneErKonvekst` sto her.
+
+     nivaaVed fantes i to eksemplarer – ett her og ett i tomtmasser.js. Begge
+     deklareres på toppnivå og lastes som vanlige script-tagger, og tomtmasser.js
+     laster sist. Den globale bindingen var derfor ALLTID tomtmasser.js sin, og
+     ingen kalte noen gang Tomt.nivaaVed. Retter man en feil i en kopi som er
+     skygget vekk, skjer det ingenting i nettleseren – det er den verste sorten
+     død kode.
+
+     hjorneErKonvekst hadde ingen kaller i det hele tatt. Grunnen står i
+     filhodet til tomtmasser.js: hjørnene løser seg selv fordi skråningen bygges
+     som et avstandsfelt fra omrisset, ikke kant for kant. */
+  sjekkTomt, selvkryssende
 };
 
 if (typeof module !== 'undefined') {

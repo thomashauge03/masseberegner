@@ -128,15 +128,6 @@ body {
   outline-offset: 2px;
 }
 
-/* ── Overskrifter: kondenserte og feite, som logoen ─────── */
-.hm-display {
-  font-family: var(--skrift-tittel);
-  font-weight: 700;
-  letter-spacing: .02em;
-  text-transform: uppercase;
-  line-height: 1.05;
-}
-
 /* Skrå raud strek – ekkoet av kursiven i logoen. Berre pynt. */
 .hm-skrastrek {
   display: inline-block;
@@ -245,15 +236,8 @@ body {
 
 .tomtinnhold { display: flex; gap: 2px; overflow: hidden; flex: 1; min-height: 0; }
 #tomtprofil { flex: 1; min-width: 0; display: block; }
-.tomtenokkel { flex: 1; overflow: auto; padding: 10px 12px; }
 .tomtekanter { width: 330px; overflow: auto; padding: 10px 12px; border-left: 1px solid var(--kant); }
-.tomtenokkel table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.tomtenokkel td { padding: 2px 0; }
-.tomtenokkel td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
-.tomtenokkel tr.sum td { border-top: 1px solid var(--kant); font-weight: 600; padding-top: 5px; }
-.tomtenokkel h4 { margin: 12px 0 4px; font-size: 12px; text-transform: uppercase;
   letter-spacing: .06em; color: var(--blekk-svak); }
-.tomtenokkel h4:first-child { margin-top: 0; }
 .tomtekanter table { width: 100%; border-collapse: collapse; font-size: 12px; }
 .tomtekanter th { text-align: left; font-weight: 600; color: var(--blekk-svak);
   font-size: 11px; padding-bottom: 3px; }
@@ -389,7 +373,6 @@ body {
   padding: 4px 6px; font-size: 12px; width: 100%; font-family: var(--skrift);
 }
 .felt input:focus, .felt select:focus, .minitall input:focus { border-color: var(--hm-raud); }
-.felt input[type=text] { grid-column: 2 / 4; }
 .felt span { color: var(--blekk-svak); font-size: 11px; }
 .felt.avkryssfelt { grid-template-columns: 1fr; }
 .felt.avkryssfelt label { display: flex; gap: 6px; align-items: center; cursor: pointer; }
@@ -509,12 +492,6 @@ body {
 }
 .stoppboks b { display: block; font-size: 13.5px; margin-bottom: 4px; }
 .stoppboks div { color: var(--blekk); }
-
-/* Sperreband – same motiv som anleggsvarsel i dei andre appane. */
-.hm-varselstriper {
-  height: 6px;
-  background-image: repeating-linear-gradient(-45deg, var(--hm-svart) 0 10px, var(--hm-raud) 10px 20px);
-}
 
 /* ── dialog og framdrift ───────────────────────────────── */
 .dialog, .framdrift {
@@ -669,9 +646,13 @@ body {
 }
 .forklaringsrad .prove.stipla::after { border-top-style: dashed; }
 .forklaringsrad .prove.flate { background: var(--f); }
+/* Skravuren i prøva må bruke same variabel som teikninga.
+   Her sto fargen hardkoda som rgba(255,120,128,.85), som er --data-fjell i
+   MØRK modus. I lys modus viste prøva difor ein annan farge enn raden rett
+   over i same panel. */
 .forklaringsrad .prove.skravur {
   background: var(--f);
-  background-image: repeating-linear-gradient(45deg, transparent 0 3px, rgba(255,120,128,.85) 3px 4px);
+  background-image: repeating-linear-gradient(45deg, transparent 0 3px, var(--data-fjell) 3px 4px);
 }
 
 .tomtemal-areal .feil { color: #ff8a90; font-size: 10px; max-width: 210px; white-space: normal; }

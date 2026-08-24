@@ -38,8 +38,10 @@ const Pdfrapport = {
     try {
       const bytes = await this._bygg(app, res);
       if (lastNed) {
-        const navn = String(app.P.navn).replace(/[^\wæøåÆØÅ -]/g, '_').replace(/\s+/g, '_').slice(0, 60)
-          + '_masseberegning.pdf';
+        /* Én filnavnvasker, ett sted. Her sto en egen kopi som kuttet på 60
+           tegn der Lager.filnavn kutter på 80, og som manglet reserven for et
+           tomt navn – da ble filen hetende «_masseberegning.pdf». */
+        const navn = Lager.filnavn(app.P.navn) + '_masseberegning.pdf';
         const blob = new Blob([bytes], { type: 'application/pdf' });
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);

@@ -217,47 +217,21 @@ function malFraVeiklasse(klasse, gjeldende) {
   return m;
 }
 
-/**
- * Minste veibredde i kurve etter normalen.
- *
- * Tabellene har to kolonner: en for korte kurver (45 grader dreining) og en
- * for lange (135 grader). Mellom dem interpoleres det, slik diagrammet i
- * normalen legger opp til.
- */
-function normalbreddeIKurve(mal, radius, dreiningGrader) {
-  const tab = mal.breddeIKurve || [];
-  if (!isFinite(radius) || !tab.length) return 0;
-  for (const [fra, til, b45, b135] of tab) {
-    if (radius >= fra && radius <= til) {
-      const g = Math.max(45, Math.min(135, dreiningGrader || 45));
-      return b45 + (b135 - b45) * (g - 45) / 90;
-    }
-  }
-  return 0;
-}
+/* TO NORMFUNKSJONER SOM GA FEIL SVAR – OG SOM INGEN KALTE.
+   «normalbreddeIKurve» og «maksStigningNormal» sto her uten en eneste kaller i
+   hele prosjektet, og de var ikke bare ubrukte: de var uenige med koden som
+   faktisk regner. Kjørt side om side med masser.js sine «utvidelseFraRadius» og
+   «maksStigningFraRadius» ga de 0,00 m der masser gir 7,00 m (R=8), 7 % der
+   masser gir 5 % (R=14,5) og 12 % der masser gir 11 % (R=59,5).
+   Båndkantrettingene i masser.js ble aldri gjort her.
 
-/**
- * Største tillatte stigning i et punkt.
- *
- * @param {number} stigning Prosjektert stigning som desimaltall, positiv nar
- *        veien stiger med økende profilnummer.
- * @param {number} lassretning +1 nar lasset kjører mot økende profilnummer,
- *        -1 nar det kjører andre veien.
- *
- * Kjører lasset oppover, gjelder det strenge kravet for lassretning.
- * Kjører det nedover, er det den tomme bilen som skal opp, og da gjelder
- * det romsligere kravet for returretning.
- */
-function maksStigningNormal(mal, radius, stigning, lassretning) {
-  const tab = mal.stigningIKurve || [];
-  if (!tab.length) return 1;
-  let rad = tab[tab.length - 1];
-  for (const r of tab) { if (radius <= r[0]) { rad = r; break; } }
-  const medLass = rad[1], utenLass = rad[2];
-  const lassetKlatrer = (stigning * (lassretning || 1)) > 0;
-  return lassetKlatrer ? medLass : utenLass;
-}
+   Verre enn ubrukt: GJENNOMGANG.md siterte tallene deres som om de var i bruk
+   og bygde konklusjoner på dem. Død kode som lyver om fagregler er farligere
+   enn død kode som bare ligger der.
+
+   Reglene selv er ikke tapt – tabellene «breddeIKurve» og «stigningIKurve»
+   står fortsatt i klassene, og masser.js leser dem. */
 
 if (typeof module !== 'undefined') {
-  module.exports = { Veiklasser, malFraVeiklasse, normalbreddeIKurve, maksStigningNormal };
+  module.exports = { Veiklasser, malFraVeiklasse };
 }

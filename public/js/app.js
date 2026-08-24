@@ -246,17 +246,6 @@ const App = {
     else this.planlegg(60);
   },
 
-  /**
-   * Legger til en tomt.
-   *
-   * Knappen spurte først om det skulle bli en veg eller en tomt, men den
-   * dialogen har bare Ja og Avbryt - og "Avbryt" som svar pa "veg eller tomt"
-   * betyr ingenting. Tomt er dessuten det man legger til; en veg til i samme
-   * prosjekt er sjeldnere, og den far sin egen vei inn nar anleggslisten
-   * kommer.
-   */
-  velgNyttAnlegg() { this.leggTilAnlegg('tomt'); },
-
   /** Legger til et anlegg og gar rett til det. */
   leggTilAnlegg(type) {
     this.merk('nytt anlegg');
@@ -688,7 +677,8 @@ const App = {
     let ut = '<option value="fall">Snitt langs fallet</option>'
       + '<option value="tvers">Snitt på tvers</option>';
     if (p.length >= 3) {
-      const kort = { skraning: 'skråning', fjellvegg: 'sprengt vegg', mur: 'mur', apen: 'åpen', overgang: 'overgang' };
+      // samme tabell som kartet bruker - to kopier ville drevet fra hverandre
+      const kort = Tomt.Kantkort;
       const t = this.P.tomt;
       /* Nummeret ma vaere k.nr, ikke plassen i lista.
          Tomt.kanter() hopper over kanter uten lengde - to hjørner pa samme sted
@@ -1166,7 +1156,7 @@ const App = {
     Rapport.visSammendrag(this.resultat);
     Kart.tegnResultat(this.resultat);
     Lengdeprofil.tegn();
-    this.settTverrStasjon(this.tverrStasjon, true);
+    this.settTverrStasjon(this.tverrStasjon);
     this.visLinjetabell();
     this.visHoydetabell();
     this.status(`Beregnet ${this.resultat.profiler.length} profiler på ${tid.toFixed(0)} ms`);
@@ -1341,7 +1331,7 @@ const App = {
     });
   },
 
-  settTverrStasjon(s, behold) {
+  settTverrStasjon(s) {
     if (!this.resultat) { this.tverrStasjon = s; return; }
     let best = this.resultat.profiler[0], bestD = Infinity;
     for (const p of this.resultat.profiler) {
@@ -1352,8 +1342,10 @@ const App = {
     Tverrprofil.vis(best);
     this.visPunkthoyder(best);
     Kart.visStasjon(best.s);
-    if (!behold) Lengdeprofil.tegn();
-    else Lengdeprofil.tegn();
+    /* Her sto en if/else der begge greinene gjorde det samme. Parameteren
+       *behold* styrte altsa ingenting - den ble sendt inn fra ett sted og
+       hadde ingen virkning noen vei. */
+    Lengdeprofil.tegn();
   },
 
   linjeEndret() { this.planlegg(120); },
@@ -2649,20 +2641,12 @@ const App = {
       rad.insertBefore(k, foran.nextSibling);
       k.classList.toggle('skjult', !tomt);
     }
-    let knapp = document.querySelector('.fane[data-fane="tomtemal"]');
-    if (!knapp) {
-      const rad = document.querySelector('.faner');
-      const malknapp = document.querySelector('.fane[data-fane="mal"]');
-      if (rad && malknapp) {
-        knapp = document.createElement('button');
-        knapp.className = 'fane';
-        knapp.dataset.fane = 'tomtemal';
-        knapp.textContent = 'Tomtemal';
-        rad.insertBefore(knapp, malknapp.nextSibling);
-        knapp.onclick = () => this.visFane('tomtemal');
-        knapp.classList.toggle('skjult', !tomt);
-      }
-    }
+    /* Her lå et annet oppsett av den SAMME Tomtemal-fanen, vernet av
+       `if (!knapp)`. Løkka over setter alltid inn begge fanene, så knappen
+       fantes alltid når spørsmålet ble stilt, og blokka kunne aldri kjøre.
+       De to var dessuten uenige om hvor fanen skulle stå: løkka setter den
+       etter Høyde, den døde blokka etter Vegmal. */
+
     /* Star man pa en fane som nettopp ble skjult, ma man flyttes - ellers blir
        sidepanelet tomt uten at noe forklarer hvorfor. */
     const aktiv = document.querySelector('.fane.aktiv');
@@ -2730,7 +2714,20 @@ const App = {
       ? v.toLocaleString('nb-NO', { minimumFractionDigits: d, maximumFractionDigits: d }) : '–');
     const r = this.resultat;
 
-    let ut = '<h3>Ferdig nivå</h3>';
+    /* ARBEIDSTYPEN MÅ KUNNE VELGES.
+       Begge rapportene leser den og skriver den i overskriften, men ingenting
+       satte den noen gang – så PDF-en sa alltid «Tomt» og HTML-en alltid
+       «Planering» om samme tomt. */
+    let ut = '<h3>Hva slags jobb</h3>';
+    ut += '<div class="felt"><label>Arbeidstype</label><select id="th_arbeidstype">'
+      + Object.entries(Tomt.Arbeidstyper).map(([n1, a]) =>
+        `<option value="${n1}"${(t.arbeidstype || 'planering') === n1 ? ' selected' : ''}>${escapeHtml(a.navn)}</option>`).join('')
+      + '</select><span class="enhet"></span></div>';
+    ut += `<p class="notis">${escapeHtml((Tomt.Arbeidstyper[t.arbeidstype || 'planering']
+      || Tomt.Arbeidstyper.planering).beskrivelse)} Valget står i rapporten og i PDF-en; `
+      + 'det endrer ikke hvordan volumet regnes.</p>';
+
+    ut += '<h3>Ferdig nivå</h3>';
     ut += '<div class="hoydevalg">'
       + `<input type="number" id="th_kote" step="0.05" value="${n.kote == null ? '' : n.kote.toFixed(2)}">`
       + '<span class="enhet">moh.</span></div>';
@@ -2854,6 +2851,12 @@ const App = {
         this.tomtTilSkjema();
         await this.beregnTomt();
       };
+    };
+    const arb = document.getElementById('th_arbeidstype');
+    if (arb) arb.onchange = () => {
+      this.merk('endret arbeidstype');
+      t.arbeidstype = arb.value;
+      this.tomthoydeTilSkjema();
     };
     knytt('th_fall', v => { t.nivaa.fall = Math.max(0, v) / 100; });
     knytt('th_retning', v => { t.nivaa.fallretning = ((v % 360) + 360) % 360; });
@@ -3860,15 +3863,6 @@ const App = {
   }
 };
 
-function lesPar(tekst, skala) {
-  const par = [];
-  for (const bit of String(tekst).split(',')) {
-    const m = bit.trim().match(/^(-?[\d.]+)\s*:\s*(-?[\d.]+)$/);
-    if (!m) continue;
-    par.push([parseFloat(m[1]), parseFloat(m[2]) * skala]);
-  }
-  return par.length ? par.sort((a, b) => a[0] - b[0]) : null;
-}
 function escapeAttr(s) { return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;'); }
 /* Prosjektnavn kan komme fra en fil en kollega har sendt, og ma derfor
    behandles som tekst - ikke som markup. */

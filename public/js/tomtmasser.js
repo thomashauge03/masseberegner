@@ -516,6 +516,24 @@ function beregnTomtemasser(o) {
           ? `. Det er ${(hoyesteFylling / mal.maksFyllingshoyde).toFixed(0)} ganger grensen – `
             + 'kontroller at den ferdige koten står riktig.' : '') });
   }
+  /* HVOR LANGT UT MOT NABOEN INNGREPET GÅR.
+     `maksUtslag` sto i tomtemalen, ble vist i skjemaet og lagret i hver
+     prosjektfil – og ingenting leste det. Vegen håndhever den samme grensen
+     (masser.js), tomta gjorde det ikke. Målt: skråningen gikk 136 m ut med
+     maksUtslag satt til 15, og den eneste meldingen handlet om SØKEBREDDEN –
+     en beregningsinnstilling, ikke en grense mot naboen.
+     Det er nettopp utslaget man prosjekterer for. */
+  if (mal.maksUtslag > 0 && foten.length) {
+    const over = foten.filter(f => f.type !== 'apen' && f.ut > mal.maksUtslag);
+    if (over.length) {
+      const sider = [...new Set(over.map(f => f.kant + 1))].sort((a, b) => a - b);
+      const lengst = over.reduce((m, f) => Math.max(m, f.ut), 0);
+      merknader.push({ type: 'utslag',
+        tekst: `Inngrepet går ${lengst.toFixed(1)} m ut fra tomtekanten på side ${sider.join(', ')} `
+          + `– grensen i malen er ${mal.maksUtslag} m. Sett tomtegrensa som yttergrense, `
+          + 'bruk mur eller sprengt vegg på de sidene, eller legg nivået nærmere terrenget.' });
+    }
+  }
   if (mal.maksVeggHoyde > 0 && hoyesteVegg > mal.maksVeggHoyde) {
     merknader.push({ type: 'vegg',
       tekst: `Bergveggen blir ${hoyesteVegg.toFixed(1)} m høy. Over ${mal.maksVeggHoyde} m `

@@ -460,16 +460,7 @@ Dybden til fjell er den største usikkerheten i sprengningsvolumet.
 </div>
 </body></html>`;
 
-    /* Blokkerer nettleseren nye vinduer, gir window.open null. Da lastes
-       rapporten ned som fil i stedet, sa arbeidet ikke bare forsvinner. */
-    const v = window.open('', '_blank');
-    if (v && v.document) {
-      v.document.write(html);
-      v.document.close();
-    } else {
-      this.lastNed(this.filnavn('_rapport.html'), html, 'text/html;charset=utf-8');
-      app.status('Nettleseren blokkerte nytt vindu – rapporten ble lastet ned som fil i stedet');
-    }
+    this.visRapport(html, app);
   },
 
   /* Stilen deles av vegrapporten og tomterapporten. Sto den to steder,
@@ -516,7 +507,12 @@ Dybden til fjell er den største usikkerheten i sprengningsvolumet.
 `;
   },
 
-  /** Åpner html-en i et vindu, eller laster den ned om vinduet blir blokkert. */
+  /**
+   * Åpner html-en i et vindu, eller laster den ned om vinduet blir blokkert.
+   *
+   * Blokkerer nettleseren nye vinduer, gir window.open null. Da lastes
+   * rapporten ned som fil i stedet, så arbeidet ikke bare forsvinner.
+   */
   visRapport(html, app) {
     const v = window.open('', '_blank');
     if (v && v.document) { v.document.write(html); v.document.close(); return; }
