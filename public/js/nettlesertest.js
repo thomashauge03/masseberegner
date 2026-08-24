@@ -93,6 +93,7 @@ const Nettlesertest = {
       await this.tomt3d();
       await this.veg3d();
       await this.kartlag();
+      await this.lovlighet();
       await this.framdrift();
       await this.opprydding();
     } catch (e) {
@@ -1329,6 +1330,48 @@ const Nettlesertest = {
           Math.round(skille(pl)) + ' → ' + Math.round(skille(pf)));
       }
 
+      /* TOMTERAPPORTEN SKAL HA BILDER.
+         Den hadde ingen: åtte tabeller etter hverandre på én side, alle med
+         samme vekt. Vegrapporten har lengdeprofil og tverrsnitt; tomta hadde
+         tall og bare tall, og den som fikk PDF-en tilsendt måtte lese hele for
+         å finne ut hva saken gjaldt. */
+      {
+        const teg = Rapport.lagTomtetegninger(App.resultat);
+        this.sjekk('tomterapporten har et bilde av tomta ovenfra', !!teg.plan);
+        this.sjekk('og ett sett fra siden', !!teg.perspektiv);
+        this.sjekk('og snittet', !!teg.snitt);
+
+        /* SNITTET MALER INGEN BUNN SELV.
+           På skjermen kommer bakgrunnen fra CSS-en på lerretet, og `tegn()`
+           nøyer seg med clearRect. På et lerret som ikke står i siden er
+           «tømt» det samme som gjennomsiktig – og bildet kom ut helt svart i
+           PDF-en. Prøven måler hjørnepikselen. */
+        if (teg.snitt) {
+          const img = new Image();
+          await new Promise(ok => { img.onload = ok; img.onerror = ok; img.src = teg.snitt; });
+          const c = document.createElement('canvas');
+          c.width = img.width; c.height = img.height;
+          const k = c.getContext('2d');
+          k.drawImage(img, 0, 0);
+          const px = k.getImageData(4, 4, 1, 1).data;
+          this.sjekk('snittet har lys bunn, ikke svart',
+            px[0] > 200 && px[1] > 200 && px[2] > 200 && px[3] === 255,
+            '[' + px[0] + ',' + px[1] + ',' + px[2] + ',' + px[3] + ']');
+        }
+
+        /* Og alt skal stå som før etterpå. Tegningene lages ved å låne
+           3D-visningen: bytte lerret, vinkel, kontekstring og fyldig. Blir noe
+           av det stående igjen, har brukeren plutselig en annen visning på
+           skjermen etter å ha laget en PDF. */
+        this.sjekk('3D-visningen står som før etterpå',
+          Tomt3d.lerret === document.getElementById('tomt3d')
+          && Tomt3d.over === document.getElementById('tomt3dover')
+          && Tomt3d.kontekst === 40 && Tomt3d.fyldig === false && Tomt3d.lag.rutenett === false,
+          'kontekst ' + Tomt3d.kontekst + ' · fyldig ' + Tomt3d.fyldig);
+        this.sjekk('og utskriftspaletten er slått av igjen',
+          !document.documentElement.hasAttribute('data-utskrift'));
+      }
+
       /* 6.5 Fargene kommer fra stilarket, også som tall. */
       const rgb = Farger.skjaeringFlateRgb;
       this.sjekk('fargene finnes som tre tall', Array.isArray(rgb) && rgb.length === 3
@@ -1730,9 +1773,21 @@ const Nettlesertest = {
             await this.vent(60);
           }
           const etter = Veg3d._slaOpp({ x: treff.x, y: treff.y }, o);
+          /* Kravet er at markøren blir stående PÅ SAMME STED, ikke på nøyaktig
+             samme node. Står punktet på grensen mellom to celler, avgjør en
+             brøkdels piksel hvilken av dem oppslaget treffer, og et krav om
+             eksakt likhet ville falt tilfeldig. Feilen prøven finnes for –
+             forskyvningen regnet fra feil nullpunkt – sendte markøren titalls
+             celler unna, som regel helt ut i bakgrunnen. */
+          const gg3 = Veg3d._sisteGitter;
+          const avstand = (etter && etter.k >= 0 && foer && foer.k >= 0)
+            ? Math.max(Math.abs(((etter.k / gg3.nb) | 0) - ((foer.k / gg3.nb) | 0)),
+              Math.abs((etter.k % gg3.nb) - (foer.k % gg3.nb)))
+            : 999;
           this.sjekk('hjulet zoomer mot markøren, ikke mot midten',
-            !!etter && etter.k === foer.k,
-            'node ' + (foer ? foer.k : '-') + ' → ' + (etter ? etter.k : 'bakgrunn'));
+            avstand <= 1,
+            'node ' + (foer ? foer.k : '-') + ' → ' + (etter && etter.k >= 0 ? etter.k : 'bakgrunn')
+            + ' (' + (avstand === 999 ? 'utenfor modellen' : avstand + ' celler unna') + ')');
           Veg3d.nullstill();
           await this.vent(120);
         }
@@ -1880,6 +1935,167 @@ const Nettlesertest = {
       App.klargjorProsjekt(App.P);
       App.resultat = null;
       App._terrengnokkel = null;
+    }
+  },
+
+  /* ---------------- 19. lovlighet i planet ---------------- */
+  /**
+   * «Gjør lovlig» ga opp etter 13 ms på en linje det ikke var noe galt med.
+   *
+   * Årsaken var en feilklassifisering: advarselen «radien er for stor for
+   * strekket – kurven er kortet inn» ble talt som et lovbrudd. Normaler for
+   * landbruksveier setter en NEDRE grense for radius; ingen kilde krever at den
+   * bygde radien er lik den tegnede, og alt programmet regner på – bredde-
+   * utvidelse, maks stigning, masser – bruker allerede den bygde. Knappen jaktet
+   * altså på fantomer, med det ene verktøyet den hadde: å fjerne et knekkpunkt.
+   * I en sikksakk flytter det linjen 30 m, avviksgrensen kastet hvert forsøk,
+   * og meldingen ble «fant ingen lovlig linje innenfor 8 m».
+   */
+  async lovlighet() {
+    const foer = JSON.stringify(App.P);
+    const gz = Terreng.prototype.z, gd = Terreng.prototype.dekning, gl = Terreng.prototype.lastOmraade;
+    const gammelBekreft = App.bekreft;
+    try {
+      Terreng.prototype.lastOmraade = async function () { };
+      Terreng.prototype.dekning = () => 1;
+      Terreng.prototype.z = function (x, y) { return 100; };
+      App.bekreft = async () => true;
+
+      const lat0 = 58.2958, lon0 = 7.2098;
+      const dLat = m => m / 111320;
+      const dLon = m => m / (111320 * Math.cos(lat0 * Math.PI / 180));
+      const lag = async (pkt, r, minR) => {
+        App.P = App.nyttProsjekt();
+        App.P.navn = '__test_lovlig';
+        App.klargjorProsjekt(App.P);
+        await App.settModus('veg');
+        App.P.ip = pkt.map(([x, y]) => ({ lat: lat0 + dLat(y), lon: lon0 + dLon(x), r }));
+        App.P.mal.minRadius = minR;
+        App._terrengnokkel = null;
+        App.byggLinje();
+        await App.oppdater();
+      };
+      const ulovlige = () => App.ulovligeIPlanet(App.linje, App.P.mal.minRadius || 0);
+
+      /* 19.1 EN INNKORTET KURVE ER IKKE ET LOVBRUDD.
+         Sikksakk der hver eneste kurve blir kortet inn, men alle ligger godt
+         over minstekravet. Dette er tilfellet knappen ga opp på. */
+      const sikksakk = [];
+      for (let i = 0; i < 10; i++) sikksakk.push([i * 25, (i % 2) * 12]);
+      await lag(sikksakk, 30, 20);
+      const minste = Math.min(...App.linje.kurver.map(k => k.r));
+      this.sjekk('prøven har kurver som er kortet inn', App.innkortede(App.linje) >= 5,
+        App.innkortede(App.linje) + ' innkortede');
+      this.sjekk('og alle ligger over minstekravet', minste >= 20 - 1e-6, minste.toFixed(2) + ' m');
+      this.sjekk('en innkortet kurve teller ikke som brudd i planet', ulovlige() === 0,
+        ulovlige() + ' talt');
+      const b1 = App.tellBrudd();
+      this.sjekk('og ikke som «linje»-brudd i rapporten heller', b1.linje === 0,
+        b1.linje + ' linjebrudd');
+      this.sjekk('men den STÅR der, som opplysning',
+        App.resultat.merknader.some(m => m.type === 'avvik' && /kortet inn/.test(m.tekst)));
+
+      const foerUtm = App.ipTilUtm();
+      const foerIp = App.P.ip.length;
+      await App.gjorLovlig();
+      await this.vent(80);
+      this.naer('«Gjør lovlig» rører ikke en linje som er lovlig',
+        App.linjeavvik(foerUtm, App.ipTilUtm()), 0, 1e-6);
+      this.sjekk('og fjerner ingen knekkpunkt', App.P.ip.length === foerIp);
+      this.sjekk('men sier fra at kurvene ble bygd mindre enn bestilt',
+        /bygd mindre|fikk ikke plass/.test(document.getElementById('statuslinje').textContent),
+        document.getElementById('statuslinje').textContent.slice(0, 80));
+
+      /* 19.2 Den bygde radien skal STÅ I TABELLEN ved siden av den bestilte.
+         Her sto bare det man hadde tastet inn – et tall som ikke fantes i vegen. */
+      App.visLinjetabell();
+      const merker = [...document.querySelectorAll('#ipTabell .bygdradius')];
+      this.sjekk('linjetabellen viser den radien som faktisk bygges',
+        merker.length >= 5, merker.length + ' merker');
+
+      /* 19.3 ET EKTE BRUDD: radius under minstekravet. */
+      const romslig = [[0, 0], [200, 60], [420, 0], [640, 80], [860, 20]];
+      await lag(romslig, 12, 20);
+      this.sjekk('prøven har ekte brudd i planet', ulovlige() === 3, ulovlige() + ' brudd');
+      const f2 = App.ipTilUtm();
+      await App.gjorLovlig();
+      await this.vent(80);
+      this.sjekk('«Gjør lovlig» retter dem', ulovlige() === 0, ulovlige() + ' igjen');
+      this.sjekk('og linjen flytter seg nesten ikke',
+        App.linjeavvik(f2, App.ipTilUtm()) < 1,
+        App.linjeavvik(f2, App.ipTilUtm()).toFixed(3) + ' m');
+      this.sjekk('uten å fjerne et eneste knekkpunkt', App.P.ip.length === romslig.length);
+
+      /* 19.4 LOVLIGHETEN ER BYGD INN I DE ANDRE KNAPPENE.
+         Vegen skal VÆRE lovlig, ikke bli det når noen husker å trykke på en
+         knapp. Bare det som ikke flytter vegen merkbart gjøres uten å spørre. */
+      for (const [navn, kall] of [
+        ['Rett opp', () => App.rettOpp()],
+        ['Massebalanse', () => App.balanser()],
+        ['Optimaliser', () => App.optimaliser()]
+      ]) {
+        await lag(romslig, 12, 20);
+        this.sjekk(navn + ': prøven starter ulovlig', ulovlige() === 3);
+        const f3 = App.ipTilUtm();
+        await kall();
+        await this.vent(120);
+        this.sjekk(navn + ' rydder planet på veien', ulovlige() === 0, ulovlige() + ' igjen');
+        this.sjekk('og den sier hva den gjorde',
+          /trange kurver|løftet til minstekravet|slakket/.test(document.getElementById('statuslinje').textContent),
+          document.getElementById('statuslinje').textContent.slice(0, 70));
+        this.sjekk('uten å flytte vegen mer enn en meter',
+          App.linjeavvik(f3, App.ipTilUtm()) < 1,
+          App.linjeavvik(f3, App.ipTilUtm()).toFixed(3) + ' m');
+      }
+
+      /* 19.5 ET SKARPT HJØRNE ER OGSÅ ET BRUDD.
+         Et innvendig knekkpunkt uten kurve gir ingen post i `kurver`, og
+         `radiusVed` svarer Infinity på rettstrekket gjennom det. En kontroll
+         som bare ser på kurver, ser det aldri. */
+      await lag([[0, 0], [80, 0], [80, 80]], 0, 20);
+      this.sjekk('et skarpt hjørne telles som brudd i planet', ulovlige() === 1,
+        ulovlige() + ' talt');
+      this.sjekk('og meldes med sitt eget navn',
+        App.resultat.merknader.some(m => m.type === 'kurvatur' && /skarpt hjørne/.test(m.tekst)),
+        (App.resultat.merknader.find(m => m.type === 'kurvatur') || {}).tekst || 'ingen');
+      await App.gjorLovlig();
+      await this.vent(80);
+      this.sjekk('og rådet handler om hjørnet, ikke om en kurve som ikke finnes',
+        /skarpt hjørne/.test(document.getElementById('statuslinje').textContent),
+        document.getElementById('statuslinje').textContent.slice(0, 90));
+
+      /* 19.6 En lovlig linje skal si at den er lovlig, og ikke røres. */
+      await lag([[0, 0], [220, 60], [460, 0], [700, 80], [900, 20]], 40, 20);
+      this.sjekk('en romslig linje er lovlig', ulovlige() === 0);
+      const f4 = JSON.stringify(App.P.ip);
+      await App.gjorLovlig();
+      await this.vent(80);
+      this.sjekk('og blir stående helt urørt', JSON.stringify(App.P.ip) === f4);
+
+      /* 19.7 Radiusfeltet og «×» i tabellen må kunne angres. Uten `merk()`
+         var en feiltastet radius eller et slettet knekkpunkt borte for godt. */
+      App.visLinjetabell();
+      const rad = document.querySelector('#ipTabell tbody tr:nth-child(2)');
+      const felt = rad.querySelector('input');
+      const foerR = App.P.ip[1].r;
+      felt.value = '77';
+      felt.onchange({ target: felt });
+      await this.vent(120);
+      this.naer('radiusfeltet virker', App.P.ip[1].r, 77, 1e-9);
+      App.angre();
+      await this.vent(150);
+      this.naer('og lar seg angre', App.P.ip[1].r, foerR, 1e-9);
+    } catch (e) {
+      this.sjekk('lovlighetsprøven kom seg gjennom', false,
+        e.message + ' — ' + (e.stack || '').split('\n')[1]);
+    } finally {
+      Terreng.prototype.z = gz; Terreng.prototype.dekning = gd; Terreng.prototype.lastOmraade = gl;
+      App.bekreft = gammelBekreft;
+      App.P = JSON.parse(foer);
+      App.klargjorProsjekt(App.P);
+      App.resultat = null;
+      App._terrengnokkel = null;
+      App._planretting = null;
     }
   },
 

@@ -1642,6 +1642,10 @@ const App = {
     stigning: 'profil', fylling: 'profil', skjaering: 'profil',
     utslag: 'profil', vertikalkurve: 'profil', geometri: 'profil',
     kurvatur: 'linje', linje: 'linje',
+    /* «avvik» er opplysninger, ikke brudd: den bygde kurven ble mindre enn den
+       du ba om. Det er lovlig så lenge den er over minstekravet, og det står
+       her for at man skal vite at vegen ikke er helt den som ble tegnet. */
+    avvik: 'annet',
     data: 'annet', inngang: 'annet', avkortet: 'annet'
   },
 
@@ -1683,6 +1687,14 @@ const App = {
    */
   async rettOpp(modus) {
     this.merk(modus === 'inngrep' ? 'minst inngrep' : 'rett opp');
+    /* PLANET RYDDES FØRST – VEGEN SKAL VÆRE LOVLIG, IKKE BLI DET NÅR NOEN
+       HUSKER Å TRYKKE PÅ EN KNAPP.
+       Bare det som IKKE flytter vegen gjøres her: radier som ber om mer plass
+       enn strekket har, settes til det som faktisk får plass. Målt flytter
+       linjen seg under en centimeter. Alt som virkelig flytter den – å fjerne
+       et knekkpunkt – ligger i «Gjør lovlig» og spør fortsatt først. */
+    this.sikreLovligPlan();
+
     if (!this.vprofil || this.P.vip.length < 2 || !this.terrengProfil || !this.resultat) {
       this.status('Ingen profil å rette ennå.');
       return;
@@ -1862,10 +1874,13 @@ const App = {
         this.vprofil = new Vertikalprofil(this.P.vip);
         this.beregn();
         this.framdrift(false);
-        this.status(bruddFor.profil > 0
+        /* Rullebakken legger tilbake høydene, men IKKE planryddingen: den
+           gjorde vegen lovlig, og det er ikke noe å angre. Derfor må den òg
+           nevnes her – ellers ser det ut som knappen ikke gjorde noe. */
+        this.status(this.forran(bruddFor.profil > 0
           ? `Fant ingen bedre profil – ${bruddFor.profil} brudd står som før. `
             + 'Prøv å slakke et krav, låse opp flere høyder, eller endre linjen i planet.'
-          : 'Profilen du hadde var allerede best – den er beholdt som den var.');
+          : 'Profilen du hadde var allerede best – den er beholdt som den var.'));
         return;
       }
     } catch (e) {
@@ -1882,6 +1897,9 @@ const App = {
     const endring = (fra, til) => (fra - til > 0 ? '−' : '+') + tall(fra - til);
 
     const deler = [];
+    const planord = this.planmerknad();
+    this._planretting = null;
+    if (planord) deler.push(planord);
     if (bruddFor.totalt > igjen && igjen > 0) deler.push(`rettet ${bruddFor.totalt - igjen} brudd`);
     if (modus === 'inngrep') {
       const flyttetFor = volumFor.skjaering + volumFor.fylling;
@@ -1942,6 +1960,313 @@ const App = {
     const alt = bruddFor.totalt > 0 && igjen === 0 ? `alle ${bruddFor.totalt} brudd er borte` : null;
     if (alt) deler.unshift(alt);
     this.status(deler.length ? tittel + ': ' + deler.join(' · ') : 'Fant ingenting å rette.');
+    this._planretting = null;
+  },
+
+  /**
+   * Én setning om hva planryddingen gjorde, til å sette foran en oppsummering.
+   *
+   * Den MÅ stå. Programmet skriver om et tall brukeren selv har tastet inn –
+   * radien i et knekkpunkt – og en stille endring av inndata er det verste et
+   * beregningsprogram kan gjøre. At vegen ikke flytter seg, gjør endringen
+   * ufarlig, ikke usynlig.
+   */
+  /** Setter planmerknaden foran en melding, og tømmer den så den ikke gjentas. */
+  forran(tekst) {
+    const m = this.planmerknad();
+    this._planretting = null;
+    return m ? m + '. ' + tekst : tekst;
+  },
+
+  planmerknad() {
+    const r = this._planretting;
+    if (!r || !r.endret) return '';
+    const hva = [];
+    if (r.loftet) hva.push(`${r.loftet} ${r.loftet === 1 ? 'radius' : 'radier'} løftet til minstekravet`);
+    if (r.slakket) hva.push(`${r.slakket} ${r.slakket === 1 ? 'naboradius' : 'naboradier'} slakket`);
+    return `${r.loest} for ${r.loest === 1 ? 'trang kurve' : 'trange kurver'} rettet – `
+      + hva.join(' og ')
+      + (r.avvik < 0.005 ? ' (vegen flyttet seg ikke)' : ` (vegen flyttet seg ${r.avvik.toFixed(2)} m)`);
+  },
+
+  /**
+   * Hvor mange EKTE brudd har linjen i planet?
+   *
+   * SKILLET SOM MANGLET.
+   * Her ble to helt ulike ting talt sammen: kurver under minstekravet, som er
+   * et brudd på normalen, og advarselen «radien er for stor for strekket -
+   * kurven er kortet inn», som ikke er det. Normaler for landbruksveier setter
+   * en NEDRE grense for radius; ingen kilde krever at den bygde radien er lik
+   * den tegnede. Programmet regner alt fra før på den bygde radien -
+   * breddeutvidelse, maks stigning og massene leser alle `linje.radiusVed(s)`.
+   * En kurve på 22 m på veiklasse K2, der kravet er 20, er en fullt lovlig
+   * kurve. At man ba om 30 er et avvik fra tegningen, ikke et lovbrudd.
+   *
+   * Feilklassifiseringen var grunnen til at «Gjør lovlig» ga opp: på en
+   * sikksakk ble sju innkortede kurver talt som sju brudd, og det eneste
+   * verktøyet knappen hadde - å fjerne et knekkpunkt - flyttet linjen 30 m og
+   * ble forkastet av avviksgrensen. Da sto den igjen uten et eneste lovlig
+   * trekk, og meldte «fant ingen lovlig linje».
+   *
+   * En skarp knekk teller derimot: da er det ingen kurve i det hele tatt, og
+   * radius null er under ethvert minstekrav.
+   */
+  ulovligeIPlanet(l, minR) {
+    if (!minR) return 0;
+    let n = 0;
+    const talt = new Set();
+    for (const k of (l.kurver || [])) {
+      if (k.r < minR - 1e-6) { n++; talt.add(k.ip); }
+    }
+    /* SKARPE HJØRNER TELLER OGSÅ.
+       Et innvendig knekkpunkt uten kurve gir ingen post i `kurver`, så en
+       kontroll som bare ser på kurver ser det aldri – og radius null er under
+       ethvert minstekrav. Her ble bare den ene varianten fanget: den der
+       brukeren HADDE bedt om en kurve og den kollapset. Tegner man et hjørne
+       med radius null, sto det ingen steder. */
+    if (typeof l.skarpeHjorner === 'function') {
+      for (const h of l.skarpeHjorner()) {
+        if (Math.abs(h.avboy) * 180 / Math.PI < 1) continue;
+        n++;
+      }
+    }
+    return n;
+  },
+
+  /** Kurver som ble kortet inn: et avvik fra tegningen, ikke et brudd. */
+  innkortede(l) {
+    return (l.advarsler || []).filter(a => /kortet inn/.test(a.tekst || '')).length;
+  },
+
+  /**
+   * Setter hver radius til den som faktisk får plass.
+   *
+   * Dette er den billigste rettingen som finnes, og den manglet helt. Når en
+   * kurve blir «kortet inn», har linjeføringen ALLEREDE regnet ut hvilken
+   * radius som får plass. Skriver man den tilbake inn i knekkpunktet, blir
+   * vegen bit for bit den samme - målt største avvik langs linjen er under en
+   * centimeter - men programmet slutter å be om noe det ikke kan levere, og
+   * tabellen viser den radien som faktisk bygges.
+   *
+   * ALDRI UNDER MINSTEKRAVET. Får ikke minstekravet plass, er det et ekte
+   * problem som må løses ved å fjerne eller flytte et knekkpunkt, og da lar vi
+   * radien stå som den er så det problemet fortsatt er synlig.
+   *
+   * Nedskaleringen henger sammen: setter man én radius ned, får naboen mer
+   * plass. Derfor kjøres det noen runder til det står stille.
+   *
+   * @returns {{liste, endret:number, avvik:number}} ny liste, hvor mange
+   *   knekkpunkt som ble rettet, og hvor langt linjen flyttet seg
+   */
+  tilpassRadier(liste, minR) {
+    let na = liste.map(p => Object.assign({}, p));
+    for (let runde = 0; runde < 4; runde++) {
+      const l = new Linjeforing(na);
+      /* INDEKSEN MÅ KOMME FRA LINJEFØRINGEN, IKKE FRA `kurver[].ip`.
+         Den peker inn i den sammenslåtte lista, ikke i den vi holder på med.
+         Ligger to knekkpunkt oppå hverandre – ett dobbeltklikk i kartet holder
+         – ville vi skrevet radien inn i feil punkt. */
+      const oppnadd = l.oppnaddeRadier(na.length);
+      let noe = false;
+      for (let i = 0; i < na.length; i++) {
+        const r = oppnadd[i];
+        const bedt = na[i].r || 0;
+        if (r == null || !(bedt > 0) || !(r > 0)) continue;
+        if (r >= bedt - 1e-6) continue;                // fikk plass som bestilt
+        if (minR && r < minR - 1e-6) continue;         // ekte brudd: la det stå synlig
+        /* Litt margin ned. Nedskaleringen i linjeforing.js bruker 0,999 av
+           strekket, og regner man den oppnådde radien rett tilbake, treffer
+           flyttallet grensen på nytt og advarselen kommer igjen.
+           IKKE avrund til en pen desimal: avrunding til 0,1 m flytter linjen
+           knappe fem millimeter, og fem millimeter er fem mer enn null. */
+        const ny = Math.max(minR || 0, r * 0.999);
+        if (ny >= bedt - 1e-6) continue;
+        na[i] = Object.assign({}, na[i], { r: ny });
+        noe = true;
+      }
+      if (!noe) break;
+    }
+    let endret = 0;
+    for (let i = 0; i < liste.length; i++) if (Math.abs((na[i].r || 0) - (liste[i].r || 0)) > 1e-6) endret++;
+    return { liste: na, endret, avvik: endret ? this.linjeavvik(liste, na) : 0 };
+  },
+
+  /**
+   * Løfter radier som er BEDT om under minstekravet, opp til kravet.
+   *
+   * Dette er den andre halvdelen av bildet. `slakkNaboradier` hjelper når
+   * naboen spiser opp plassen; her er problemet enklere og vanligere: brukeren
+   * har skrevet 12 m i et knekkpunkt på en veiklasse der kravet er 20, og det
+   * er rikelig plass til 20. Da er 20 den minste endringen som gjør vegen
+   * lovlig – og den flytter linjen under en meter.
+   *
+   * At linjen flytter seg i det hele tatt er grunnen til at det er en grense
+   * her: går flyttingen over `maksFlytting`, er det ikke lenger en opprydding,
+   * og da skal noen spørres først.
+   */
+  loftTilKrav(liste, minR, maksFlytting = 1) {
+    if (!minR) return { liste, endret: 0, avvik: 0 };
+    let na = liste.map(p => Object.assign({}, p));
+    let endret = 0;
+    for (let runde = 0; runde < 4; runde++) {
+      const l = new Linjeforing(na);
+      const opp = l.oppnaddeRadier(na.length);
+      let noe = false;
+      for (let i = 1; i < na.length - 1; i++) {
+        if (opp[i] == null || opp[i] >= minR - 1e-6) continue;
+        if ((na[i].r || 0) >= minR - 1e-6) continue;    // plassen mangler, ikke tallet
+        const forsok = na.map((p, j) => j === i ? Object.assign({}, p, { r: minR }) : p);
+        const lf = new Linjeforing(forsok);
+        const o2 = lf.oppnaddeRadier(forsok.length);
+        if (!(o2[i] > opp[i] + 1e-6)) continue;         // fikk ikke plass likevel
+        if (this.linjeavvik(liste, forsok) > maksFlytting) continue;
+        na = forsok; noe = true;
+      }
+      if (!noe) break;
+    }
+    for (let i = 0; i < liste.length; i++) if (Math.abs((na[i].r || 0) - (liste[i].r || 0)) > 1e-6) endret++;
+    return { liste: na, endret, avvik: endret ? this.linjeavvik(liste, na) : 0 };
+  },
+
+  /**
+   * Prøver å fjerne EKTE brudd ved å slakke naboradiene.
+   *
+   * En kurve havner under minstekravet fordi naboen spiser opp strekket mellom
+   * dem. Setter man naboens radius ned, frigjøres tangentbudsjett, og kurven
+   * som var for trang vokser over kravet. Målt: i 158 av 180 tilfeller med
+   * ekte underradius holdt det å senke ÉN radius, og linjen flyttet seg under
+   * ti centimeter.
+   *
+   * Dette er den eneste rettingen som både løser et ekte brudd og lar vegen
+   * ligge. Alt annet – å fjerne et knekkpunkt, å flytte det – flytter vegen
+   * brukeren har tegnet, og hører hjemme bak et spørsmål.
+   */
+  slakkNaboradier(liste, minR, maksFlytting = 0.5) {
+    if (!minR) return { liste, endret: 0, avvik: 0 };
+    let na = liste.map(p => Object.assign({}, p));
+    let endret = 0;
+    for (let runde = 0; runde < 6; runde++) {
+      const l = new Linjeforing(na);
+      const oppnadd = l.oppnaddeRadier(na.length);
+      // det trangeste bruddet først – det er som regel det som binder
+      let verst = -1, verstR = Infinity;
+      for (let i = 0; i < na.length; i++) {
+        const r = oppnadd[i];
+        if (r == null || r >= minR - 1e-6) continue;
+        if (r < verstR) { verstR = r; verst = i; }
+      }
+      if (verst < 0) break;
+      let best = null;
+      for (const nabo of [verst - 1, verst + 1]) {
+        if (nabo < 1 || nabo > na.length - 2) continue;
+        const start = na[nabo].r || 0;
+        if (!(start > 0)) continue;
+        for (const del of [0.75, 0.5, 0.35, 0.2]) {
+          const forsok = na.map((p, j) => j === nabo ? Object.assign({}, p, { r: start * del }) : p);
+          const lf = new Linjeforing(forsok);
+          const opp = lf.oppnaddeRadier(forsok.length);
+          // ble det trange punktet bedre, uten at naboen selv falt under kravet?
+          if (!(opp[verst] > verstR + 1e-6)) continue;
+          if (opp[nabo] != null && opp[nabo] < minR - 1e-6) continue;
+          const flyttet = this.linjeavvik(liste, forsok);
+          if (flyttet > maksFlytting) continue;
+          if (!best || opp[verst] > best.oppnadd) best = { forsok, oppnadd: opp[verst] };
+          if (opp[verst] >= minR) break;
+        }
+        if (best && best.oppnadd >= minR) break;
+      }
+      if (!best) break;
+      na = best.forsok;
+      endret++;
+    }
+    return { liste: na, endret, avvik: endret ? this.linjeavvik(liste, na) : 0 };
+  },
+
+  /**
+   * Hvor langt flytter linjen seg mellom to knekkpunktlister?
+   *
+   * Males mot LINJEN, ikke mot knekkpunktene. Kurvene kutter hjørnene, så en
+   * linje ligger alt titalls meter fra sine egne knekkpunkt i en hårnål -
+   * males det mot punktene, ser selv den uforandrede linjen ut til å ha
+   * flyttet seg ti meter.
+   */
+  linjeavvik(a, b, antall = 160) {
+    const punkter = liste => {
+      const l = new Linjeforing(liste);
+      const ut = [];
+      const steg = l.lengde / antall;
+      for (let i = 0; i <= antall; i++) {
+        const p = l.punktVed(Math.min(i * steg, l.lengde));
+        ut.push(p.x, p.y);
+      }
+      return ut;
+    };
+    const A = punkter(a), B = punkter(b);
+    let verst = 0;
+    for (let i = 0; i < A.length; i += 2) {
+      const px = A[i], py = A[i + 1];
+      let naermest = Infinity;
+      for (let j = 0; j + 3 < B.length; j += 2) {
+        const ax = B[j], ay = B[j + 1], bx = B[j + 2], by = B[j + 3];
+        const dx = bx - ax, dy = by - ay;
+        const len2 = dx * dx + dy * dy;
+        let t = len2 > 1e-12 ? ((px - ax) * dx + (py - ay) * dy) / len2 : 0;
+        t = t < 0 ? 0 : (t > 1 ? 1 : t);
+        const qx = ax + t * dx - px, qy = ay + t * dy - py;
+        const d2 = qx * qx + qy * qy;
+        if (d2 < naermest) naermest = d2;
+      }
+      if (naermest < Infinity) verst = Math.max(verst, Math.sqrt(naermest));
+    }
+    return verst;
+  },
+
+  /**
+   * Rydder opp i planet uten å flytte vegen, og gjør det stille.
+   *
+   * Dette kalles fra hver operasjon som rører linjen eller profilen, fordi
+   * vegen skal VÆRE lovlig - ikke bli det når noen husker å trykke på en
+   * knapp. Det som gjøres her flytter ikke vegen målbart, og trenger derfor
+   * ingen bekreftelse. Alt som faktisk flytter den ligger i `gjorLovlig`, og
+   * spør fortsatt først.
+   *
+   * @returns {{endret:number, avvik:number, igjen:number}|null}
+   */
+  sikreLovligPlan() {
+    if (!this.linje || !this.P.ip || this.P.ip.length < 3) return null;
+    const minR = (this.P.mal || {}).minRadius || 0;
+    /* RØR IKKE EN LINJE SOM ALLEREDE ER LOVLIG.
+       Her lå det først en generell omskriving av alle radier til det som fikk
+       plass. Den var teknisk ufarlig – vegen flyttet seg tre millimeter – men
+       den skrev likevel om et tall brukeren selv hadde tastet inn, i en linje
+       det ikke var noe galt med. Det man ba om, og det som ble bygd, er to
+       forskjellige opplysninger, og begge har krav på å stå. Tabellen viser
+       dem side om side i stedet. */
+    const foerU = this.ulovligeIPlanet(this.linje, minR);
+    /* IKKE nullstill notatet her. «Rett opp» kaller «Optimaliser» inne i seg,
+       og det andre kallet finner ingenting å gjøre – ryddet det da notatet,
+       forsvant meldingen om det første kallet før noen fikk lest den.
+       Notatet tømmes der det blir brukt, i forran(). */
+    if (!foerU) return { endret: 0, avvik: 0, igjen: 0 };
+
+    /* To billige verktøy, i denne rekkefølgen: løft en radius som er bedt om
+       under kravet, og slakk en nabo som spiser opp plassen. Begge lar vegen
+       ligge omtrent der den ligger. Alt som virkelig flytter den – å fjerne et
+       knekkpunkt – ligger i «Gjør lovlig» og spør fortsatt først. */
+    const foer = this.ipTilUtm();
+    const a = this.loftTilKrav(foer, minR);
+    const b = this.slakkNaboradier(a.liste, minR);
+    const endret = a.endret + b.endret;
+    if (!endret) return { endret: 0, avvik: 0, igjen: foerU };
+    this.P.ip = b.liste.map(p => {
+      const g = Geo.fraUtm(p.x, p.y, this.sone);
+      return { lat: g.lat, lon: g.lon, r: p.r };
+    });
+    this.byggLinje();
+    const igjen = this.ulovligeIPlanet(this.linje, minR);
+    const avvik = this.linjeavvik(foer, b.liste);
+    this._planretting = { endret, avvik, loest: foerU - igjen, loftet: a.endret, slakket: b.endret };
+    return { endret, avvik, igjen };
   },
 
   /**
@@ -1954,9 +2279,12 @@ const App = {
    * pa profilen. Malt pa en ekte trase med 40 knekkpunkt pa 850 m: fjorten
    * kurver innkortet, fem under minstekravet, minste radius 3,9 m.
    *
-   * Her fjernes de knekkpunktene som star i veien, ett om gangen, og hver gang
-   * det som koster minst - malt som hvor langt linjen da flytter seg fra det
-   * du tegnet. Sa langt det gar settes radiene tilbake opp mot det du ba om.
+   * REKKEFØLGEN ER BILLIGST FØRST.
+   *   1. Sett radiene til det som får plass. Vegen flytter seg ikke.
+   *   2. Fjern knekkpunkt som står i veien. Vegen FLYTTER seg – og det spørs
+   *      det om først.
+   * Her sto bare steg 2, og derfor ga knappen opp i det vanligste tilfellet av
+   * alle: en linje der alt som feilte var at den bestilte radien var for stor.
    *
    * @param {number} [maksAvvik] hvor langt linjen far flytte seg, i meter
    */
@@ -1968,14 +2296,7 @@ const App = {
     const mal = this.P.mal;
     const minR = mal.minRadius || 0;
 
-    /* Et forslag er ulovlig sa lenge en kurve ligger under minstekravet eller
-       en kurve matte kortes inn for a fa plass. */
-    const ulovlige = (l) => {
-      let n = 0;
-      for (const k of l.kurver) if (minR && k.r < minR - 1e-6) n++;
-      n += (l.advarsler || []).filter(a => /kortet inn|skarp knekk/.test(a.tekst)).length;
-      return n;
-    };
+    const ulovlige = (l) => this.ulovligeIPlanet(l, minR);
     /* Hvor langt flytter linjen seg?
 
        Males mot den opprinnelige LINJEN, ikke mot knekkpunktene. Kurvene
@@ -2021,12 +2342,58 @@ const App = {
       return verst;
     };
 
+    /* STEG 1: SLAKK NABORADIENE.
+       En kurve havner under minstekravet fordi naboen spiser opp strekket
+       mellom dem. Å sette naboens radius ned frigjør plass, og den trange
+       kurven vokser over kravet – uten at vegen flytter seg mer enn noen
+       centimeter. Dette manglet helt: knappen kunne bare FJERNE knekkpunkt, og
+       det flytter linjen titalls meter i en sikksakk, så avviksgrensen kastet
+       hvert eneste forsøk og knappen ga opp uten å ha prøvd noe som virker. */
+    const foerAlt = this.ipTilUtm();
+    const innkortetFoer = this.innkortede(new Linjeforing(foerAlt));
+    const loftet = this.loftTilKrav(foerAlt, minR, Math.min(1, maksAvvik));
+    const slakket = this.slakkNaboradier(loftet.liste, minR, Math.min(1, maksAvvik));
+    const tilpasset = {
+      liste: slakket.liste,
+      endret: loftet.endret + slakket.endret,
+      avvik: (loftet.endret + slakket.endret) ? this.linjeavvik(foerAlt, slakket.liste) : 0,
+      loftet: loftet.endret, slakket: slakket.endret
+    };
+    if (tilpasset.endret) {
+      this.merk('slakk naboradier');
+      this.P.ip = tilpasset.liste.map(p => {
+        const g = Geo.fraUtm(p.x, p.y, this.sone);
+        return { lat: g.lat, lon: g.lon, r: p.r };
+      });
+      this.byggLinje();
+    }
+
     const opprinnelig = this.ipTilUtm();
     let na = opprinnelig.map(p => Object.assign({}, p));
     const forLinje = new Linjeforing(opprinnelig);
     const forUlovlige = ulovlige(forLinje);
+    const tilpassetTekst = tilpasset.endret
+      ? [tilpasset.loftet ? `${tilpasset.loftet} ${tilpasset.loftet === 1 ? 'radius' : 'radier'} løftet til minstekravet` : '',
+         tilpasset.slakket ? `${tilpasset.slakket} ${tilpasset.slakket === 1 ? 'naboradius' : 'naboradier'} slakket` : '']
+        .filter(Boolean).join(' og ')
+        + ` (vegen flyttet seg ${tilpasset.avvik < 0.005 ? 'ikke' : tilpasset.avvik.toFixed(2) + ' m'})`
+      : '';
     if (!forUlovlige) {
-      this.status('Linjen er allerede lovlig i planet – bruk «Rett opp» for høydene.');
+      if (tilpasset.endret) {
+        await this.oppdater();
+        this.status('Linjen er lovlig i planet: ' + tilpassetTekst
+          + '. Bruk «Rett opp» for høydene.');
+      } else {
+        /* Kurver som ble kortet inn er IKKE et lovbrudd – normalen setter en
+           nedre grense for radius, ingen krever at den bygde radien er lik den
+           tegnede. Men det skal stå, for vegen er ikke den som ble tegnet. */
+        this.status('Linjen er lovlig i planet'
+          + (innkortetFoer
+            ? ` – men ${innkortetFoer} ${innkortetFoer === 1 ? 'kurve' : 'kurver'} fikk ikke `
+              + 'plass til radien du ba om, og ble bygd mindre. Se radiene i Linje-fanen'
+            : '')
+          + '. Bruk «Rett opp» for høydene.');
+      }
       return;
     }
 
@@ -2119,20 +2486,41 @@ const App = {
         }
       }
 
-      /* 2) Sett radiene opp igjen mot det som ble bedt om, sa langt de far
-            plass. Etter at punkt er fjernet er det ofte rom for mer. */
+      /* 2) Løft radiene opp mot kravet, og mot det som ble bedt om.
+            Etter at punkt er fjernet er det ofte rom for mer.
+
+            PORTEN VAR FOR TRANG. Her sto `ulovlige(lf) === 0`, altså: ta
+            endringen bare hvis den gjør HELE linjen lovlig i ett jafs. Da kunne
+            steget bare noensinne fikse det aller siste bruddet. En linje med
+            tre kurver på 12 m mot et krav på 20 sto helt fast: å løfte én av
+            dem til 20 lot de to andre stå, porten avviste, og alle tre ble
+            liggende - enda fasiten var triviell og linjen ville flyttet seg
+            26 cm. Nå tas et forsøk når det gjør linjen BEDRE og ikke flytter
+            den for langt. */
       const ønsket = this.P.standardRadius || 30;
+      let uNa = ulovlige(new Linjeforing(na));
       for (let i = 1; i < na.length - 1 && performance.now() < frist + 5000; i++) {
         const start = na[i].r;
-        for (const r of [ønsket, ønsket * 0.75, ønsket * 0.5, Math.max(minR, 10)]) {
-          if (r <= start + 1e-9) continue;
+        const kandidater = [ønsket, ønsket * 0.75, minR, ønsket * 0.5, Math.max(minR, 10)]
+          .filter(r => r > start + 1e-9)
+          .sort((a, b) => b - a);
+        for (const r of kandidater) {
           const forsok = na.map((p, j) => j === i ? Object.assign({}, p, { r }) : p);
           const lf = new Linjeforing(forsok);
-          if (ulovlige(lf) === 0 && avvikFra(lf) <= maksAvvik) {
-            na = forsok; hevet++; break;
+          const u = ulovlige(lf);
+          if (u <= uNa && avvikFra(lf) <= maksAvvik) {
+            // like bra teller bare når vi kommer nærmere det som ble bedt om
+            if (u === uNa && !(r <= ønsket + 1e-9)) continue;
+            na = forsok; uNa = u; hevet++; break;
           }
         }
       }
+
+      /* 3) Og sett dem ned igjen der de fortsatt ber om mer enn det er plass
+            til. Løftet over kan ha bestilt en radius som ikke får plass, og da
+            står vi igjen med den samme innkortingen vi begynte med. */
+      const ned = this.tilpassRadier(na, minR);
+      if (ned.endret) na = ned.liste;
 
       const etterLinje = new Linjeforing(na);
       const etterUlovlige = ulovlige(etterLinje);
@@ -2140,8 +2528,31 @@ const App = {
 
       if (etterUlovlige >= forUlovlige) {
         this.framdrift(false);
-        this.status(`Fant ingen lovlig linje innenfor ${maksAvvik} m fra den du tegnet. `
-          + 'Prøv å tegne færre knekkpunkt i svingene, eller senk minsteradiusen i vegmalen.');
+        /* Si HVA som binder, ikke bare at det ikke gikk. Meldingen sto før som
+           «fant ingen lovlig linje innenfor 8 m» også når programmet aldri
+           hadde prøvd noe annet enn å fjerne punkt. */
+        const trange = forLinje.kurver.filter(k => minR && k.r < minR - 1e-6)
+          .map(k => k.ip + 1);
+        /* Et skarpt hjørne er ikke «en kurve under minstekravet» – det er
+           ingen kurve i det hele tatt, og rådet er et annet. */
+        const skarpe = (typeof forLinje.skarpeHjorner === 'function'
+          ? forLinje.skarpeHjorner().filter(h => Math.abs(h.avboy) * 180 / Math.PI >= 1)
+          : []).map(h => h.kilde + 1);
+        if (tilpasset.endret) await this.oppdater();
+        const hva = [];
+        if (trange.length) {
+          hva.push(`${trange.length} ${trange.length === 1 ? 'kurve' : 'kurver'} under minstekravet på `
+            + `${minR} m (knekkpunkt ${trange.slice(0, 6).join(', ')}${trange.length > 6 ? ' m.fl.' : ''})`);
+        }
+        if (skarpe.length) {
+          hva.push(`${skarpe.length} ${skarpe.length === 1 ? 'skarpt hjørne uten kurve' : 'skarpe hjørner uten kurve'} `
+            + `(knekkpunkt ${skarpe.slice(0, 6).join(', ')}${skarpe.length > 6 ? ' m.fl.' : ''}) – sett en radius `
+            + 'der, eller flytt punktet');
+        }
+        this.status((tilpassetTekst ? tilpassetTekst + '. ' : '')
+          + (hva.join(', ') || `${forUlovlige} problemer i planet`)
+          + `. Det lar seg ikke rette uten å flytte linjen mer enn ${maksAvvik} m. `
+          + 'Flytt eller fjern et av knekkpunktene i kartet, eller velg en veiklasse med lavere minsteradius.');
         return;
       }
 
@@ -2171,10 +2582,21 @@ const App = {
     // og sa høydene, sa hele veien er lovlig og ikke bare planet
     await this.rettOpp();
     const igjen = this.tellBrudd();
-    this.status(`Linjen er gjort lovlig: ${fjernet} knekkpunkt fjernet`
-      + (hevet ? `, radien satt opp i ${hevet}` : '')
+    const gjort = [];
+    if (tilpasset.endret) gjort.push(tilpassetTekst);
+    if (fjernet) gjort.push(`${fjernet} knekkpunkt fjernet`);
+    if (hevet) gjort.push(`radien satt opp i ${hevet}`);
+    /* SI HVA SLAGS BRUDD SOM STÅR IGJEN.
+       «146 brudd står igjen» rett etter at planet er gjort lovlig leses som at
+       knappen ikke virket. Nesten alle er som regel høydebrudd, som er en helt
+       annen sak – og den eneste som hører hjemme i denne meldingen er de som
+       fortsatt ligger i planet. */
+    const iPlanet = igjen ? igjen.linje : 0;
+    const iProfilen = igjen ? igjen.profil : 0;
+    this.status('Linjen er gjort lovlig: ' + (gjort.join(', ') || 'ingen endring')
       + `, inntil ${verstAvvik.toFixed(1)} m fra den tegnede. `
-      + (igjen && igjen.totalt ? `${igjen.totalt} brudd står igjen.` : 'Ingen brudd igjen.'));
+      + (iPlanet ? `${iPlanet} står igjen i planet. ` : 'Ingenting står igjen i planet. ')
+      + (iProfilen ? `${iProfilen} høydebrudd igjen – de rettes med «Rett opp».` : ''));
   },
 
   /**
@@ -2196,6 +2618,14 @@ const App = {
   async balanser() {
     this.merk('balanser massene');
     if (!this.terreng || !this.linje) return;
+    /* PLANET RYDDES FØRST – VEGEN SKAL VÆRE LOVLIG, IKKE BLI DET NÅR NOEN
+       HUSKER Å TRYKKE PÅ EN KNAPP.
+       Bare det som IKKE flytter vegen gjøres her: radier som ber om mer plass
+       enn strekket har, settes til det som faktisk får plass. Målt flytter
+       linjen seg under en centimeter. Alt som virkelig flytter den – å fjerne
+       et knekkpunkt – ligger i «Gjør lovlig» og spør fortsatt først. */
+    this.sikreLovligPlan();
+
     if (this.P.vip.every(v => v.laast)) {
       this.status('Alle høyder er låst – lås opp noen for å kunne balansere massene');
       return;
@@ -2234,9 +2664,12 @@ const App = {
       if (this._balanseTraffIkke != null) {
         const rest = Math.round(this._balanseTraffIkke);
         this._balanseTraffIkke = null;
-        this.status(`Fant ingen høyde som gir balanse innenfor åtte meter. `
+        this.status(this.forran(`Fant ingen høyde som gir balanse innenfor åtte meter. `
           + `Profilen er flyttet ${d > 0 ? '+' : ''}${d.toFixed(1)} m, og det står `
-          + `${Math.abs(rest).toLocaleString('nb-NO')} m³ igjen i ubalanse.`);
+          + `${Math.abs(rest).toLocaleString('nb-NO')} m³ igjen i ubalanse.`));
+      } else {
+        this.status(this.forran(`Massene er i balanse. Profilen er flyttet `
+          + `${d > 0 ? '+' : ''}${d.toFixed(2)} m.`));
       }
     } catch (e) {
       this.status('Massebalanseringen feilet: ' + e.message);
@@ -2249,6 +2682,14 @@ const App = {
     if (!this.terreng || !this.linje) return;
     // «Rett opp» kaller hit selv og har alt tatt sitt merke - ikke to for en handling
     if (!stille) this.merk(modus === 'inngrep' ? 'minst inngrep' : 'optimaliser');
+    /* PLANET RYDDES FØRST – VEGEN SKAL VÆRE LOVLIG, IKKE BLI DET NÅR NOEN
+       HUSKER Å TRYKKE PÅ EN KNAPP.
+       Bare det som IKKE flytter vegen gjøres her: radier som ber om mer plass
+       enn strekket har, settes til det som faktisk får plass. Målt flytter
+       linjen seg under en centimeter. Alt som virkelig flytter den – å fjerne
+       et knekkpunkt – ligger i «Gjør lovlig» og spør fortsatt først. */
+    this.sikreLovligPlan();
+
     const V = this.P.vip;
     if (V.length < 2) return;
     if (V.every(v => v.laast)) {
@@ -2443,7 +2884,11 @@ const App = {
       Kart.tegn();
     }
     this.beregn();
-    if (flyttet && !stille) this.status(`Optimalisert – ${flyttet} knekkpunkt flyttet sidelengs`);
+    if (!stille && (flyttet || this.planmerknad())) {
+      this.status(this.forran(flyttet
+        ? `Optimalisert – ${flyttet} knekkpunkt flyttet sidelengs`
+        : 'Optimaliseringen fant ingen bedre plassering av knekkpunktene'));
+    }
     } catch (e) {
       if (!stille) this.status('Optimaliseringen feilet: ' + e.message);
       else throw e;
@@ -3429,14 +3874,39 @@ const App = {
   visLinjetabell() {
     const tb = document.querySelector('#ipTabell tbody');
     tb.innerHTML = '';
+    /* DEN BYGDE RADIEN VED SIDEN AV DEN BESTILTE.
+       Her sto bare det man hadde tastet inn. Får ikke kurven plass mellom
+       naboene, bygges den mindre – og alt programmet regner på bruker den
+       bygde radien. Tabellen viste da et tall som ikke fantes i vegen. */
+    const bygd = this.linje && this.linje.oppnaddeRadier
+      ? this.linje.oppnaddeRadier(this.P.ip.length) : [];
+    const minR = (this.P.mal || {}).minRadius || 0;
     this.P.ip.forEach((pt, i) => {
       const u = Geo.tilUtm(pt.lat, pt.lon, this.sone);
+      const b = bygd[i];
+      let merke = '';
+      if (b != null && pt.r > 0 && b < pt.r - 0.05) {
+        const forLiten = minR && b < minR - 1e-6;
+        merke = `<span class="bygdradius${forLiten ? ' brudd' : ''}" title="${forLiten
+          ? `Bygd radius er under minstekravet på ${minR} m`
+          : 'Radien du ba om fikk ikke plass – dette er kurven som faktisk bygges'}">→ ${b.toFixed(1)}</span>`;
+      }
       const tr = document.createElement('tr');
       tr.innerHTML = `<td>${i + 1}</td><td>${u.y.toFixed(1)}</td><td>${u.x.toFixed(1)}</td>
-                      <td><input type="number" step="5" value="${pt.r || 0}"></td>
+                      <td><input type="number" step="5" value="${pt.r || 0}">${merke}</td>
                       <td><button title="Slett">×</button></td>`;
-      tr.querySelector('input').onchange = e => { pt.r = parseFloat(e.target.value) || 0; this.linjeEndret(); };
-      tr.querySelector('button').onclick = () => { this.P.ip.splice(i, 1); this.linjeEndret(); };
+      /* merk() manglet på begge: en radius man skrev feil, eller et knekkpunkt
+         man slettet ved et uhell, kunne ikke angres. */
+      tr.querySelector('input').onchange = e => {
+        this.merk('endret radius');
+        pt.r = parseFloat(e.target.value) || 0;
+        this.linjeEndret();
+      };
+      tr.querySelector('button').onclick = () => {
+        this.merk('slettet knekkpunkt');
+        this.P.ip.splice(i, 1);
+        this.linjeEndret();
+      };
       tb.appendChild(tr);
     });
     const info = document.getElementById('linjeinfo');

@@ -29,6 +29,12 @@ class Linjeforing {
        87 m med en 30-metersving ble 100 m med et skarpt hjørne. Det skjer
        lettere enn man tror: et dobbeltklikk i kartet holder. */
     this.advarsler = [];
+    /* `kilde` er indeksen i lista som ble sendt inn.
+       Uten den er `kurver[i].ip` en felle: den peker inn i `this.ip`, som er
+       den SAMMENSLÅTTE lista. Skriver noen en oppnådd radius tilbake med den
+       indeksen, treffer de feil knekkpunkt i det øyeblikket to punkt lå oppå
+       hverandre – og det skjer med ett dobbeltklikk i kartet. */
+    alle.forEach((p, i) => { p.kilde = i; });
     this.ip = alle.filter((p, i) => {
       if (i === 0) return true;
       const f = alle[i - 1];
@@ -206,6 +212,53 @@ class Linjeforing {
   radiusVed(s) {
     const el = this._element(s);
     return (!el || el.type === 'linje') ? Infinity : el.r;
+  }
+
+  /**
+   * Radien som FAKTISK ble lagt i hvert knekkpunkt, i innsendt rekkefølge.
+   *
+   * Den bestilte radien og den bygde er to forskjellige tall. Får ikke kurven
+   * plass mellom naboene, skalerer `_bygg` tangenten ned, og da bygges en
+   * mindre kurve enn den som ble bedt om. Alt programmet regner på – bredde-
+   * utvidelse, maks stigning, masser – bruker allerede den bygde radien. Denne
+   * gir den samme verdien ut, indeksert slik den som kalte inn forventer.
+   *
+   * @returns {Array<number|null>} like lang som lista inn. `null` = ingen kurve
+   *   i det punktet (endepunkt, skarp knekk, eller et punkt som ble slått sammen).
+   */
+  oppnaddeRadier(antall) {
+    const n = antall != null ? antall : (this.ip.length ? this.ip[this.ip.length - 1].kilde + 1 : 0);
+    const ut = new Array(n).fill(null);
+    for (const k of this.kurver) {
+      const p = this.ip[k.ip];
+      if (p && p.kilde != null && p.kilde < n) ut[p.kilde] = k.r;
+    }
+    return ut;
+  }
+
+  /**
+   * Innvendige knekkpunkt uten kurve, med avbøyningen sin.
+   *
+   * Et slikt punkt er et skarpt hjørne. Det gir ingen post i `kurver`, og
+   * `radiusVed` svarer `Infinity` på rettstrekket gjennom det – så en kontroll
+   * som bare ser på kurver, ser det aldri. Målt over knappe to tusen linjer med
+   * et virkelig skarpt hjørne ble 190 meldt som helt lovlige.
+   *
+   * @returns {Array<{kilde:number, avboy:number}>} avboy i radianer
+   */
+  skarpeHjorner() {
+    const ut = [];
+    const P = this.ip;
+    const medKurve = new Set(this.kurver.map(k => k.ip));
+    for (let i = 1; i < P.length - 1; i++) {
+      if (medKurve.has(i)) continue;
+      const inn = norm(sub(P[i], P[i - 1]));
+      const utv = norm(sub(P[i + 1], P[i]));
+      const avboy = Math.atan2(inn.x * utv.y - inn.y * utv.x, inn.x * utv.x + inn.y * utv.y);
+      if (Math.abs(avboy) < 1e-7) continue;          // rett fram: ikke et hjørne
+      ut.push({ kilde: P[i].kilde != null ? P[i].kilde : i, avboy });
+    }
+    return ut;
   }
 
   /** Kurven som dekker profilnummeret, eller null pa rettstrekk. */

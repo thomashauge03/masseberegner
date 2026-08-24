@@ -296,6 +296,123 @@ const Rapport = {
     return bilder;
   },
 
+  /**
+   * Tegningene til en tomterapport.
+   *
+   * Tomterapporten hadde INGEN. Åtte tabeller etter hverandre på én side, alle
+   * med samme vekt – man måtte lese hele for å finne ut hva saken gjaldt. En
+   * vegrapport har lengdeprofil og tverrsnitt; en tomt hadde tall og bare tall.
+   *
+   * Bildene lages av det som alt finnes, ikke av en ny tegnerutine: 3D-modellen
+   * sett rett ovenfra ER planet, og den samme modellen på skrå er perspektivet.
+   * `Tomt3d.eksportBilde()` sto allerede der, ubrukt.
+   */
+  lagTomtetegninger(res) {
+    const bilder = {};
+    if (typeof Tomt3d === 'undefined' || !res || !res.rutenett || !res.rutenett.length) return bilder;
+
+    document.documentElement.setAttribute('data-utskrift', '1');
+    Farger.glem(); Tomt3d.glemFarger();
+    const foer = {
+      lerret: Tomt3d.lerret, over: Tomt3d.over, aktiv: Tomt3d.aktiv,
+      yaw: Tomt3d.yaw, pitch: Tomt3d.pitch, fyldig: Tomt3d.fyldig,
+      senter: Tomt3d.senter, skala: Tomt3d.skala, panX: Tomt3d.panX, panY: Tomt3d.panY,
+      skalaSatt: Tomt3d._skalaSatt, gitterFor: Tomt3d._gitterFor, bilde: Tomt3d._bilde,
+      lag: Object.assign({}, Tomt3d.lag), kontekst: Tomt3d.kontekst
+    };
+    const lag = (b, h, yaw, pitch, fyldig) => {
+      const r = document.createElement('canvas');
+      const o = document.createElement('canvas');
+      for (const c of [r, o]) {
+        c.width = b; c.height = h;
+        Object.defineProperty(c, 'clientWidth', { value: b });
+        Object.defineProperty(c, 'clientHeight', { value: h });
+        // tegn() gir opp med én gang om panelet er skjult; her er det aldri i DOM-en
+        Object.defineProperty(c, 'offsetParent', { value: document.body });
+      }
+      Tomt3d.lerret = r; Tomt3d.over = o;
+      Tomt3d.aktiv = true;
+      Tomt3d.yaw = yaw; Tomt3d.pitch = pitch; Tomt3d.fyldig = fyldig;
+      Tomt3d.senter = null; Tomt3d.panX = 0; Tomt3d.panY = 0;
+      Tomt3d._skalaSatt = false;
+      Tomt3d._gitterFor = null;
+      Tomt3d._bilde = null;                       // egne skrapebuffere for denne størrelsen
+      Tomt3d.glemFarger();
+      Tomt3d.tegn();
+      const l = document.createElement('canvas');
+      l.width = r.width; l.height = r.height;
+      const k = l.getContext('2d');
+      k.drawImage(r, 0, 0);
+      k.drawImage(o, 0, 0);
+      return l.toDataURL('image/png');
+    };
+    try {
+      /* Rett ovenfra: dette ER planet, med skjæring og fylling i farge.
+         Fyldig, fordi et papir ikke tåler den halvgjennomsiktige lesemåten –
+         der blir en grunn skjæring og en grunn fylling samme grå. */
+      /* Smal ring rundt i planet. På skjermen er 40 m terreng rundt riktig –
+         man vil se hva tomta ligger i. På et papir gjør den at selve tomta
+         blir en flekk midt i et grått felt: målt dekket tomta under en
+         tidel av bildet. Perspektivbildet beholder ringen, for der er
+         nettopp terrenget rundt det man ser etter. */
+      Tomt3d.lag.rutenett = true;
+      Tomt3d.kontekst = 8;
+      bilder.plan = lag(1500, 1050, 0, 89.5, true);
+      Tomt3d.lag.rutenett = false;
+      Tomt3d.kontekst = 30;
+      // og på skrå, så man ser hvordan skråningene legger seg
+      bilder.perspektiv = lag(1500, 720, 32, 34, true);
+    } catch (e) {
+      /* Et bilde som ikke lot seg lage skal ikke ta rapporten med seg. */
+    } finally {
+      Object.assign(Tomt3d, {
+        lerret: foer.lerret, over: foer.over, aktiv: foer.aktiv,
+        yaw: foer.yaw, pitch: foer.pitch, fyldig: foer.fyldig,
+        senter: foer.senter, skala: foer.skala, panX: foer.panX, panY: foer.panY,
+        _skalaSatt: foer.skalaSatt, _gitterFor: null, _bilde: null, lag: foer.lag,
+        kontekst: foer.kontekst
+      });
+      document.documentElement.removeAttribute('data-utskrift');
+      Farger.glem(); Tomt3d.glemFarger();
+      if (Tomt3d.aktiv) Tomt3d.tegn();
+    }
+
+    /* Snittet gjennom tomta, tegnet på nytt for papir. */
+    if (typeof Tomteprofil !== 'undefined' && Tomteprofil.lerret) {
+      document.documentElement.setAttribute('data-utskrift', '1');
+      Farger.glem();
+      const gml = Tomteprofil.lerret, gmlCtx = Tomteprofil.ctx;
+      try {
+        const c = document.createElement('canvas');
+        c.width = 1400; c.height = 520;
+        Object.defineProperty(c, 'clientWidth', { value: 1400 });
+        Object.defineProperty(c, 'clientHeight', { value: 520 });
+        Tomteprofil.lerret = c;
+        if ('ctx' in Tomteprofil) Tomteprofil.ctx = c.getContext('2d');
+        Tomteprofil.tegn();
+        /* SNITTET MALER INGEN BUNN.
+           På skjermen kommer bakgrunnen fra CSS-en på selve lerretet, og
+           `tegn()` nøyer seg med `clearRect`. På et lerret som ikke står i
+           siden er «tømt» det samme som gjennomsiktig, og bildet kom ut helt
+           svart i PDF-en. Bunnen males derfor UNDER det som er tegnet.
+           (Tverrsnittet i vegrapporten fyller selv, og har aldri hatt dette.) */
+        const kb = c.getContext('2d');
+        kb.setTransform(1, 0, 0, 1, 0, 0);
+        kb.globalCompositeOperation = 'destination-over';
+        kb.fillStyle = Farger.flate;
+        kb.fillRect(0, 0, c.width, c.height);
+        kb.globalCompositeOperation = 'source-over';
+        bilder.snitt = c.toDataURL('image/png');
+      } catch (e) { /* uten snitt går rapporten fint */ }
+      Tomteprofil.lerret = gml;
+      if ('ctx' in Tomteprofil) Tomteprofil.ctx = gmlCtx;
+      document.documentElement.removeAttribute('data-utskrift');
+      Farger.glem();
+      Tomteprofil.tegn();
+    }
+    return bilder;
+  },
+
   /** Koordinater og høyder for senterlinjen, til utsetting i felt. */
   stikningstabell(res, steg) {
     const app = this.app;

@@ -1150,6 +1150,32 @@ console.log('\n28. En høyde som ikke går, skal si at den ikke går');
   if (!hoyt.ubyggelig) {
     feil++; console.log('  FEIL  kote 300 over et terreng på 210 blir godtatt');
   } else { ok++; console.log('  ok    kote 300 blir stoppet (' + hoyt.ubyggelig.del + ' % av omkretsen)'); }
+
+  /* OG UTEN YTTERGRENSE.
+     `umulig` settes bare nar skraningen ma tvinges bratt for a na bakken
+     INNENFOR tomtegrensa. Er tomta tegnet som planum, finnes det ingen grense a
+     tvinge mot, og punktene far `iLufta` i stedet. Malt: hundre av hundre
+     fotpunkt i lufta, null «umulige» - og hele advarselen uteble. Programmet
+     viste 162 000 m³ fylling som et helt vanlig svar.
+     Lander ikke skraningen noe sted, er det ikke en tomt uansett hvorfor. */
+  const utenGrense = kote => T.beregnTomtemasser({
+    tomt: { punkter: p28, kanter: [], nivaa: { modus: 'flat', kote } },
+    mal: g28, terreng: terr28, fjell: fj28, rutestorrelse: 1, bakkefaktor: 1
+  });
+  const svever = utenGrense(300);
+  const iLufta = (svever.skraningsfot || []).filter(f => f.iLufta).length;
+  if (!svever.ubyggelig) {
+    feil++; console.log('  FEIL  kote 300 uten yttergrense blir godtatt ('
+      + iLufta + ' av ' + (svever.skraningsfot || []).length + ' fotpunkt i lufta)');
+  } else { ok++; console.log('  ok    kote 300 blir stoppet ogsa uten yttergrense'); }
+  if (!/finner ikke bakken/.test((svever.ubyggelig || {}).tekst || '')) {
+    feil++; console.log('  FEIL  meldingen sier ikke at skraningen aldri lander');
+  } else { ok++; console.log('  ok    og sier at skraningen aldri lander'); }
+  /* Og en kote som GAR skal ikke stoppes av den nye regelen. */
+  const gaar = utenGrense(212);
+  if (gaar.ubyggelig) {
+    feil++; console.log('  FEIL  kote 212 uten yttergrense stoppes: ' + gaar.ubyggelig.tekst.slice(0, 70));
+  } else { ok++; console.log('  ok    og en kote som gar slipper gjennom'); }
   if (!/OVER det høyeste terrenget/.test((hoyt.ubyggelig || {}).tekst || '')) {
     feil++; console.log('  FEIL  meldingen sier ikke hvor mye for høyt det er');
   } else { ok++; console.log('  ok    og sier hvor mange meter over terrenget koten ligger'); }

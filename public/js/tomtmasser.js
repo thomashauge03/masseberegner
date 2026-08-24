@@ -598,10 +598,25 @@ function beregnTomtemasser(o) {
      regnet ut og vist fram i et helt vanlig massesammendrag, med en merknad om
      fyllingshøyde nede i lista blant fire andre. Det er lett å lese forbi, og
      et tall som ser ut som et svar blir brukt som et svar. */
+  /* TO MÅTER Å VÆRE UBYGGELIG PÅ, IKKE ÉN.
+     Her sto bare `umulig` – skråningen måtte vært brattere enn en bergvegg for
+     å nå bakken innenfor tomtegrensa. Den flaggen settes bare når tomta HAR en
+     yttergrense. Er tomta tegnet som planum, finnes det ingen grense å tvinge
+     mot, og da får punktene `iLufta` i stedet: skråningen er fulgt så langt den
+     får lov og henger fortsatt i lufta.
+     Målt: en tomt uten yttergrense med ferdig nivå 90 m over terrenget fikk
+     hundre av hundre fotpunkt i lufta, null «umulige» – og hele advarselen
+     uteble. Programmet viste 162 000 m³ fylling som et helt vanlig svar.
+     Lander ikke skråningen noe sted, er det ikke en tomt uansett hvorfor. */
+  const iLuftaAlt = foten.filter(f => f.iLufta);
   const umulige = foten.filter(f => f.umulig);
-  if (umulige.length) {
-    const sider = [...new Set(umulige.map(f => f.kant + 1))].sort((a, b) => a - b);
-    const del = Math.round(100 * umulige.length / foten.length);
+  const landet = foten.filter(f => f.traff === true).length;
+  const svever = umulige.length
+    || (foten.length >= 8 && landet === 0 && iLuftaAlt.length > foten.length * 0.9);
+  if (svever) {
+    const grunnlag = umulige.length ? umulige : iLuftaAlt;
+    const sider = [...new Set(grunnlag.map(f => f.kant + 1))].sort((a, b) => a - b);
+    const del = Math.round(100 * grunnlag.length / foten.length);
     let lav = Infinity, hoy = -Infinity;
     for (const c of rutenett) {
       if (!c.inne || !Number.isFinite(c.zT)) continue;
@@ -619,10 +634,15 @@ function beregnTomtemasser(o) {
       : '';
     tom.ubyggelig = {
       sider, del,
-      tekst: `Dette lar seg ikke bygge. ${forhold} Skråningen måtte vært brattere enn `
-        + `en sprengt bergvegg på ${del} % av omkretsen (side ${sider.join(', ')}), og det `
-        + 'finnes ingen konstruksjon som står slik. Kontroller den ferdige koten – '
-        + 'ligger den riktig? Tallene under beskriver ikke noe som kan settes ut.'
+      tekst: umulige.length
+        ? `Dette lar seg ikke bygge. ${forhold} Skråningen måtte vært brattere enn `
+          + `en sprengt bergvegg på ${del} % av omkretsen (side ${sider.join(', ')}), og det `
+          + 'finnes ingen konstruksjon som står slik. Kontroller den ferdige koten – '
+          + 'ligger den riktig? Tallene under beskriver ikke noe som kan settes ut.'
+        : `Dette lar seg ikke bygge. ${forhold} Skråningen finner ikke bakken på noen `
+          + `side (${del} % av omkretsen henger i lufta) – den er fulgt så langt den får `
+          + 'lov og har fortsatt ingen fot å stå på. Kontroller den ferdige koten – '
+          + 'ligger den riktig? Tallene under beskriver ikke noe som kan settes ut.'
     };
     merknader.unshift({ type: 'ubyggelig', tekst: tom.ubyggelig.tekst });
   }

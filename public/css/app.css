@@ -714,3 +714,8 @@ body {
 }
 
 .tomtemal-areal .feil { color: #ff8a90; font-size: 10px; max-width: 210px; white-space: normal; }
+
+/* Den bygde radien ved siden av den bestilte i linjetabellen. Er den under
+   minstekravet, skal den ha samme farge som resten av bruddene i programmet. */
+.bygdradius { margin-left: 5px; font-size: 11px; color: var(--blekk-svak); font-variant-numeric: tabular-nums; }
+.bygdradius.brudd { color: var(--raud); font-weight: 700; }

@@ -1368,13 +1368,55 @@ console.log('\n4c. Tall som ikke lar seg regne med');
     paastand(`linje med ${ip.length} punkt sier ifra`, r.merknader.some(m => m.type === 'linje'));
   }
 
-  // Radius som ikke far plass blir kortet inn - det skal sta i rapporten
+  /* Radius som ikke far plass blir kortet inn - det skal sta i rapporten, men
+     som en OPPLYSNING, ikke som et brudd. Normaler for landbruksveier setter en
+     nedre grense for radius; ingen kilde krever at den bygde radien er lik den
+     tegnede. Sto den som `linje`, ble den talt med i «brudd», og «Gjør lovlig»
+     jaktet paa den med verktøy som ikke traff - knappen ga opp uten aa ha
+     prøvd noe som virker. */
   const trang = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 40, y: 0, r: 500 }, { x: 40, y: 40, r: 0 }]);
   const kortet = M.beregnMasser(Object.assign(grunn(), {
     linje: trang, profil: new Vertikalprofil([{ s: 0, z: 96, k: 0 }, { s: trang.lengde, z: 96, k: 0 }])
   }));
   paastand('innkortet kurve blir meldt i rapporten',
-    trang.advarsler.length > 0 && kortet.merknader.some(m => m.type === 'linje'));
+    trang.advarsler.length > 0 && kortet.merknader.some(m => /kortet inn/.test(m.tekst)));
+  paastand('men som opplysning, ikke som brudd',
+    kortet.merknader.filter(m => /kortet inn/.test(m.tekst)).every(m => m.type === 'avvik'));
+
+  /* Den bygde radien maa vaere tilgjengelig, indeksert slik den som kaller inn
+     forventer. `kurver[].ip` peker inn i den SAMMENSLAATTE lista, saa den kan
+     ikke brukes til aa skrive noe tilbake. */
+  paastand('oppnaddeRadier gir den bygde radien, ikke den bestilte',
+    Math.abs(trang.oppnaddeRadier(3)[1] - trang.kurver[0].r) < 1e-9
+    && trang.oppnaddeRadier(3)[1] < 500);
+  {
+    // to punkt oppaa hverandre: indeksene forskyver seg
+    const dobbel = new Linjeforing([
+      { x: 0, y: 0, r: 0 }, { x: 0, y: 0, r: 0 },
+      { x: 60, y: 0, r: 30 }, { x: 60, y: 60, r: 0 }
+    ]);
+    const rr = dobbel.oppnaddeRadier(4);
+    paastand('og treffer riktig knekkpunkt naar to laa oppaa hverandre',
+      rr.length === 4 && rr[2] != null && rr[1] == null && rr[0] == null,
+      JSON.stringify(rr));
+  }
+
+  /* Et skarpt hjørne gir ingen post i `kurver`, og `radiusVed` svarer Infinity
+     paa rettstrekket gjennom det. En kontroll som bare ser paa kurver ser det
+     aldri - og radius null er under ethvert minstekrav. */
+  {
+    const skarp = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 80, y: 0, r: 0 }, { x: 80, y: 80, r: 0 }]);
+    paastand('skarpt hjørne blir funnet', skarp.skarpeHjorner().length === 1
+      && Math.abs(Math.abs(skarp.skarpeHjorner()[0].avboy) - Math.PI / 2) < 1e-9);
+    const g2 = grunn();
+    g2.mal = Object.assign({}, g2.mal, { minRadius: 20 });
+    const rSkarp = M.beregnMasser(Object.assign(g2, {
+      linje: skarp, profil: new Vertikalprofil([{ s: 0, z: 96, k: 0 }, { s: skarp.lengde, z: 96, k: 0 }])
+    }));
+    paastand('og meldes som kurvaturbrudd',
+      rSkarp.merknader.some(m => m.type === 'kurvatur' && /skarpt hjørne/.test(m.tekst)),
+      rSkarp.merknader.filter(m => m.type === 'kurvatur').map(m => m.tekst).join(' | ') || 'ingen');
+  }
 
   /* isFinite(null) er sant. En terrengmodell som svarer null for hull ville
      blitt lest som kote 0 - hundretusenvis av kubikk fylling, ingen merknad. */

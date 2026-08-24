@@ -187,7 +187,7 @@ const Pdfrapport = {
        brukeren fikk en grå statuslinje det var lett å overse. Å lappe felt for
        felt ville tatt åtte krasj på rad. */
     if (app.erTomt()) {
-      this._tomteinnhold(app, res, {
+      await this._tomteinnhold(app, res, {
         P, t, tilstand, innmarg, nySide, plass, overskrift, nokkeltabell, tabell, brodtekst
       });
       this._bunn(P, innmarg);
@@ -374,8 +374,8 @@ const Pdfrapport = {
    * skjermen skal kjenne igjen rapporten – ikke lure på hvorfor tallene står i
    * en annen orden.
    */
-  _tomteinnhold(app, res, r) {
-    const { P, t, tilstand, innmarg, nySide, overskrift, nokkeltabell, tabell, brodtekst } = r;
+  async _tomteinnhold(app, res, r) {
+    const { P, t, tilstand, innmarg, nySide, plass, overskrift, nokkeltabell, tabell, brodtekst } = r;
     const s = res.sum, b = res.balanse, m = app.P.mal, tt = app.P.tomt;
     const p = app.tomtIUtm(tt);
     const flate = app._innerflate || p;
@@ -386,6 +386,74 @@ const Pdfrapport = {
       + ` · rutenett ${t(m.rutestorrelse, 2)} m · ${res.celler} celler`,
     { storrelse: 7.6, farge: this.GRA });
     tilstand.y += 6;
+
+    /* GÅR DET I DET HELE TATT? DET SPØRSMÅLET FØRST.
+       Er tomta ubyggelig, sto det som én merknad blant åtte nederst på siden.
+       Tallene over den så ut som et helt vanlig svar. */
+    if (res.ubyggelig) {
+      const bredde = innmarg - this.MARG;
+      const linjer = this._brytOpp(P, res.ubyggelig.tekst, bredde - 10, 8.4);
+      const h = 10 + linjer.length * 4.6;
+      plass(h + 6);
+      P.rektangel(this.MARG, tilstand.y - 4, bredde, h, { fyll: [0.98, 0.92, 0.92], strek: [0.85, 0.12, 0.16], tykkelse: 1.2 });
+      P.tekst(this.MARG + 5, tilstand.y + 2, 'DETTE LAR SEG IKKE BYGGE', { storrelse: 9.5, fet: true, farge: [0.66, 0.08, 0.11] });
+      linjer.forEach((l, i) => P.tekst(this.MARG + 5, tilstand.y + 8 + i * 4.6, l, { storrelse: 8.4, farge: [0.35, 0.05, 0.07] }));
+      tilstand.y += h + 4;
+    }
+
+    /* SAMMENDRAGET ØVERST.
+       Rapporten var åtte tabeller etter hverandre, alle med samme vekt. Den som
+       fikk den tilsendt måtte lese hele for å finne ut hva saken gjaldt. Her
+       står de fem tallene som avgjør, store nok til å leses på en telefon. */
+    {
+      const bredde = innmarg - this.MARG;
+      const felt = [
+        ['Areal', t(res.areal) + ' m²'],
+        ['Ferdig nivå', t((tt.nivaa || {}).kote, 2) + ' m'],
+        ['Skjæring', t(s.skjaering) + ' m³'],
+        ['Fylling', t(s.fylling) + ' m³'],
+        [b && b.manglerTotalt > 1 ? 'Må kjøres inn' : 'Overskudd',
+          t(b ? (b.manglerTotalt > 1 ? b.manglerTotalt : Math.abs(b.balanse)) : 0) + ' m³']
+      ];
+      const kb = bredde / felt.length;
+      plass(20);
+      P.rektangel(this.MARG, tilstand.y - 4, bredde, 17, { fyll: [0.96, 0.96, 0.97] });
+      felt.forEach(([navn, verdi], i) => {
+        const x = this.MARG + i * kb;
+        if (i) P.linje(x, tilstand.y - 4, x, tilstand.y + 13, { farge: this.LYSGRA, tykkelse: 0.4 });
+        P.tekst(x + 4, tilstand.y + 1, navn, { storrelse: 6.8, farge: this.GRA });
+        P.tekst(x + 4, tilstand.y + 9, verdi, { storrelse: 11, fet: true });
+      });
+      tilstand.y += 20;
+    }
+
+    /* TEGNINGENE FØR TABELLENE.
+       Et bilde av tomta sett ovenfra, med skjæring i rødt og fylling i grønt,
+       sier på ett blikk det tabellene under bruker en halv side på. */
+    const teg = Rapport.lagTomtetegninger(res);
+    const settInn = async (dataUrl, tittel, undertekst, maksHoyde) => {
+      if (!dataUrl) return;
+      const bilde = await this._tilJpeg(dataUrl);
+      if (!bilde) return;
+      overskrift(tittel);
+      let bredde = innmarg - this.MARG;
+      let hoyde = bredde * bilde.hoyde / bilde.bredde;
+      if (maksHoyde && hoyde > maksHoyde) { bredde *= maksHoyde / hoyde; hoyde = maksHoyde; }
+      plass(hoyde + (undertekst ? 12 : 6));
+      P.bilde(bilde.bytes, bilde.bredde, bilde.hoyde, this.MARG, tilstand.y - 6, bredde, hoyde);
+      P.rektangel(this.MARG, tilstand.y - 6, bredde, hoyde, { strek: this.LYSGRA, tykkelse: 0.5 });
+      tilstand.y += hoyde;
+      if (undertekst) {
+        P.tekst(this.MARG, tilstand.y, undertekst, { storrelse: 6.8, farge: this.GRA });
+        tilstand.y += 6;
+      }
+    };
+    await settInn(teg.plan, 'Tomta ovenfra',
+      'Rødt skal graves bort, grønt skal fylles opp. Sterkere farge er større avvik. '
+      + 'Rutene er 10 m. Blek farge betyr at skråningen der ikke sto på egne ben.', 110);
+    await settInn(teg.perspektiv, 'Sett fra siden',
+      'Samme tall, sett på skrå, så man ser hvordan skråningene legger seg i terrenget.', 95);
+    await settInn(teg.snitt, 'Snitt gjennom tomta', null, 60);
 
     overskrift('Mål og nivå');
     const niv = tt.nivaa || {};

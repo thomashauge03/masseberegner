@@ -1036,10 +1036,43 @@ function beregnMasser(o) {
 
   /* Linjeføringen korter inn kurver som ikke far plass mellom to knekkpunkt.
      Massene blir riktige for kurven som faktisk ble lagt, men veien er ikke
-     den som ble tegnet, og det sto ingen steder. */
+     den som ble tegnet, og det sto ingen steder.
+
+     DETTE ER EN OPPLYSNING, IKKE ET BRUDD.
+     Den ble bokført som type 'linje' og talt med i «brudd». Normaler for
+     landbruksveier setter en NEDRE grense for radius; ingen kilde krever at
+     den bygde radien er lik den tegnede. En kurve på 28 m der kravet er 20 er
+     en fullt lovlig kurve. Feilklassifiseringen var grunnen til at «Gjør
+     lovlig» jaktet på fantomer: sju innkortede kurver ble talt som sju brudd,
+     og knappen ga opp fordi den ikke hadde noe verktøy som traff dem.
+     Det ekte kurvaturbruddet – oppnådd radius under minstekravet – kontrolleres
+     lenger nede, per profil, mot `mal.minRadius`. */
   for (const a of (linje.advarsler || [])) {
     const kurve = (linje.kurver || []).find(k => k.ip === a.ip);
-    merknader.push({ s: kurve ? kurve.sBC : 0, type: 'linje', tekst: a.tekst || String(a) });
+    merknader.push({
+      s: kurve ? kurve.sBC : 0,
+      type: /kortet inn/.test(a.tekst || '') ? 'avvik' : 'linje',
+      tekst: a.tekst || String(a)
+    });
+  }
+
+  /* SKARPE HJØRNER.
+     Et innvendig knekkpunkt uten kurve gir ingen post i `kurver`, og
+     `radiusVed` svarer Infinity på rettstrekket gjennom det. En kontroll som
+     bare ser på kurver, ser det derfor aldri: malt over knappe to tusen linjer
+     med et virkelig skarpt hjørne ble 190 meldt som helt lovlige. Radius null
+     er under ethvert minstekrav. */
+  if (mal.minRadius > 0 && typeof linje.skarpeHjorner === 'function') {
+    for (const h of linje.skarpeHjorner()) {
+      const grader = Math.abs(h.avboy) * 180 / Math.PI;
+      if (grader < 1) continue;              // praktisk talt rett fram
+      merknader.push({
+        s: 0, type: 'kurvatur',
+        tekst: `Knekkpunkt ${h.kilde + 1} er et skarpt hjørne – avbøyningen er `
+          + `${grader.toFixed(0)}°, og det er ingen kurve der. Minstekravet er `
+          + `${mal.minRadius} m.`
+      });
+    }
   }
   for (const pr of profiler) {
     if (pr.advarsel) merknader.push({ s: pr.s, type: pr.manglerData ? 'data' : 'geometri', tekst: pr.advarsel });
