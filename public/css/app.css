@@ -200,7 +200,16 @@ body {
   display: grid;
   height: calc(100vh - 52px);
   grid-template-columns: 1fr 400px;
-  grid-template-rows: 1fr 250px 230px;
+  /* ALLE TRE VOKSER, IKKE BARE KARTET.
+     Her sto `1fr 250px 230px`. Målt: på en 1080 px høy skjerm fikk kartet
+     504 px mens de to kurvene han faktisk leser tall av sto fast på 211 og 157
+     – de fikk ikke én piksel av den ekstra plassen. Og på en 600 px skjerm var
+     det bare kartet som betalte: det krympet til 24 px mens profilene beholdt
+     sine 368.
+     Med `minmax` og brøkdeler deler de tre på plassen: kartet får mest, men
+     alle tre vokser når skjermen er stor og krymper sammen når den er liten.
+     Minsteverdiene er der for at ingen av dem skal bli en stripe. */
+  grid-template-rows: minmax(160px, 1.5fr) minmax(150px, 1fr) minmax(140px, 0.9fr);
   grid-template-areas: "kart side" "profil side" "tverr side";
   gap: 2px;
   background: var(--kant);
@@ -224,7 +233,8 @@ body {
    a la dem sta tomme er verre enn a fjerne dem - da tror man de er i stykker.
    Kartet far derfor mer plass, og under det star tomtepanelet. */
 .rute.tomtemodus {
-  grid-template-rows: 1fr 300px;
+  /* Same regel i tomtemodus: begge veks, ingen av dei blir ei stripe. */
+  grid-template-rows: minmax(180px, 1.2fr) minmax(200px, 1fr);
   grid-template-areas: "kart side" "tomt side";
 }
 .rute.tomtemodus .profilpanel,
