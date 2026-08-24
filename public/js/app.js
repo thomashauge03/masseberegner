@@ -388,6 +388,61 @@ const App = {
   },
 
   /**
+   * Finner nivået som gir størst ferdig flate innenfor yttergrensa.
+   *
+   * Dette er den omvendte oppgaven, og den har ikke samme svar som
+   * middelhøyden. Nar omrisset er yttergrensen, er det ikke massebalansen som
+   * bestemmer - det er hvor mye skraningene tar. Legger man nivaet høyt, tar
+   * fyllinga pa nedsida mye plass; legger man det lavt, tar skjæringa pa
+   * oppsida mye. Et sted imellom er tapet minst, og det er sjelden middelet.
+   *
+   * Uten dette matte brukeren gjette pa koten og se den ferdige flaten krympe
+   * uten a vite hvilken vei den skulle. Med det trenger man ikke mur i det hele
+   * tatt pa mange tomter - man trenger bare riktig høyde.
+   */
+  finnNivaaForGrense() {
+    if (!this.erTomt()) return null;
+    const t = this.P.tomt;
+    const p = this.tomtIUtm(t);
+    if (p.length < 3 || !this.terreng) return null;
+    const T = this.terrengOverTomta();
+    if (!T) return null;
+    const ob = this.overbygningstykkelse();
+    const fjell = this.fjellmodellIUtm();
+
+    const arealVed = kote => {
+      const inn = Tomtmasser.innerflate({
+        tomt: { punkter: p, kanter: t.kanter, nivaa: Object.assign({}, this.tomtenivaaIUtm(t), { kote }) },
+        mal: this.P.mal, terreng: this.terreng, fjell
+      });
+      if (!inn.punkter) return { areal: 0, mangler: Infinity };
+      const verst = (inn.mangler || []).reduce((m, x) => Math.max(m, x.mangler), 0);
+      return { areal: Tomt.areal(inn.punkter), mangler: verst };
+    };
+
+    /* Grovsøk først. Arealet er ikke monotont i koten - det stiger til et punkt
+       og faller igjen - sa halvering duger ikke. Tjue steg over hele
+       terrengspennet finner toppen, og sa finpusses den. */
+    let beste = null;
+    const fra = T.lav + ob - 1, til = T.hoy + ob + 1;
+    const steg = (til - fra) / 20;
+    for (let k = fra; k <= til + 1e-9; k += steg) {
+      const v = arealVed(k);
+      if (!beste || v.areal > beste.areal) beste = { kote: k, ...v };
+    }
+    if (!beste || beste.areal <= 0) return null;
+    for (const fin of [steg / 3, steg / 9, steg / 27]) {
+      for (const d of [-fin, fin]) {
+        const k = beste.kote + d;
+        if (k < fra || k > til) continue;
+        const v = arealVed(k);
+        if (v.areal > beste.areal) beste = { kote: k, ...v };
+      }
+    }
+    return { kote: +beste.kote.toFixed(2), areal: beste.areal, mangler: beste.mangler };
+  },
+
+  /**
    * Finner koten der skjæring og fylling gar opp mot hverandre.
    *
    * Halveringssøk pa balansen. Den er strengt voksende i koten - løfter man
@@ -2650,7 +2705,27 @@ const App = {
       await this.beregnTomt();
     };
     kote.onchange = () => settKote(parseFloat(kote.value));
+    /* Forslaget ma vite hvilken oppgave det løser.
+       Er omrisset selve tomta, er middelhøyden riktig: da blir det omtrent like
+       mye a grave som a fylle. Er omrisset yttergrensen, er det en helt annen
+       oppgave - da er det ikke balansen som teller, men hvor mye skraningene
+       tar, og svaret er sjelden middelet. Ett forslag for begge ville vaert
+       feil i det ene tilfellet. */
     document.getElementById('th_foresla').onclick = async () => {
+      if (t.omrissBetyr === 'yttergrense') {
+        this.framdrift(true, 'Finner nivået som gir størst tomt…', 0.2);
+        await pause();
+        const b = this.finnNivaaForGrense();
+        this.framdrift(false);
+        if (!b) { this.status('Fant ingen terrengdata over tomta'); return; }
+        await settKote(b.kote);
+        this.status(b.mangler > 0.2
+          ? `Kote ${b.kote.toFixed(2)} gir størst tomt – ${Math.round(b.areal)} m². `
+            + `Skråningene mangler fortsatt ${b.mangler.toFixed(1)} m på den verste sida; `
+            + 'sett mur eller sprengt vegg der om du vil ha hele arealet.'
+          : `Kote ${b.kote.toFixed(2)} gir ${Math.round(b.areal)} m² – skråningene får plass innenfor grensa`);
+        return;
+      }
       const k = this.foreslaKote();
       if (k == null) { this.status('Fant ingen terrengdata over tomta'); return; }
       await settKote(k);
@@ -2789,11 +2864,36 @@ const App = {
       this.status(`${v.navn}: skjæring 1:${v.skjaering}, fylling 1:${v.fylling} (N200)`);
     };
     const omr = document.getElementById('tm_omriss');
-    omr.onchange = () => {
+    omr.onchange = async () => {
       this.merk('endret hva omrisset betyr');
       t.omrissBetyr = omr.value;
       this.tomtemalTilSkjema();
-      this.beregnTomt();
+      await this.beregnTomt();
+      /* Bytter man til yttergrense, er koten som sto der svaret pa en annen
+         oppgave - den var funnet for at omrisset var selve tomta. Da krymper
+         den ferdige flaten uten at brukeren vet hvilken vei den skal justeres.
+         Derfor finnes det nye nivaet med en gang, sa modusen virker av seg
+         selv i stedet for a kreve at man gjetter. */
+      if (t.omrissBetyr !== 'yttergrense' || t.nivaa.kote == null) return;
+      this.framdrift(true, 'Finner nivået som gir størst tomt…', 0.2);
+      await pause();
+      const b = this.finnNivaaForGrense();
+      this.framdrift(false);
+      if (!b) return;
+      const foer = this.resultat && this.resultat.areal ? this.resultat.areal : 0;
+      if (b.areal <= foer * 1.02) {
+        this.status(`Nivået du hadde gir allerede omtrent den største tomta (${Math.round(foer)} m²)`);
+        return;
+      }
+      this.merk('fant nivået som gir størst tomt');
+      t.nivaa.kote = b.kote;
+      this.tomtTilSkjema();
+      await this.beregnTomt();
+      this.status(`Flyttet nivået til kote ${b.kote.toFixed(2)} – det gir ${Math.round(b.areal)} m² `
+        + `mot ${Math.round(foer)} m². `
+        + (b.mangler > 0.2
+          ? `Verste sida mangler fortsatt ${b.mangler.toFixed(1)} m; mur eller sprengt vegg der gir hele arealet.`
+          : 'Skråningene får plass innenfor grensa.'));
     };
     document.getElementById('tm_standard').onclick = async () => {
       const ja = await this.bekreft(

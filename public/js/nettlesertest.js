@@ -101,6 +101,11 @@ const Nettlesertest = {
           if (foerNavn && await Lager.hent(foerNavn)) await Lager.lagre(foerNavn, App.P);
         } catch (e) { /* lageret sier fra selv */ }
         App._lagretSom = foerProsjekt;
+        /* Arbeidsbildet ma følge prosjektet tilbake. Uten dette sto skjermen
+           igjen i tomtemodus etter at et veganlegg var lagt tilbake: lengde-
+           profilen var skjult og kartet klemt sammen, og det sa ut som om
+           testen hadde ødelagt noe. */
+        App.visAnleggsvelger();
         try { await App.oppdater(); } catch (e) { /* tegningen kommer uansett */ }
       }
       this.sjekk('prosjektet står igjen slik det var før testen',
@@ -108,6 +113,12 @@ const Nettlesertest = {
     }
     App.autolagringPause--;
 
+    /* Til slutt: arbeidsbildet skal vere heilt. Ein test som legg att appen i
+       tomtemodus med kartet klemt til femti piksler har ikkje rydda opp. */
+    this.sjekk('arbeidsbildet står igjen som det skal',
+      document.getElementById('lengdeprofil').clientWidth > 100
+      || App.erTomt(),
+      'lengdeprofil ' + document.getElementById('lengdeprofil').clientWidth + ' px, erTomt ' + App.erTomt());
     this.sjekk('ingen feil i konsollen underveis', feilILoggen.length === 0, feilILoggen.join(' | '));
     return this.rapporter(Math.round(performance.now() - t0));
   },
@@ -895,6 +906,48 @@ const Nettlesertest = {
     this.sjekk('knekkpunktene overlevde innpakkingen', pakket.ip.length === 2);
     this.sjekk('høydene overlevde innpakkingen', pakket.vip.length === 2);
     this.sjekk('vegbredden overlevde innpakkingen', pakket.mal.vegbredde === 4.0);
+
+    /* Yttergrense skal virke UTEN at man setter mur.
+       Koten som passer nar omrisset er selve tomta, er svaret pa en annen
+       oppgave enn den som passer nar omrisset er yttergrensen: da er det ikke
+       massebalansen som teller, men hvor mye skraningene tar. Legger man nivaet
+       høyt, tar fyllinga pa nedsida mye plass; legger man det lavt, tar
+       skjæringa pa oppsida mye. Programmet ma finne det selv - ellers ma
+       brukeren gjette, og se den ferdige flaten krympe uten a vite hvilken vei
+       den skal justeres. */
+    App.P = App.nyttProsjekt();
+    App.P.navn = '__test_grense';
+    App.leggTilAnlegg('tomt');
+    const lat1 = 58.2950, lon1 = 7.2085;
+    const dL = m => m / 111320;
+    const dO = m => m / (111320 * Math.cos(lat1 * Math.PI / 180));
+    Kart.settModus('tegnTomt');
+    for (const [dx, dy] of [[0, 0], [34, 6], [46, 20], [44, 38], [30, 46], [12, 44], [2, 30], [-2, 14]]) {
+      Kart.klikk({ latlng: { lat: lat1 + dL(dy), lng: lon1 + dO(dx) } });
+    }
+    Kart.avsluttTomt();
+    await this.vent(600);
+    await App.beregnTomt();
+    const koteMiddel = App.foreslaKote();
+    if (koteMiddel != null) {
+      App.P.tomt.nivaa.kote = koteMiddel;
+      App.P.tomt.omrissBetyr = 'yttergrense';
+      await App.beregnTomt();
+      const utenSok = App.resultat.areal || 0;
+      const b = App.finnNivaaForGrense();
+      this.sjekk('finner et nivå for yttergrensa', !!b && Number.isFinite(b.kote),
+        b ? String(b.kote) : 'ingen');
+      if (b) {
+        this.sjekk('og det gir minst like stor tomt som middelhøyden',
+          b.areal >= utenSok - 1, `${utenSok.toFixed(0)} → ${b.areal.toFixed(0)} m²`);
+        App.P.tomt.nivaa.kote = b.kote;
+        await App.beregnTomt();
+        this.sjekk('den ferdige flaten finnes uten at noen mur er satt',
+          !!App._innerflate && (App.P.tomt.kanter || []).every(k => !k || !k.type || k.type === 'skraning'));
+        this.sjekk('og massene er regnet på den',
+          App.resultat && Number.isFinite(App.resultat.sum.skjaering));
+      }
+    }
 
     await Lager.slett('__test_tomt');
     App.P = JSON.parse(foer);
