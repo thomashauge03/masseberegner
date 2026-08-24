@@ -37,6 +37,14 @@ const Tomteprofil = {
    * søkebredden i stedet, tegnes en strek som stopper et annet sted enn der
    * skråningen slutter – og da ser den ferdige flaten ut til å stupe rett ned.
    */
+  /** Helningsfeltet fra siste beregning, bufret så snittet ikke bygger det på nytt. */
+  _felt(app) {
+    const fot = app.resultat && app.resultat.skraningsfot;
+    if (!fot) return null;
+    if (this._feltFor !== fot) { this._feltFor = fot; this._feltBuffer = Tomtmasser.helningsfelt(fot); }
+    return this._feltBuffer;
+  },
+
   _rekkevidde(app) {
     const f = app.resultat && app.resultat.skraningsfot;
     if (!f || !f.length) return app.P.mal.maksSokebredde || 45;
@@ -125,12 +133,14 @@ const Tomteprofil = {
          i kanten, og skraningen, som er halve poenget med a se pa et snitt,
          var rett og slett ikke tegnet. */
       let zSkraning = null;
-      /* Er omrisset yttergrensen, slutter inngrepet i den streken. Snittet ma
-         vise det samme som kartet og volumet: skraningen tegnes fram til grensa
-         og ikke en meter lenger. Uten dette fortsatte streken i snittet ut over
-         grensa mens kartet stoppet i den, og de to fortalte hver sin historie. */
+      /* Er omrisset yttergrensen, slutter inngrepet i den streken – men
+         skråningen KUTTES ikke der. Den brattes opp akkurat så mye at den når
+         bakken innenfor grensa, og snittet må tegne den slik. Sto det et kutt
+         her i stedet, viste snittet en loddrett flate som ingen kan bygge, og
+         som programmet heller ikke regnet på. */
       const utenforGrensa = t.omrissBetyr === 'yttergrense'
-        && !Tomtmasser.innenforPolygon(p, x, y);
+        && !Tomtmasser.innenforPolygon(p, x, y)
+        && Tomtmasser.naermestePaOmriss(p, x, y).d > 0.6;
       if (!inne && !utenforGrensa && Number.isFinite(zT)) {
         const naer = Tomtmasser.naermestePaOmriss(flate, x, y);
         const kant = kantFor(naer.kant);
@@ -139,9 +149,11 @@ const Tomteprofil = {
         if (Number.isFinite(zKant) && naer.d <= rekke) {
           const planumKant = zKant - ob;
           const skjaerer = Number.isFinite(zTKant) ? zTKant > planumKant : zT > planumKant;
+          // nøyaktig samme helning som volumet er regnet med
+          const tvunget = Tomtmasser.tvungetVed(this._felt(app), naer.kant, naer.u);
           const z = skjaerer
-            ? Tomtmasser.skraningsflate(naer.d, planumKant, zF == null ? zT - 0.5 : zF, kant, mal)
-            : Tomtmasser.fyllingsflate(naer.d, planumKant, kant, mal);
+            ? Tomtmasser.skraningsflate(naer.d, planumKant, zF == null ? zT - 0.5 : zF, kant, mal, tvunget)
+            : Tomtmasser.fyllingsflate(naer.d, planumKant, kant, mal, tvunget);
           /* Skraningen slutter der den møter terrenget. Uten den prøven ville
              streken fortsatt inn i bakken pa den ene siden og ut i lufta pa den
              andre. */

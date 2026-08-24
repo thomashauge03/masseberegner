@@ -33,13 +33,15 @@ const Forklaring = {
     { navn: 'Ferdig nivå', form: 'strek', farge: () => Farger.veg, modus: 'tomt',
       tekst: 'Overflaten man kjører på når alt er ferdig. Ligger overbygningen '
         + 'over planum, så avstanden mellom de to strekene er summen av lagene.' },
-    { navn: 'Må støttes', form: 'stipla', farge: () => Farger.skjaering, modus: 'tomt',
-      tekst: 'Tykk, stiplet strek i kartet der skråningen ble stoppet av '
-        + 'tomtegrensa. Setter du omrisset som yttergrense, kan ingenting gå '
-        + 'utenfor den – du kan ikke grave på naboens eiendom. Skråningen '
-        + 'stopper i streken, og der må noe holde den: mur, sprengt vegg eller '
-        + 'en brattere skråning. Verken masser eller linje er regnet utenfor, '
-        + 'så tallene mangler det disse sidene trenger av støttekonstruksjon.' },
+    { navn: 'Brattet opp', form: 'stipla', farge: () => Farger.skjaering, modus: 'tomt',
+      tekst: 'Tykk, stiplet strek i kartet der skråningen ikke fikk plass med '
+        + 'sin vanlige helning innenfor tomtegrensa. Den blir da lagt brattere – '
+        + 'akkurat så bratt at den treffer bakken i grensa – og volumet er '
+        + 'regnet med den helningen. Merknaden sier hvor bratt det ble, for '
+        + 'eksempel «1:1,4 mot 1:2,5». Er tallet under 1:0,5, er det ikke lenger '
+        + 'en skråning men en vegg: sprengt bergvegg i fjell, støpt mur i '
+        + 'løsmasse. Skråningen blir aldri kappet loddrett – en loddrett flate '
+        + 'i jord er ikke noe som kan bygges.' },
     { navn: 'Veglinje', form: 'strek', farge: () => Farger.veg, modus: 'veg',
       tekst: 'Vegoverflaten – der hjulet går. Under den ligger bærelag og '
         + 'slitelag, og under dem igjen planum.' },

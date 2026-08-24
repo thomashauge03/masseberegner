@@ -1469,12 +1469,16 @@ const App = {
       const verst = this._tomtMangler.slice().sort((a, b) => b.mangler - a.mangler);
       const topp = verst.slice(0, 3)
         .map(m => `side ${m.kant + 1} (${m.mangler.toFixed(0)} m for lite plass)`).join(', ');
+      /* Hva som SKJEDDE med de sidene, står i merknaden fra beregningen: der
+         står den helningen de faktisk måtte legges i. Her sto det at skråningen
+         var «kuttet i grensa» og at tallene manglet noe – to påstander som
+         begge var blitt usanne da skråningen begynte å bratte seg opp i stedet
+         for å bli kappet. To merknader som motsier hverandre er verre enn én. */
       this.resultat.merknader.push({ type: 'grense',
-        tekst: `Skråningen er kuttet i grensa på ${topp}`
+        tekst: `Den ferdige flaten er krympet så mye grensa tillater på ${topp}`
           + (verst.length > 3 ? ` og ${verst.length - 3} side(r) til` : '')
-          + '. Der må noe holde den: mur, sprengt vegg eller brattere skråning. '
-          + 'Ingenting er regnet utenfor grensa – verken masser eller linje – så '
-          + 'tallene under mangler det disse sidene trenger av støttekonstruksjon.' });
+          + '. Vil du ha større flate, må nivået nærmere terrenget – eller '
+          + 'grensa utvides.' });
     }
     this.visTomtemasser();
     this.tomthoydeTilSkjema();

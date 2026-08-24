@@ -962,5 +962,161 @@ console.log('\n26. Skråningen slutter der bakken er, ikke der innstillingen er'
 }
 
 /* ------------------------------------------------------------------ */
+console.log('\n27. Skråningen treffer bakken – den blir aldri kappet loddrett');
+{
+  /* Ble skråningen stoppet av tomtegrensa, sto det igjen en loddrett flate i
+     tverrprofilen. Det er ikke noe man kan bygge, og det var heller ikke et
+     svar – det var programmet som ga opp.
+
+     Det som skjer i marka er at skråningen blir BRATTERE. Er det fire meter ned
+     og bare tre meter plass, legges den 1:0,75 i stedet for 1:2,5. Da treffer
+     den bakken, den står i grensa, og volumet er volumet av noe som finnes. */
+  const p27 = [{ x: 0, y: 0 }, { x: 30, y: 0 }, { x: 30, y: 24 }, { x: 0, y: 24 }];
+  // faller bratt mot vest, så vestsiden får ikke plass til 1:2,5
+  const li27 = { z: x => 210 - x * 0.35 };
+  const g27 = Object.assign(grunnmal(), { maksSokebredde: 45 });
+  const fj27 = new M.Fjellmodell({ standarddybde: 100 });
+  const nivaa = { modus: 'flat', kote: 208 };
+
+  /* Slik appen gjør det: den ferdige flaten rykkes inn fra yttergrensa, og
+     skråningen går fra flaten ut til grensa. Setter man flaten LIK grensa, er
+     det null plass til skråningen i det hele tatt – da prøver man et helt annet
+     tilfelle enn det man tror. */
+  const inn27 = T.innerflate({ tomt: { punkter: p27, kanter: [], nivaa },
+    mal: g27, terreng: li27, fjell: fj27 });
+  const flate27 = inn27.punkter || p27;
+  const fot = T.skraningsfot({ tomt: { punkter: flate27, kanter: [], nivaa },
+    mal: g27, terreng: li27, fjell: fj27, grense: p27 });
+
+  const relevant = fot.filter(f => f.type !== 'apen');
+  if (!relevant.every(f => f.traff === true)) {
+    feil++; console.log('  FEIL  ' + relevant.filter(f => !f.traff).length + ' fotpunkt lander ikke');
+  } else { ok++; console.log('  ok    hvert eneste fotpunkt lander på bakken'); }
+  if (relevant.some(f => f.iLufta)) {
+    feil++; console.log('  FEIL  fotpunkt henger fortsatt i lufta');
+  } else { ok++; console.log('  ok    ingen henger i lufta'); }
+  const brattet = relevant.filter(f => f.tvunget > 0);
+  if (!brattet.length) {
+    feil++; console.log('  FEIL  ingen ble brattet opp – prøven treffer ikke tilfellet');
+  } else { ok++; console.log('  ok    ' + brattet.length + ' punkt ble brattet opp for å nå bakken'); }
+
+  /* Den brattede helningen skal FAKTISK lande. Regnes den ut feil, står foten
+     i grensa uten at flaten møter terrenget der – og da er den loddrette
+     flaten bare flyttet, ikke fjernet. */
+  let verstAvvik = 0;
+  for (const f of brattet) {
+    const zSlutt = f.type === 'skjaering'
+      ? T.skraningsflate(f.ut, f.zKant, f.zKant - 99, {}, g27, f.tvunget)
+      : T.fyllingsflate(f.ut, f.zKant, {}, g27, f.tvunget);
+    verstAvvik = Math.max(verstAvvik, Math.abs(zSlutt - li27.z(f.x)));
+  }
+  sjekk('den brattede flaten møter terrenget i grensa', verstAvvik, 0, 0.02);
+
+  /* Volumet må regnes med samme helning som foten. Ellers tegner kartet én
+     skråning og tallet gjelder en annen. */
+  const felt = T.helningsfelt(fot);
+  if (!felt.size) {
+    feil++; console.log('  FEIL  helningsfeltet er tomt');
+  } else { ok++; console.log('  ok    helningsfeltet har ' + felt.size + ' kant(er)'); }
+  const kantNr = [...felt.keys()][0];
+  const midt = T.tvungetVed(felt, kantNr, 0.5);
+  if (!(midt > 0)) {
+    feil++; console.log('  FEIL  oppslaget midt på kanten gir ingen helning');
+  } else { ok++; console.log('  ok    oppslaget midt på kanten gir 1:' + midt.toFixed(2)); }
+
+  const med = T.beregnTomtemasser({ tomt: { punkter: flate27, kanter: [], nivaa },
+    mal: g27, terreng: li27, fjell: fj27, rutestorrelse: 1, bakkefaktor: 1, grense: p27 });
+  const sagt = (med.merknader || []).some(m => /brattes opp/.test(m.tekst));
+  if (!sagt) {
+    feil++; console.log('  FEIL  det blir ikke sagt hvor bratt den måtte legges');
+  } else { ok++; console.log('  ok    merknaden sier hvor bratt den måtte legges'); }
+  if (!/1:\d/.test((med.merknader.find(m => /brattes opp/.test(m.tekst)) || {}).tekst || '')) {
+    feil++; console.log('  FEIL  merknaden mangler selve helningstallet');
+  } else { ok++; console.log('  ok    og oppgir tallet, ikke bare at det skjedde'); }
+
+  /* VOLUMET MÅ REGNES MED DEN BRATTEDE FLATEN, IKKE DEN SLAKE.
+     Tegner kartet én skråning og regner volumet en annen, er begge tallene
+     ubrukelige – og ingenting i bildet røper det. Her leses en rute like ved
+     grensa på den brattede sida, og høyden må stemme med den brattede flaten. */
+  {
+    const verstKant = [...felt.keys()].reduce((m, k) =>
+      T.tvungetVed(felt, k, 0.5) < T.tvungetVed(felt, m, 0.5) ? k : m, [...felt.keys()][0]);
+    let prove = null;
+    for (const c of med.rutenett) {
+      if (c.inne) continue;
+      const naer = T.naermestePaOmriss(flate27, c.x, c.y);
+      if (naer.kant !== verstKant || naer.d < 1) continue;
+      if (!prove || naer.d > prove.d) prove = { c, d: naer.d, u: naer.u, naer };
+    }
+    if (!prove) {
+      feil++; console.log('  FEIL  fant ingen rute utenfor flaten på den brattede sida');
+    } else {
+      const tv = T.tvungetVed(felt, verstKant, prove.u);
+      const zKant = T.nivaaVed(nivaa, prove.naer.x, prove.naer.y, T.tyngdepunktAv(flate27));
+      const ob = 0;   // grunnmalen har ingen overbygning
+      const medTvang = T.fyllingsflate(prove.d, zKant - ob, {}, g27, tv);
+      const utenTvang = T.fyllingsflate(prove.d, zKant - ob, {}, g27, 0);
+      const treffer = Math.abs(prove.c.zPlanum - medTvang) < 0.02;
+      const villeBommet = Math.abs(medTvang - utenTvang) > 0.05;
+      if (!villeBommet) {
+        feil++; console.log('  FEIL  prøven skiller ikke brattet fra slak flate');
+      } else { ok++; console.log('  ok    de to flatene er ' + Math.abs(medTvang - utenTvang).toFixed(2) + ' m fra hverandre her'); }
+      if (!treffer) {
+        feil++; console.log('  FEIL  volumet bruker ikke den brattede flaten: '
+          + prove.c.zPlanum.toFixed(3) + ' mot ' + medTvang.toFixed(3));
+      } else { ok++; console.log('  ok    volumet regner med den brattede flaten'); }
+    }
+  }
+
+  /* Og det samme på en SKJÆRING, ikke bare en fylling. De to går gjennom hver
+     sin funksjon, og en prøve som bare tar den ene lar den andre stå åpen. */
+  {
+    const opp = { z: x => 200 + x * 0.55 };            // stiger bratt mot øst
+    const n2 = { modus: 'flat', kote: 203 };
+    const innSkj = T.innerflate({ tomt: { punkter: p27, kanter: [], nivaa: n2 },
+      mal: g27, terreng: opp, fjell: fj27 });
+    const flateSkj = innSkj.punkter || p27;
+    const fotSkj = T.skraningsfot({ tomt: { punkter: flateSkj, kanter: [], nivaa: n2 },
+      mal: g27, terreng: opp, fjell: fj27, grense: p27 });
+    const skj = fotSkj.filter(f => f.type === 'skjaering' && f.tvunget > 0);
+    if (!skj.length) {
+      feil++; console.log('  FEIL  fant ingen brattet SKJÆRING å prøve');
+    } else { ok++; console.log('  ok    ' + skj.length + ' skjæringspunkt ble brattet opp'); }
+    let verstSkj = 0;
+    /* Punkt med NULL bredde ved grensa er ikke en skråning i det hele tatt -
+       de er en loddrett vegg, og en vegg møter per definisjon ikke terrenget
+       med en helning. De prøves for seg. */
+    for (const f of skj.filter(q => q.ut > 0.05)) {
+      const z = T.skraningsflate(f.ut, f.zKant, f.zKant - 99, {}, g27, f.tvunget);
+      verstSkj = Math.max(verstSkj, Math.abs(z - opp.z(f.x)));
+    }
+    sjekk('den brattede skjæringen møter terrenget i grensa', verstSkj, 0, 0.02);
+    if (fotSkj.filter(f => f.type !== 'apen').some(f => !f.traff)) {
+      feil++; console.log('  FEIL  skjæringen lander ikke overalt');
+    } else { ok++; console.log('  ok    skjæringen lander overalt'); }
+  }
+
+  /* Uten grense skal ingenting brattes – da er det bakken som bestemmer. */
+  const fri = T.skraningsfot({ tomt: { punkter: flate27, kanter: [], nivaa },
+    mal: g27, terreng: li27, fjell: fj27 });
+  if (fri.some(f => f.tvunget > 0)) {
+    feil++; console.log('  FEIL  skråningen brattes selv uten tomtegrense');
+  } else { ok++; console.log('  ok    uten grense brattes ingenting'); }
+
+  /* Og på en tomt der alt får plass, skal helningen være urørt. */
+  const flatt = { z: () => 209 };
+  /* Med flaten LIK grensa er det null plass, og da er svaret en loddrett vegg –
+     ikke «god plass». Flaten må rykkes inn, slik appen gjør. */
+  const nRom = { modus: 'flat', kote: 208.6 };
+  const innRom = T.innerflate({ tomt: { punkter: p27, kanter: [], nivaa: nRom },
+    mal: g27, terreng: flatt, fjell: fj27 });
+  const rom = T.skraningsfot({ tomt: { punkter: innRom.punkter || p27, kanter: [], nivaa: nRom },
+    mal: g27, terreng: flatt, fjell: fj27, grense: p27 });
+  if (rom.filter(f => f.type !== 'apen').some(f => f.tvunget > 0)) {
+    feil++; console.log('  FEIL  brattes opp selv om det er god plass');
+  } else { ok++; console.log('  ok    god plass gir standardhelningen'); }
+}
+
+/* ------------------------------------------------------------------ */
 console.log(`\n${ok} tester ok, ${feil} feil`);
 process.exit(feil ? 1 : 0);

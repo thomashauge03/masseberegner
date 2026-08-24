@@ -150,9 +150,15 @@ function nivaaVed(n, x, y, ref) {
  *
  * @returns {number} kote pa jordarbeidsflaten, eller NaN om kanten er apen
  */
-function skraningsflate(d, zKant, zFjell, kant, mal) {
+function skraningsflate(d, zKant, zFjell, kant, mal, tvunget) {
   const type = kant.type || 'skraning';
   if (type === 'apen') return NaN;              // ingenting regnes utenfor
+
+  /* Er helningen tvunget, gar flaten rett fra planum ved kanten til terrenget i
+     grensa. Da treffer skraningen bakken i stedet for a bli kappet loddrett -
+     og det er én rett flate, slik en mur eller en sprengt vegg faktisk er, ikke
+     et knekk mellom berg og løsmasse. */
+  if (tvunget > 1e-9) return zKant + d / tvunget;
 
   /* EN MUR ER STØTTE, IKKE EN SKRANING.
      Den star nær loddrett og tar bare `murAnlegg` meter ut per meter høyde -
@@ -189,9 +195,11 @@ function skraningsflate(d, zKant, zFjell, kant, mal) {
 }
 
 /** Samme for fylling: flaten faller utover med fast helning. */
-function fyllingsflate(d, zKant, kant, mal) {
+function fyllingsflate(d, zKant, kant, mal, tvunget) {
   const type = kant.type || 'skraning';
   if (type === 'apen') return NaN;
+  // se skraningsflate: tvunget helning gar rett ned til terrenget i grensa
+  if (tvunget > 1e-9) return zKant - d / tvunget;
   /* Muren holder ogsa fyllinga oppe - det er den vanligste bruken: tomta ligger
      høyt, og muren tar det som ellers matte blitt en lang fyllingsskraning
      nedover lia. */
@@ -201,6 +209,47 @@ function fyllingsflate(d, zKant, kant, mal) {
   }
   const m = Math.max(0.02, kant.fylling != null ? kant.fylling : mal.fylling);
   return zKant - d / m;
+}
+
+/**
+ * Helningene skråningsfoten måtte bratte seg opp til, ordnet per kant.
+ *
+ * Skråningsfoten regnes én gang. Volumet og snittet må bruke NØYAKTIG den
+ * samme helningen, ellers tegner de én skråning og regner en annen – og det er
+ * akkurat den uenigheten man ser når streken i kartet og tallet i panelet ikke
+ * stemmer overens.
+ *
+ * Kravet varierer langs kanten: er det trangere i den ene enden, er skråningen
+ * brattere der. Derfor lagres punktene med `u` (hvor langt ut på kanten), og
+ * det interpoleres mellom dem.
+ */
+function helningsfelt(fot) {
+  const felt = new Map();
+  for (const f of fot) {
+    if (!(f.tvunget > 0)) continue;
+    if (!felt.has(f.kant)) felt.set(f.kant, []);
+    felt.get(f.kant).push({ u: f.u, tvunget: f.tvunget });
+  }
+  for (const liste of felt.values()) liste.sort((a, b) => a.u - b.u);
+  return felt;
+}
+
+/** Helningen som gjelder et stykke ut på en kant. 0 = den vanlige holder. */
+function tvungetVed(felt, kant, u) {
+  if (!felt || !felt.size) return 0;
+  const liste = felt.get(kant);
+  if (!liste || !liste.length) return 0;
+  if (u <= liste[0].u) return liste[0].tvunget;
+  if (u >= liste[liste.length - 1].u) return liste[liste.length - 1].tvunget;
+  for (let i = 0; i < liste.length - 1; i++) {
+    if (u >= liste[i].u && u <= liste[i + 1].u) {
+      const bredde = liste[i + 1].u - liste[i].u;
+      if (bredde < 1e-12) return liste[i].tvunget;
+      const t = (u - liste[i].u) / bredde;
+      return liste[i].tvunget + t * (liste[i + 1].tvunget - liste[i].tvunget);
+    }
+  }
+  return 0;
 }
 
 /**
@@ -253,6 +302,7 @@ function beregnTomtemasser(o) {
      bestemt av et tall i et skjema, ikke av terrenget.
      Nå måles foten først, og rutenettet strekkes til den når. */
   const foten = (o.terreng && p.length >= 3) ? skraningsfot(o) : [];
+  const felt = helningsfelt(foten);
   const naadde = foten.reduce((m, f) => Math.max(m, f.ut || 0), 0);
   const maksUt = Math.max(1, mal.maksSokebredde || 45, Math.ceil(naadde) + ruteM);
 
@@ -304,9 +354,13 @@ function beregnTomtemasser(o) {
            sted og fylling nedover rett ved siden av, med et sprang imellom. */
         const zTKant = o.terreng.z(naer.x, naer.y);
         const skjaerer = Number.isFinite(zTKant) ? zTKant > zKant : zT > zKant;
+        /* Samme helning som foten ble regnet med. Uten dette tegnet kartet en
+           brattet skråning som traff bakken, mens volumet regnet den slake som
+           aldri kom fram - to svar på samme spørsmål. */
+        const tvunget = tvungetVed(felt, naer.kant, naer.u);
         zPlanum = skjaerer
-          ? skraningsflate(naer.d, zKant, zFjell, kant, mal)
-          : fyllingsflate(naer.d, zKant, kant, mal);
+          ? skraningsflate(naer.d, zKant, zFjell, kant, mal, tvunget)
+          : fyllingsflate(naer.d, zKant, kant, mal, tvunget);
         if (!Number.isFinite(zPlanum)) continue;           // apen kant
         // utenfor tomta teller cella bare til skraningen har møtt terrenget
         if (skjaerer && zPlanum >= zT) continue;
@@ -478,11 +532,49 @@ function beregnTomtemasser(o) {
           + 'Volumet under er derfor et minstetall. Løsningen er mur eller sprengt '
           + 'vegg på de sidene, eller et ferdig nivå nærmere terrenget.' });
     }
+    /* HVOR BRATT BLE DEN? DET ER SPØRSMÅLET.
+       At skraningen «møter grensa» sier ingenting om hva man skal gjøre. At den
+       matte legges 1:0,6 for a na bakken, sier alt: det er for bratt for jord,
+       sa der ma det mur eller sprengt vegg. Er den 1:1,8, holder det med en
+       litt brattere skraning og god sikring. */
     if (motGrense.length) {
-      const sider = [...new Set(motGrense.map(f => f.kant + 1))].sort((a, b) => a - b);
+      const perSide = new Map();
+      for (const f of motGrense) {
+        const na = perSide.get(f.kant);
+        // den bratteste på siden er den som bestemmer hva som må bygges
+        if (!na || (f.tvunget > 0 && f.tvunget < na.tvunget)) {
+          perSide.set(f.kant, { tvunget: f.tvunget || 0.01, type: f.type });
+        }
+      }
+      /* Målestokken er hva N200 gir for NETTOPP DEN kanten, ikke et tall valgt
+         på slump. 1:1,4 er romslig på en fylling i stein og for bratt på en
+         skjæring i silt – det er forholdet til standarden som betyr noe. */
+      const standardFor = v => {
+        const k = kantFor(v.kant) || {};
+        return v.type === 'skjaering'
+          ? Math.max(0.02, k.skjaeringLosmasse != null ? k.skjaeringLosmasse : mal.skjaeringLosmasse)
+          : Math.max(0.02, k.fylling != null ? k.fylling : mal.fylling);
+      };
+      const sider = [...perSide.entries()]
+        .map(([kant, v]) => ({ kant, ...v, standard: standardFor({ ...v, kant }) }))
+        .sort((a, b) => a.tvunget - b.tvunget);
+      const verst = sider[0];
+      const liste = sider.map(v =>
+        `side ${v.kant + 1}: 1:${v.tvunget.toFixed(1)} mot 1:${v.standard.toFixed(1)}`).join(', ');
+      const rad = verst.tvunget < (mal.veggHelning || 0.1)
+        ? 'Det er brattere enn selv en sprengt bergvegg står. Her må nivået flyttes '
+          + 'eller grensa utvides – ingen konstruksjon holder det.'
+        : verst.tvunget < 0.5
+          ? 'Det er så bratt at det er en vegg, ikke en skråning: sprengt bergvegg '
+            + 'i fjell, eller støpt mur i løsmasse.'
+          : verst.tvunget < verst.standard * 0.9
+            ? 'Det er brattere enn N200 gir for denne massen. Sett mur eller sprengt '
+              + 'vegg, eller flytt nivået nærmere terrenget.'
+            : 'Det er innenfor det denne massen tåler.';
       merknader.push({ type: 'grense',
-        tekst: `Skråningen er stoppet av tomtegrensa på side ${sider.join(', ')}. `
-          + 'Der må noe holde den: mur, sprengt vegg eller brattere skråning.' });
+        tekst: `Skråningen måtte brattes opp for å nå bakken innenfor grensa – ${liste}. `
+          + rad + ' Volumet under er regnet med disse helningene, så skråningen '
+          + 'treffer terrenget hele veien rundt.' });
     }
     /* Datakanten er ikke bakken. Stoppet skraningen fordi terrenget ikke var
        lastet ned sa langt, er tallet et kutt - like vilkarlig som søkebredden
@@ -698,6 +790,10 @@ function skraningsfot(o) {
         if (!Number.isFinite(z)) return null;
         return skjaerer ? z >= zt : z <= zt;
       };
+      /* Terrenget nøyaktig i grensa. Trengs for a regne hvor bratt skraningen
+         ma vaere for a lande der, i stedet for a bli kappet loddrett. */
+      const zVedGrensa = Number.isFinite(grenseUt) && grenseUt < REKKEVIDDE_TAK
+        ? o.terreng.z(x + nx * grenseUt, y + ny * grenseUt) : NaN;
       /* Grovsøk før halveringen.
          Halvering alene finner en vilkarlig kryssing, ikke den FØRSTE. Pa et
          terreng som bølger - en liten rygg, sa en senkning - kunne fyllingsfoten
@@ -736,7 +832,34 @@ function skraningsfot(o) {
         lav = tak;
         tak = Math.min(maksHer, REKKEVIDDE_TAK, tak * 2);
       }
-      if (!funnet) { traff = Math.min(maksHer, tak); }
+      /* SKRÅNINGEN SKAL TREFFE BAKKEN. ALLTID.
+         Nadde den ikke terrenget innenfor tomtegrensa, ble den kappet der - og
+         i snittet sto det igjen en loddrett flate. Det er ikke noe man kan
+         bygge, og det er heller ikke et svar: det er programmet som gir opp.
+
+         Det som faktisk skjer i marka er at skraningen blir BRATTERE. Er det
+         fire meter ned og bare tre meter plass, legger man den 1:0,75 i stedet
+         for 1:2,5 - og da er den for bratt for jord, sa der ma det mur eller
+         sprengt vegg. Men den treffer bakken, den star i grensa, og volumet er
+         volumet av noe som kan bygges.
+
+         Her regnes den helningen ut, og skraningen legges rett fra planum ved
+         kanten til terrenget i grensa. Hvor bratt det ble, meldes etterpa - det
+         er DET tallet som forteller om det holder med en skraning eller ma
+         støpes en mur. */
+      let tvunget = 0, tvingesTilGrensa = false;
+      if (!funnet && Number.isFinite(zVedGrensa) && grenseUt <= tak + 1e-9) {
+        const fall = Math.abs(zVedGrensa - zK);
+        /* Null bredde ved grensa er ikke «henger i lufta» - det er en LODDRETT
+           VEGG. Den ferdige flaten går helt ut i tomtegrensa der, og skal det
+           være høydeforskjell, må noe stå og holde den. Meldes det som «lander
+           ikke», leter man etter feil sted: svaret er ikke mer søkebredde, det
+           er mur, sprengt vegg, eller et nivå nærmere terrenget. */
+        tvunget = fall < 0.02 ? 0 : Math.max(0.01, grenseUt / fall);
+        tvingesTilGrensa = true;
+      }
+      if (tvingesTilGrensa) { traff = grenseUt; }
+      else if (!funnet) { traff = Math.min(maksHer, tak); }
       else {
         for (let b = 0; b < 18; b++) {
           const midt = (lav + hoy) / 2;
@@ -753,11 +876,16 @@ function skraningsfot(o) {
         zKant: zK,                   // planum ved selve kanten, der skraningen starter
         xKant: x, yKant: y,          // utgangspunktet pa omrisset
         type: skjaerer ? 'skjaering' : 'fylling',
-        traff: funnet,
-        // stoppet av grensa, ikke av terrenget - her ma noe holde skraningen
-        moterGrense: !funnet && grenseUt <= traff + 1e-9,
+        u: f,                        // hvor langt ut pa kanten, sa volumet finner igjen helningen
+        // den lander enten av seg selv, eller fordi den er brattet opp til grensa
+        traff: funnet || tvingesTilGrensa,
+        /* Hvor bratt den matte legges for a na bakken innenfor grensa.
+           0 betyr at den standard helningen holdt. */
+        tvunget,
+        // stoppet i grensa: her holder ikke den vanlige skraningen
+        moterGrense: tvingesTilGrensa,
         // hverken landet eller stoppet i en grense: den star fortsatt i lufta
-        iLufta: !funnet && !(grenseUt <= traff + 1e-9),
+        iLufta: !funnet && !tvingesTilGrensa,
         // ... og her var det terrengdataene som tok slutt, ikke bakken som kom
         manglerData: slappOppData });
     }
@@ -1015,7 +1143,8 @@ function normal(a, b, tegn) {
 
 const Tomtmasser = {
   beregnTomtemasser, naermestePaOmriss, skraningsflate, fyllingsflate,
-  nivaaVed, innenforPolygon, tyngdepunktAv, skraningsfot, innerflate
+  nivaaVed, innenforPolygon, tyngdepunktAv, skraningsfot, innerflate,
+  helningsfelt, tvungetVed
 };
 
 if (typeof module !== 'undefined') module.exports = Tomtmasser;

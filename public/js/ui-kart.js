@@ -472,27 +472,47 @@ const Kart = {
        tykk og varslende. Ellers ser det ut som en feil at streken krysser
        grensa - og det er nettopp den strekningen som er svaret pa hvor muren ma
        sta. */
-    /* Der skraningen ble STOPPET av grensa - ikke der den landet av seg selv.
-       Streken gar aldri utenfor lenger, sa a lete etter punkt utenfor omrisset
-       finner ingenting. Det man ma se, er hvilke sider som star og trenger
-       stotte: mur, sprengt vegg eller brattere skraning. De males opp tykke og
-       stipla. */
-    const utenfor = f => t.omrissBetyr === 'yttergrense' && f.moterGrense === true;
+    /* MERKINGEN SKAL SI HVOR GALT DET ER, IKKE BARE AT GRENSA BLE RØRT.
+       Her ble hver strekning som møtte grensa malt opp tykk og rød-stiplet, og
+       det leses som en feil. Men skraningen blir brattet opp til den nar bakken
+       - og blir den 1:1,8 der standarden er 1:2,0, er det ingenting a varsle
+       om. Blir den 1:0,4, er det ikke lenger en skraning men en vegg, og DET
+       ma man se.
+
+       Derfor males den mot standarden for nettopp den kanten:
+         innenfor standarden      vanlig strek
+         brattere enn standarden  tynn stiplet - «se her»
+         brattere enn 1:0,5       tykk stiplet - her ma det mur eller sprengt vegg */
+    const mal = app.P.mal;
+    const kantFor = i => (t.kanter && t.kanter[i]) || {};
+    const alvor = f => {
+      if (t.omrissBetyr !== 'yttergrense' || !(f.tvunget > 0)) return 0;
+      const k = kantFor(f.kant);
+      const standard = f.type === 'skjaering'
+        ? (k.skjaeringLosmasse != null ? k.skjaeringLosmasse : mal.skjaeringLosmasse)
+        : (k.fylling != null ? k.fylling : mal.fylling);
+      if (f.tvunget < 0.5) return 2;                       // en vegg, ikke en skraning
+      if (f.tvunget < (standard || 2) * 0.9) return 1;     // brattere enn N200 gir
+      return 0;
+    };
 
     let bit = [], forrige = null, forrigeUte = null;
     const tøm = () => {
       if (bit.length > 1) {
-        L.polyline(bit, forrigeUte
+        const grunn = forrige === 'fylling' ? Farger.fylling : Farger.skjaering;
+        L.polyline(bit, forrigeUte === 2
           ? { color: Farger.skjaering, weight: 3.5, opacity: 1, dashArray: '2 4' }
-          : {
-            color: forrige === 'fylling' ? Farger.fylling : Farger.skjaering,
-            weight: 1.8, opacity: 0.95, dashArray: forrige === 'apen' ? '3 5' : null
-          }).addTo(this.lag.skraningsfot);
+          : forrigeUte === 1
+            ? { color: grunn, weight: 2.4, opacity: 1, dashArray: '6 3' }
+            : {
+              color: grunn, weight: 1.8, opacity: 0.95,
+              dashArray: forrige === 'apen' ? '3 5' : null
+            }).addTo(this.lag.skraningsfot);
       }
       bit = [];
     };
     for (const f of fot.concat([fot[0]])) {
-      const ute = utenfor(f);
+      const ute = alvor(f);
       if (forrige !== null && (f.type !== forrige || ute !== forrigeUte)) { bit.push(hj(f)); tøm(); }
       forrige = f.type; forrigeUte = ute;
       bit.push(hj(f));
