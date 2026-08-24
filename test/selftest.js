@@ -952,9 +952,17 @@ console.log('\n4f. Eksportformatene');
     const min = /MIN-NØ (-?\d+) (-?\d+)/.exec(sos);
     const maks = /MAX-NØ (-?\d+) (-?\d+)/.exec(sos);
     const koord = sos.split('\r\n').filter(l => /^-?\d+ -?\d+ -?\d+$/.test(l)).map(l => l.split(' ').map(Number));
+    /* ..OMRÅDE står i hele meter, koordinatlinjene i centimeter - det er
+       ...ENHET 0.01 som gjelder koordinatene, ikke omradet. Her ble de to
+       sammenlignet ratt mot hverandre, og testen gikk gjennom NETTOPP fordi
+       begge sto i centimeter. Da omradet ble rettet til meter, sa fiksen ut
+       som en regresjon. */
     paastand('SOSI-området dekker alle koordinatene i filen',
-      koord.length > 10 && koord.every(k => k[0] >= +min[1] && k[0] <= +maks[1]
-        && k[1] >= +min[2] && k[1] <= +maks[2]));
+      koord.length > 10 && koord.every(k => k[0] >= +min[1] * 100 && k[0] <= +maks[1] * 100
+        && k[1] >= +min[2] * 100 && k[1] <= +maks[2] * 100));
+    paastand('SOSI-området står i meter, ikke i enheter',
+      +maks[1] - +min[1] < 100000 && +maks[1] > 6000000 && +maks[1] < 8000000,
+      `${min[1]}–${maks[1]}`);
   }
 
   const kof = Eksport.kof(app, res);
@@ -966,6 +974,78 @@ console.log('\n4f. Eksportformatene');
     return Math.abs(tall[0] - 6500000) < 400 && Math.abs(tall[1] - 500000) < 400
       && Math.abs(tall[2] - 100) < 20;
   })(), kofRader[0]);
+  /* 01-BLOKKA BÆRER KOORDINATSYSTEMET OG AKSEREKKEFØLGEN.
+     Uten den er filen nord/øst-tall uten hjemsted: mottakeren må gjette
+     projeksjonen - ED50 UTM33 og EUREF89 UTM33 skiller 100-200 m i Norge - og
+     en leser som forvalgt tar øst først, plasserer et punkt på Vestlandet i
+     Indiahavet. */
+  {
+    const adm = kof.split('\r\n').find(l => l.startsWith(' 01 '));
+    paastand('KOF har en 01-blokk', !!adm);
+    paastand('KOF oppgir riktig K.sys for sone 32', adm && adm.slice(30, 38).trim() === '22',
+      adm && '«' + adm.slice(30, 38) + '»');
+    paastand('KOF sier at nord kommer først', adm && /\$1/.test(adm.slice(43)),
+      adm && adm.slice(43, 56));
+  }
+  /* Feltbreddene er 12 / 11 / 8 med én blank imellom, ikke 12 / 12 / 12.
+     ' 05 '(4) + navn(10) + ' ' + kode(8) + ' ' + N(12) + ' ' + Ø(11) + ' ' + Z(8) = 57 tegn.
+     Sto alle tre på bredde 12, ble linja 59 tegn og høyden lå to kolonner
+     utenfor sitt eget felt - en leser som holder seg til F8.3 i kolonne 50-57
+     kuttet da millimeteren, alltid nedover.
+     En prøve som bare leser «et sted rundt der» merker ikke forskjellen; den
+     må telle kolonner. */
+  paastand('KOF-linja har spesifikasjonens feltbredder', kofRader.every(l => l.length === 57),
+    kofRader[0].length + ' tegn: «' + kofRader[0] + '»');
+  paastand('KOF-høyden ligger i kolonne 50-57', (() => {
+    const z = Number(kofRader[0].slice(49, 57));
+    const helt = Number(kofRader[0].trim().split(/\s+/).slice(-1)[0]);
+    return Number.isFinite(z) && Math.abs(z - helt) < 1e-9;
+  })(), '«' + kofRader[0].slice(49, 57) + '»');
+  paastand('KOF-feltene er skilt med en blank', kofRader.every(l =>
+    l[14] === ' ' && l[23] === ' ' && l[36] === ' ' && l[48] === ' '));
+  paastand('KOF gir ikke to punkt samme navn', (() => {
+    const navn = kofRader.map(l => l.slice(4, 14).trim());
+    return new Set(navn).size === navn.length;
+  })());
+  paastand('KOF nekter når sonen er ukjent', (() => {
+    try { Eksport.kof(Object.assign(Object.create(Object.getPrototypeOf(app)), app, { sone: 99 }), res); return false; }
+    catch (e) { return /sone/i.test(e.message); }
+  })());
+  paastand('LandXML nekter på en linje uten knekkpunkt', (() => {
+    const tom = Object.assign({}, app, { linje: { elementer: [], lengde: 0, kurver: [] } });
+    try { Eksport.landxml(tom, res); return false; }
+    catch (e) { return /linjeføring/i.test(e.message); }
+  })());
+  /* DXF er kode/verdi-par, to linjer om gangen. Leses de som enkeltlinjer,
+     leter man etter laget tre plasser feil, og testen «finner ingenting» -
+     som ser ut som en feil i eksporten. */
+  const dxfPar = tekst => {
+    const l = tekst.split('\r\n'), par = [];
+    for (let i = 0; i + 1 < l.length; i += 2) par.push([l[i], l[i + 1]]);
+    return par;
+  };
+  const fotBlokk = tekst => {
+    const par = dxfPar(tekst);
+    for (let i = 0; i < par.length; i++) {
+      if (par[i][0] === '0' && par[i][1] === 'POLYLINE'
+        && par[i + 1] && par[i + 1][0] === '8' && par[i + 1][1] === 'FOTAVTRYKK') {
+        const ut = [];
+        for (let j = i; j < par.length; j++) { ut.push(par[j]); if (par[j][1] === 'SEQEND') break; }
+        return ut;
+      }
+    }
+    return null;
+  };
+  paastand('DXF lukker fotavtrykket', (() => {
+    const b = fotBlokk(Eksport.dxf(app, res));
+    const flagg = b && b.find(p => p[0] === '70');
+    return !!flagg && (Number(flagg[1]) & 1) === 1;
+  })());
+  paastand('DXF legger fotavtrykket i sin egen kote, ikke på null', (() => {
+    const b = fotBlokk(Eksport.dxf(app, res));
+    const z = b && b.filter(p => p[0] === '30').map(p => Number(p[1]));
+    return !!z && z.length > 4 && z.every(v => Math.abs(v - 100) < 30);
+  })());
 
   const dxf = Eksport.dxf(app, res);
   paastand('DXF har senterlinje, vegkant og fotavtrykk',

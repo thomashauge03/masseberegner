@@ -311,7 +311,12 @@ const Rapport = {
 
   apneRapport() {
     const app = this.app, res = app.resultat;
-    if (!res) { alert('Ingen beregning å rapportere ennå.'); return; }
+    if (!res) { this.eksportsvar('Ingen beregning å rapportere ennå.', true); return; }
+    /* En tomt har ingen intervaller. Her ble tomteresultatet sendt rett inn i
+       vegrapporten, og `for (const iv of res.intervaller)` kastet «not
+       iterable» - uten try/catch noe sted, så knappen så ut som om den ikke
+       gjorde noe i det hele tatt. */
+    if (app.erTomt()) return this.apneTomterapport(app, res);
     const t = (v, d = 0) => this.tall(v, d);
     const s = res.sum, b = res.balanse, m = res.mal, f = res.faktorer;
     const dato = new Date().toLocaleDateString('nb-NO', { day: '2-digit', month: 'long', year: 'numeric' });
@@ -343,46 +348,9 @@ const Rapport = {
     const stikning = this.stikningstabell(res, res.lengdeKart > 600 ? 10 : 5);
 
     const html = `<!DOCTYPE html><html lang="nb"><head><meta charset="utf-8">
-<title>Masseberegning – ${app.P.navn}</title>
+<title>Masseberegning – ${escapeHtml(app.P.navn)}</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&display=swap">
-<style>
-  body{font-family:"Segoe UI",Arial,sans-serif;color:#0b0b0c;margin:22px;font-size:12px;line-height:1.45}
-  .brevhode{display:flex;align-items:center;gap:14px;background:#0b0b0c;color:#fff;
-    padding:12px 16px;border-bottom:4px solid #d81e28;margin:-22px -22px 18px}
-  .brevhode img{height:36px}
-  .brevhode .tittel{font-family:"Barlow Condensed",Arial,sans-serif;font-weight:700;
-    text-transform:uppercase;letter-spacing:.04em;font-size:24px;line-height:1.05}
-  .brevhode .under{color:#d0d0d5;font-size:11px}
-  .brevhode .hoyre{margin-left:auto;text-align:right;color:#d0d0d5;font-size:11px}
-  h1{font-size:19px;margin:0} h2{font-family:"Barlow Condensed",Arial,sans-serif;font-size:16px;
-    text-transform:uppercase;letter-spacing:.04em;margin:20px 0 6px;
-    border-bottom:2px solid #0b0b0c;padding-bottom:3px}
-  table{border-collapse:collapse;width:100%;margin-bottom:10px}
-  th,td{border:1px solid #d0d0d5;padding:3px 6px;text-align:right;font-variant-numeric:tabular-nums}
-  th{background:#0b0b0c;color:#fff;text-align:right;font-weight:600;
-    font-family:"Barlow Condensed",Arial,sans-serif;text-transform:uppercase;letter-spacing:.03em}
-  td:first-child,th:first-child{text-align:left}
-  .sum td{font-weight:700;background:#f4f4f5;border-top:2px solid #0b0b0c}
-  .to{display:grid;grid-template-columns:1fr 1fr;gap:22px}
-  .noekkel td:first-child{text-align:left;width:64%}
-  .liten{font-size:11px;color:#52525b}
-  .raud{color:#a8151d;font-weight:700}
-  .bunn{margin-top:16px;border-top:3px solid #d81e28;padding-top:8px}
-  .tegning{width:100%;border:1px solid #d0d0d5;margin-bottom:6px}
-  .tverrsnitt{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-  .tverrsnitt figure{margin:0}
-  .tverrsnitt img{width:100%;border:1px solid #d0d0d5}
-  .tverrsnitt figcaption{font-size:10.5px;color:#52525b;padding-top:2px}
-  .stikning{font-size:10px}
-  .stikning td,.stikning th{padding:2px 4px}
-  h2{page-break-after:avoid} .tverrsnitt figure{page-break-inside:avoid}
-  table{page-break-inside:auto} tr{page-break-inside:avoid}
-  .knapp{background:#d81e28;color:#fff;border:2px solid #0b0b0c;box-shadow:3px 3px 0 0 #0b0b0c;
-    padding:7px 16px;font-weight:700;text-transform:uppercase;cursor:pointer;font-family:inherit}
-  @media print{body{margin:12mm} .ikkeSkriv{display:none} .brevhode{margin:-12mm -12mm 14px;
-    -webkit-print-color-adjust:exact;print-color-adjust:exact}
-    th,.sum td{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
-</style></head><body>
+<style>${this.rapportstil()}</style></head><body>
 <div class="brevhode">
   <img src="${location.origin}/bilde/hm-logo.png" alt="Hauge Maskin">
   <div>
@@ -499,12 +467,275 @@ Dybden til fjell er den største usikkerheten i sprengningsvolumet.
       v.document.write(html);
       v.document.close();
     } else {
-      this.lastNed(app.P.navn.replace(/\W+/g, '_') + '_rapport.html', html, 'text/html;charset=utf-8');
+      this.lastNed(this.filnavn('_rapport.html'), html, 'text/html;charset=utf-8');
       app.status('Nettleseren blokkerte nytt vindu – rapporten ble lastet ned som fil i stedet');
     }
   },
 
+  /* Stilen deles av vegrapporten og tomterapporten. Sto den to steder,
+     ville de to drevet fra hverandre - og en tomterapport som ser ut som noe
+     annet enn en vegrapport ser ut som den kommer fra et annet program. */
+  rapportstil() {
+    return `
+  body{font-family:"Segoe UI",Arial,sans-serif;color:#0b0b0c;margin:22px;font-size:12px;line-height:1.45}
+  .brevhode{display:flex;align-items:center;gap:14px;background:#0b0b0c;color:#fff;
+    padding:12px 16px;border-bottom:4px solid #d81e28;margin:-22px -22px 18px}
+  .brevhode img{height:36px}
+  .brevhode .tittel{font-family:"Barlow Condensed",Arial,sans-serif;font-weight:700;
+    text-transform:uppercase;letter-spacing:.04em;font-size:24px;line-height:1.05}
+  .brevhode .under{color:#d0d0d5;font-size:11px}
+  .brevhode .hoyre{margin-left:auto;text-align:right;color:#d0d0d5;font-size:11px}
+  h1{font-size:19px;margin:0} h2{font-family:"Barlow Condensed",Arial,sans-serif;font-size:16px;
+    text-transform:uppercase;letter-spacing:.04em;margin:20px 0 6px;
+    border-bottom:2px solid #0b0b0c;padding-bottom:3px}
+  table{border-collapse:collapse;width:100%;margin-bottom:10px}
+  th,td{border:1px solid #d0d0d5;padding:3px 6px;text-align:right;font-variant-numeric:tabular-nums}
+  th{background:#0b0b0c;color:#fff;text-align:right;font-weight:600;
+    font-family:"Barlow Condensed",Arial,sans-serif;text-transform:uppercase;letter-spacing:.03em}
+  td:first-child,th:first-child{text-align:left}
+  .sum td{font-weight:700;background:#f4f4f5;border-top:2px solid #0b0b0c}
+  .to{display:grid;grid-template-columns:1fr 1fr;gap:22px}
+  .noekkel td:first-child{text-align:left;width:64%}
+  .liten{font-size:11px;color:#52525b}
+  .raud{color:#a8151d;font-weight:700}
+  .bunn{margin-top:16px;border-top:3px solid #d81e28;padding-top:8px}
+  .tegning{width:100%;border:1px solid #d0d0d5;margin-bottom:6px}
+  .tverrsnitt{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .tverrsnitt figure{margin:0}
+  .tverrsnitt img{width:100%;border:1px solid #d0d0d5}
+  .tverrsnitt figcaption{font-size:10.5px;color:#52525b;padding-top:2px}
+  .stikning{font-size:10px}
+  .stikning td,.stikning th{padding:2px 4px}
+  h2{page-break-after:avoid} .tverrsnitt figure{page-break-inside:avoid}
+  table{page-break-inside:auto} tr{page-break-inside:avoid}
+  .knapp{background:#d81e28;color:#fff;border:2px solid #0b0b0c;box-shadow:3px 3px 0 0 #0b0b0c;
+    padding:7px 16px;font-weight:700;text-transform:uppercase;cursor:pointer;font-family:inherit}
+  @media print{body{margin:12mm} .ikkeSkriv{display:none} .brevhode{margin:-12mm -12mm 14px;
+    -webkit-print-color-adjust:exact;print-color-adjust:exact}
+    th,.sum td{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+`;
+  },
+
+  /** Åpner html-en i et vindu, eller laster den ned om vinduet blir blokkert. */
+  visRapport(html, app) {
+    const v = window.open('', '_blank');
+    if (v && v.document) { v.document.write(html); v.document.close(); return; }
+    this.lastNed(this.filnavn('_rapport.html'), html, 'text/html;charset=utf-8');
+    app.status('Nettleseren blokkerte nytt vindu – rapporten ble lastet ned som fil i stedet');
+  },
+
+  /**
+   * Rapport for en tomt.
+   *
+   * Samme stil og samme rekkefølge som vegrapporten og sidepanelet: mål, nivå,
+   * sider, nøkkeltall, masser, mur, overbygning, massebalanse, merknader.
+   */
+  apneTomterapport(app, res) {
+    const t = (v, d = 0) => this.tall(v, d);
+    const s = res.sum, b = res.balanse, m = app.P.mal, tt = app.P.tomt;
+    const p = app.tomtIUtm(tt);
+    const flate = app._innerflate || p;
+    const bf = app.bakkefaktor();
+    const dato = new Date().toLocaleDateString('nb-NO', { day: '2-digit', month: 'long', year: 'numeric' });
+    const niv = tt.nivaa || {};
+    const nivaatekst = niv.modus === 'fall'
+      ? `${t(niv.kote, 2)} m med fall ${t((niv.fall || 0) * 100, 1)} % mot ${t(niv.fallretning || 0, 0)}°`
+      : niv.modus === 'sluk' ? `${t(niv.kote, 2)} m, faller mot ett punkt`
+        : `${t(niv.kote, 2)} m, flatt`;
+
+    const rad = (a, c, sum) => `<tr class="${sum ? 'sum' : ''}"><td>${a}</td><td>${c}</td></tr>`;
+    const post = (navn, v, sum) => v > 0.5 ? rad(navn, t(v) + ' m³', sum) : '';
+
+    const sider = Tomt.kanter(flate).map(k => {
+      const kant = (tt.kanter || [])[k.nr] || {};
+      const type = kant.type || 'skraning';
+      const grader = ((90 - k.retning * 180 / Math.PI) % 360 + 360) % 360;
+      const hell = type === 'mur' ? '1:' + t(kant.murAnlegg != null ? kant.murAnlegg : m.murAnlegg, 2)
+        : type === 'fjellvegg' ? '10:1' : type === 'apen' ? '–' : '1:' + t(m.skjaeringLosmasse, 1);
+      return `<tr><td>${k.nr + 1}</td><td>${t(k.lengde * bf, 1)} m</td><td>${t(grader, 0)}°</td>`
+        + `<td>${escapeHtml(Tomt.Kanttyper[type] || type)}</td><td>${hell}</td></tr>`;
+    }).join('');
+
+    const lag = s.slitelag + s.baerelag + s.forsterkningslag + s.frostsikring + s.avrettingslag;
+    const lagrad = (navn, v, tykk) => v > 0.005
+      ? rad(navn + (tykk ? ` <small>${t(tykk, 2)} m</small>` : ''), t(v) + ' m³') : '';
+
+    const merknader = (res.merknader || []).map(v =>
+      `<tr><td>${escapeHtml(v.type || '–')}</td><td>${escapeHtml(v.tekst)}</td></tr>`).join('');
+
+    const html = `<!DOCTYPE html><html lang="nb"><head><meta charset="utf-8">
+<title>Masseberegning tomt – ${escapeHtml(app.P.navn)}</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&display=swap">
+<style>${this.rapportstil()}</style></head><body>
+<div class="brevhode">
+  <img src="${location.origin}/bilde/hm-logo.png" alt="Hauge Maskin">
+  <div>
+    <div class="tittel">Masseberegning – tomt</div>
+    <div class="under">${escapeHtml(app.P.navn)}</div>
+  </div>
+  <div class="hoyre">
+    <div>${dato}</div>
+    <div>${t(res.areal)} m² · ${escapeHtml((Tomt.Arbeidstyper[tt.arbeidstype] || { navn: 'Planering' }).navn)}</div>
+    <div>EUREF89 UTM${app.sone} · NN2000</div>
+  </div>
+</div>
+
+<div class="to">
+<div>
+<h2>Mål og nivå</h2>
+<table class="noekkel"><tbody>
+${rad('Areal, ferdig flate', t(res.areal) + ' m²')}
+${rad('Areal med skråninger', t(res.arealMedSkraning) + ' m²')}
+${rad('Omkrets', t(Tomt.omkrets(flate) * bf, 1) + ' m')}
+${rad('Hjørner', String(flate.length))}
+${rad('Ferdig nivå (NN2000)', nivaatekst, true)}
+${rad('Overbygning over planum', t(res.overbygning, 2) + ' m')}
+${rad('Omrisset betyr', tt.omrissBetyr === 'yttergrense'
+    ? 'yttergrense – ferdig flate regnet innover' : 'ferdig flate')}
+</tbody></table>
+
+<h2>Nøkkeltall</h2>
+<table class="noekkel"><tbody>
+${rad('Dypeste skjæring', t(res.dypesteSkjaering, 2) + ' m')}
+${rad('Høyeste fylling', t(res.hoyesteFylling, 2) + ' m')}
+${res.hoyesteVegg > 0.05 ? rad('Høyeste bergvegg', t(res.hoyesteVegg, 2) + ' m') : ''}
+${res.rekkevidde > 0 ? rad('Skråningen går lengst ut', t(res.rekkevidde, 1) + ' m') : ''}
+${rad('Ruter regnet', String(res.celler) + ` <small>à ${t(m.rutestorrelse, 2)} m</small>`)}
+</tbody></table>
+</div>
+
+<div>
+<h2>Masser – prosjektert fast volum</h2>
+<table class="noekkel"><tbody>
+${post('Matjord som tas av', s.matjord)}
+${post('Rensk mot fjell', s.rensk)}
+${post('Skjæring totalt', s.skjaering, true)}
+${post('&nbsp;&nbsp;– løsmasse', s.skjaeringLosmasse)}
+${post('&nbsp;&nbsp;– fjell (sprengning)', s.skjaeringFjell)}
+${post('&nbsp;&nbsp;– overberg', s.overberg)}
+${post('Fylling', s.fylling, true)}
+</tbody></table>
+
+${res.murLengde > 0.5 ? `<h2>Støttemur</h2>
+<table class="noekkel"><tbody>
+${rad('Lengde', t(res.murLengde, 1) + ' m')}
+${rad('Høyeste punkt', t(res.murHoyde, 2) + ' m')}
+${post('Fundamentgrøft', s.murFundament)}
+${post('Drenerende bakfylling', s.murBakfylling)}
+</tbody></table>` : ''}
+
+${lag > 0.5 ? `<h2>Byggeklart – lag som skal inn</h2>
+<table class="noekkel"><tbody>
+${lagrad('Frostsikring', s.frostsikring, m.frostsikring)}
+${lagrad('Forsterkningslag', s.forsterkningslag, m.forsterkningslag)}
+${lagrad('Bærelag', s.baerelag, m.baerelagTykkelse)}
+${lagrad('Avretting', s.avrettingslag, m.avrettingslag)}
+${lagrad('Slitelag', s.slitelag, m.slitelagTykkelse)}
+${rad('Sum overbygning', t(lag) + ' m³', true)}
+</tbody></table>` : ''}
+</div>
+</div>
+
+<h2>Sidene</h2>
+<table><thead><tr><th>Side</th><th>Lengde</th><th>Retning</th><th>Behandling</th><th>Helning</th></tr></thead>
+<tbody>${sider}</tbody></table>
+
+${b ? `<h2>Massebalanse</h2>
+<table class="noekkel"><tbody>
+${rad(`Sprengt fjell, løst på lass <small>× ${app.P.faktorer.sprengningsfaktor}</small>`, t(b.fjellSprengtLos) + ' p.a.m³')}
+${rad(`Tilgjengelig til fylling <small>fjell × ${app.P.faktorer.fjellIFylling}</small>`, t(b.tilgjengelig) + ' m³')}
+${rad('Fyllingsbehov', t(b.fyllingBehov) + ' m³')}
+${rad(b.manglerTotalt > 1 ? '<span class="raud">Må kjøres inn</span>' : 'Overskudd',
+    t(b.manglerTotalt > 1 ? b.manglerTotalt : Math.abs(b.balanse)) + ' m³', true)}
+${rad('Til deponi', t(b.tilDeponi) + ' m³')}
+</tbody></table>` : ''}
+
+${merknader ? `<h2>Merknader</h2><table><thead><tr><th>Type</th><th>Merknad</th></tr></thead>
+<tbody>${merknader}</tbody></table>` : ''}
+
+<div class="bunn liten">
+<b>Hauge Maskin</b> · Beregnet i Massekalk.
+Volumene er regnet celle for celle på Kartverkets 1 m høydemodell (DTM1).
+Skjæringen måles fra den avdekkede flaten, altså etter at matjorda er tatt av.
+Terrengmodellen viser terrenget slik det var da området sist ble skannet –
+<span class="raud">kontroller mot befaring før kontrahering</span>.
+Dybden til fjell er den største usikkerheten i sprengningsvolumet.
+</div>
+</body></html>`;
+    this.visRapport(html, app);
+  },
+
   /* ---------------- Eksport ---------------- */
+
+  /**
+   * Kan det eksporteres, og i hvilken form?
+   *
+   * `if (!res)` er en sannhetskontroll, ikke en formkontroll. Sju eksportknapper
+   * og to rapportknapper slapp et TOMTEresultat rett inn i kode som forutsetter
+   * `res.profiler`. Utfallet var tre uklassede TypeError-er, tre knapper som
+   * gjorde bokstavelig talt ingenting, og – verst – en LandXML-fil på 811 tegn
+   * med veglinja fra et tomt veganlegg. En fil som ser ferdig ut er verre enn
+   * ingen fil.
+   *
+   * @returns {{ok:true, form:'veg'|'tomt'}|{ok:false, grunn:string}}
+   */
+  kanEksportere() {
+    const app = this.app, res = app.resultat;
+    if (!res) return { ok: false, grunn: 'Ingen beregning ennå – regn ut anlegget først.' };
+    if (!app.sone) return { ok: false, grunn: 'Koordinatsonen er ikke satt – tegn anlegget i kartet først.' };
+    if (app.erTomt()) {
+      /* Stubben som skrives når skråningene ikke får plass innenfor grensa har
+         verken rutenett eller celler. Den ville gitt en fil med null på hver
+         post, og null ser ut som et svar. */
+      if (!res.rutenett || !res.rutenett.length || !res.celler) {
+        const m = res.merknader && res.merknader[0];
+        return { ok: false, grunn: 'Tomta er ikke ferdig regnet – '
+          + (m ? m.tekst : 'sett et ferdig nivå og prøv igjen') };
+      }
+      return { ok: true, form: 'tomt' };
+    }
+    if (!Array.isArray(res.profiler) || res.profiler.length < 2) {
+      return { ok: false, grunn: 'Veglinja har ikke nok profiler til eksport.' };
+    }
+    if (!app.linje || !app.linje.elementer.length) {
+      return { ok: false, grunn: 'Ingen linjeføring – sett minst to knekkpunkt.' };
+    }
+    return { ok: true, form: 'veg' };
+  },
+
+  /**
+   * Melder fra der brukeren faktisk står.
+   *
+   * `alert()` på tre av knappene, en diskret grå statuslinje øverst til høyre på
+   * de andre, og ingenting i det hele tatt på de tre som kastet. Nå går alt til
+   * samme boks rett under knappene.
+   */
+  eksportsvar(tekst, feil) {
+    const boks = document.getElementById('eksportsvar');
+    if (boks) {
+      boks.innerHTML = `<div class="${feil ? 'merke-varsel' : ''}">${feil ? '⚠ ' : ''}${escapeHtml(tekst)}</div>`;
+    }
+    this.app.status((feil ? '⚠ ' : '') + tekst);
+  },
+
+  /** Kjører en eksport med vakt, feilmelding og logging på plass. */
+  kjorEksport(navn, lag) {
+    const kan = this.kanEksportere();
+    if (!kan.ok) { this.eksportsvar(kan.grunn, true); return false; }
+    try {
+      lag(kan.form);
+      return true;
+    } catch (e) {
+      console.error('Eksport «' + navn + '» feilet', e);
+      this.eksportsvar(navn + ' kunne ikke skrives: ' + e.message, true);
+      return false;
+    }
+  },
+
+  /** Filnavn uten æøå-massakre – `\W` er ASCII-only uansett flagg. */
+  filnavn(ekstra) {
+    return Lager.filnavn(this.app.P.navn) + (ekstra || '');
+  },
 
   lastNed(navn, innhold, type = 'text/csv;charset=utf-8') {
     /* Byte order mark hører til CSV-ene: uten den viser Excel æ, ø og å feil.
@@ -519,72 +750,240 @@ Dybden til fjell er den største usikkerheten i sprengningsvolumet.
     setTimeout(() => URL.revokeObjectURL(a.href), 4000);
   },
 
+  /* Desimaltegn i CSV.
+     Semikolon som skilletegn og PUNKTUM som desimaltegn: norsk Excel leser da
+     tallene som tekst, og verre – felt med to desimaler der heltallsdelen er
+     1–31 og desimalene 01–12 blir DATOER. 3.05 m³ ble til 3. mai. Skilletegnet
+     er riktig; det er desimaltegnet som er feil. */
+  n(v, des) {
+    return Number.isFinite(v) ? v.toFixed(des).replace('.', ',') : '';
+  },
+
+  /** To linjer som sier hva filen inneholder, hvilket system og hvilken høyde. */
+  csvHode(app, ekstra) {
+    const na = new Date().toLocaleString('nb-NO', { dateStyle: 'short', timeStyle: 'short' });
+    const rader = [`# Massekalk ${na} · ${String(app.P.navn).replace(/[\r\n;]+/g, ' ')} · `
+      + `EUREF89 UTM${app.sone} (EPSG:${Geo.epsg(app.sone)}) · høyder NN2000`];
+    if (ekstra) rader.push('# ' + ekstra);
+    return rader;
+  },
+
   eksportStikning() {
-    const app = this.app, res = app.resultat;
-    if (!res) return alert('Ingen beregning ennå.');
-    const rader = ['Profil;Nord;Ost;Z_veg;Z_terreng;VK_nord;VK_ost;VK_z;HK_nord;HK_ost;HK_z'];
-    /* Samme kilde som rapporten og de andre eksportene bruker. Tidligere ble
-       vegkanthøyden regnet rett fra mal.tverrfall her, som ga samme høyde pa
-       begge sider - galt bade ved ensidig fall, ved egne tverrfall og i
-       kurver som doseres. */
-    for (const r of Eksport.punkter(app, res)) {
-      rader.push([
-        r.s.toFixed(2), r.senter.n.toFixed(3), r.senter.o.toFixed(3), r.senter.z.toFixed(3),
-        isFinite(r.terreng) ? r.terreng.toFixed(3) : '',
-        r.venstre.n.toFixed(3), r.venstre.o.toFixed(3), r.venstre.z.toFixed(3),
-        r.hoyre.n.toFixed(3), r.hoyre.o.toFixed(3), r.hoyre.z.toFixed(3)
-      ].join(';'));
+    this.kjorEksport('Stikningsdata', form => {
+      const app = this.app, res = app.resultat;
+      if (form === 'tomt') return this.eksportStikningTomt(app, res);
+      const ob = (res.mal.slitelagTykkelse || 0) + (res.mal.baerelagTykkelse || 0);
+      const rader = this.csvHode(app, `Z_veg og VK_z/HK_z er FERDIG vegnivå. `
+        + `Planum ligger ${this.n(ob, 2)} m under.`);
+      rader.push('Profil;Nord;Ost;Z_veg;Z_terreng;VK_nord;VK_ost;VK_z;HK_nord;HK_ost;HK_z');
+      /* Samme kilde som rapporten og de andre eksportene bruker. Tidligere ble
+         vegkanthøyden regnet rett fra mal.tverrfall her, som ga samme høyde pa
+         begge sider - galt bade ved ensidig fall, ved egne tverrfall og i
+         kurver som doseres. */
+      for (const r of Eksport.punkter(app, res)) {
+        rader.push([
+          this.n(r.s, 2), this.n(r.senter.n, 3), this.n(r.senter.o, 3), this.n(r.senter.z, 3),
+          this.n(r.terreng, 3),
+          this.n(r.venstre.n, 3), this.n(r.venstre.o, 3), this.n(r.venstre.z, 3),
+          this.n(r.hoyre.n, 3), this.n(r.hoyre.o, 3), this.n(r.hoyre.z, 3)
+        ].join(';'));
+      }
+      this.lastNed(this.filnavn('_stikning.csv'), rader.join('\r\n'));
+      this.eksportsvar('Skrev stikningsdata for ' + res.profiler.length + ' profiler');
+    });
+  },
+
+  /** Stikningsdata for en tomt: hjørner, grense, utslag og murer. */
+  eksportStikningTomt(app, res) {
+    const d = Eksport.tomtpunkter(app, res);
+    const rader = this.csvHode(app, 'Z_ferdig er overflaten det kjøres på. Z_planum ligger '
+      + this.n(d.ob, 2) + ' m under (overbygningen). Utslagspunkt uten Z_terreng er '
+      + 'punkt der skråningen ikke landet – de er utelatt, ikke satt til null.');
+    if (d.erYttergrense) {
+      rader.push('# Omrisset er tegnet som YTTERGRENSE: G-punktene er tomtegrensa, '
+        + 'F/P-punktene er den ferdige flaten innenfor.');
     }
-    this.lastNed(this.app.P.navn.replace(/\W+/g, '_') + '_stikning.csv', rader.join('\r\n'));
+    rader.push('Punkt;Type;Kant;Nord_m;Ost_m;Z_ferdig;Z_planum;Z_terreng;Merknad');
+    const rad = (n, t, k, y, x, zf, zp, zt, m) => rader.push(
+      [n, t, k == null ? '' : k, this.n(y, 3), this.n(x, 3),
+        this.n(zf, 3), this.n(zp, 3), this.n(zt, 3), m || ''].join(';'));
+
+    for (const h of d.hjorner) {
+      rad('F' + String(h.nr).padStart(2, '0'), 'hjorne', null, h.y, h.x, h.zFerdig, h.zPlanum, null, '');
+    }
+    if (d.erYttergrense) {
+      const tp = Tomt.tyngdepunkt(d.flate);
+      for (const g of d.grense) {
+        const naer = Tomtmasser.naermestePaOmriss(d.flate, g.x, g.y);
+        rad('G' + String(g.nr).padStart(2, '0'), 'grense', null, g.y, g.x, null,
+          Tomtmasser.nivaaVed(d.nivaa, naer.x, naer.y, tp) - d.ob, null, '');
+      }
+    }
+    let k = 0;
+    for (const f of d.fot) {
+      if (f.type === 'apen') continue;
+      const m = f.moterGrense ? 'kuttet i tomtegrensa'
+        : f.iLufta ? 'landet ikke – henger i lufta'
+          : f.manglerData ? 'terrengdataene tok slutt' : '';
+      if (f.traff !== true) { rad('–', f.type, f.kant + 1, f.y, f.x, null, null, null, m); continue; }
+      rad('U' + String(++k).padStart(4, '0'),
+        f.type === 'skjaering' ? 'skjaeringstopp' : 'fyllingsfot',
+        f.kant + 1, f.y, f.x, null, null, f.z, m);
+    }
+    for (const m of Eksport.murpunkter(d)) {
+      rad(m.navn, m.kode.toLowerCase(), null, m.y, m.x, null, null, m.z, '');
+    }
+    this.lastNed(this.filnavn('_stikning.csv'), rader.join('\r\n'));
+    this.eksportsvar('Skrev ' + (rader.length - 3) + ' stikningspunkt for tomta');
   },
 
   eksportMasser() {
-    const res = this.app.resultat;
-    if (!res) return alert('Ingen beregning ennå.');
-    const rader = ['Profil;Radius;Breddeutvidelse;Z_veg;Z_terreng;Fjelldybde;A_skjaering;A_skjaering_fjell;A_fylling;A_rensk;V_skjaering_til_neste;V_fjell;V_fylling;V_rensk;V_baerelag;V_slitelag'];
-    res.profiler.forEach((p, i) => {
-      const iv = res.intervaller[i];
-      rader.push([
-        p.s.toFixed(2), isFinite(p.radius) ? p.radius.toFixed(1) : '', p.utvidelse.toFixed(2),
-        p.vegnivaa.toFixed(3), isFinite(p.terrengSenter) ? p.terrengSenter.toFixed(3) : '', p.fjelldybde.toFixed(2),
-        p.areal.skjaering.toFixed(2), p.areal.skjaeringFjell.toFixed(2), p.areal.fylling.toFixed(2), p.areal.rensk.toFixed(2),
-        iv ? iv.volum.skjaering.toFixed(2) : '', iv ? iv.volum.skjaeringFjell.toFixed(2) : '',
-        iv ? iv.volum.fylling.toFixed(2) : '', iv ? iv.volum.rensk.toFixed(2) : '',
-        iv ? iv.volum.baerelag.toFixed(2) : '', iv ? iv.volum.slitelag.toFixed(2) : ''
-      ].join(';'));
+    this.kjorEksport('Masseoppsett', form => {
+      const app = this.app, res = app.resultat;
+      if (form === 'tomt') return this.eksportMasserTomt(app, res);
+      const rader = this.csvHode(app, 'A-kolonnene er uvektet tverrsnittsareal. '
+        + 'V-kolonnene er kurvevektet volum (Pappus) og er derfor ikke A × lengde i kurver.');
+      rader.push('Profil;Lengde_til_neste;Radius;Breddeutvidelse;Z_veg;Z_terreng;Fjelldybde;'
+        + 'A_skjaering_m2;A_skjaering_fjell_m2;A_fylling_m2;A_rensk_m2;'
+        + 'V_skjaering_m3;V_fjell_m3;V_fylling_m3;V_rensk_m3;V_baerelag_m3;V_slitelag_m3');
+      res.profiler.forEach((p, i) => {
+        const iv = res.intervaller[i];
+        rader.push([
+          this.n(p.s, 2), iv ? this.n(iv.lengde, 2) : '',
+          isFinite(p.radius) ? this.n(p.radius, 1) : '', this.n(p.utvidelse, 2),
+          this.n(p.vegnivaa, 3), this.n(p.terrengSenter, 3), this.n(p.fjelldybde, 2),
+          this.n(p.areal.skjaering, 2), this.n(p.areal.skjaeringFjell, 2),
+          this.n(p.areal.fylling, 2), this.n(p.areal.rensk, 2),
+          iv ? this.n(iv.volum.skjaering, 2) : '', iv ? this.n(iv.volum.skjaeringFjell, 2) : '',
+          iv ? this.n(iv.volum.fylling, 2) : '', iv ? this.n(iv.volum.rensk, 2) : '',
+          iv ? this.n(iv.volum.baerelag, 2) : '', iv ? this.n(iv.volum.slitelag, 2) : ''
+        ].join(';'));
+      });
+      this.lastNed(this.filnavn('_masser.csv'), rader.join('\r\n'));
+      this.eksportsvar('Skrev masseoppsett for ' + res.profiler.length + ' profiler');
     });
-    this.lastNed(this.app.P.navn.replace(/\W+/g, '_') + '_masser.csv', rader.join('\r\n'));
+  },
+
+  /** Massesammendrag for en tomt. Det finnes ingen profiler å dele opp etter. */
+  eksportMasserTomt(app, res) {
+    const s = res.sum, b = res.balanse || {}, m = app.P.mal, t = app.P.tomt;
+    const rader = this.csvHode(app, `rutestørrelse ${this.n(m.rutestorrelse, 2)} m · `
+      + `${res.celler} celler · alle volum i prosjektert fast masse (p.f.m³)`);
+    rader.push('Post;Volum_m3;Merknad');
+    const post = (navn, v, merk) => {
+      if (!(v > 0.005)) return;
+      rader.push([navn, this.n(v, 1), merk || ''].join(';'));
+    };
+    post('Matjord (avdekking)', s.matjord, 'mellomlagres ofte på tomta');
+    post('Rensk mot fjell', s.rensk, 'siste laget av bergflaten');
+    post('Skjæring totalt', s.skjaering);
+    post('Skjæring, løsmasse', s.skjaeringLosmasse, 'rensk er trukket ut');
+    post('Skjæring, fjell', s.skjaeringFjell, 'sprengning');
+    post('Overberg', s.overberg, 'egen post – ikke bakt inn i fjellvolumet (R761 prosess 22.1)');
+    post('Fylling', s.fylling);
+    post('Frostsikring', s.frostsikring);
+    post('Forsterkningslag', s.forsterkningslag);
+    post('Bærelag', s.baerelag);
+    post('Avrettingslag', s.avrettingslag);
+    post('Slitelag', s.slitelag);
+    post('Murfundament', s.murFundament, 'grøft under muren');
+    post('Drenerende bakfylling', s.murBakfylling, 'kjøpes – må være drenerende');
+
+    rader.push('');
+    rader.push('Nøkkeltall;Verdi;Enhet');
+    const tall = (navn, v, enhet) => rader.push([navn, this.n(v, 2), enhet || ''].join(';'));
+    tall('Areal, ferdig flate', res.areal, 'm2');
+    tall('Areal inkl. skråninger', res.arealMedSkraning, 'm2');
+    tall('Omkrets', Tomt.omkrets(app.tomtIUtm(t)), 'm');
+    rader.push(['Ferdig kote', this.n(t.nivaa.kote, 2),
+      'm NN2000 – ' + (Tomt.Nivaamoduser[t.nivaa.modus] || t.nivaa.modus)].join(';'));
+    tall('Overbygningstykkelse', res.overbygning, 'm');
+    tall('Dypeste skjæring', res.dypesteSkjaering, 'm');
+    tall('Høyeste fylling', res.hoyesteFylling, 'm');
+    if (res.hoyesteVegg > 0.05) tall('Høyeste bergvegg', res.hoyesteVegg, 'm');
+    tall('Skråningsutslag, største', res.rekkevidde, 'm');
+
+    if (b.tilgjengelig != null) {
+      rader.push('');
+      rader.push('Massebalanse;Volum_m3');
+      const bal = (navn, v) => rader.push([navn, this.n(v, 1)].join(';'));
+      bal('Sprengt fjell, løst på lass', b.fjellSprengtLos);
+      bal('Tilgjengelig til fylling', b.tilgjengelig);
+      bal('Fyllingsbehov', b.fyllingBehov);
+      bal('Balanse', b.balanse);
+      if (b.manglerTotalt > 1) bal('Må kjøres inn', b.manglerTotalt);
+      bal('Til deponi', b.tilDeponi);
+    }
+    if (res.merknader && res.merknader.length) {
+      rader.push('');
+      rader.push('Merknader');
+      for (const q of res.merknader) rader.push(String(q.tekst).replace(/[\r\n;]+/g, ' '));
+    }
+    this.lastNed(this.filnavn('_massesammendrag.csv'), rader.join('\r\n'));
+    this.eksportsvar('Skrev massesammendrag for tomta');
+  },
+
+  /** Rutenettet som CSV. Egen knapp – det er tusenvis av rader. */
+  eksportRutenett() {
+    this.kjorEksport('Rutenett', form => {
+      const app = this.app, res = app.resultat;
+      if (form !== 'tomt') throw new Error('Rutenettet finnes bare for en tomt');
+      const rader = this.csvHode(app, 'Gravedybde måles fra Z_avdekket, altså etter at '
+        + 'matjorda er tatt av – ikke fra naturlig terreng. Z_ferdig står tomt utenfor tomta.');
+      rader.push('Nord_m;Ost_m;Innenfor;Z_terreng;Z_avdekket;Z_planum;Z_ferdig;'
+        + 'Matjord_m;Gravedybde_m;Fylling_m;Fjelldel_m');
+      for (const c of res.rutenett) {
+        rader.push([this.n(c.y, 3), this.n(c.x, 3), c.inne ? 'ja' : 'nei',
+          this.n(c.zT, 3), this.n(c.zAvdekket, 3), this.n(c.zPlanum, 3),
+          c.zFerdig == null ? '' : this.n(c.zFerdig, 3),
+          this.n(c.matjord, 3),
+          c.d > 0 ? this.n(c.d, 3) : '', c.d < 0 ? this.n(-c.d, 3) : '',
+          this.n(c.fjellDel, 3)].join(';'));
+      }
+      this.lastNed(this.filnavn('_rutenett.csv'), rader.join('\r\n'));
+      this.eksportsvar('Skrev ' + res.rutenett.length + ' ruter');
+    });
   },
 
   /** Eksport til de andre filformatene. */
   eksporter(format) {
-    const app = this.app, res = app.resultat;
-    if (!res) return alert('Ingen beregning ennå.');
-    const grunnnavn = app.P.navn.replace(/\W+/g, '_');
-    const oppsett = {
-      kof: ['.KOF', () => Eksport.kof(app, res), 'text/plain;charset=utf-8'],
-      landxml: ['.xml', () => Eksport.landxml(app, res), 'application/xml;charset=utf-8'],
-      sosi: ['.sos', () => Eksport.sosi(app, res), 'text/plain;charset=utf-8'],
-      dxf: ['.dxf', () => Eksport.dxf(app, res), 'application/dxf']
-    }[format];
-    if (!oppsett) return;
-    const [endelse, lag, type] = oppsett;
-    try {
-      this.lastNed(grunnnavn + endelse, lag(), type);
-      app.status('Eksporterte ' + grunnnavn + endelse);
-    } catch (e) {
-      app.status('Eksporten feilet: ' + e.message);
-    }
+    const navn = { kof: 'KOF', landxml: 'LandXML', sosi: 'SOSI', dxf: 'DXF' }[format];
+    if (!navn) return;
+    this.kjorEksport(navn, form => {
+      const app = this.app, res = app.resultat;
+      const tomt = form === 'tomt';
+      const oppsett = {
+        kof: ['.KOF', () => tomt ? Eksport.kofTomt(app, res) : Eksport.kof(app, res), 'text/plain;charset=utf-8'],
+        /* Aldri <Alignment> for en tomt. Her ble veglinja fra det tomme
+           veganlegget skrevet ut i stedet – en velformet fil som åpnet uten
+           innsigelser og inneholdt null meter av det brukeren regnet på. */
+        landxml: ['.xml', () => tomt ? Eksport.landxmlTomt(app, res) : Eksport.landxml(app, res), 'application/xml;charset=utf-8'],
+        sosi: ['.sos', () => tomt ? Eksport.sosiTomt(app, res) : Eksport.sosi(app, res), 'text/plain;charset=utf-8'],
+        dxf: ['.dxf', () => tomt ? Eksport.dxfTomt(app, res) : Eksport.dxf(app, res), 'application/dxf']
+      }[format];
+      const [endelse, lag, type] = oppsett;
+      const innhold = lag();
+      this.lastNed(this.filnavn(endelse), innhold, type);
+      this.eksportsvar('Eksporterte ' + this.filnavn(endelse)
+        + ' (' + Math.round(innhold.length / 1024) + ' kB)');
+    });
   },
 
   eksportGeojson() {
-    const app = this.app, res = app.resultat;
-    if (!res) return alert('Ingen beregning ennå.');
+    this.kjorEksport('GeoJSON', form => {
+      const app = this.app, res = app.resultat;
+      const geo = form === 'tomt' ? this.geojsonTomt(app, res) : this.geojsonVeg(app, res);
+      this.lastNed(this.filnavn('.geojson'), JSON.stringify(geo, null, 1), 'application/geo+json');
+      this.eksportsvar('Skrev ' + geo.features.length + ' objekter til GeoJSON');
+    });
+  },
+
+  geojsonVeg(app, res) {
     const ll = q => { const g = Geo.fraUtm(q.x, q.y, app.sone); return [+g.lon.toFixed(8), +g.lat.toFixed(8)]; };
     const senter = res.profiler.map(p => ll({ x: p.x, y: p.y }));
     const venstre = res.profiler.map(p => ll(app.linje.punktMedAvvik(p.s, p.fotVenstre)));
     const hoyre = res.profiler.map(p => ll(app.linje.punktMedAvvik(p.s, p.fotHoyre)));
-    const geo = {
+    return {
       type: 'FeatureCollection',
       features: [
         { type: 'Feature', properties: { navn: app.P.navn, type: 'senterlinje', lengde: +res.lengde.toFixed(2) }, geometry: { type: 'LineString', coordinates: senter } },
@@ -592,7 +991,81 @@ Dybden til fjell er den største usikkerheten i sprengningsvolumet.
         ...app.P.fjell.punkter.map(p => ({ type: 'Feature', properties: { type: 'fjellobservasjon', dybde: p.dybde }, geometry: { type: 'Point', coordinates: [p.lon, p.lat] } }))
       ]
     };
-    this.lastNed(app.P.navn.replace(/\W+/g, '_') + '.geojson', JSON.stringify(geo, null, 1), 'application/geo+json');
+  },
+
+  geojsonTomt(app, res) {
+    const d = Eksport.tomtpunkter(app, res);
+    const t = app.P.tomt;
+    const ll = q => { const g = Geo.fraUtm(q.x, q.y, app.sone); return [+g.lon.toFixed(8), +g.lat.toFixed(8)]; };
+    const llz = (q, z) => { const c = ll(q); return Number.isFinite(z) ? [c[0], c[1], +z.toFixed(3)] : c; };
+    const ring = p => p.map(ll).concat([ll(p[0])]);
+    const f = [];
+    f.push({
+      type: 'Feature',
+      properties: {
+        type: 'ferdig_flate', navn: app.P.navn,
+        areal_m2: +res.areal.toFixed(1), omkrets_m: +Tomt.omkrets(d.flate).toFixed(1),
+        kote: t.nivaa.kote, nivaamodus: t.nivaa.modus,
+        fall: t.nivaa.fall || 0, fallretning: t.nivaa.fallretning || 0,
+        overbygning_m: +d.ob.toFixed(3), hoydereferanse: 'NN2000'
+      },
+      geometry: { type: 'Polygon', coordinates: [ring(d.flate)] }
+    });
+    if (d.erYttergrense) {
+      f.push({
+        type: 'Feature',
+        properties: { type: 'tomtegrense', omrissBetyr: 'yttergrense',
+          merknad: 'Ingenting er regnet utenfor denne linja' },
+        geometry: { type: 'Polygon', coordinates: [ring(d.omriss)] }
+      });
+    }
+    /* Utslaget som en FLATE bare når foten er kjent hele veien rundt. Et
+       Polygon er et løfte om en lukket grense; er en del av foten kuttet, må
+       de kjente bitene leveres som linjer med `komplett: false`. */
+    const komplett = Eksport.fotErKomplett(d.fot);
+    if (komplett) {
+      f.push({
+        type: 'Feature',
+        properties: { type: 'utslag', komplett: true,
+          arealMedSkraning_m2: +res.arealMedSkraning.toFixed(1),
+          rekkevidde_m: +(res.rekkevidde || 0).toFixed(1), hoydereferanse: 'NN2000' },
+        geometry: { type: 'Polygon', coordinates: [ring(d.fot.filter(q => q.type !== 'apen'))] }
+      });
+    } else {
+      for (const s of Eksport.fotstrekk(d.fot)) {
+        f.push({
+          type: 'Feature',
+          properties: { type: 'utslag', undertype: s.type, komplett: false,
+            merknad: 'Skråningen landet ikke hele veien rundt', hoydereferanse: 'NN2000' },
+          geometry: { type: 'LineString', coordinates: s.punkt.map(q => llz(q, q.z)) }
+        });
+      }
+    }
+    for (const k of d.kanter) {
+      const a = d.flate[k.nr], b = d.flate[(k.nr + 1) % d.flate.length];
+      if (!a || !b) continue;
+      f.push({
+        type: 'Feature',
+        properties: { type: 'kant', nr: k.nr + 1, kanttype: k.type || 'skraning',
+          behandling: Tomt.Kanttyper[k.type || 'skraning'],
+          lengde_m: +k.lengde.toFixed(2),
+          retning_grader: +(((90 - k.retning * 180 / Math.PI) % 360 + 360) % 360).toFixed(0) },
+        geometry: { type: 'LineString', coordinates: [ll(a), ll(b)] }
+      });
+    }
+    for (const h of d.hjorner) {
+      f.push({
+        type: 'Feature',
+        properties: { type: 'hjorne', nr: h.nr, z_ferdig: +h.zFerdig.toFixed(3),
+          z_planum: +h.zPlanum.toFixed(3), hoydereferanse: 'NN2000' },
+        geometry: { type: 'Point', coordinates: llz(h, h.zFerdig) }
+      });
+    }
+    for (const p of app.P.fjell.punkter) {
+      f.push({ type: 'Feature', properties: { type: 'fjellobservasjon', dybde: p.dybde },
+        geometry: { type: 'Point', coordinates: [p.lon, p.lat] } });
+    }
+    return { type: 'FeatureCollection', features: f };
   }
 };
 

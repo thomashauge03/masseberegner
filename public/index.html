@@ -142,12 +142,32 @@
       <button class="fane" data-fane="mal">Vegmal</button>
       <button class="fane" data-fane="grunn">Grunnforhold</button>
       <button class="fane" data-fane="linje">Linje</button>
+      <button class="fane" data-fane="eksport">Eksport</button>
       <button class="fane" data-fane="forklaring" title="Hva strekene, fargene og ordene betyr">Forklaring</button>
     </div>
 
     <!-- Masser -->
     <div class="faneinnhold aktiv" id="fane-masser">
       <div id="massesammendrag" class="tomtekst">Tegn en senterlinje i kartet for å komme i gang.</div>
+    </div>
+
+    <!-- Eksport. Egen fane fordi den gjelder begge moduser: lå den i Linje-fanen,
+         var alle sju knappene utilgjengelige så snart anlegget var en tomt. -->
+    <div class="faneinnhold" id="fane-eksport">
+      <p class="notis" id="eksportnotis">Formatene er skrevet etter spesifikasjonene, men er ikke
+        prøvd mot hvert enkelt mottakersystem. Ta en prøveimport av én fil før dere baserer en
+        jobb på dem.</p>
+      <div class="knappekolonne">
+        <button id="knappEksportKof" class="knapp bred">Stikningsdata (KOF)</button>
+        <button id="knappEksportLandxml" class="knapp bred">Linjeføring og profil (LandXML)</button>
+        <button id="knappEksportSosi" class="knapp bred">Kartdata (SOSI)</button>
+        <button id="knappEksportDxf" class="knapp bred">Tegning (DXF)</button>
+        <button id="knappEksportStikning" class="knapp bred">Stikningsdata (CSV)</button>
+        <button id="knappEksportMasser" class="knapp bred">Masseoppsett per profil (CSV)</button>
+        <button id="knappEksportGeojson" class="knapp bred">Linje og fotavtrykk (GeoJSON)</button>
+        <button id="knappEksportRutenett" class="knapp bred skjult">Rutenett per celle (CSV)</button>
+      </div>
+      <div id="eksportsvar" class="listeboks"></div>
     </div>
 
     <!-- Høyder -->
@@ -304,19 +324,6 @@
         <tbody></tbody>
       </table>
       <div id="linjeinfo" class="listeboks"></div>
-      <h3>Eksport</h3>
-      <p class="notis">Formatene er skrevet etter spesifikasjonene, men er ikke prøvd mot hvert
-        enkelt mottakersystem. Ta en prøveimport av én fil før dere baserer en jobb på dem.</p>
-      <div class="knappekolonne">
-        <button id="knappEksportKof" class="knapp bred">Stikningsdata (KOF)</button>
-        <button id="knappEksportLandxml" class="knapp bred">Linjeføring og profil (LandXML)</button>
-        <button id="knappEksportSosi" class="knapp bred">Kartdata (SOSI)</button>
-        <button id="knappEksportDxf" class="knapp bred">Tegning (DXF)</button>
-        <button id="knappEksportStikning" class="knapp bred">Stikningsdata (CSV)</button>
-        <button id="knappEksportMasser" class="knapp bred">Masseoppsett per profil (CSV)</button>
-        <button id="knappEksportGeojson" class="knapp bred">Linje og fotavtrykk (GeoJSON)</button>
-      </div>
-
       <h3>Kontroll</h3>
       <div class="knappekolonne">
         <button id="knappKontroller" class="knapp bred">Kontroller høyder mot Kartverket</button>

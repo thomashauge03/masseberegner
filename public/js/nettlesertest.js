@@ -80,6 +80,7 @@ const Nettlesertest = {
       await this.rapport();
       await this.paneler();
       await this.tomt();
+      await this.tomteksport();
       await this.framdrift();
       await this.opprydding();
     } catch (e) {
@@ -357,8 +358,16 @@ const Nettlesertest = {
     this.sjekk('tre filer ble laget', navn.length === 3, navn.join(', '));
     const stikning = ut[navn.find(n => n.includes('stikning'))];
     this.sjekk('stikningsdata har rader', stikning.split('\r\n').length > 5);
-    this.sjekk('stikningsdata har koordinater', /\d{6}\.\d{3};\d{6}\.\d{3}/.test(stikning));
-    this.sjekk('ingen tomme tall i stikningsdata', !/;;|NaN/.test(stikning));
+    /* KOMMA, IKKE PUNKTUM.
+       Semikolon som skilletegn og punktum som desimaltegn gjør at norsk Excel
+       leser tallene som tekst - og felt med to desimaler der heltallsdelen er
+       1-31 blir DATOER. 3.05 m³ ble til 3. mai. Denne testen sementerte
+       punktum, så rettingen ville sett ut som en regresjon. */
+    this.sjekk('stikningsdata har koordinater', /\d{6},\d{3};\d{6},\d{3}/.test(stikning));
+    this.sjekk('stikningsdata bruker komma som desimaltegn', !/;\d+\.\d/.test(stikning));
+    this.sjekk('ingen tomme tall i stikningsdata',
+      !/NaN/.test(stikning) && !stikning.split('\r\n').filter(l => !l.startsWith('#') && l).slice(1)
+        .some(l => /;;/.test(l)));
 
     const masser = ut[navn.find(n => n.includes('masser'))];
     this.sjekk('masseoppsettet har rader', masser.split('\r\n').length > 5);
@@ -814,6 +823,140 @@ const Nettlesertest = {
   },
 
   /* ---------------- 11b. tomtemodus ---------------- */
+  /* ---------------- 14. eksport og rapport i tomtemodus ---------------- */
+  /**
+   * Sju eksportknapper og to rapportknapper slapp et TOMTEresultat rett inn i
+   * kode som forutsetter res.profiler. Utfallet var tre uklassede TypeError-er,
+   * tre knapper som gjorde bokstavelig talt ingenting, og – verst – en
+   * LandXML-fil på 811 tegn med veglinja fra et tomt veganlegg. En fil som ser
+   * ferdig ut er verre enn ingen fil.
+   */
+  async tomteksport() {
+    const foer = JSON.stringify(App.P);
+    const gz = Terreng.prototype.z, gd = Terreng.prototype.dekning, gl = Terreng.prototype.lastOmraade;
+    const gammelNed = Rapport.lastNed, gammelOpen = window.open;
+    const filer = {};
+    try {
+      App.P = App.nyttProsjekt();
+      App.P.navn = '__test_eksport';
+      App.leggTilAnlegg('tomt');
+      const lat0 = 58.2958, lon0 = 7.2098;
+      const dLat = m => m / 111320;
+      const dLon = m => m / (111320 * Math.cos(lat0 * Math.PI / 180));
+      App.P.tomt.punkter = [[0, 0], [40, 0], [40, 30], [0, 30]]
+        .map(([dx, dy]) => ({ lat: lat0 + dLat(dy), lon: lon0 + dLon(dx) }));
+      App.P.tomt.kanter = [{ type: 'mur' }, {}, { type: 'fjellvegg' }, {}];
+      App.P.tomt.omrissBetyr = 'planum';
+      App.P.tomt.nivaa = { modus: 'flat', kote: 206 };
+
+      // terreng som skråner, så både skjæring og fylling finnes
+      const s0 = Geo.tilUtm(lat0, lon0, App.sone);
+      Terreng.prototype.lastOmraade = async function () { };
+      Terreng.prototype.dekning = () => 1;
+      Terreng.prototype.z = function (x, y) { return 207 + (x - s0.x) * 0.06 + (y - s0.y) * 0.04; };
+      App._terrengnokkel = null;
+      await App.beregnTomt();
+      this.sjekk('tomta ble regnet', !!App.resultat && App.resultat.celler > 100);
+
+      Rapport.lastNed = (navn, innhold) => { filer[navn] = String(innhold); };
+      const hent = del => filer[Object.keys(filer).find(n => n.includes(del))];
+
+      for (const kall of [() => Rapport.eksporter('kof'), () => Rapport.eksporter('landxml'),
+        () => Rapport.eksporter('sosi'), () => Rapport.eksporter('dxf'),
+        () => Rapport.eksportStikning(), () => Rapport.eksportMasser(),
+        () => Rapport.eksportGeojson(), () => Rapport.eksportRutenett()]) {
+        let feil = null;
+        try { kall(); } catch (e) { feil = e.message; }
+        this.sjekk('eksporten kastet ikke', !feil, feil || '');
+      }
+      this.sjekk('alle åtte filene ble laget', Object.keys(filer).length === 8,
+        Object.keys(filer).join(', '));
+      for (const [navn, innhold] of Object.entries(filer)) {
+        this.sjekk(`${navn.split('_').pop()} har verken NaN eller undefined`,
+          !/NaN|undefined/.test(innhold),
+          (innhold.match(/.{0,40}(NaN|undefined).{0,20}/) || [''])[0]);
+      }
+
+      const kof = hent('.KOF');
+      this.sjekk('KOF har 01-blokka med koordinatsystemet', /^ 01 /m.test(kof));
+      this.sjekk('KOF gir ikke to punkt samme navn', (() => {
+        const n = kof.split('\r\n').filter(l => l.startsWith(' 05')).map(l => l.slice(4, 14).trim());
+        return n.length > 8 && new Set(n).size === n.length;
+      })());
+      this.sjekk('KOF har både ferdig nivå og planum',
+        /FERDIG/.test(kof) && /PLANUM/.test(kof));
+
+      const xml = hent('.xml');
+      /* ALDRI <Alignment> for en tomt. Her ble veglinja fra det tomme
+         veganlegget skrevet ut - en velformet fil som åpnet uten innsigelser og
+         inneholdt null meter av det brukeren regnet på. */
+      this.sjekk('LandXML for tomt har flater', /<Surface /.test(xml));
+      this.sjekk('LandXML for tomt har INGEN linjeføring', !/<Alignment/.test(xml));
+      this.sjekk('LandXML-flatene har trekanter', (xml.match(/<F>/g) || []).length > 100);
+
+      const sos = hent('.sos');
+      this.sjekk('SOSI for tomt har en flate', /^\.FLATE/m.test(sos));
+      this.sjekk('SOSI er på nivå 4, som .FLATE krever', /SOSI-NIVÅ 4/.test(sos));
+      this.sjekk('SOSI deklarerer objektkatalogen', /\.\.OBJEKTKATALOG/.test(sos));
+      this.sjekk('SOSI-området står i meter, ikke centimeter', (() => {
+        const m = /MIN-NØ (\d+) (\d+)/.exec(sos);
+        return m && +m[1] > 6000000 && +m[1] < 8000000;
+      })(), (/MIN-NØ .*/.exec(sos) || [''])[0]);
+
+      const dxf = hent('.dxf');
+      this.sjekk('DXF har den ferdige flaten', dxf.includes('FERDIG_NIVAA'));
+      this.sjekk('DXF har en 2D-kontur som kan skraveres', dxf.includes('FERDIG_NIVAA_2D'));
+      this.sjekk('DXF er et helt par-oppsett',
+        dxf.split('\r\n').filter(l => l !== '').length % 2 === 0);
+
+      const geo = JSON.parse(hent('.geojson'));
+      this.sjekk('GeoJSON har den ferdige flaten',
+        geo.features.some(f => f.properties.type === 'ferdig_flate'));
+      this.sjekk('GeoJSON oppgir høydereferansen',
+        geo.features.filter(f => f.properties.z_ferdig != null)
+          .every(f => f.properties.hoydereferanse === 'NN2000'));
+
+      const csv = hent('stikning');
+      this.sjekk('stikningsdata for tomt bruker komma som desimaltegn',
+        /;\d+,\d/.test(csv) && !/;\d+\.\d/.test(csv));
+      this.sjekk('massesammendraget kom, ikke masseoppsett per profil',
+        !!hent('massesammendrag'));
+
+      /* Rapportene kastet begge: HTML på res.intervaller, PDF på res.mal. */
+      let html = null;
+      window.open = () => ({ document: { write: h => html = h, close() { } } });
+      let feilHtml = null;
+      try { Rapport.apneRapport(); } catch (e) { feilHtml = e.message; }
+      this.sjekk('HTML-rapporten kastet ikke i tomtemodus', !feilHtml, feilHtml || '');
+      this.sjekk('rapporten handler om tomta', !!html && /Areal/.test(html) && /Massebalanse/.test(html));
+      this.sjekk('rapporten inneholder ikke vegtall',
+        !!html && !/Veglengde/.test(html) && !/Tverrsnitt/.test(html));
+      this.sjekk('ingen NaN i tomterapporten', !!html && !/NaN|undefined/.test(html));
+
+      const bytes = await Pdfrapport.lag(false);
+      this.sjekk('PDF-rapporten ble til i tomtemodus', !!bytes && bytes.length > 2000,
+        bytes ? bytes.length + ' byte' : 'null');
+
+      /* En eksport som ikke kan gi riktig innhold skal NEKTE med en synlig
+         begrunnelse - aldri en fil som ser ferdig ut. */
+      App.resultat = null;
+      const foerAntall = Object.keys(filer).length;
+      Rapport.eksporter('kof');
+      this.sjekk('uten beregning blir det ingen fil', Object.keys(filer).length === foerAntall);
+      this.sjekk('og brukeren får vite hvorfor',
+        /Ingen beregning/.test(document.getElementById('eksportsvar').textContent));
+    } catch (e) {
+      this.sjekk('tomteksporten kom seg gjennom', false, e.message + ' — ' + (e.stack || '').split('\n')[1]);
+    } finally {
+      Terreng.prototype.z = gz; Terreng.prototype.dekning = gd; Terreng.prototype.lastOmraade = gl;
+      Rapport.lastNed = gammelNed; window.open = gammelOpen;
+      App._terrengnokkel = null;
+      App.P = JSON.parse(foer);
+      App.klargjorProsjekt(App.P);
+      App.resultat = null;
+    }
+  },
+
   async tomt() {
     const foer = JSON.stringify(App.P);
 

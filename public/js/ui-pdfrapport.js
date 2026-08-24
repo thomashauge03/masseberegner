@@ -81,8 +81,17 @@ const Pdfrapport = {
       P.tekst(xTekst, 26, 'MASSEBEREGNING', { storrelse: 15, fet: true, farge: [1, 1, 1] });
       P.tekst(xTekst, 40, String(app.P.navn), { storrelse: 9, farge: [0.82, 0.82, 0.84] });
       P.tekst(innmarg, 22, dato, { storrelse: 8, farge: [0.82, 0.82, 0.84], juster: 'h' });
-      P.tekst(innmarg, 33, 'Veglengde ' + t(res.lengde, 1) + ' m', { storrelse: 8, farge: [0.82, 0.82, 0.84], juster: 'h' });
-      P.tekst(innmarg, 44, this._klassenavn(app), { storrelse: 8, farge: [0.82, 0.82, 0.84], juster: 'h' });
+      /* En tomt har ingen veglengde og ingen veiklasse. Sto det «Veglengde – m»
+         og «Egen vegmal» øverst på hver side i en tomterapport, leste man en
+         rapport som handlet om noe annet enn det man hadde regnet. */
+      P.tekst(innmarg, 33, app.erTomt()
+        ? 'Areal ' + t(res.areal, 0) + ' m²'
+        : 'Veglengde ' + t(res.lengde, 1) + ' m',
+      { storrelse: 8, farge: [0.82, 0.82, 0.84], juster: 'h' });
+      P.tekst(innmarg, 44, app.erTomt()
+        ? (Tomt.Arbeidstyper[app.P.tomt.arbeidstype] || { navn: 'Tomt' }).navn
+        : this._klassenavn(app),
+      { storrelse: 8, farge: [0.82, 0.82, 0.84], juster: 'h' });
       tilstand.y = 76;
     };
 
@@ -169,6 +178,19 @@ const Pdfrapport = {
         tilstand.y += 10;
       }
     };
+
+    /* EN TOMT HAR INGEN PROFILER, OG RAPPORTEN MÅ VITE DET.
+       Her ble et tomteresultat sendt rett inn i vegrapporten. Første felt som
+       ikke fantes (`res.mal.renskDybde`) kastet, PDF-en ble aldri til, og
+       brukeren fikk en grå statuslinje det var lett å overse. Å lappe felt for
+       felt ville tatt åtte krasj på rad. */
+    if (app.erTomt()) {
+      this._tomteinnhold(app, res, {
+        P, t, tilstand, innmarg, nySide, plass, overskrift, nokkeltabell, tabell, brodtekst
+      });
+      this._bunn(P, innmarg);
+      return P.bygg();
+    }
 
     /* ---------------- side 1 ---------------- */
     nySide();
@@ -322,7 +344,12 @@ const Pdfrapport = {
       );
     }
 
-    /* ---------------- bunntekst pa hver side ---------------- */
+    this._bunn(P, innmarg);
+    return P.bygg();
+  },
+
+  /** Bunnteksten på hver side. Felles for veg og tomt. */
+  _bunn(P, innmarg) {
     const bunntekst = 'Terrenghøydene er hentet fra Kartverket sin nasjonale høydemodell (DTM1, 1×1 m fra '
       + 'flybåren laserskanning). Modellen viser terrenget slik det var ved siste skanning – kontroller mot '
       + 'befaring før kontrahering. Dybden til fjell er den største usikkerheten i sprengningsvolumet.';
@@ -335,8 +362,137 @@ const Pdfrapport = {
       P.tekst(innmarg, yb, 'Hauge Maskin', { storrelse: 7.4, fet: true, juster: 'h' });
       P.tekst(innmarg, yb + 9, `Side ${i + 1} av ${P.sider.length}`, { storrelse: 6.8, farge: this.GRA, juster: 'h' });
     });
+  },
 
-    return P.bygg();
+  /**
+   * Innholdet i en tomterapport.
+   *
+   * Samme rekkefølge som sidepanelet viser på skjermen: mål, nivå, nøkkeltall,
+   * masser, mur, overbygning, massebalanse, merknader. Den som har lest
+   * skjermen skal kjenne igjen rapporten – ikke lure på hvorfor tallene står i
+   * en annen orden.
+   */
+  _tomteinnhold(app, res, r) {
+    const { P, t, tilstand, innmarg, nySide, overskrift, nokkeltabell, tabell, brodtekst } = r;
+    const s = res.sum, b = res.balanse, m = app.P.mal, tt = app.P.tomt;
+    const p = app.tomtIUtm(tt);
+    const flate = app._innerflate || p;
+    const bf = app.bakkefaktor();
+
+    nySide();
+    P.tekst(this.MARG, tilstand.y, `Terrengmodell: Kartverket DTM1 (1 m laserdata) · EUREF89 UTM${app.sone}`
+      + ` · rutenett ${t(m.rutestorrelse, 2)} m · ${res.celler} celler`,
+    { storrelse: 7.6, farge: this.GRA });
+    tilstand.y += 6;
+
+    overskrift('Mål og nivå');
+    const niv = tt.nivaa || {};
+    const nivaatekst = niv.modus === 'fall'
+      ? `${t(niv.kote, 2)} m med fall ${t((niv.fall || 0) * 100, 1)} % mot ${t(niv.fallretning || 0, 0)}°`
+      : niv.modus === 'sluk'
+        ? `${t(niv.kote, 2)} m, faller mot ett punkt`
+        : `${t(niv.kote, 2)} m, flatt`;
+    nokkeltabell([
+      ['Areal, ferdig flate', t(res.areal) + ' m²'],
+      ['Areal med skråninger', t(res.arealMedSkraning) + ' m²'],
+      ['Omkrets', t(Tomt.omkrets(flate) * bf, 1) + ' m'],
+      ['Hjørner', String(flate.length)],
+      ['Ferdig nivå (NN2000)', nivaatekst, true],
+      ['Overbygning over planum', t(res.overbygning, 2) + ' m'],
+      ['Omrisset betyr', tt.omrissBetyr === 'yttergrense'
+        ? 'yttergrense – ferdig flate er regnet innover' : 'ferdig flate – skråninger kommer utenfor']
+    ], this.MARG, innmarg - this.MARG);
+
+    overskrift('Sidene');
+    tabell(
+      [{ tekst: 'Side', bredde: 8, venstre: true }, { tekst: 'Lengde', bredde: 14 },
+        { tekst: 'Retning', bredde: 12 }, { tekst: 'Behandling', bredde: 34, venstre: true },
+        { tekst: 'Helning', bredde: 14 }],
+      Tomt.kanter(flate).map(k => {
+        const kant = (tt.kanter || [])[k.nr] || {};
+        const type = kant.type || 'skraning';
+        const grader = ((90 - k.retning * 180 / Math.PI) % 360 + 360) % 360;
+        const hell = type === 'mur' ? '1:' + t(kant.murAnlegg != null ? kant.murAnlegg : m.murAnlegg, 2)
+          : type === 'fjellvegg' ? '10:1'
+            : type === 'apen' ? '–' : '1:' + t(m.skjaeringLosmasse, 1);
+        return { celler: [String(k.nr + 1), t(k.lengde * bf, 1) + ' m', t(grader, 0) + '°',
+          Tomt.Kanttyper[type] || type, hell] };
+      })
+    );
+
+    overskrift('Nøkkeltall');
+    const nk = [
+      ['Dypeste skjæring', t(res.dypesteSkjaering, 2) + ' m'],
+      ['Høyeste fylling', t(res.hoyesteFylling, 2) + ' m']
+    ];
+    if (res.hoyesteVegg > 0.05) nk.push(['Høyeste bergvegg', t(res.hoyesteVegg, 2) + ' m']);
+    if (res.rekkevidde > 0) nk.push(['Skråningen går lengst ut', t(res.rekkevidde, 1) + ' m']);
+    nokkeltabell(nk, this.MARG, innmarg - this.MARG);
+
+    overskrift('Masser – prosjektert fast volum');
+    const poster = [];
+    const legg = (navn, v, uthevet) => { if (v > 0.5) poster.push([navn, t(v) + ' m³', uthevet]); };
+    legg('Matjord som tas av', s.matjord);
+    legg('Rensk mot fjell', s.rensk);
+    legg('Skjæring totalt', s.skjaering, true);
+    legg('– løsmasse', s.skjaeringLosmasse);
+    legg('– fjell (sprengning)', s.skjaeringFjell);
+    legg('– overberg', s.overberg);
+    legg('Fylling', s.fylling, true);
+    nokkeltabell(poster, this.MARG, innmarg - this.MARG);
+
+    if (res.murLengde > 0.5) {
+      overskrift('Støttemur');
+      nokkeltabell([
+        ['Lengde', t(res.murLengde, 1) + ' m'],
+        ['Høyeste punkt', t(res.murHoyde, 2) + ' m'],
+        ['Fundamentgrøft', t(s.murFundament, 1) + ' m³'],
+        ['Drenerende bakfylling', t(s.murBakfylling, 1) + ' m³']
+      ], this.MARG, innmarg - this.MARG);
+    }
+
+    const lag = s.slitelag + s.baerelag + s.forsterkningslag + s.frostsikring + s.avrettingslag;
+    if (lag > 0.5) {
+      overskrift('Byggeklart – lag som skal inn');
+      const rader = [];
+      const lagrad = (navn, v, tykk) => { if (v > 0.005) rader.push([navn + (tykk ? ` (${t(tykk, 2)} m)` : ''), t(v) + ' m³']); };
+      lagrad('Frostsikring', s.frostsikring, m.frostsikring);
+      lagrad('Forsterkningslag', s.forsterkningslag, m.forsterkningslag);
+      lagrad('Bærelag', s.baerelag, m.baerelagTykkelse);
+      lagrad('Avretting', s.avrettingslag, m.avrettingslag);
+      lagrad('Slitelag', s.slitelag, m.slitelagTykkelse);
+      rader.push(['Sum overbygning', t(lag) + ' m³', true]);
+      nokkeltabell(rader, this.MARG, innmarg - this.MARG);
+    }
+
+    if (b) {
+      overskrift('Massebalanse');
+      const f = app.P.faktorer;
+      nokkeltabell([
+        [`Sprengt fjell, løst på lass (× ${f.sprengningsfaktor})`, t(b.fjellSprengtLos) + ' p.a.m³'],
+        [`Tilgjengelig til fylling (fjell × ${f.fjellIFylling})`, t(b.tilgjengelig) + ' m³'],
+        ['Fyllingsbehov', t(b.fyllingBehov) + ' m³'],
+        [b.manglerTotalt > 1 ? 'Må kjøres inn' : 'Overskudd',
+          t(b.manglerTotalt > 1 ? b.manglerTotalt : Math.abs(b.balanse)) + ' m³', true],
+        ['Til deponi', t(b.tilDeponi) + ' m³']
+      ], this.MARG, innmarg - this.MARG);
+    }
+
+    if (res.merknader && res.merknader.length) {
+      overskrift('Merknader');
+      /* Tomtemerknader har ingen stasjon. Vegrapporten skriver `v.s.toFixed(0)`
+         i første kolonne, og det kaster her - derfor bare type og tekst. */
+      tabell(
+        [{ tekst: 'Type', bredde: 14, venstre: true }, { tekst: 'Merknad', bredde: 86, venstre: true }],
+        res.merknader.map(v => ({
+          celler: [v.type || '–', this._kort(P, v.tekst, (innmarg - this.MARG) * 0.82, 7.2)]
+        }))
+      );
+    }
+
+    brodtekst('Volumene er regnet celle for celle på Kartverkets 1 m rutenett. Skjæringen måles '
+      + 'fra den avdekkede flaten, altså etter at matjorda er tatt av, så matjorda ligger ikke '
+      + 'i skjæringsvolumet i tillegg til sin egen post.');
   },
 
 

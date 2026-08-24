@@ -236,3 +236,6 @@ const Lager = {
 function filnavn(s) {
   return String(s).replace(/[^\wæøåÆØÅ -]/g, '_').replace(/\s+/g, '_').slice(0, 80) || 'prosjekt';
 }
+/* Ett filnavn, ett sted. Eksporten hadde sin egen `replace(/\W+/g, '_')`, og
+   `\w` er ASCII-only uansett flagg: «Ydestad Sør» ble til «Ydestad_S_r». */
+Lager.filnavn = filnavn;

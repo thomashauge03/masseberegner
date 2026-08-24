@@ -383,7 +383,23 @@ function beregnTomtemasser(o) {
          over hele flaten. Uten skraningscellene stopper fargen brått i
          tomtekanten, og da ser det ut som om ingenting skjer utenfor - mens det
          er nettopp der utslaget mot naboen ligger. */
-      rutenett.push({ x, y, d, inne: iTomta, fjell: Math.max(0, d - tilBerg) });
+      /* KOTENE FØLGER MED UT, DE REGNES IKKE OM SENERE.
+         Eksporten trenger høyder, ikke bare dybder. Regnet den dem om selv,
+         ville den kunne komme i utakt med volumet - to steder som svarer litt
+         forskjellig pa hva planum er, og bare det ene av dem er det som er
+         regnet pa. Her koster de ingenting: tallene ligger allerede i handa.
+
+         `d` males fra den AVDEKKEDE flaten, altsa etter at matjorda er tatt av
+         - ikke fra naturlig terreng. Det ma alt som leser feltet vite.
+         `zFerdig` finnes bare inne pa tomta; utenfor er det skraningen som
+         gjelder, og der legges ingen overbygning oppa. */
+      rutenett.push({ x, y, d, inne: iTomta,
+        fjell: Math.max(0, d - tilBerg),          // rå avstand ned til berget
+        fjellDel: d > 0 ? Math.max(0, d - losIgjen) : 0,   // det som faktisk sprenges
+        zT, zAvdekket, zPlanum,
+        zFerdig: iTomta ? zPlanum + overbygning : null,
+        matjord: matjordHer,
+        kant: iTomta ? -1 : naer.kant });
     }
   }
 
@@ -728,7 +744,14 @@ function skraningsfot(o) {
         }
         traff = hoy;
       }
-      ut.push({ x: x + nx * traff, y: y + ny * traff, ut: traff, kant: k.i,
+      const fx = x + nx * traff, fy = y + ny * traff;
+      ut.push({ x: fx, y: fy, ut: traff, kant: k.i,
+        /* Kotene hører med. En utslagslinje uten høyde kan ikke settes ut, og
+           uten dem matte eksporten regnet dem om selv - med fare for a svare
+           noe annet enn det volumet er regnet pa. */
+        z: o.terreng.z(fx, fy),      // terrengkoten der foten lander
+        zKant: zK,                   // planum ved selve kanten, der skraningen starter
+        xKant: x, yKant: y,          // utgangspunktet pa omrisset
         type: skjaerer ? 'skjaering' : 'fylling',
         traff: funnet,
         // stoppet av grensa, ikke av terrenget - her ma noe holde skraningen

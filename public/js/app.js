@@ -2569,6 +2569,29 @@ const App = {
     vis('.fane[data-fane="tomtemal"]', tomt);
     vis('.fane[data-fane="tomthoyde"]', tomt);
     vis('#visTomtefargerBoks', tomt);
+    /* KNAPPETEKSTEN MÅ SI HVA KNAPPEN FAKTISK LEVERER.
+       En knapp som heter «Masseoppsett per profil» og leverer et sammendrag
+       uten en eneste profil, er verre enn ingen knapp. Og «Linjeføring og
+       profil (LandXML)» leverer flater for en tomt, ikke en linjeføring. */
+    const tekst = (id, s) => { const e = document.getElementById(id); if (e) e.textContent = s; };
+    tekst('knappEksportKof', tomt ? 'Hjørner og utslag (KOF)' : 'Stikningsdata (KOF)');
+    tekst('knappEksportLandxml', tomt ? 'Flater og utslag (LandXML)' : 'Linjeføring og profil (LandXML)');
+    tekst('knappEksportSosi', tomt ? 'Tomteflate (SOSI)' : 'Kartdata (SOSI)');
+    tekst('knappEksportDxf', tomt ? 'Tegning av tomta (DXF)' : 'Tegning (DXF)');
+    tekst('knappEksportStikning', tomt ? 'Stikningspunkt (CSV)' : 'Stikningsdata (CSV)');
+    tekst('knappEksportMasser', tomt ? 'Massesammendrag (CSV)' : 'Masseoppsett per profil (CSV)');
+    tekst('knappEksportGeojson', tomt ? 'Tomt, grense og utslag (GeoJSON)' : 'Linje og fotavtrykk (GeoJSON)');
+    vis('#knappEksportRutenett', tomt);
+    const notis = document.getElementById('eksportnotis');
+    if (notis) {
+      notis.textContent = tomt
+        ? 'Filene inneholder den ferdige flaten, tomtegrensa, skråningsutslaget og murene. '
+        + 'Der skråningen ikke landet, blir utslagslinja delt opp og merket – den lukkes '
+        + 'aldri over et sted som ikke er regnet. Ta en prøveimport av én fil før dere '
+        + 'baserer en jobb på dem.'
+        : 'Formatene er skrevet etter spesifikasjonene, men er ikke prøvd mot hvert enkelt '
+        + 'mottakersystem. Ta en prøveimport av én fil før dere baserer en jobb på dem.';
+    }
     for (const [navn, tekst, etter] of [['tomthoyde', 'Høyde', 'masser'], ['tomtemal', 'Tomtemal', 'tomthoyde']]) {
       if (document.querySelector('.fane[data-fane="' + navn + '"]')) continue;
       const rad = document.querySelector('.faner');
@@ -3716,6 +3739,7 @@ const App = {
     id('knappEksportStikning').onclick = () => Rapport.eksportStikning();
     id('knappEksportMasser').onclick = () => Rapport.eksportMasser();
     id('knappEksportGeojson').onclick = () => Rapport.eksportGeojson();
+    id('knappEksportRutenett').onclick = () => Rapport.eksportRutenett();
     id('knappKontroller').onclick = () => this.kontrollerHoyder();
 
     /* Stor visning. Panelene tegner seg sjøl pa nytt via ResizeObserver,

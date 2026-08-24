@@ -691,6 +691,13 @@ function beregnTverrprofil(o) {
     },
     maksSkjaering, maksFylling,
     fotVenstre: tV, fotHoyre: tH,
+    /* Kotene i skraningsfoten. Uten dem ble fotavtrykket eksportert pa z = 0 -
+       hundre meter under vegen - og en Civil 3D-flate bygd pa det drar seg ned
+       til havnivaet.
+       De males med jordflate() pa NØYAKTIG den offseten som eksporteres. Tar
+       man i stedet siste knekkpunkt, gjelder det den uklippede foten, og med
+       `beregningsbredde` satt hører den til et annet sted enn tallet ved siden av. */
+    zFotVenstre: jordflate(tV), zFotHoyre: jordflate(tH),
     /* Marsjpunktene ut mot skraningsfoten leses ikke av noen etter at arealene
        er regnet, men de var det tyngste pa hvert profil: nesten nitten kilobyte
        stykket, mot noen hundre byte for tallene. De følger tegningsgeometrien. */
