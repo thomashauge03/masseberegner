@@ -730,32 +730,41 @@ function innerflate(o, runder = 14) {
          sprengt vegg der - ikke at hele tomta er umulig. */
       const trygg = tilpassInnrykk(p, perKant, tegn);
       if (!trygg) return { punkter: null, innrykk, forLiten: true, loperUt: [...loperUt] };
-      const mangler = [];
-      for (let i = 0; i < perKant.length; i++) {
-        const fikk = perKant[i] * trygg.k;
-        if (perKant[i] - fikk > 0.2) mangler.push({ kant: i, trengs: perKant[i], fikk, mangler: perKant[i] - fikk });
-      }
-      return { punkter: trygg.punkter, innrykk: perKant.map(v => v * trygg.k),
-        loperUt: [...loperUt], mangler, avkortet: true };
+      return { punkter: trygg.punkter, innrykk: perKant.map(v => Math.min(v, trygg.tak)),
+        loperUt: [...loperUt], mangler: maalOverskridelse(p, trygg.punkter, o), avkortet: true };
     }
     if (stillestaaende) break;
   }
-  return { punkter: na, innrykk, loperUt: [...loperUt] };
+  /* Males pa den flaten som faktisk blir svaret, ikke pa kravet som ble regnet
+     underveis. Kravet er malt pa forrige rundes polygon, og etter at kanten er
+     flyttet, ligger den i annet terreng - sa skraningen blir litt annerledes
+     enn den var da kravet ble satt. Uten denne malingen meldte programmet
+     mangel pa noen sider mens streken i kartet krysset grensa pa andre. */
+  return { punkter: na, innrykk, loperUt: [...loperUt],
+    mangler: maalOverskridelse(p, na, o) };
 }
 
 /**
  * Skrur innrykket ned til det største som fortsatt gir en gyldig flate.
  *
- * Halvering pa en felles faktor: alle kantene skrus ned like mye, sa formen
- * holder seg. Alternativet - a skru ned bare den verste kanten - ville flyttet
- * flaten mot den sida og gitt en tomt som ikke ligner den man tegnet.
+ * Hver kant far sa mye den trenger, opp til et FELLES TAK. Taket finnes med
+ * halvering: det høyeste som fortsatt gir en gyldig flate.
+ *
+ * Her sto det en felles FAKTOR i stedet - alle kantene ble skrudd ned like mye
+ * i prosent. Da overskred ogsa sider som hadde rikelig plass: en kant som
+ * trengte 2 m fikk 0,7 og gikk 1,3 m utenfor grensa helt unødvendig, fordi en
+ * helt annen side krevde førti. Det var det man sa i kartet - skraningslinja
+ * krysset grensa uten grunn.
+ *
+ * Med et tak far kanten som trenger 2 m sine 2 m, og bare de som ber om mer enn
+ * taket blir klippet - med nøyaktig det de mangler.
  */
 function tilpassInnrykk(p, perKant, tegn) {
-  const bygg = k => {
+  const bygg = tak => {
     const nye = [];
     for (let i = 0; i < p.length; i++) {
-      const bak = perKant[(i - 1 + p.length) % p.length] * k;
-      const foran = perKant[i] * k;
+      const bak = Math.min(perKant[(i - 1 + p.length) % p.length], tak);
+      const foran = Math.min(perKant[i], tak);
       const a = p[(i - 1 + p.length) % p.length], b = p[i], c = p[(i + 1) % p.length];
       const n1 = normal(a, b, tegn), n2 = normal(b, c, tegn);
       const det = n1.x * n2.y - n1.y * n2.x;
@@ -782,14 +791,46 @@ function tilpassInnrykk(p, perKant, tegn) {
     // minst en tidel av det tegnede arealet, ellers er det ingen tomt igjen
     return Math.sign(a2) === Math.sign(a0) && Math.abs(a2) > Math.abs(a0) * 0.1;
   };
-  let lav = 0, hoy = 1;
-  if (gyldig(bygg(1))) return { k: 1, punkter: bygg(1) };
-  if (!gyldig(bygg(0.02))) return null;
-  for (let i = 0; i < 20; i++) {
+  const maksKrav = perKant.reduce((a, b) => Math.max(a, b), 0);
+  if (gyldig(bygg(maksKrav))) return { tak: maksKrav, punkter: bygg(maksKrav) };
+  if (!gyldig(bygg(0))) return null;
+  let lav = 0, hoy = maksKrav;
+  for (let i = 0; i < 24; i++) {
     const m = (lav + hoy) / 2;
     if (gyldig(bygg(m))) lav = m; else hoy = m;
   }
-  return { k: lav, punkter: bygg(lav) };
+  return { tak: lav, punkter: bygg(lav) };
+}
+
+/**
+ * Hvor langt skråningen faktisk går utenfor det tegnede omrisset, per side.
+ *
+ * Males pa den ferdige flaten - ikke pa kravet som ble regnet underveis. Kravet
+ * males pa forrige rundes polygon, og etter at kanten er flyttet ligger den i
+ * annet terreng, sa skraningen blir litt annerledes. Meldte man kravet, kunne
+ * programmet si «side 3 mangler plass» mens streken i kartet krysset grensa pa
+ * side 8.
+ *
+ * @returns {Array<{kant:number, mangler:number}>} sortert, verste først
+ */
+function maalOverskridelse(tegnet, indre, o) {
+  if (!indre || indre.length < 3 || !o.terreng) return [];
+  const fot = skraningsfot(Object.assign({}, o, {
+    tomt: Object.assign({}, o.tomt, { punkter: indre })
+  }));
+  const verst = new Map();
+  for (const f of fot) {
+    if (f.type === 'apen') continue;
+    if (innenforPolygon(tegnet, f.x, f.y)) continue;
+    const d = naermestePaOmriss(tegnet, f.x, f.y).d;
+    /* Kanten her er den pa den INDRE flaten. Den svarer til samme nummer pa
+       det tegnede omrisset, siden innrykket ikke endrer rekkefølgen. */
+    if (d > (verst.get(f.kant) || 0)) verst.set(f.kant, d);
+  }
+  return [...verst.entries()]
+    .filter(([, d]) => d > 0.15)          // under femten centimeter er tegnestrek
+    .map(([kant, mangler]) => ({ kant, mangler }))
+    .sort((a, b) => b.mangler - a.mangler);
 }
 
 function normal(a, b, tegn) {

@@ -472,19 +472,30 @@ const Kart = {
     /* Tegnes i biter etter type, sa fargen skifter der skjæring gar over i
        fylling. Én strek i én farge ville skjult nettopp det skiftet - og det er
        der man ma se etter, for det er der de to skraningene møtes. */
-    let bit = [], forrige = null;
+    /* Gar skraningen utenfor det tegnede omrisset, males den strekningen opp
+       tykk og varslende. Ellers ser det ut som en feil at streken krysser
+       grensa - og det er nettopp den strekningen som er svaret pa hvor muren ma
+       sta. */
+    const utenfor = f => t.omrissBetyr === 'yttergrense'
+      && !Tomtmasser.innenforPolygon(p, f.x, f.y)
+      && Tomtmasser.naermestePaOmriss(p, f.x, f.y).d > 0.15;
+
+    let bit = [], forrige = null, forrigeUte = null;
     const tøm = () => {
       if (bit.length > 1) {
-        L.polyline(bit, {
-          color: forrige === 'fylling' ? Farger.fylling : Farger.skjaering,
-          weight: 1.8, opacity: 0.95, dashArray: forrige === 'apen' ? '3 5' : null
-        }).addTo(this.lag.skraningsfot);
+        L.polyline(bit, forrigeUte
+          ? { color: Farger.skjaering, weight: 3.5, opacity: 1, dashArray: '2 4' }
+          : {
+            color: forrige === 'fylling' ? Farger.fylling : Farger.skjaering,
+            weight: 1.8, opacity: 0.95, dashArray: forrige === 'apen' ? '3 5' : null
+          }).addTo(this.lag.skraningsfot);
       }
       bit = [];
     };
     for (const f of fot.concat([fot[0]])) {
-      if (forrige !== null && f.type !== forrige) { bit.push(hj(f)); tøm(); }
-      forrige = f.type;
+      const ute = utenfor(f);
+      if (forrige !== null && (f.type !== forrige || ute !== forrigeUte)) { bit.push(hj(f)); tøm(); }
+      forrige = f.type; forrigeUte = ute;
       bit.push(hj(f));
     }
     tøm();

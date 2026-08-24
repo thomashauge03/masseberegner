@@ -764,5 +764,65 @@ console.log('\n23. Innrykket må lande på samme svar uansett hvor lenge det få
 }
 
 /* ------------------------------------------------------------------ */
+console.log('\n24. Det som meldes er det som faktisk skjer i kartet');
+{
+  /* To feil i én: innrykket ble skrudd ned med en felles FAKTOR, sa ogsa sider
+     med rikelig plass overskred grensa unødvendig - en kant som trengte 2 m
+     fikk 0,7 og gikk 1,3 m utenfor fordi en helt annen side krevde førti. Og
+     mangelen ble meldt ut fra KRAVET, som males pa forrige rundes polygon; etter
+     at kanten er flyttet ligger den i annet terreng, sa programmet kunne si
+     «side 3 mangler plass» mens streken krysset grensa pa side 8.
+
+     Na far hver kant sa mye den trenger opp til et felles TAK, og det som
+     meldes males pa den ferdige flaten. */
+  const p8 = [{ x: 0, y: 0 }, { x: 34, y: 6 }, { x: 46, y: 20 }, { x: 44, y: 38 },
+    { x: 30, y: 46 }, { x: 12, y: 44 }, { x: 2, y: 30 }, { x: -2, y: 14 }];
+  const bratt = { z: (x, y) => { const l = x * 0.6 + y * 0.8; return l < 0 ? 207 + l * 0.9 : 207 + l * 0.21; } };
+  const mal = Object.assign(grunnmal(), { maksSokebredde: 60 });
+  const fjell = new M.Fjellmodell({ standarddybde: 100 });
+
+  for (const kote of [210, 213, 216, 219]) {
+    const o = { tomt: { punkter: p8, kanter: [], nivaa: { modus: 'flat', kote } },
+      mal, terreng: bratt, fjell, rutestorrelse: 1, bakkefaktor: 1 };
+    const inn = T.innerflate(o);
+    if (!inn.punkter) { paastand(`kote ${kote}: gir en flate`, false); continue; }
+    const fot = T.skraningsfot(Object.assign({}, o,
+      { tomt: Object.assign({}, o.tomt, { punkter: inn.punkter }) }));
+    // hva som FAKTISK ligger utenfor, med samme terskel som meldingen bruker
+    const faktisk = new Set();
+    for (const f of fot) {
+      if (T.innenforPolygon(p8, f.x, f.y)) continue;
+      if (T.naermestePaOmriss(p8, f.x, f.y).d > 0.15) faktisk.add(f.kant);
+    }
+    const meldt = new Set((inn.mangler || []).map(m => m.kant));
+    const uventet = [...faktisk].filter(k => !meldt.has(k));
+    paastand(`kote ${kote}: hver side som krysser grensa blir meldt`,
+      uventet.length === 0,
+      `krysser: ${[...faktisk].map(k => k + 1).join(',') || 'ingen'} · meldt: `
+      + `${[...meldt].map(k => k + 1).join(',') || 'ingen'}`);
+  }
+
+  /* Og en kant som har rikelig plass skal IKKE overskride bare fordi en annen
+     side er trang. Her: én lang side ned i en dal, resten flatt. */
+  const enkel = [{ x: 0, y: 0 }, { x: 60, y: 0 }, { x: 60, y: 40 }, { x: 0, y: 40 }];
+  const dal = { z: (x, y) => (y < 0 ? 100 + y * 1.2 : 100) };
+  const o2 = { tomt: { punkter: enkel, kanter: [], nivaa: { modus: 'flat', kote: 104 } },
+    mal: Object.assign(grunnmal(), { fylling: 2, skjaeringLosmasse: 2, maksSokebredde: 60 }),
+    terreng: dal, fjell, rutestorrelse: 1, bakkefaktor: 1 };
+  const inn2 = T.innerflate(o2);
+  if (inn2.punkter) {
+    const fot2 = T.skraningsfot(Object.assign({}, o2,
+      { tomt: Object.assign({}, o2.tomt, { punkter: inn2.punkter }) }));
+    let verstNord = 0;
+    for (const f of fot2) {
+      if (f.kant !== 2) continue;              // nordkanten, som har god plass
+      if (T.innenforPolygon(enkel, f.x, f.y)) continue;
+      verstNord = Math.max(verstNord, T.naermestePaOmriss(enkel, f.x, f.y).d);
+    }
+    sjekk('en side med god plass krysser ikke grensa', verstNord, 0, 0.2);
+  }
+}
+
+/* ------------------------------------------------------------------ */
 console.log(`\n${ok} tester ok, ${feil} feil`);
 process.exit(feil ? 1 : 0);
