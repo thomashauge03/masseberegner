@@ -18,7 +18,47 @@ const Farger = {
   },
 
   /** Kalles dersom temaet endres, sa fargene hentes pa nytt. */
-  glem() { this._bufret = {}; this._skravur = null; },
+  glem() { this._bufret = {}; this._rgbBufret = {}; this._skravur = null; },
+
+  /**
+   * Samme farge som tre tall, til bruk der pikslene settes én for én.
+   *
+   * 3D-visningen blander farger per piksel i en Uint32Array og kan ikke sende
+   * en CSS-streng inn i den. Fargen ma likevel komme fra stilarket, ellers
+   * lever tegnefargene sitt eget liv i JavaScript og driver fra hverandre neste
+   * gang noen justerer designet – det er nettopp det denne fila finnes for.
+   *
+   * Tar bade #rrggbb, #rgb og rgb()/rgba(). Gjennomsikten kastes: den som
+   * blander, bestemmer selv hvor mye som skal slippe gjennom.
+   */
+  rgb(navn) {
+    if (!this._rgbBufret) this._rgbBufret = {};
+    if (this._rgbBufret[navn]) return this._rgbBufret[navn];
+    const s = this.hent(navn);
+    let ut = [136, 136, 136];
+    const m = /rgba?\(\s*([\d.]+)[ ,]+([\d.]+)[ ,]+([\d.]+)/i.exec(s);
+    if (m) {
+      ut = [Math.round(+m[1]), Math.round(+m[2]), Math.round(+m[3])];
+    } else {
+      const h = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(s.trim());
+      if (h) {
+        const k = h[1].length === 3 ? h[1].split('').map(c => c + c).join('') : h[1];
+        ut = [parseInt(k.slice(0, 2), 16), parseInt(k.slice(2, 4), 16), parseInt(k.slice(4, 6), 16)];
+      }
+    }
+    this._rgbBufret[navn] = ut;
+    return ut;
+  },
+
+  /* Grunnfargene til flatene, ikke strekfargene.
+     `skjaering` og `fylling` er strekene i profilen og er ANDRE verdier enn
+     flatene kartet fyller med. Blander man dem, får 3D-modellen en annen
+     fargeskala enn fargeoverlegget i kartet – to bilder av samme tall. */
+  get skjaeringFlateRgb() { return this.rgb('data-skjaering-flate'); },
+  get fyllingFlateRgb() { return this.rgb('data-fylling-flate'); },
+  get terrengRgb() { return this.rgb('data-terreng'); },
+  get fjellRgb() { return this.rgb('data-fjell'); },
+  get flateRgb() { return this.rgb('flate'); },
 
   get terreng() { return this.hent('data-terreng'); },
   get rensk() { return this.hent('data-rensk'); },

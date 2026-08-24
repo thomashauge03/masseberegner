@@ -456,7 +456,12 @@ function beregnTomtemasser(o) {
       rutenett.push({ x, y, d, inne: iTomta,
         fjell: Math.max(0, d - tilBerg),          // rå avstand ned til berget
         fjellDel: d > 0 ? Math.max(0, d - losIgjen) : 0,   // det som faktisk sprenges
-        zT, zAvdekket, zPlanum,
+        /* zFjell hører med, ikke bare dybden ned til det.
+           `fjell` og `fjellDel` er begge klemt til null der berget ligger under
+           planum – og det er nettopp der man vil se hvor det ligger. Uten koten
+           kan fjelloverflaten ikke tegnes i 3D, bare der den tilfeldigvis stikker
+           opp i graveflaten. */
+        zT, zAvdekket, zPlanum, zFjell,
         zFerdig: iTomta ? zPlanum + overbygning : null,
         matjord: matjordHer,
         kant: iTomta ? -1 : naer.kant });

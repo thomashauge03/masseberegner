@@ -33,6 +33,17 @@ const Forklaring = {
     { navn: 'Ferdig nivå', form: 'strek', farge: () => Farger.veg, modus: 'tomt',
       tekst: 'Overflaten man kjører på når alt er ferdig. Ligger overbygningen '
         + 'over planum, så avstanden mellom de to strekene er summen av lagene.' },
+    { navn: '3D-modellen', form: 'flate', farge: () => Farger.terreng, modus: 'tomt',
+      tekst: 'Knappen «3D» i tomtepanelet viser de samme tallene som snittet, '
+        + 'sett fra en annen kant. Den røde og grønne flaten er det som skal '
+        + 'graves og fylles – samme farger og samme skala som fargene i kartet. '
+        + 'Den grå flaten oppå er dagens terreng. Modellen regner ingenting selv: '
+        + 'hver høyde kommer fra det samme rutenettet volumet er regnet på. '
+        + 'Ruter som er bleiket, ligger der skråningen måtte brattes opp eller '
+        + 'ikke landet – tallene der står ikke like støtt som resten. '
+        + 'Velger du å overdrive høyden, står det skrevet i bildet, også når du '
+        + 'lagrer det: en tomt som er strukket tre ganger ser mye verre ut enn '
+        + 'den er.' },
     { navn: 'Brattet opp', form: 'stipla', farge: () => Farger.skjaering, modus: 'tomt',
       tekst: 'Tykk, stiplet strek i kartet der skråningen ikke fikk plass med '
         + 'sin vanlige helning innenfor tomtegrensa. Den blir da lagt brattere – '

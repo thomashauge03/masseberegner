@@ -82,6 +82,7 @@ const Nettlesertest = {
       await this.tomt();
       await this.tomteksport();
       await this.tomterydding();
+      await this.tomt3d();
       await this.framdrift();
       await this.opprydding();
     } catch (e) {
@@ -1116,6 +1117,198 @@ const Nettlesertest = {
       App.resultat = null;
       App._terrengnokkel = null;
       App._lagretSom = null;
+    }
+  },
+
+  /* ---------------- 16. tomta i tre dimensjoner ---------------- */
+  /**
+   * 3D-visningen er en ekstrafunksjon: snittet og kartet skal være uendret.
+   * Den farligste feilen her er ikke at det ser stygt ut – det ser man – men at
+   * fortegnet i projeksjonen er snudd. Da ser modellen helt troverdig ut, den
+   * viser bare skjæring der det er fylling.
+   */
+  async tomt3d() {
+    const foer = JSON.stringify(App.P);
+    const gz = Terreng.prototype.z, gd = Terreng.prototype.dekning, gl = Terreng.prototype.lastOmraade;
+    try {
+      App.P = App.nyttProsjekt();
+      App.P.navn = '__test_3d';
+      App.leggTilAnlegg('tomt');
+      const lat0 = 58.2958, lon0 = 7.2098;
+      const dLat = m => m / 111320;
+      const dLon = m => m / (111320 * Math.cos(lat0 * Math.PI / 180));
+      App.P.tomt.punkter = [[0, 0], [40, 0], [40, 30], [0, 30]]
+        .map(([x, y]) => ({ lat: lat0 + dLat(y), lon: lon0 + dLon(x) }));
+      /* Koten legges midt i terrengspennet, så det blir ekte fylling i vest og
+         ekte skjæring i øst. Ligger den i den ene enden, er det ene tilfellet
+         bare noen centimeter dypt – og da måler fortegnsprøven under på en
+         forskjell som er mindre enn en piksel. */
+      App.P.tomt.nivaa = { modus: 'flat', kote: 102.4 };
+      const s0 = Geo.tilUtm(lat0, lon0, App.sone);
+      Terreng.prototype.lastOmraade = async function () { };
+      Terreng.prototype.dekning = () => 1;
+      // skrånende terreng: 100 moh i vest, 104,8 i øst
+      Terreng.prototype.z = function (x, y) { return 100 + (x - s0.x) * 0.12; };
+      App._terrengnokkel = null;
+      await App.beregnTomt();
+      this.sjekk('tomta er regnet før 3D prøves', !!App.resultat && App.resultat.celler > 100);
+
+      /* zFjell må ligge i rutenettet. Uten den kan fjelloverflaten bare tegnes
+         der berget tilfeldigvis stikker opp i graveflaten – `fjell` og
+         `fjellDel` er begge klemt til null under planum. */
+      this.sjekk('rutenettet bærer fjellkoten',
+        App.resultat.rutenett.every(c => Number.isFinite(c.zFjell)));
+
+      /* Ingenting skal bygges før noen trykker 3D. */
+      Tomt3d.aktiver(false);
+      Tomt3d._gitterFor = null;
+      Tomt3d.tegn();
+      this.sjekk('3D bygger ingenting når den er av', !Tomt3d._sisteGitter);
+
+      document.querySelector('[data-utvid="tomt"]').click();
+      await this.vent(250);
+      Tomt3d.aktiver(true);
+      Tomt3d._skalaSatt = false;
+      Tomt3d.tegn();
+      await this.vent(120);
+      this.sjekk('3D-lerretet er synlig', !document.getElementById('tomt3d').classList.contains('skjult'));
+      this.sjekk('snittet er skjult mens 3D står på',
+        document.getElementById('tomtprofil').classList.contains('skjult'));
+
+      const g = Tomt3d._sisteGitter;
+      this.sjekk('gitteret ble bygd', !!g && g.nb > 3 && g.nh > 3, g ? g.nb + '×' + g.nh : 'ingen');
+
+      /* 6.1 FORTEGNET I PROJEKSJONEN – den eneste feilen som ikke synes.
+         Der det er skjæring, ligger terrenget OVER planum, og skal derfor
+         havne HØYERE på skjermen (mindre y). Snus fortegnet på dybden eller på
+         skjermaksen, ser modellen like troverdig ut med skjæring og fylling
+         byttet om. */
+      const kam = Tomt3d._sisteKam;
+      /* Cellene må ha en høydeforskjell som er verdt å måle. På et punkt der
+         skjæringen er to centimeter, er forskjellen på skjermen en tidels
+         piksel – og der kan perspektivet, som skyver punkt under midten
+         utover, snu fortegnet helt lovlig. */
+      let kSkjaering = -1, kFylling = -1;
+      for (let i = 0; i < g.d.length; i++) {
+        if (!g.finnes[i] || !g.inne[i]) continue;
+        if (g.d[i] > 1 && (kSkjaering < 0 || g.d[i] > g.d[kSkjaering])) kSkjaering = i;
+        if (g.d[i] < -1 && (kFylling < 0 || g.d[i] < g.d[kFylling])) kFylling = i;
+      }
+      this.sjekk('prøven har både en ekte skjæring og en ekte fylling å måle på',
+        kSkjaering >= 0 && kFylling >= 0);
+      const punktI = (k, z) => {
+        const i = k % g.nb, j = (k / g.nb) | 0;
+        return kam.punkt(g.minX + i * g.rute, g.minY + j * g.rute, z[k]);
+      };
+      const sT = punktI(kSkjaering, g.zT), sP = punktI(kSkjaering, g.zP);
+      this.sjekk('i skjæring tegnes terrenget over planum',
+        g.d[kSkjaering] > 1 && sT.py < sP.py - 0.5,
+        `d=${g.d[kSkjaering].toFixed(2)} terreng y=${sT.py.toFixed(1)} planum y=${sP.py.toFixed(1)}`);
+      const fT = punktI(kFylling, g.zT), fP = punktI(kFylling, g.zP);
+      this.sjekk('i fylling tegnes terrenget under planum',
+        g.d[kFylling] < -1 && fT.py > fP.py + 0.5,
+        `d=${g.d[kFylling].toFixed(2)} terreng y=${fT.py.toFixed(1)} planum y=${fP.py.toFixed(1)}`);
+
+      /* 6.2 Dybdebufferet feil vei: da forsvinner alt bak gravflaten. */
+      const c = document.getElementById('tomt3d');
+      const dekning = () => {
+        const k = c.getContext('2d');
+        const b = k.getImageData(0, 0, c.width, c.height).data;
+        const bak = [b[0], b[1], b[2]];
+        let u = 0, n = 0;
+        for (let i = 0; i < b.length; i += 4 * 3) {
+          n++;
+          if (b[i] !== bak[0] || b[i + 1] !== bak[1] || b[i + 2] !== bak[2]) u++;
+        }
+        return u / n;
+      };
+      this.sjekk('modellen dekker en reell del av lerretet', dekning() > 0.04,
+        (dekning() * 100).toFixed(1) + ' %');
+
+      /* 6.3 Ragget rutenett: skråningsfoten slutter der den møter terrenget, så
+         hull i gitteret er normalt – men ingen tall skal bli NaN av det. */
+      let nanT = 0;
+      for (let i = 0; i < g.zT.length; i++) if (g.finnes[i] && !Number.isFinite(g.zT[i])) nanT++;
+      this.sjekk('ingen NaN i høydene', nanT === 0, nanT + ' celler');
+
+      /* 6.4 Desimeringen skal ta MAKS av avviket, ikke middelet – ellers
+         forsvinner en dyp grøft når man zoomer ut. */
+      Tomt3d._gitterFor = null;
+      const fint = Tomt3d._gitter(1);
+      Tomt3d._gitterFor = null;
+      const grovt = Tomt3d._gitter(2);
+      const maks = gg => { let m = 0; for (let i = 0; i < gg.d.length; i++) if (gg.finnes[i]) m = Math.max(m, Math.abs(gg.d[i])); return m; };
+      this.naer('desimeringen beholder det største avviket', maks(grovt), maks(fint), 1e-6);
+      Tomt3d._gitterFor = null;
+
+      /* 6.5 Fargene kommer fra stilarket, også som tall. */
+      const rgb = Farger.skjaeringFlateRgb;
+      this.sjekk('fargene finnes som tre tall', Array.isArray(rgb) && rgb.length === 3
+        && rgb.every(v => Number.isFinite(v)), JSON.stringify(rgb));
+      const pal1 = Tomt3d._palett();
+      Farger.glem(); Tomt3d.glemFarger();
+      const pal2 = Tomt3d._palett();
+      this.sjekk('paletten bygges på nytt ved temabytte', pal1 !== pal2);
+
+      /* 6.7 Overdrivningsmerket MÅ brennes inn i bildet. Et 3×-bilde uten
+         merking i et tilbud lurer kunden, ikke oss. */
+      Tomt3d.overdriv = 2;
+      Tomt3d.tegn();
+      this.sjekk('overdrivning blir merket i bildet', Tomt3d._merketBrent === true);
+      Tomt3d.overdriv = 1;
+      Tomt3d.tegn();
+      this.sjekk('og merket forsvinner ved 1×', Tomt3d._merketBrent === false);
+
+      /* 6.8 Kostnad – en røykprøve mot en katastrofal regresjon, ikke en benk. */
+      const t0 = performance.now();
+      Tomt3d.tegn();
+      const tid = performance.now() - t0;
+      this.sjekk('tegningen er rask nok', tid < 400, tid.toFixed(0) + ' ms');
+
+      /* 6.9 SPERREN MOT AT 3D-EN BEGYNNER Å REGNE SITT EGET.
+         Høydene 3D-koden bruker skal komme fra det samme rutenettet volumet er
+         regnet på. En modell som viser noe annet enn tallene ved siden av er
+         verre enn ingen modell. */
+      Tomt3d._gitterFor = null;
+      const g1 = Tomt3d._gitter(1);
+      const rute = App.P.mal.rutestorrelse || 1;
+      let avvik = 0, prov = 0;
+      for (const cel of App.resultat.rutenett) {
+        if (prov++ % 7) continue;
+        const i = Math.round((cel.x - g1.minX) / rute), j = Math.round((cel.y - g1.minY) / rute);
+        const k = j * g1.nb + i;
+        if (i < 0 || j < 0 || i >= g1.nb || j >= g1.nh || !g1.finnes[k]) continue;
+        avvik = Math.max(avvik, Math.abs(g1.zP[k] - cel.zPlanum), Math.abs(g1.zT[k] - cel.zT));
+      }
+      this.sjekk('3D bruker nøyaktig de høydene volumet er regnet på',
+        avvik < 1e-4, 'største avvik ' + avvik.toExponential(1) + ' m');
+
+      /* 6.6 Ingenting som fantes ble dårligere. */
+      Tomt3d.aktiver(false);
+      await this.vent(120);
+      this.sjekk('snittet kommer tilbake',
+        !document.getElementById('tomtprofil').classList.contains('skjult'));
+      this.sjekk('og 3D-lerretene er skjult',
+        document.getElementById('tomt3d').classList.contains('skjult')
+        && document.getElementById('tomt3dover').classList.contains('skjult'));
+      Tomteprofil.tegn();
+      const p = document.getElementById('tomtprofil');
+      this.sjekk('snittet tegner fortsatt', p.width > 20 && p.height > 20,
+        p.width + '×' + p.height);
+      document.querySelector('[data-utvid="tomt"]').click();
+      await this.vent(200);
+    } catch (e) {
+      this.sjekk('3D-prøven kom seg gjennom', false,
+        e.message + ' — ' + (e.stack || '').split('\n')[1]);
+    } finally {
+      Terreng.prototype.z = gz; Terreng.prototype.dekning = gd; Terreng.prototype.lastOmraade = gl;
+      Tomt3d.aktiver(false);
+      Tomt3d.overdriv = 1;
+      Tomt3d._gitterFor = null;
+      App.P = JSON.parse(foer);
+      App.klargjorProsjekt(App.P);
+      App.resultat = null;
+      App._terrengnokkel = null;
     }
   },
 

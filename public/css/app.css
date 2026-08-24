@@ -234,8 +234,32 @@ body {
 .rute.tomtemodus.uten-side.stor-kart { grid-template-areas: "kart"; }
 .rute.tomtemodus.uten-side.stor-tomt { grid-template-areas: "tomt"; }
 
-.tomtinnhold { display: flex; gap: 2px; overflow: hidden; flex: 1; min-height: 0; }
+/* Tomtepanelet rommer to visninger av samme tall: snittet og 3D-modellen.
+   3D-lerreta ligg oppå kvarandre i same rute – rasteret nedst, vektor­overlegget
+   med strekar og tal oppå – og er skjulte til nokon vel 3D. */
+.tomtinnhold { display: flex; gap: 2px; overflow: hidden; flex: 1; min-height: 0; position: relative; }
 #tomtprofil { flex: 1; min-width: 0; display: block; }
+#tomt3d, #tomt3dover { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+#tomt3d { z-index: 1; }
+#tomt3dover { z-index: 2; cursor: grab; }
+#tomt3dover:active { cursor: grabbing; }
+#tomt3d.skjult, #tomt3dover.skjult { display: none; }
+
+/* Vekslaren mellom snitt og 3D. Står i panelhovudet, rett etter tittelen. */
+.visvalg { display: flex; gap: 2px; margin-left: 6px; }
+.visvalg .verktoyknapp { padding: 2px 9px; }
+.verktoygruppe { display: contents; }
+.verktoygruppe.skjult { display: none; }
+.lagvalg { display: flex; gap: 2px; flex-wrap: wrap; }
+.lagvalg .verktoyknapp { padding: 2px 7px; font-size: 11px; }
+
+/* PANELHOVUDET SKAL ALDRI ETE HEILE PANELET.
+   På ei smal rute bryt verktøylinja over mange rader. Med 3D-verktøya inne vart
+   hovudet 287 px av eit panel på 300, og teikneflata sat att med 12 px – altså
+   ingen modell i det heile. Innhaldet får difor ei minstehøgd, og hovudet må
+   vike (og skrolle) i staden. */
+.rute.tomtemodus .tomtpanel .panelhode { flex: 0 1 auto; min-height: 0; overflow-y: auto; max-height: 55%; }
+.rute.tomtemodus .tomtinnhold { flex: 1 1 auto; min-height: 110px; }
 .tomtekanter { width: 330px; overflow: auto; padding: 10px 12px; border-left: 1px solid var(--kant); }
   letter-spacing: .06em; color: var(--blekk-svak); }
 .tomtekanter table { width: 100%; border-collapse: collapse; font-size: 12px; }

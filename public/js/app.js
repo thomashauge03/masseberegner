@@ -504,6 +504,7 @@ const App = {
     const boks = document.getElementById('massesammendrag');
     if (!boks || !this.erTomt()) return;
     Tomteprofil.tegn();
+    Tomt3d.tegn();
     Kart.tegnTomtefarger();
     /* Malene i kartet tegnes ogsa her, ikke bare fra Kart.tegn(). Kart.tegn()
        kjører før beregningen er ferdig, sa etiketten viste forrige tilstand -
@@ -816,6 +817,7 @@ const App = {
     Lengdeprofil.init(this);
     Tverrprofil.init(this);
     Tomteprofil.init(this);
+    Tomt3d.init(this);
     Rapport.init(this);
     Pdfrapport.init(this);
     PdfUI.init(this);
@@ -3687,7 +3689,9 @@ const App = {
     Kart.zoomTilLinje();
   },
 
-  tegnAlt() { Kart.tegn(); Lengdeprofil.tegn(); Tverrprofil.tegn(); Tomteprofil.tegn(); },
+  /* Tomt3d.tegn() returnerer sjølv med ein gong når panelet er skjult, så
+     den kostar ingenting når nokon ikkje ser på 3D. */
+  tegnAlt() { Kart.tegn(); Lengdeprofil.tegn(); Tverrprofil.tegn(); Tomteprofil.tegn(); Tomt3d.tegn(); },
 
   /* ---------------- knapper og felt ---------------- */
 
@@ -3833,7 +3837,7 @@ const App = {
       });
       setTimeout(() => {
         if (Kart.kart) Kart.kart.invalidateSize();
-        Lengdeprofil.tegn(); Tverrprofil.tegn(); Tomteprofil.tegn();
+        Lengdeprofil.tegn(); Tverrprofil.tegn(); Tomteprofil.tegn(); Tomt3d.tegn();
       }, 60);
     };
     document.querySelectorAll('.utvidknapp').forEach(b => {
@@ -3843,13 +3847,13 @@ const App = {
       rute.classList.toggle('uten-side');
       setTimeout(() => {
         if (Kart.kart) Kart.kart.invalidateSize();
-        Lengdeprofil.tegn(); Tverrprofil.tegn(); Tomteprofil.tegn();
+        Lengdeprofil.tegn(); Tverrprofil.tegn(); Tomteprofil.tegn(); Tomt3d.tegn();
       }, 60);
     };
     this._nullstillVisning = () => {
       ['kart', 'profil', 'tverr', 'tomt'].forEach(n => rute.classList.remove('stor-' + n));
       document.querySelectorAll('.utvidknapp').forEach(b => { b.classList.remove('aktiv'); b.textContent = '⤢'; });
-      setTimeout(() => { if (Kart.kart) Kart.kart.invalidateSize(); Lengdeprofil.tegn(); Tverrprofil.tegn(); Tomteprofil.tegn(); }, 60);
+      setTimeout(() => { if (Kart.kart) Kart.kart.invalidateSize(); Lengdeprofil.tegn(); Tverrprofil.tegn(); Tomteprofil.tegn(); Tomt3d.tegn(); }, 60);
     };
 
     /* FANEKLIKK SKAL GÅ GJENNOM visFane(), IKKE FORBI DEN.
@@ -3863,6 +3867,28 @@ const App = {
     document.querySelectorAll('.fane').forEach(f => {
       f.onclick = () => this.visFane(f.dataset.fane);
     });
+
+    /* Snitt eller 3D i tomtepanelet. Ingenting som finnes blir dårligere:
+       snittet står igjen uendret bak knappen, og 3D-en bygger ingenting før
+       noen faktisk trykker på den. */
+    const id2 = i => document.getElementById(i);
+    if (id2('tomtVisSnitt')) id2('tomtVisSnitt').onclick = () => Tomt3d.aktiver(false);
+    if (id2('tomtVis3d')) id2('tomtVis3d').onclick = () => Tomt3d.aktiver(true);
+    for (const [felt, boks] of [['terreng', 't3_terreng'], ['grav', 't3_grav'],
+      ['fjell', 't3_fjell'], ['overbygning', 't3_overbygning'],
+      ['rutenett', 't3_rutenett'], ['grenser', 't3_grenser']]) {
+      const e = id2(boks);
+      if (e) e.onclick = () => {
+        Tomt3d.lag[felt] = !Tomt3d.lag[felt];
+        e.classList.toggle('aktiv', Tomt3d.lag[felt]);
+        Tomt3d.tegn();
+      };
+    }
+    if (id2('t3_overdriv')) id2('t3_overdriv').onchange = e => {
+      Tomt3d.overdriv = parseFloat(e.target.value) || 1;
+      Tomt3d.tegn();
+    };
+    if (id2('t3_nullstill')) id2('t3_nullstill').onclick = () => Tomt3d.nullstill();
 
     document.addEventListener('keydown', e => {
       // Ctrl+S skal virke ogsa rett etter at man har skrevet prosjektnavnet

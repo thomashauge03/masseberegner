@@ -112,25 +112,57 @@
     <div class="panelhode">
       <span>Tomta</span>
       <button class="utvidknapp" data-utvid="tomt" title="Stor visning">⤢</button>
+      <!-- Snitt eller 3D. To måter å se det samme på: snittet er nøyaktig,
+           3D-en viser hvordan skråningene legger seg rundt. -->
+      <div class="visvalg">
+        <button id="tomtVisSnitt" class="verktoyknapp aktiv" title="Tverrsnitt gjennom tomta">Snitt</button>
+        <button id="tomtVis3d" class="verktoyknapp" title="Se tomta i tre dimensjoner">3D</button>
+      </div>
       <div class="verktoy">
         <label class="minitall">Ferdig kote
           <input type="number" id="tm_kote" step="0.05" title="Høyden på det ferdige nivået"></label>
         <button id="tm_foreslaKote" class="verktoyknapp" title="Foreslå en kote ut fra terrenget">Foreslå</button>
         <button id="tm_balanser" class="verktoyknapp" title="Finn koten der skjæring og fylling går opp mot hverandre">Massebalanse</button>
-        <select id="tp_retning" class="minivalg" title="Hvor snittet legges">
-          <option value="fall">Snitt langs fallet</option>
-          <option value="tvers">Snitt på tvers</option>
-        </select>
-        <button id="tp_forrige" class="verktoyknapp" title="Flytt snittet">◀</button>
-        <input type="range" id="tp_skyver" min="0" max="100" value="50" class="skyver" title="Flytt snittet tvers over tomta">
-        <button id="tp_neste" class="verktoyknapp" title="Flytt snittet">▶</button>
-        <span id="tp_etikett" class="etikett">–</span>
-        <span class="hjelpetekst">Klikk i snittet for å sette nivået</span>
+        <span id="snittverktoy" class="verktoygruppe">
+          <select id="tp_retning" class="minivalg" title="Hvor snittet legges">
+            <option value="fall">Snitt langs fallet</option>
+            <option value="tvers">Snitt på tvers</option>
+          </select>
+          <button id="tp_forrige" class="verktoyknapp" title="Flytt snittet">◀</button>
+          <input type="range" id="tp_skyver" min="0" max="100" value="50" class="skyver" title="Flytt snittet tvers over tomta">
+          <button id="tp_neste" class="verktoyknapp" title="Flytt snittet">▶</button>
+          <span id="tp_etikett" class="etikett">–</span>
+          <span class="hjelpetekst">Klikk i snittet for å sette nivået</span>
+        </span>
+        <!-- Lagene som små av/på-knapper, ikke avkryssingsbokser med tekst:
+             seks etiketter fyller hele panelhodet på en smal skjerm, og da er
+             det ikke plass igjen til modellen. -->
+        <span id="tomt3dverktoy" class="verktoygruppe skjult">
+          <span class="lagvalg">
+            <button id="t3_terreng" class="verktoyknapp aktiv" title="Dagens terreng">Terreng</button>
+            <button id="t3_grav" class="verktoyknapp aktiv" title="Flaten det graves til">Grav</button>
+            <button id="t3_fjell" class="verktoyknapp" title="Fjelloverflaten">Fjell</button>
+            <button id="t3_overbygning" class="verktoyknapp" title="Ferdig overflate med overbygning">Overbygn.</button>
+            <button id="t3_rutenett" class="verktoyknapp" title="10 m-rutenett drapert på flaten">10 m</button>
+            <button id="t3_grenser" class="verktoyknapp aktiv" title="Tomtegrense og skråningsfot">Grenser</button>
+          </span>
+          <select id="t3_overdriv" class="minivalg" title="Overdriv høyden så formene blir lettere å se">
+            <option value="1" selected>Høyde 1×</option>
+            <option value="1.5">Høyde 1,5×</option>
+            <option value="2">Høyde 2×</option>
+            <option value="3">Høyde 3×</option>
+          </select>
+          <button id="t3_nullstill" class="verktoyknapp" title="Tilbake til utgangsstillingen">↺</button>
+          <span class="hjelpetekst">Dra for å snu · hjul zoomer</span>
+        </span>
       </div>
     </div>
     <div class="tomtinnhold">
       <canvas id="tomtprofil"></canvas>
       <div id="tomtKanter" class="tomtekanter"></div>
+      <!-- 3D: rasteret nederst, vektoroverlegget med streker og tall oppå -->
+      <canvas id="tomt3d" class="skjult"></canvas>
+      <canvas id="tomt3dover" class="skjult"></canvas>
     </div>
   </section>
 
@@ -384,6 +416,7 @@
 <script src="js/ui-lengdeprofil.js"></script>
 <script src="js/ui-tverrprofil.js"></script>
 <script src="js/ui-tomtprofil.js"></script>
+<script src="js/ui-tomt3d.js"></script>
 <script src="js/ui-forklaring.js"></script>
 <script src="js/pdfeksport.js"></script>
 <script src="js/ui-rapport.js"></script>
