@@ -798,6 +798,7 @@ body {
 }
 .kartlagpanel {
   margin-top: 4px; min-width: 210px;
+  /* Kartet kan vere lavt; panelet skal aldri hengje utanfor. */
   /* Panelet ligg oppaa kartet, og kartet kan vere lavt. Utan taket her hang det
      nedanfor kartflata og over lengdeprofilen. */
   max-height: calc(100% - 52px); overflow: auto;
@@ -888,14 +889,22 @@ body {
 .verktoygruppe { position: relative; display: inline-flex; align-items: center; gap: 5px; }
 .menyknapp { font-weight: 600; }
 .menyknapp[aria-expanded="true"] { background: var(--hm-raud); border-color: var(--hm-raud); color: #fff; }
+/* FAST POSISJON, IKKE ABSOLUTT.
+   Menyen lå `absolute` inne i panelhodet, og panelhodet har `overflow: auto`.
+   Målt: menyen er 167 px høy og panelet 172 – den stakk 32 px ut under
+   vindusbunnen, ble klippet, og man måtte rulle for å se resten. En meny man må
+   rulle i er ikke en meny.
+   Med `fixed` kan ingen forelder klippe den, og JS setter koordinatene ved
+   åpning – og snur den opp når det ikke er plass under. */
 .menypanel {
-  position: absolute; top: calc(100% + 5px); left: 0; z-index: 700;
+  position: fixed; z-index: 900;
   display: flex; flex-direction: column; align-items: flex-start; gap: 7px;
   background: var(--flate-opp); border: 2px solid var(--kant-sterk);
   padding: 9px; min-width: 220px;
   box-shadow: 4px 4px 0 0 rgba(0,0,0,.4);
 }
 .menypanel.skjult { display: none; }
+.menypanel { overflow: auto; }
 .menypanel .lagvalg { display: flex; flex-wrap: wrap; gap: 3px; }
 .menypanel .minivalg { width: 100%; }
 @media (pointer: coarse) {

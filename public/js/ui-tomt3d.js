@@ -58,7 +58,17 @@ const Tomt3d = Object.assign(Object.create(Tegner3d), {
       const k = document.getElementById(id);
       if (k) k.classList.toggle('aktiv', pa2);
     }
+    /* Modellen fyller arbeidsflaten. Se App.stort3d. */
+    if (this.app.stort3d) this.app.stort3d('tomt', this.aktiv);
     if (this.aktiv) this.tegn(); else Tomteprofil.tegn();
+    /* RAMMEN SETTES NÅR LERRETET HAR FÅTT SIN NYE STØRRELSE, IKKE FØR.
+       Panelet vokser til hele arbeidsflaten når 3D slås på. Rammes modellen inn
+       før det, er den innrammet for det gamle, lille lerretet – og dreiningen,
+       som velges ved å måle hvilken av to som gjør modellen størst, blir valgt
+       på feil mål. Flagget leses i tegn(), som vet når størrelsen er på plass;
+       en tidtaker ville bare gjettet. */
+    if (this.aktiv) this._maaRammes = true;
+
   },
 
 

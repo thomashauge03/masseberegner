@@ -64,6 +64,14 @@ const Tegner3d = {
      I fyldig blir terrenget stående IGJEN der det ikke røres, og massen males
      med full farge. Da ser man volumet, ikke sløret. */
   fyldig: false,
+  /* FØR: terrenget slik det ligger i dag, uten inngrepet.
+     Man ser HVA som blir gjort ved å se det som var der før ved siden av. Med
+     bare «etter» er det umulig å vite om den grønne vingen ligger i ei li eller
+     på et jorde – man ser resultatet uten å se utgangspunktet.
+     Ingen ny beregning: høydene ligger allerede i gitteret som `zT`, både
+     inne i inngrepet og i ringen rundt. Det er den samme terrengmodellen
+     volumet er regnet mot. */
+  visFoer: false,
 
 
   /**
@@ -337,6 +345,13 @@ const Tegner3d = {
     let g = this._gitter(steg);
     if (!g) { this._tomMelding(g2, rb, rh, dpr * kvalitet, 'For mye å tegne i 3D på én gang'); return; }
 
+    /* Nettopp slått på: nå VET vi hvor stort lerretet ble, og kan ramme inn
+       for den størrelsen. `nullstill` tegner selv, så vi går ut etterpå. */
+    if (this._maaRammes) {
+      this._maaRammes = false;
+      this.nullstill();
+      return;
+    }
     if (!this.senter) this.senter = { x: g.midtX, y: g.midtY };
     /* Tilpasningen må gjøres om igjen når lerretet skifter størrelse. Uten
        dette blir skalaen stående fra den gangen panelet var lite: slår man på
@@ -394,7 +409,21 @@ const Tegner3d = {
        under vet ingenting om hva en gravflate eller en vegbane er.
        Alternativet var en `if (kilde === 'veg')` spredt gjennom hele
        tegneveien, og da blir hver tomtefeil en vegfeil og omvendt. */
-    for (const lag of this._lagliste(g, pal)) {
+    /* I FØR-visningen tegnes ÉN flate: terrenget, over hele gitteret.
+       Overstyringen ligger her og ikke i hver visning, fordi den er den samme
+       for tomt og veg – og fordi den da ikke kan bli glemt i den ene. */
+    const lagene = this.visFoer
+      ? [{
+        hoyde: g.zT, blanding: 0,
+        farge: (k00, k10, k01, k11, z) => {
+          const rgb = Farger.terrengFlateRgb;
+          const ly = this._lys(g, k00, k10, k01, z);
+          const r = Math.min(255, rgb[0] * ly), gg = Math.min(255, rgb[1] * ly), bl = Math.min(255, rgb[2] * ly);
+          return (255 << 24) | (bl << 16) | (gg << 8) | r;
+        }
+      }]
+      : this._lagliste(g, pal);
+    for (const lag of lagene) {
       if (!lag) continue;
       if (!(lag.blanding > 0)) {
         // ugjennomsiktig: rett inn i bildet, med det felles dybdebufferet
@@ -489,7 +518,14 @@ const Tegner3d = {
 
     // nøkkeltall og overdrivningsmerke
     const t2 = (v, d = 0) => Rapport.tall(v, d);
-    const linjer = this._hudLinjer ? this._hudLinjer(g) : [];
+    /* HVILKEN AV DE TO MAN SER PÅ, MÅ STÅ.
+       Et bilde av terrenget uten inngrepet ser ut som et bilde av terrenget MED
+       et lite inngrep. Uten merket er de to umulige å skille i et skjermbilde
+       som legges i et tilbud – og da er «før» verre enn ingenting. */
+    const linjer = this.visFoer
+      ? ['FØR – terrenget som det ligger i dag, uten inngrepet',
+        'Slipp mellomrom, eller trykk «Før» igjen, for å se hva som blir gjort']
+      : (this._hudLinjer ? this._hudLinjer(g) : []);
     k.textAlign = 'left';
     k.font = '11px system-ui, sans-serif';
     linjer.forEach((s, i) => {
@@ -668,6 +704,19 @@ const Tegner3d = {
       this._skalaSatt = true;
       this.tegn();
     }, { passive: false });
+    c.addEventListener('keyup', e => {
+      if (e.code !== 'Space' || this._foerFoerKikk === undefined) return;
+      this.visFoer = this._foerFoerKikk;
+      this._foerFoerKikk = undefined;
+      this.tegn();
+    });
+    // slipper man tasten utenfor lerretet, skal kikket likevel ta slutt
+    window.addEventListener('blur', () => {
+      if (this._foerFoerKikk === undefined) return;
+      this.visFoer = this._foerFoerKikk;
+      this._foerFoerKikk = undefined;
+      if (this.aktiv) this.tegn();
+    });
     c.addEventListener('dblclick', () => this.nullstill());
 
     /* Piltaster. Lerretet får tabIndex i HTML-en, så det kan ta imot taster når
@@ -678,7 +727,18 @@ const Tegner3d = {
        document som flytter tverrsnittet ett hakk. Uten den ble hvert tastetrykk
        til to hakk, og shift-spranget på ti til elleve – nøyaktig den slags feil
        ingen melder fra om, de bare slutter å bruke tastene. */
+    /* MELLOMROM KIKKER.
+       Hold nede for å se terrenget som det er i dag, slipp for å se inngrepet.
+       Å veksle fram og tilbake er den eneste måten å SE forskjellen – to bilder
+       ved siden av hverandre må man sammenligne, ett bilde som blinker ser man. */
     c.addEventListener('keydown', e => {
+      if (e.code === 'Space' && !e.repeat) {
+        this._foerFoerKikk = this.visFoer;
+        this.visFoer = true;
+        this.tegn();
+        e.preventDefault();
+        return;
+      }
       const steg = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1 }[e.key];
       if (steg && this._stegVis) {
         this._stegVis(steg * (e.shiftKey ? 10 : 1));

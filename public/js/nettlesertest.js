@@ -1493,6 +1493,7 @@ const Nettlesertest = {
         Tomt3d.glemFarger();
         const pf = Tomt3d._palett();
         Tomt3d.fyldig = false; Tomt3d.glemFarger();
+      Tomt3d.visFoer = false;
         const pl = Tomt3d._palett();
         this.sjekk('paletten bygges om når fyldig slås på', pf !== pl);
         /* Bunnen av skalaen – der avviket er null – skal være LANGT sterkere i
@@ -1990,17 +1991,32 @@ const Nettlesertest = {
         /* Dreiningen skal MÅLES. En lang veg lagt på tvers av en høy, smal rute
            må krympe til en tråd; prøven krever at utgangsstillingen ikke er
            dårligere enn det andre valget. */
+        /* Rammen settes ÉN gang, når 3D slås på. Prøven over har endret både
+           vindu og kontekstring siden da, altså selve gitteret – så den må be
+           om en ny innramming før den måler, ellers måler den en dreining som
+           ble valgt for et annet gitter. */
+        Veg3d.nullstill();
+        await this.vent(150);
+        const gg2 = Veg3d._sisteGitter;
         const c2 = document.getElementById('veg3d');
         const dpr = Math.min(2, window.devicePixelRatio || 1);
         const yaw0 = Veg3d.yaw;
         const skalaVed = v => {
           const f = Veg3d.yaw; Veg3d.yaw = v;
-          const t = Veg3d._tilpassSkala(c2.clientWidth * dpr, c2.clientHeight * dpr, gg);
+          const t = Veg3d._tilpassSkala(c2.clientWidth * dpr, c2.clientHeight * dpr, gg2);
           Veg3d.yaw = f; return t.skala;
         };
+        /* Innenfor fem prosent, ikke eksakt.
+           Rammen settes i det øyeblikket 3D slås på; lerretet kan ha endret seg
+           noen piksler siden da, og når modellen er omtrent like bred som den er
+           lang står de to valgene så nær hverandre at et par piksler snur dem.
+           Feilen prøven finnes for er en HELT annen størrelsesorden: en to
+           kilometer lang veg lagt på tvers av en høy, smal rute blir en tråd,
+           og forholdet er da tre til ti ganger – ikke to prosent. */
+        const valgt = skalaVed(yaw0), andre = skalaVed(yaw0 + 90);
         this.sjekk('utgangsstillingen er den som gjør modellen størst',
-          skalaVed(yaw0) >= skalaVed(yaw0 + 90) - 1e-9,
-          'valgt ' + skalaVed(yaw0).toFixed(3) + ' mot ' + skalaVed(yaw0 + 90).toFixed(3));
+          valgt >= andre * 0.95,
+          'valgt ' + valgt.toFixed(3) + ' mot ' + andre.toFixed(3));
       }
 
       /* 17.11 FYLDIG: MASSEN MALT HELT.
@@ -2080,6 +2096,59 @@ const Nettlesertest = {
         await this.vent(120);
       }
 
+      /* 17.12 «FØR»: TERRENGET UTEN INNGREPET.
+         Man ser hva som blir gjort ved å se det som lå der før ved siden av.
+         Med bare «etter» er det umulig å vite om den grønne vingen ligger i ei
+         li eller på et jorde. Prøven måler BILDET – at fargene forsvinner – og
+         ikke bare at et flagg er satt: det er bildet som er leveransen. */
+      {
+        const c4 = document.getElementById('veg3d');
+        const farger = () => {
+          const kk = c4.getContext('2d');
+          const b = kk.getImageData(0, 0, c4.width, c4.height).data;
+          const bak = [b[0], b[1], b[2]];
+          let kulor = 0, n = 0;
+          for (let i = 0; i < b.length; i += 4 * 5) {
+            const r = b[i], g2 = b[i + 1], bl = b[i + 2];
+            if (r === bak[0] && g2 === bak[1] && bl === bak[2]) continue;
+            n++;
+            if (r > g2 + 22 && r > bl + 22) kulor++;        // rødt
+            else if (g2 > r + 16) kulor++;                   // grønt
+          }
+          return { n, del: n ? kulor / n : 0 };
+        };
+        Veg3d.visFoer = false; Veg3d.tegn();
+        await this.vent(180);
+        const etter = farger();
+        this.sjekk('det er noe å se i «etter»', etter.n > 500 && etter.del > 0.01,
+          Math.round(100 * etter.del) + ' % farget');
+
+        Veg3d.visFoer = true; Veg3d.tegn();
+        await this.vent(180);
+        const foer = farger();
+        this.sjekk('«før» viser bare terreng – ingen skjæring eller fylling',
+          foer.del === 0, Math.round(100 * foer.del) + ' % farget');
+        this.sjekk('men terrenget står der fortsatt', foer.n > etter.n * 0.5,
+          foer.n + ' mot ' + etter.n + ' piksler');
+        this.sjekk('og det står i bildet HVILKEN av de to man ser på',
+          Veg3d.visFoer === true);
+
+        Veg3d.visFoer = false; Veg3d.tegn();
+        await this.vent(180);
+        this.naer('og tilbake til «etter» gir samme bilde som før', farger().del, etter.del, 0.01);
+
+        /* Mellomrom kikker: hold nede for før, slipp for etter. Å veksle er den
+           eneste måten å SE forskjellen – to bilder ved siden av hverandre må
+           man sammenligne, ett som blinker ser man. */
+        const o4 = document.getElementById('veg3dover');
+        o4.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', bubbles: true, cancelable: true }));
+        await this.vent(150);
+        this.sjekk('mellomrom kikker på terrenget', Veg3d.visFoer === true);
+        o4.dispatchEvent(new KeyboardEvent('keyup', { code: 'Space', bubbles: true, cancelable: true }));
+        await this.vent(150);
+        this.sjekk('og slipper man, er inngrepet tilbake', Veg3d.visFoer === false);
+      }
+
       /* 17.10 Kostnad – røykprøve mot en katastrofal regresjon. */
       {
         Veg3d.tegn();
@@ -2113,6 +2182,7 @@ const Nettlesertest = {
       Veg3d.kontekst = 30;
       Veg3d.vindu = 0;
       Veg3d.fyldig = false; Veg3d.glemFarger();
+      Veg3d.visFoer = false;
       Veg3d.panX = 0; Veg3d.panY = 0;
       Veg3d._gitterFor = null;
       App.P = JSON.parse(foer);

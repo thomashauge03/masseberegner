@@ -4393,23 +4393,56 @@ const App = {
     /* Stor visning. Panelene tegner seg sjøl pa nytt via ResizeObserver,
        men Leaflet ma fa beskjed eksplisitt. */
     const rute = document.querySelector('.rute');
-    const settStor = navn => {
+    /**
+     * @param {string} navn hvilket panel som skal fylle arbeidsflaten
+     * @param {boolean} [tvang] true = slå PÅ uansett, false = slå AV uansett.
+     *   Uten den veksler den, som knappen alltid har gjort.
+     */
+    const settStor = (navn, tvang) => {
       const alt = ['kart', 'profil', 'tverr', 'tomt'];
       const alleredePa = rute.classList.contains('stor-' + navn);
-      alt.forEach(n => rute.classList.remove('stor-' + n));
-      if (!alleredePa) rute.classList.add('stor-' + navn);
+      const skalPa = tvang === undefined ? !alleredePa : !!tvang;
+      alt.forEach(n2 => rute.classList.remove('stor-' + n2));
+      if (skalPa) rute.classList.add('stor-' + navn);
       document.querySelectorAll('.utvidknapp').forEach(b => {
-        b.classList.toggle('aktiv', !alleredePa && b.dataset.utvid === navn);
-        b.textContent = (!alleredePa && b.dataset.utvid === navn) ? '⤡' : '⤢';
+        const pa = skalPa && b.dataset.utvid === navn;
+        b.classList.toggle('aktiv', pa);
+        b.textContent = pa ? '⤡' : '⤢';
       });
       setTimeout(() => {
         if (Kart.kart) Kart.kart.invalidateSize();
         Lengdeprofil.tegn(); Tverrprofil.tegn(); Tomteprofil.tegn(); Tomt3d.tegn(); Veg3d.tegn();
       }, 60);
     };
+    this.settStor = settStor;
     document.querySelectorAll('.utvidknapp').forEach(b => {
-      b.onclick = () => settStor(b.dataset.utvid);
+      /* Trykker man selv på ⤢ mens 3D står på, er det brukerens valg – da skal
+         det ikke rulles tilbake når 3D slås av. */
+      b.onclick = () => { this._storAv3d = null; settStor(b.dataset.utvid); };
     });
+
+    /**
+     * 3D SKAL HA HELE ARBEIDSFLATEN.
+     *
+     * Målt: tverrpanelet er 172 px høyt i det vanlige oppsettet, så 3D-lerretet
+     * ble 878×132 px. Det er et frimerke å utforske en veg i – og modellen er
+     * nettopp det man åpner for å få OVERSIKT. Snittet ved siden av leses fint
+     * på 132 px; modellen gjør det ikke.
+     *
+     * Nå fyller panelet arbeidsflaten når 3D slås på, og legger seg tilbake når
+     * det slås av. Har brukeren selv rørt ⤢ i mellomtiden, står det som han
+     * satte det – programmet skal ikke overprøve et valg han har tatt.
+     */
+    this.stort3d = (navn, pa) => {
+      if (pa) {
+        if (rute.classList.contains('stor-' + navn)) return;   // alt stort
+        this._storAv3d = navn;
+        settStor(navn, true);
+      } else if (this._storAv3d === navn) {
+        this._storAv3d = null;
+        settStor(navn, false);
+      }
+    };
     /* SAMME KNAPP, TO BETYDNINGER – FORDI DET ER TO SITUASJONER.
        På en bred skjerm står sidepanelet ved siden av, og knappen skjuler det.
        Under 1000 px har det ikke plass ved siden av i det hele tatt: der er det
@@ -4472,6 +4505,18 @@ const App = {
     /* «Fyldig» bytter hele lesemåten, ikke bare en farge: paletten bygges om
        med løftet bunn, og terrenget flyttes ut av veien der det graves. Derfor
        må paletten glemmes – den er bufret på tema. */
+    /* «Før» viser terrenget uten inngrepet. Mellomrom kikker mens man holder;
+       knappen låser det på for den som vil sammenligne i ro. */
+    for (const [id3, vis] of [['t3_foer', () => Tomt3d], ['v3_foer', () => Veg3d]]) {
+      const e = id2(id3);
+      if (!e) continue;
+      e.onclick = () => {
+        const v = vis();
+        v.visFoer = !v.visFoer;
+        e.classList.toggle('aktiv', v.visFoer);
+        v.tegn();
+      };
+    }
     for (const [id3, vis] of [['t3_fyldig', () => Tomt3d], ['v3_fyldig', () => Veg3d]]) {
       const e = id2(id3);
       if (!e) continue;
@@ -4489,10 +4534,29 @@ const App = {
     for (const m of ['t3', 'v3']) {
       const knapp = id2(m + '_meny'), panel = id2(m + '_menypanel');
       if (!knapp || !panel) continue;
+      /**
+       * Menyen legger seg under knappen – eller OVER den, når det ikke er
+       * plass under. Panelet den hører til er 172 px høyt og menyen 167; uten
+       * dette hang den 32 px under vindusbunnen og ble klippet bort.
+       */
+      const plasser = () => {
+        const k = knapp.getBoundingClientRect();
+        panel.style.left = '0px'; panel.style.top = '0px';   // mål den fritt først
+        const h = panel.offsetHeight, b = panel.offsetWidth;
+        const under = window.innerHeight - k.bottom - 8;
+        const over = k.top - 8;
+        // opp når det er trangere under enn over, og det faktisk hjelper
+        const opp = under < h && over > under;
+        panel.style.top = (opp ? Math.max(8, k.top - 5 - h) : k.bottom + 5) + 'px';
+        panel.style.left = Math.max(8, Math.min(k.left, window.innerWidth - b - 8)) + 'px';
+        panel.style.maxHeight = Math.max(120, (opp ? over : under)) + 'px';
+      };
       const sett = pa => {
         panel.classList.toggle('skjult', !pa);
         knapp.setAttribute('aria-expanded', pa ? 'true' : 'false');
+        if (pa) plasser();
       };
+      window.addEventListener('resize', () => { if (!panel.classList.contains('skjult')) plasser(); });
       knapp.onclick = e => { e.stopPropagation(); sett(panel.classList.contains('skjult')); };
       document.addEventListener('click', e => {
         if (!panel.classList.contains('skjult') && !panel.contains(e.target) && e.target !== knapp) sett(false);
@@ -4504,7 +4568,7 @@ const App = {
 
     /* Det samme for vegen, i tverrprofil-panelet. */
     if (id2('vegVisSnitt')) id2('vegVisSnitt').onclick = () => Veg3d.aktiver(false);
-    if (id2('vegVis3d')) id2('vegVis3d').onclick = () => { Veg3d.aktiver(true); Veg3d.nullstill(); };
+    if (id2('vegVis3d')) id2('vegVis3d').onclick = () => Veg3d.aktiver(true);
     for (const [felt, boks] of [['terreng', 'v3_terreng'], ['grav', 'v3_grav'],
       ['vegbane', 'v3_vegbane'], ['fjell', 'v3_fjell'],
       ['rutenett', 'v3_rutenett'], ['grenser', 'v3_grenser']]) {
