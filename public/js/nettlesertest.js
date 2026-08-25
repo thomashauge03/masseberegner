@@ -87,6 +87,7 @@ const Nettlesertest = {
       await this.pdfavlesning();
       await this.rapport();
       await this.paneler();
+      await this.grensesnittbredder();
       await this.panelhoder();
       await this.tomt();
       await this.tomteksport();
@@ -829,6 +830,116 @@ const Nettlesertest = {
    * skal se ut – den sier at det ikke får lov til å spise tegningen. En ny
    * knapp som bryter linja vil slå ut her, og det er hele poenget.
    */
+  /**
+   * Teksten skal få plass i ruta si.
+   *
+   * Dette er den feilen ingen melder fra om, fordi den ikke ser ut som en feil –
+   * den ser ut som om programmet er slik. To funn i sidepanelet:
+   *
+   * · Sju faner var 401 px innhold i et panel på 320, med `flex-wrap: nowrap`
+   *   og `overflow: visible`. EKSPORT og FORKLARING ble tegnet UTENFOR panelet.
+   *   Ingen rullefelt, ingen antydning – to faner fantes bare ikke.
+   * · Fem nedtrekk var smalere enn sitt eget lengste valg. Verst: «Er selve
+   *   tomta – skråningene kommer utenpå», 306 px tekst i en rute på 78, som ble
+   *   vist som «Er selve to▾».
+   *
+   * Prøven måler BREDDER, ikke utseende. Den sier ikke hvordan panelet skal se
+   * ut; den sier at det som står der skal være mulig å lese, og at det man kan
+   * trykke på skal være mulig å treffe.
+   */
+  async grensesnittbredder() {
+    /* Bredden en tekst VILLE tatt, målt med samme skrift, utenfor layouten. */
+    const bredde = (tekst, mal) => {
+      const st = getComputedStyle(mal);
+      const sp = document.createElement('span');
+      sp.style.cssText = 'position:absolute;left:-9999px;top:0;white-space:pre';
+      sp.style.fontSize = st.fontSize;
+      sp.style.fontFamily = st.fontFamily;
+      sp.style.fontWeight = st.fontWeight;
+      sp.style.letterSpacing = st.letterSpacing;
+      sp.style.textTransform = st.textTransform;
+      sp.textContent = tekst;
+      document.body.appendChild(sp);
+      const b = sp.getBoundingClientRect().width;
+      sp.remove();
+      return b;
+    };
+
+    const faner = [...document.querySelectorAll('.fane')].filter(f => !f.classList.contains('skjult'));
+    const rad = document.querySelector('.faner');
+    const rr = rad.getBoundingClientRect();
+    let utafor = 0;
+    for (const f of faner) {
+      const r = f.getBoundingClientRect();
+      if (r.right > rr.right + 1 || r.left < rr.left - 1 || r.bottom > rr.bottom + 1) utafor++;
+    }
+    this.sjekk('alle fanene ligger innenfor panelet – ingen er tegnet utenfor',
+      utafor === 0, utafor + ' av ' + faner.length + ' utenfor');
+    /* Og de skal være til å TREFFE, ikke bare til stede: en fane som er klemt
+       ned i tolv piksler er like utilgjengelig som en som ligger utenfor. */
+    const smal = faner.filter(f => f.getBoundingClientRect().width < 34);
+    this.sjekk('og ingen er klemt ned til en strek', smal.length === 0,
+      smal.map(f => f.dataset.fane).join(', '));
+
+    /* Hvert nedtrekk skal kunne vise sitt eget lengste valg. */
+    const trange = [];
+    for (const f of faner) {
+      f.click();
+      await this.vent(180);
+      for (const e of document.querySelectorAll('.faneinnhold select')) {
+        if (!e.offsetParent) continue;
+        let treng = 0;
+        for (const o of e.options) treng = Math.max(treng, bredde(o.textContent, e));
+        // 34 px er pila og innvendig luft; nettleseren tegner den utenfor teksten
+        const plass = e.getBoundingClientRect().width - 34;
+        if (treng > plass + 2) {
+          trange.push((e.id || f.dataset.fane) + ' ' + Math.round(plass) + ' < ' + Math.round(treng));
+        }
+      }
+    }
+    /* VEIKLASSENE ER UNNTAKET, og det er et bevisst unntak.
+       «Klasse 4 – Sommerbilvei for tømmerbil med henger» er lengre enn et panel
+       på 320 px uansett hva man gjør med layouten, og navnet er ikke vårt å
+       korte ned – det står slik i Normaler for landbruksveier, og den samme
+       strengen havner i rapporten og i PDF-en. Der er halen klippet, lista viser
+       hele navnet, og hele navnet ligger i tittelen. Prøven krever DET. */
+    const ekte = trange.filter(t => !t.startsWith('m_veiklasse'));
+    this.sjekk('hvert nedtrekk kan vise sitt eget lengste valg',
+      ekte.length === 0, ekte.join(' | '));
+    const vk = document.getElementById('m_veiklasse');
+    if (vk) {
+      this.sjekk('veiklassen er for lang for panelet, og bærer da hele navnet i tittelen',
+        !!vk.title && vk.title.length > 12, '«' + (vk.title || '') + '»');
+    }
+
+    /* Ingen knapp eller etikett skal ha tekst som renner over sin egen rute. */
+    const renner = [];
+    for (const f of faner) {
+      f.click();
+      await this.vent(160);
+      for (const e of document.querySelectorAll('.faneinnhold button, .faneinnhold label, .faneinnhold .enhet')) {
+        if (!e.offsetParent) continue;
+        const st = getComputedStyle(e);
+        if (st.overflowX === 'auto' || st.overflowX === 'scroll') continue;
+        if (e.scrollWidth > e.clientWidth + 2) {
+          renner.push(e.textContent.trim().slice(0, 26) + ' ' + e.clientWidth + '<' + e.scrollWidth);
+        }
+      }
+    }
+    this.sjekk('ingen knapp eller etikett renner over ruta si', renner.length === 0,
+      renner.slice(0, 4).join(' | '));
+
+    /* DESIMALTEGNET SKAL VÆRE DET SAMME PÅ SAMME RAD.
+       Feltet viste «2,5» fordi nettleseren skriver tall på norsk; hintet ved
+       siden av viste «1:2.5» fordi toFixed alltid skriver engelsk. To
+       desimaltegn tre centimeter fra hverandre, på samme linje. */
+    const punktum = [...document.querySelectorAll('.faneinnhold .enhet')]
+      .filter(e => e.offsetParent && /\d\.\d/.test(e.textContent))
+      .map(e => e.textContent.trim());
+    this.sjekk('hintene skriver desimaltall med komma, som feltene ved siden av',
+      punktum.length === 0, punktum.slice(0, 4).join(' | '));
+  },
+
   async panelhoder() {
     /* KARTET SKAL IKKE HA HODE I DET HELE TATT.
        Et panelhode er en 40 px stripe over hele bredden som ikke viser noe.

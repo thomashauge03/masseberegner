@@ -719,10 +719,10 @@ const App = {
       let helning = '';
       if (type === 'fjellvegg') {
         const h = kant.veggHelning != null ? kant.veggHelning : mal.veggHelning;
-        helning = h < 1e-6 ? 'loddrett' : `${(1 / h).toFixed(h < 0.15 ? 0 : 1)}:1`;
+        helning = h < 1e-6 ? 'loddrett' : `${Rapport.tall(1 / h, h < 0.15 ? 0 : 1)}:1`;
       } else if (type === 'skraning') {
         const h = kant.skjaeringLosmasse != null ? kant.skjaeringLosmasse : mal.skjaeringLosmasse;
-        helning = `1:${h.toFixed(1)}`;
+        helning = `1:${Rapport.tall(h, 1)}`;
       } else if (type === 'mur') {
         helning = `≤ ${mal.maksMurHoyde} m`;
       } else {
@@ -3497,8 +3497,11 @@ const App = {
       const [slag, felt, navn, min, maks, steg] = rad;
       const v = m[felt];
       let hint = '';
-      if (slag === 'berg') hint = v > 1e-6 ? `${(1 / v).toFixed(v < 0.15 ? 0 : 1)}:1` : 'loddrett';
-      else if (slag === 'los') hint = v > 1e-6 ? `1:${(+v).toFixed(1)}` : 'loddrett';
+      /* KOMMA, IKKE PUNKTUM. Feltet ved siden av viser «2,5» fordi nettleseren
+         skriver tall på norsk; hintet skrev «1:2.5» fordi toFixed alltid skriver
+         engelsk. To desimaltegn på samme rad, tre centimeter fra hverandre. */
+      if (slag === 'berg') hint = v > 1e-6 ? `${Rapport.tall(1 / v, v < 0.15 ? 0 : 1)}:1` : 'loddrett';
+      else if (slag === 'los') hint = v > 1e-6 ? `1:${Rapport.tall(+v, 1)}` : 'loddrett';
       else hint = 'm';
       ut += `<div class="felt"><label>${navn}</label>`
         + `<input type="number" data-tm="${felt}" value="${v}" min="${min}" max="${maks}" step="${steg}">`
@@ -3688,8 +3691,20 @@ const App = {
     for (const [n, k] of Object.entries(Veiklasser)) {
       const o = document.createElement('option');
       o.value = n; o.textContent = k.navn;
+      o.title = k.navn;
       v.appendChild(o);
     }
+    /* «Klasse 4 – Sommerbilvei for tømmerbil med henger» er 306 px tekst i et
+       panel på 320 med luft på begge sider. Navnene er ikke våre å korte ned –
+       de står slik i Normaler for landbruksveier, og de samme strengene havner i
+       rapporten og i PDF-en. Nettleseren klipper derfor halen på den lukkede
+       ruta (nedtrekkslista viser hele), og hele navnet ligger i tittelen. */
+    const settTittel = () => {
+      const k = Veiklasser[v.value];
+      v.title = k ? k.navn : '';
+    };
+    v.addEventListener('change', settTittel);
+    settTittel();
   },
 
   visVeiklasse() {

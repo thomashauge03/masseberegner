@@ -451,12 +451,24 @@ body {
 .skyver { flex: 1 1 140px; min-width: 110px; max-width: 220px; accent-color: var(--hm-raud); }
 
 /* ── sidepanel ─────────────────────────────────────────── */
-.faner { display: flex; background: var(--flate-2); border-bottom: 2px solid var(--kant); }
+/* FANENE MÅ ALLE VÆRE PÅ SKJERMEN.
+   Her sto `flex: 1` uten wrap. Med `flex-basis: auto` er utgangsbredden
+   max-content, og krympingen stopper ved min-content – lengste ord, og
+   «GRUNNFORHOLD» er 89 px i store bokstaver. Sju faner ble 401 px innhold i et
+   panel på 320: EKSPORT og FORKLARING ble tegnet UTENFOR panelet, uten rullefelt
+   og uten noen måte å nå dem på. Fanene er navigasjonen; en fane man ikke kan
+   klikke på finnes ikke.
+   Rullefelt ville skjult dem like godt – man ruller ikke i noe man ikke vet er
+   der. Brytning koster 34 px høyde og viser alt. */
+.faner {
+  display: flex; flex-wrap: wrap;
+  background: var(--flate-2); border-bottom: 2px solid var(--kant);
+}
 .fane {
-  flex: 1; background: none; border: none; border-bottom: 3px solid transparent;
-  color: var(--blekk-svak); padding: 10px 4px; cursor: pointer;
+  flex: 1 0 auto; background: none; border: none; border-bottom: 3px solid transparent;
+  color: var(--blekk-svak); padding: 10px 9px; cursor: pointer;
   font-family: var(--skrift-tittel); font-weight: 700; font-size: 13px;
-  text-transform: uppercase; letter-spacing: .05em;
+  text-transform: uppercase; letter-spacing: .05em; white-space: nowrap;
 }
 .fane:hover { color: var(--blekk); }
 .fane.aktiv { color: var(--blekk); border-bottom-color: var(--hm-raud); }
@@ -472,12 +484,28 @@ body {
 .notis { color: var(--blekk-svak); font-size: 12px; line-height: 1.5; margin: 0 0 10px; }
 .tomtekst { color: var(--blekk-svak); }
 
-.felt { display: grid; grid-template-columns: 1fr 78px 34px; align-items: center; gap: 6px; margin-bottom: 5px; }
+.felt { display: grid; grid-template-columns: minmax(0, 1fr) 78px 34px; align-items: center; gap: 6px; margin-bottom: 5px; }
 .felt label { color: var(--blekk-svak); font-size: 12px; }
 .felt input, .felt select {
   background: var(--flate-opp); border: 2px solid var(--kant); color: var(--blekk);
   padding: 4px 6px; font-size: 12px; width: 100%; font-family: var(--skrift);
 }
+/* ET TALL LESES FRA HØYRE. Venstrestilt sto «2,5» klint inntil venstrekanten
+   med femti piksler tomrom etter seg, og komma sto på fire forskjellige steder
+   nedover rada med skråninger. Høyrestilt med tabellsiffer står komma i én
+   loddrett linje, og man ser på et blikk hvilke tall som er endret. */
+.felt input[type=number] { text-align: right; font-variant-numeric: tabular-nums; }
+/* ET VALG SOM ER EN SETNING ER IKKE EN VERDI.
+   «Er selve tomta – skråningene kommer utenpå» er 306 px tekst i en rute på 78,
+   og det som sto i ruta var «Er selve to▾». Målt over hele programmet: fem
+   nedtrekk var for trange, verst med 306 mot 118 px. Et nedtrekk der man ikke
+   kan lese valget er verre enn ingen valgmulighet – man vet ikke hva som står
+   der nå.
+   Løsningen er ikke en bredere kolonne (da blir etiketten fire linjer), men å la
+   raden falle i to: etiketten over, valget i full bredde. Det gir samtidig en
+   trykkflate på hele bredden, som er det man vil ha med finger. */
+.felt:has(select) { grid-template-columns: 1fr; gap: 3px; margin-bottom: 10px; }
+.felt:has(select) .enhet { display: none; }
 .felt input:focus, .felt select:focus, .minitall input:focus { border-color: var(--hm-raud); }
 .felt span { color: var(--blekk-svak); font-size: 11px; }
 .felt.avkryssfelt { grid-template-columns: 1fr; }
