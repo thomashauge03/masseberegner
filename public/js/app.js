@@ -1760,6 +1760,57 @@ const App = {
    * mens rapporten ved siden av viste tjue - og da er ingen av dem til a
    * stole pa. Nar dette sier null, er merknadslisten tom.
    */
+  /**
+   * Hvorfor rettingen ikke kom lenger – med tall, ikke med gjetninger.
+   *
+   * Brukeren fikk «Prøv å slakke et krav, låse opp flere høyder, eller endre
+   * linjen i planet»: tre forslag og null opplysninger. På en veg med 81
+   * merknader som alle sier det samme, er det ikke til å komme videre på.
+   *
+   * Her står tallene som faktisk avgjør: hvor mye linja måtte flyttet seg,
+   * hvor det stoppet, og hva grensen måtte vært for at linja slik den ligger
+   * skulle holdt. Det siste er det viktigste: er største fylling 23,2 m mot en
+   * grense på 4, er ikke dette en profil som kan rettes – det er en grense som
+   * ikke passer til terrenget, eller en linje som må legges om i planet.
+   */
+  hvorforIkke() {
+    const res = this.resultat, mal = this.P.mal;
+    if (!res || !res.profiler) return 'Prøv å slakke et krav eller endre linjen i planet.';
+    let maksF = 0, maksS = 0, sF = 0, sS = 0;
+    for (const p of res.profiler) {
+      if (p.maksFylling > maksF) { maksF = p.maksFylling; sF = p.s; }
+      if (p.maksSkjaering > maksS) { maksS = p.maksSkjaering; sS = p.s; }
+    }
+    const t = (v, d = 1) => Rapport.tall(v, d);
+    const deler = [];
+    if (mal.maksFyllingshoyde > 0 && maksF > mal.maksFyllingshoyde) {
+      deler.push(`Største fylling er ${t(maksF)} m ved prof ${t(sF, 0)} – grensen er `
+        + `${t(mal.maksFyllingshoyde)} m`);
+    }
+    if (mal.maksSkjaeringsdybde > 0 && maksS > mal.maksSkjaeringsdybde) {
+      deler.push(`største skjæring ${t(maksS)} m ved prof ${t(sS, 0)} mot grensen `
+        + `${t(mal.maksSkjaeringsdybde)} m`);
+    }
+    if (!deler.length) return 'Prøv å slakke et krav, låse opp flere høyder, eller endre linjen i planet.';
+    let ut = deler.join(', ') + '. ';
+    const sp = this._sperret;
+    if (sp && sp.antall) {
+      ut += `Linja ble holdt igjen ${t(sp.verst)} m ved prof ${t(sp.s, 0)}`
+        + (this.lasteHoyder().length ? ' av stigningskravet eller en låst høyde' : ' av stigningskravet')
+        + '. ';
+    }
+    /* Det ene tallet som alltid er sant: hva grensen måtte vært. Er avstanden
+       til den mange ganger grensen, er det ikke profilen som er problemet. */
+    const krevd = Math.max(maksF, 0);
+    if (mal.maksFyllingshoyde > 0 && krevd > mal.maksFyllingshoyde * 2) {
+      ut += `Terrenget her tåler ikke ${t(mal.maksFyllingshoyde)} m: linja slik den ligger `
+        + `trenger ${t(krevd)} m. Legg om linja i planet, eller sett grensen deretter.`;
+    } else {
+      ut += 'Slakk et krav, lås opp flere høyder, eller legg om linja i planet.';
+    }
+    return ut;
+  },
+
   tellBrudd(res) {
     const r = res || this.resultat;
     if (!r || !Array.isArray(r.merknader)) return null;
@@ -1863,13 +1914,88 @@ const App = {
       await pause();
       const mal = this.P.mal;
       const terrengVed = lagTerrengoppslag(this.terrengProfil.s, this.terrengProfil.z);
+      /**
+       * Taket og gulvet senterlinja må holde seg mellom, REGNET AV SNITTENE.
+       *
+       * DETTE ER GRUNNEN TIL AT «RETT OPP» IKKE KLARTE Å FJERNE BRUDDENE.
+       * Rettingen håndhevet `v.z - terreng(v.s)` – høyden over terrenget PÅ
+       * SENTERLINJA, og bare i knekkpunktene, som standard hver 40. meter.
+       * Merknaden måler noe helt annet: `pr.maksFylling`, den største loddrette
+       * avstanden mellom jordarbeidsflaten og terrenget HVOR SOM HELST i
+       * tverrsnittet, ut til søkebredden, på hvert eneste beregningsprofil.
+       * På en tverrfallende li er de to tallene ikke i nærheten av hverandre:
+       * senterlinja kan ligge i dagen mens ytterkanten av en fem meter bred veg
+       * står tjue meter over bakken. Knappen jaget altså ett tall til det var
+       * innenfor, mens listen talte et annet – og svarte «fant ingen bedre
+       * profil, 81 brudd står som før».
+       *
+       * Rettelsen er å måle det man faktisk håndhever. Senker man vegen én
+       * meter, synker HELE jordarbeidsflaten én meter, og største fylling
+       * synker like mye – til første orden eksakt. Overskuddet er derfor
+       * nøyaktig så mange meter linja må ned:
+       *     tak(s) = dagens kote − (målt fylling − grensen)
+       * og speilvendt for skjæring.
+       *
+       * Hvert profil hører til det NÆRMESTE knekkpunktet, og knekkpunktet får
+       * det verste kravet blant sine. Uten det ville et brudd midt mellom to
+       * knekkpunkt ikke hatt noen å be om å flytte seg.
+       */
+      const grenserFraSnitt = res => {
+        if (!res || !res.profiler || !res.profiler.length) return null;
+        const tak = new Map(), gulv = new Map();
+        const naermeste = s => {
+          let best = this.P.vip[0], bd = Infinity;
+          for (const v of this.P.vip) {
+            const d = Math.abs(v.s - s);
+            if (d < bd) { bd = d; best = v; }
+          }
+          return best;
+        };
+        /* OVERSKUDDET ER EN AVSTAND, IKKE EN KOTE.
+           Første forsøk regnet taket som `profilens kote − overskudd`. Men
+           profilen ligger et stykke fra knekkpunktet, og med ti prosent stigning
+           og tjue meter imellom er de to kotene to meter fra hverandre – taket
+           ble altså gitt til feil høyde. Overskuddet i METER er derimot det
+           samme uansett hvor man står: skal fyllingen ned 7,6 m, skal
+           knekkpunktet ned 7,6 m fra SIN egen kote. */
+        let n = 0;
+        const ned = new Map(), opp = new Map();
+        for (const pr of res.profiler) {
+          const v = naermeste(pr.s);
+          if (!v || v.laast) continue;
+          if (mal.maksFyllingshoyde > 0 && pr.maksFylling > mal.maksFyllingshoyde) {
+            const d = pr.maksFylling - mal.maksFyllingshoyde;
+            if (d > (ned.get(v.s) || 0)) ned.set(v.s, d);
+            n++;
+          }
+          if (mal.maksSkjaeringsdybde > 0 && pr.maksSkjaering > mal.maksSkjaeringsdybde) {
+            const d = pr.maksSkjaering - mal.maksSkjaeringsdybde;
+            if (d > (opp.get(v.s) || 0)) opp.set(v.s, d);
+            n++;
+          }
+        }
+        for (const v of this.P.vip) {
+          if (!Number.isFinite(v.z)) continue;
+          if (ned.has(v.s)) tak.set(v.s, v.z - ned.get(v.s));
+          if (opp.has(v.s)) gulv.set(v.s, v.z + opp.get(v.s));
+        }
+        if (!n) return null;
+        return {
+          takVed: s => (tak.has(s) ? tak.get(s) : Infinity),
+          gulvVed: s => (gulv.has(s) ? gulv.get(s) : -Infinity)
+        };
+      };
+
       const rettEnGang = () => {
-        rettProfil(this.P.vip, {
+        /* Målt snitt om det finnes, terrenghøyde om det ikke gjør det. */
+        const maalt = grenserFraSnitt(sisteGrove || this.resultat);
+        rettProfil(this.P.vip, Object.assign({
           maksStigningFor: (sA, sB, g) => this.tillattStigning(sA, sB, g),
           maksOverTerreng: mal.maksFyllingshoyde > 0 ? mal.maksFyllingshoyde : null,
           maksUnderTerreng: mal.maksSkjaeringsdybde > 0 ? mal.maksSkjaeringsdybde : null,
           terrengVed
-        });
+        }, maalt || {}));
+        if (this.P.vip.sperret && this.P.vip.sperret.antall) this._sperret = this.P.vip.sperret;
         /* Vertikalgeometrien ma rettes for seg. rettProfil flytter høyder,
            men rører aldri K - og et knekkpunkt med K=0 far ingen kurve i det
            hele tatt. Uten dette sto alle vertikalkurvebruddene igjen etter
@@ -1891,11 +2017,22 @@ const App = {
          og det ser ut som om den har hengt seg. Den grove beregningen svarer
          pa det samme spørsmalet pa en brøkdel av tiden; den nøyaktige kjøres
          en gang, til slutt. */
+      /* Det siste grove regnestykket, tatt vare på: det er DER de målte
+         fyllings- og skjæringshøydene kommer fra som rettingen skal arbeide mot
+         neste runde. Uten det ville taket vært regnet av tilstanden før første
+         skritt, én gang, og alle åtte rundene ville jaget det samme utdaterte
+         tallet. */
+      let sisteGrove = null;
       const bruddRaskt = () => {
         try {
           const r = this.beregnRaskt(this.P.vip);
+          sisteGrove = r;
           let n = 0;
-          for (const m of r.merknader) if (this.BRUDDTYPER[m.type] === 'profil') n++;
+          /* DEN RÅ LISTA, ikke den sammenslåtte. Merknadene er slått sammen
+             for at et menneske skal kunne lese dem – nittini linjer ble fire.
+             Målte rettelykken på den, ville den sett fire brudd der det står
+             nittini, og gitt seg med det samme fordi tallet knapt beveget seg. */
+          for (const m of (r.brudd || r.merknader)) if (this.BRUDDTYPER[m.type] === 'profil') n++;
           return n;
         } catch (e) { return Infinity; }
       };
@@ -1987,9 +2124,17 @@ const App = {
         /* Rullebakken legger tilbake høydene, men IKKE planryddingen: den
            gjorde vegen lovlig, og det er ikke noe å angre. Derfor må den òg
            nevnes her – ellers ser det ut som knappen ikke gjorde noe. */
+        /* SI HVA SOM STÅR I VEIEN, IKKE BARE AT NOE GJØR DET.
+           «Prøv å slakke et krav, låse opp flere høyder, eller endre linjen»
+           er tre gjetninger og null opplysninger – og med åttien merknader som
+           alle sier det samme, er det ikke til å komme videre på.
+           Nå står tallet: hvor mange meter linja måtte ned eller opp for å nå
+           kravet, og hvor. Klarte rettingen ikke å flytte den så langt, er det
+           stigningskravet eller en låst høyde som holder igjen, og da er det
+           DET som må gi etter – ikke enda et forsøk på den samme knappen. */
         this.status(this.forran(bruddFor.profil > 0
           ? `Fant ingen bedre profil – ${bruddFor.profil} brudd står som før. `
-            + 'Prøv å slakke et krav, låse opp flere høyder, eller endre linjen i planet.'
+            + this.hvorforIkke()
           : 'Profilen du hadde var allerede best – den er beholdt som den var.'));
         return;
       }
@@ -2857,7 +3002,7 @@ const App = {
          inn som svaert dyre brudd. Uten dette ville optimaliseringen valgt
          den løsningen som er billigst pa papiret - gjerne en 20 % bakke i en
          30-meterskurve, eller en fylling som stikker 40 m ut. */
-      for (const m of r.merknader) {
+      for (const m of (r.brudd || r.merknader)) {
         if (m.type === 'kurvatur') k += 200000;
         /* Vertikalkurvene hadde ingen straff. «Rett opp» retter dem, og sa
            kjører optimaliseringen etterpa og star fritt til a lage dem pa

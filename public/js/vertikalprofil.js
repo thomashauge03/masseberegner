@@ -263,6 +263,16 @@ function rettProfil(vip, opsjoner = {}) {
   const maksOver = opsjoner.maksOverTerreng;
   const maksUnder = opsjoner.maksUnderTerreng;
   const terrengVed = opsjoner.terrengVed;
+  /* TAKET OG GULVET ER MÅLT, IKKE GJETTET.
+     Se den lange forklaringen i kallet fra app.js: fyllingshøyden som meldes er
+     den største NOE STED i tverrsnittet, mens `v.z - terreng(v.s)` bare er
+     høyden på senterlinja. På en tverrfallende li er de to helt forskjellige
+     tall, og rettingen jaget det ene mens merknaden talte det andre.
+     Er de oppgitt, er `tak(s)` og `gulv(s)` absolutte koter senterlinja må
+     holde seg mellom – regnet av det som faktisk ble målt i snittet. */
+  const takVed = opsjoner.takVed;
+  const gulvVed = opsjoner.gulvVed;
+  const harMaalt = !!(takVed || gulvVed);
 
   for (let runde = 0; runde < 2000; runde++) {
     let verstBrudd = 0;
@@ -274,7 +284,23 @@ function rettProfil(vip, opsjoner = {}) {
        - som i en bratt li der veien ma brues over en søkk - ma stigningen
        vinne, ellers ender man med en veg som verken er lovlig eller billig.
        Det som ikke gar opp kommer som merknad i stedet. */
-    if (terrengVed && (maksOver != null || maksUnder != null)) {
+    if (harMaalt) {
+      for (const v of vip) {
+        if (v.laast || !Number.isFinite(v.z)) continue;
+        const tak = takVed ? takVed(v.s) : Infinity;
+        const gulv = gulvVed ? gulvVed(v.s) : -Infinity;
+        /* Krever snittet BÅDE at man kommer ned og at man kommer opp – en dyp
+           skjæring på oversiden og en høy fylling på undersiden av samme
+           tverrfall – finnes det ingen kote som holder begge. Da gjør vi det
+           samme som ellers: går halvveis mot hver, lander i et kompromiss, og
+           lar merknaden fortelle hva som står igjen. */
+        if (Number.isFinite(tak) && v.z > tak) { v.z -= (v.z - tak) * 0.5; verstBrudd = Math.max(verstBrudd, 1); }
+        if (Number.isFinite(gulv) && v.z < gulv) { v.z += (gulv - v.z) * 0.5; verstBrudd = Math.max(verstBrudd, 1); }
+      }
+    } else if (terrengVed && (maksOver != null || maksUnder != null)) {
+      /* Uten et målt snitt – første forslag, før noe er regnet – er høyden over
+         terrenget på senterlinja det eneste man har. Det er riktig som første
+         gjetning, og galt som fasit. */
       for (const v of vip) {
         if (v.laast) continue;
         const t = terrengVed(v.s);
@@ -306,6 +332,30 @@ function rettProfil(vip, opsjoner = {}) {
     }
     if (verstBrudd < 1e-5) break;
   }
+  /* HVA SOM IKKE GIKK, OG HVOR MYE SOM MANGLET.
+     Uten dette kunne rettingen bare si «fant ingen bedre profil» – en setning
+     som forteller at noe feilet, ikke hva. Står et knekkpunkt igjen over taket
+     sitt når løkka er ferdig, er det fordi noe annet holder det oppe:
+     stigningskravet, en låst høyde, eller et tak i den andre enden som drar
+     motsatt vei. Tallet under er nøyaktig hvor mange meter som manglet, og det
+     er den ene opplysningen som avgjør om brukeren skal slakke et krav, låse
+     opp en høyde eller legge om linja. */
+  const sperret = { antall: 0, verst: 0, s: null };
+  if (harMaalt) {
+    for (const v of vip) {
+      if (!Number.isFinite(v.z)) continue;
+      const tak = takVed ? takVed(v.s) : Infinity;
+      const gulv = gulvVed ? gulvVed(v.s) : -Infinity;
+      const mangler = Math.max(
+        Number.isFinite(tak) ? v.z - tak : 0,
+        Number.isFinite(gulv) ? gulv - v.z : 0);
+      if (mangler > 0.05) {
+        sperret.antall++;
+        if (mangler > sperret.verst) { sperret.verst = mangler; sperret.s = v.s; }
+      }
+    }
+  }
+  vip.sperret = sperret;
   return vip;
 }
 
