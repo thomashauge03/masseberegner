@@ -108,6 +108,11 @@ const Tegner3d = {
      borte: med øyet minst 1,6 m over flaten kommer man aldri under bakken, og
      med stasjonen bundet til vegen er man alltid PÅ strekket. */
   modus: 'oversikt',        // 'oversikt' | 'bakken'
+  /* Synsvinkelen visningen hører hjemme i. Tomta ser bratt ned på en flate,
+     vegen ser lavt langs et strekk – og det er den lave vinkelen som avslører
+     en linje som ligger for høyt. Feltet finnes fordi tallet ellers måtte
+     skrives på nytt hvert sted man kommer «hjem» fra noe. */
+  pitchHjem: 55,
   fov: 60,                  // grader loddrett, fast - ikke en innstilling
   kamH: 2.0,                // øyehøyde over gulvet, meter
   /* FARTEN MÅ KUNNE SKRUS OPP.
@@ -684,6 +689,96 @@ const Tegner3d = {
   },
 
 
+  /**
+   * Strekene i overlegget – fotlinje, vegkant, senterlinje, tomtegrense.
+   *
+   * OVENFRA ER ALT FORAN KAMERAET. PÅ BAKKEN ER DET IKKE DET.
+   * Strekene ble tegnet ved å projisere hver node og trekke en linje mellom
+   * dem, uten et eneste spørsmål om noden lå foran øyet. Sett ovenfra er det
+   * riktig – der er hele modellen foran. Står man i den, ligger halve vegen BAK
+   * ryggen, og et punkt bak øyet får negativ dybde: `px = cx + F·rx/w` speiler
+   * det over til motsatt side av skjermen. Polylinja trakk da en strek fra et
+   * ekte punkt til et speilbilde, og bildet ble en vifte av streker ut fra
+   * midten – over himmelen, gjennom terrenget, tvers over alt.
+   *
+   * To ting må til, og begge må gjøres i KAMERAROMMET:
+   *   · Nærplanet. `w` er lineær i verdensposisjonen, så krysningspunktet er
+   *     en enkel interpolasjon. Etter divisjonen er ingenting lineært lenger.
+   *   · Dybdeprøven. En strek som ligger bak en fylling skal ikke tegnes oppå
+   *     den. Rasteret har alt regnet ut hvor nær flaten er i hvert piksel; her
+   *     slås det bare opp.
+   *
+   * Toleransen er nødvendig fordi streken ligger nøyaktig PÅ flaten: uten den
+   * ville halvparten av pikslene på fotlinja tapt mot sin egen bakke.
+   */
+  _strekOppsett(kam, b, h) {
+    this._strekKam = kam;
+    this._strekB = b; this._strekH = h;
+  },
+
+  /**
+   * @param {CanvasRenderingContext2D} k
+   * @param {Array<?{x:number,y:number,z:number}>} punkter  null = brudd i linja
+   */
+  _verdensstrek(k, punkter) {
+    const kam = this._strekKam;
+    if (!kam || !this._sisteRb) return;
+    const b = this._strekB, h = this._strekH;
+    const rb = this._sisteRb, rh = this._sisteRh;
+    const naer = kam.naer || 1e-6;
+    const dyp = this._dyp;
+    // dybdeprøven gjelder bare på bakken; ovenfra er strekene aldri skjult
+    const prov = !!(kam.oye && dyp && dyp.length === rb * rh);
+    const paaSkjerm = q => ({ x: q.px * b / rb, y: q.py * h / rh });
+    /* Skjult bak noe? Slå opp rasterets dybde i samme piksel. 2 % pluss en
+       halvmeter er nok til at streken vinner mot sin egen flate, og for lite
+       til at den vinner mot en fylling foran. */
+    const skjult = q => {
+      if (!prov) return false;
+      const ix = q.px | 0, iy = q.py | 0;
+      if (ix < 0 || iy < 0 || ix >= rb || iy >= rh) return false;
+      const d = dyp[iy * rb + ix];
+      return Number.isFinite(d) && q.w > d * 1.02 + 0.5;
+    };
+    // punktet der strekket krysser nærplanet; w er lineær, så dette er eksakt
+    const klipp = (a, c, wa, wc) => {
+      const t = (naer * 1.001 - wa) / (wc - wa);
+      return { x: a.x + (c.x - a.x) * t, y: a.y + (c.y - a.y) * t, z: a.z + (c.z - a.z) * t };
+    };
+
+    k.beginPath();
+    let forrige = null, forrigeQ = null, tegner = false;
+    for (const p of punkter) {
+      if (!p) { forrige = null; forrigeQ = null; tegner = false; continue; }
+      const q = kam.punkt(p.x, p.y, p.z);
+      const inne = q.w > naer && !skjult(q);
+      const foran = q.w > naer;
+      if (inne) {
+        const s = paaSkjerm(q);
+        if (tegner) k.lineTo(s.x, s.y);
+        else {
+          // kom vi inn fra baksiden av øyet, skal streken begynne på nærplanet
+          if (forrige && forrigeQ && !(forrigeQ.w > naer)) {
+            const kr = klipp(forrige, p, forrigeQ.w, q.w);
+            const sk = paaSkjerm(kam.punkt(kr.x, kr.y, kr.z));
+            k.moveTo(sk.x, sk.y);
+            k.lineTo(s.x, s.y);
+          } else k.moveTo(s.x, s.y);
+          tegner = true;
+        }
+      } else {
+        if (tegner && !foran && forrige && forrigeQ) {
+          const kr = klipp(p, forrige, q.w, forrigeQ.w);
+          const sk = paaSkjerm(kam.punkt(kr.x, kr.y, kr.z));
+          k.lineTo(sk.x, sk.y);
+        }
+        tegner = false;
+      }
+      forrige = p; forrigeQ = q;
+    }
+    k.stroke();
+  },
+
   /** Er cella nær en 10 m-linje i UTM? Da tones den ned, som et drapert rutenett. */
   _paaRutelinje(g, k) {
     const x = g.wx[k], y = g.wy[k];
@@ -724,6 +819,7 @@ const Tegner3d = {
       const q = kam.punkt(wx, wy, wz);
       return { x: q.px * b / this._sisteRb, y: q.py * h / this._sisteRh };
     };
+    this._strekOppsett(kam, b, h);
 
     /* Strekene og tallene som hører til NETTOPP denne visningen – tomtegrense
        og skråningsfot for tomta, vegkanter og stasjonsmerker for vegen.
@@ -752,11 +848,11 @@ const Tegner3d = {
     if (this.modus === 'bakken' && kam.oye) {
       const t2 = v => Rapport.tall(v, v < 10 ? 1 : 0);
       const linjerB = ['PÅ BAKKEN · øyet ' + t2(this.kamH) + ' m over bakken'];
-      if (this.app.tverrStasjon != null) {
-        linjerB.push('Profil ' + t2(this.app.tverrStasjon) + ' · '
-          + (this.kamT ? t2(Math.abs(this.kamT)) + ' m ' + (this.kamT > 0 ? 'til høyre' : 'til venstre') + ' for senterlinja'
-            : 'på senterlinja'));
-      }
+      /* HVOR MAN STÅR VET BARE VISNINGEN.
+         Her sto vegens «Profil … · på senterlinja», lest rett av
+         `app.tverrStasjon`. På en tomt er det tallet 0 og ikke null, så tomta
+         ville fått linja «Profil 0 · på senterlinja» – om en veg den ikke har. */
+      if (this._bakkeHud) linjerB.push(...this._bakkeHud());
       /* Tastene MÅ stå i bildet. Et kamera man må gjette seg til er et kamera
          man ikke bruker, og det er ingen annen plass å skrive dem. */
       linjerB.push('W A S D eller piltaster kjører · Shift løper · Q E hever og senker'
@@ -937,7 +1033,7 @@ const Tegner3d = {
       /* Et klikk er en dragning som ikke flyttet seg. Terskelen må være der:
          på et nettbrett rikker fingeren seg alltid noen piksler, og uten den
          ville hvert eneste forsøk på å snu endt med å velge et sted. */
-      if (dra && !dra.flytter && dra.flyttet < 4 && this._velg) {
+      if (dra && !dra.flytter && dra.flyttet < 4) {
         const p = e && e.changedTouches
           ? (() => { const r = c.getBoundingClientRect(), t = e.changedTouches[0];
             return { x: t.clientX - r.left, y: t.clientY - r.top }; })()
@@ -948,8 +1044,13 @@ const Tegner3d = {
              det velger stedet (som før), og det flytter dreiepunktet dit.
              Fra da av dreier man om det man ser på i stedet for om midten av
              et gitter som kan ligge en kilometer unna. */
+          /* SETT DREIEPUNKTET UANSETT, VELG BARE NÅR VISNINGEN KAN.
+             Vakten sto på `_velg`, som bare vegen har. Da satte et klikk i
+             tomtemodellen aldri dreiepunkt, og tomta hadde ikke noe «her»
+             å ta utgangspunkt i – hverken for dreiing eller for å gå ned
+             på bakken. De to tingene har ingenting med hverandre å gjøre. */
           this.settFokus(traff.k, this._sisteGitter);
-          this._velg(traff.k, this._sisteGitter);
+          if (this._velg) this._velg(traff.k, this._sisteGitter);
           this.tegn();
         }
       }
@@ -1094,8 +1195,13 @@ const Tegner3d = {
    * Returnerer true når tasten er brukt, så den som kalte kan stoppe den.
    */
   _bakkeTast(e) {
+    /* VEIEN UT LIGGER FØR VAKTEN.
+       Escape sto bak `&& this._bakkeFlytt`. En visning som kom seg ned på
+       bakken uten å ha gåing – og det er nettopp den halvferdige tilstanden man
+       lager mens man bygger den – låste da brukeren inne. Utgangen skal aldri
+       avhenge av at noe annet er ferdig. */
+    if (this.modus === 'bakken' && e.key === 'Escape') { this.settModus('oversikt'); return true; }
     if (this.modus !== 'bakken' || !this._bakkeFlytt) return false;
-    if (e.key === 'Escape') { this.settModus('oversikt'); return true; }
     if (Tegner3d.GAATASTER[e.key.toLowerCase()]) {
       /* Tasten LEGGES NED, den utfører ingenting.
          Første forsøk flyttet kameraet ett hakk per tastetrykk. Da bestemmer
@@ -1158,6 +1264,14 @@ const Tegner3d = {
    * veg som er nesten to kilometer lang. Det ser ikke ut som en langsom modell,
    * det ser ut som en tast som ikke virker. `fartsfaktor` ganger oppå, og den
    * står til man endrer den.
+   *
+   * KONTRAKTEN FOR `_bakkeFlytt(fram, side)`: tallene er meter i BLIKKETS
+   * ramme – fram er dit man ser, side er til høyre for blikket. Visningen
+   * oversetter selv til sine egne akser. Vegen legger dem på stasjon og avvik
+   * etter å ha dreid dem med vinkelen mellom blikket og vegen; tomta dreier dem
+   * med kamYaw og legger dem rett på UTM. Sto det ikke skrevet ned, ville neste
+   * visning arve tvetydigheten – og en veg der W flytter deg SIDELENGS når du
+   * ser til siden ser like troverdig ut som en riktig.
    */
   _bakkeSteg(dt) {
     const t = this._taster;
@@ -1241,15 +1355,30 @@ const Tegner3d = {
    */
   settModus(m, stille) {
     if (m === this.modus) return;
+    /* EN VISNING UTEN FØTTER KAN IKKE GÅ NED PÅ BAKKEN.
+       Uten `_bakkePos` gir `_bakkeKamera` null, og `_kamera` faller stille
+       tilbake til oversiktskameraet – som i bakkemodus får skala 1, altså én
+       piksel per meter. Resultatet er et frimerke midt på lerretet, uten et ord
+       om hvorfor. En halvferdig visning skal si fra, ikke gjette. */
+    if (m === 'bakken' && !this._bakkePos) {
+      if (this.app && this.app.status) this.app.status('Denne visningen kan ikke gås i ennå');
+      return;
+    }
     this.modus = m;
     // en tast som sto nede skal ikke fortsette å gå i den andre modusen
     if (this._taster) this._taster.clear();
     if (m === 'bakken') {
       this.kamH = 2.0;
+      /* Plasser øyet FØR blikket settes: `seFramover` snur seg mot noe, og det
+         kan den ikke gjøre før den vet hvor den står. */
+      if (this._bakkeInn) this._bakkeInn();
       if (this.seFramover) this.seFramover();
     } else {
       this.yaw = this.kamYaw;
-      this.pitch = 32;
+      /* Hjemvinkelen er visningens egen. Tallet 32 sto her, og det er vegens –
+         tomta bruker 55. Kom man opp fra bakken på en tomt, landet man i vegens
+         synsvinkel, og ingenting sa hvorfor bildet plutselig var flatere. */
+      this.pitch = this.pitchHjem;
       this.fokus = null;
       this.panX = 0; this.panY = 0;
       this._skalaSatt = false;
@@ -1275,7 +1404,12 @@ const Tegner3d = {
 
 
   nullstill() {
-    this.yaw = 0; this.pitch = 55; this.senter = null;
+    /* ↺ ER ALLTID VEIEN HJEM, OGSÅ FRA BAKKEN – og det hører hjemme HER.
+       Bare vegen gjorde det, i sin egen overstyring. Da hadde hver ny visning
+       som fikk bakkemodus én ting til å huske, og den som glemte det fikk et ↺
+       som ikke tok deg hjem. */
+    if (this.modus === 'bakken') this.settModus('oversikt', true);
+    this.yaw = 0; this.pitch = this.pitchHjem; this.senter = null;
     this.fokus = null;
     this.panX = 0; this.panY = 0;
     this._skalaSatt = false;

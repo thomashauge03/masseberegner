@@ -34,6 +34,8 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
   /* Lav vinkel, ikke tomtas 55 grader. Det er den lave vinkelen som avslører en
      linje som ligger for høyt. */
   pitch: 22,
+  /* Hjemvinkelen for vegen er den lave, ikke tomtas 55. Se Tegner3d.pitchHjem. */
+  pitchHjem: 32,
   kontekst: 30,
   /* HELE VEGEN, ikke et vindu.
      Her sto det 100 – hundre meter til hver side av snittet. Det var galt av
@@ -208,19 +210,52 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
     return { x: p2.x, y: p2.y, z: gulv + this.kamH };
   },
 
-  /** Framover, bakover, sidelengs. Alt bundet til vegen. */
+  /**
+   * Man går DIT MAN SER, men posisjonen er fortsatt stasjon og avvik.
+   *
+   * Her ble `fram` lagt rett på stasjonen. Så lenge man ser langs vegen er det
+   * riktig, men snur man seg nitti grader for å se på en fylling fra siden og
+   * trykker W, gled man SIDELENGS langs vegen – man så én vei og gikk en annen.
+   * Kontrakten fra `_bakkeSteg` er blikkets ramme, og oversettelsen hit er en
+   * dreining med vinkelen mellom blikket og vegen.
+   *
+   * Skinna beholdes. Den er ikke en begrensning, den er grunnen til at man ikke
+   * kan bli borte: posisjonen er alltid et sted PÅ strekket, snittet ved siden
+   * av følger med, og avviket er klemt til fotlinja pluss litt terreng.
+   */
   _bakkeFlytt(fram, side) {
     const res = this.app.resultat;
-    if (!res) return;
-    if (fram) this.kamS = this.kamS + fram;
-    if (side) {
+    if (!res || !this.app.linje) return;
+    const p2 = this.app.linje.punktVed(this.kamS);
+    const vegYaw = (p2 && Number.isFinite(p2.retning)) ? p2.retning * 180 / Math.PI + 90 : this.kamYaw;
+    const d = (this.kamYaw - vegYaw) * Math.PI / 180;
+    const cd = Math.cos(d), sd = Math.sin(d);
+    const langs = fram * cd + side * sd;      // komponenten som følger vegen
+    const tvers = fram * sd * -1 + side * cd; // og den som går ut fra den
+    if (langs) {
+      this.kamS = this.kamS + langs;
+      /* VEGEN SVINGER UNDER FØTTENE, OG BLIKKET SVINGER MED.
+         Uten dette holder blikket sin kompassretning mens vegen dreier bort
+         under det: man ser rett fram i det ene øyeblikket og ut i skogen i det
+         neste, og W flytter deg kortere og kortere langs strekket fordi vinkelen
+         vokser. Målt på en R=120-kurve: åtte skritt på 4,5 m ble 4,5 til 5,1.
+         Her dreies blikket nøyaktig så mye som vegen gjorde – differansen, ikke
+         vegens retning. Ser man rett fram, blir man stående og se rett fram; ser
+         man på en fylling ute til siden, blir man stående og se på den mens man
+         kjører forbi. Det er slik det er å sitte i et førerhus. */
+      const p3 = this.app.linje.punktVed(this.kamS);
+      if (p3 && Number.isFinite(p3.retning)) {
+        this.kamYaw += (p3.retning * 180 / Math.PI + 90) - vegYaw;
+      }
+    }
+    if (tvers) {
       const g = this._sisteGitter;
       let lav = -30, hoy = 30;
       if (g && g.nh) {
         const pr = res.profiler.find(q => Math.abs(q.s - this.kamS) < (res.profilsteg || 5));
         if (pr) { lav = pr.fotVenstre - 0.8 * this.kontekst; hoy = pr.fotHoyre + 0.8 * this.kontekst; }
       }
-      this.kamT = Math.max(lav, Math.min(hoy, this.kamT + side));
+      this.kamT = Math.max(lav, Math.min(hoy, this.kamT + tvers));
     }
   },
 
@@ -491,17 +526,19 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
        centimeter NEDE i vegbanen. Samme tabell som rasteret, og de kan ikke
        drive fra hverandre. */
     const zF2 = this._flateHoyde(g) || g.zP;
+    /* Strekene går gjennom _verdensstrek, som klipper mot nærplanet og prøver
+       mot rasterets dybde. Uten den ble en veg man STÅR i til en vifte av
+       streker ut fra midten av skjermen: halve vegen ligger bak øyet, og et
+       punkt bak øyet speiles over til motsatt side når man deler på dybden. */
     const kol = (i, farge, bredde) => {
-      k.strokeStyle = farge; k.lineWidth = bredde; k.beginPath();
-      let forrige = false;
+      k.strokeStyle = farge; k.lineWidth = bredde;
+      const punkt = [];
       for (let j = 0; j < g.nh; j++) {
         const kk = j * g.nb + i;
-        if (!g.finnes[kk]) { forrige = false; continue; }
-        const p = skjerm(g.wx[kk], g.wy[kk], zF2[kk]);
-        if (forrige) k.lineTo(p.x, p.y); else k.moveTo(p.x, p.y);
-        forrige = true;
+        if (!g.finnes[kk]) { punkt.push(null); continue; }
+        punkt.push({ x: g.wx[kk], y: g.wy[kk], z: zF2[kk] });
       }
-      k.stroke();
+      this._verdensstrek(k, punkt);
     };
     const kn = g.kn;
     kol(kn, Farger.skjaering, 1.6);                          // venstre fot
@@ -521,26 +558,34 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
         if (Math.abs(g.s[q] - sNa) < Math.abs(g.s[j] - sNa)) j = q;
       }
       k.strokeStyle = Farger.blekk; k.lineWidth = 2.4;
-      k.beginPath();
-      let forrige = false;
+      const tvers = [];
       for (let i = 0; i < g.nb; i++) {
         const kk = j * g.nb + i;
-        if (!g.finnes[kk]) { forrige = false; continue; }
-        const p = skjerm(g.wx[kk], g.wy[kk], zF2[kk]);
-        if (forrige) k.lineTo(p.x, p.y); else k.moveTo(p.x, p.y);
-        forrige = true;
+        if (!g.finnes[kk]) { tvers.push(null); continue; }
+        tvers.push({ x: g.wx[kk], y: g.wy[kk], z: zF2[kk] });
       }
-      k.stroke();
+      this._verdensstrek(k, tvers);
       // profilnummeret ved enden av merket, så man vet hvor man er
       const enden = j * g.nb + g.nb - 1;
-      if (g.finnes[enden]) {
-        const p = skjerm(g.wx[enden], g.wy[enden], g.zP[enden]);
+      const qE = g.finnes[enden] ? kam.punkt(g.wx[enden], g.wy[enden], zF2[enden]) : null;
+      // ligger enden bak øyet, ville teksten havnet på motsatt side av skjermen
+      if (qE && qE.w > (kam.naer || 0)) {
+        const p = skjerm(g.wx[enden], g.wy[enden], zF2[enden]);
         k.fillStyle = Farger.blekk;
         k.font = '11px system-ui, sans-serif';
         k.textAlign = 'left';
         k.fillText('prof ' + Rapport.tall(g.s[j], 0), p.x + 5, p.y + 4);
       }
     }
+  },
+
+  /** Hvor man står, i den formen en veg har: profil og avvik fra senterlinja. */
+  _bakkeHud() {
+    const t2 = v => Rapport.tall(v, v < 10 ? 1 : 0);
+    return ['Profil ' + t2(this.kamS) + ' · '
+      + (this.kamT
+        ? t2(Math.abs(this.kamT)) + ' m ' + (this.kamT > 0 ? 'til høyre' : 'til venstre') + ' for senterlinja'
+        : 'på senterlinja')];
   },
 
   _hudLinjer(g) {

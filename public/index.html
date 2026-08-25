@@ -245,6 +245,8 @@
       <div class="visvalg">
         <button id="tomtVisSnitt" class="verktoyknapp aktiv" title="Tverrsnitt gjennom tomta">Snitt</button>
         <button id="tomtVis3d" class="verktoyknapp" title="Se tomta i tre dimensjoner">3D</button>
+        <button id="t3_bakken" class="verktoyknapp" aria-pressed="false"
+                title="Gå ned på bakken og gå rundt på tomta. W A S D eller piltastene går, Shift løper, musa ser seg om, Q og E hever og senker deg, + og − endrer farten, Esc tar deg tilbake.">På bakken</button>
       </div>
       <div class="verktoy">
         <label class="minitall">Ferdig kote
@@ -291,6 +293,13 @@
             <button id="t3_etter" class="verktoyknapp" aria-pressed="false"
                     title="Landskapet slik det blir når alt er ferdig: ferdig tomteflate, skråningene der de lander, dagens mark utenfor. Ingen massefarger.">Etter</button>
           </span>
+          <select id="t3_fart" class="minivalg" title="Hvor fort man går i bakkemodus. + og − gjør det samme.">
+            <option value="0.5">Fart ½×</option>
+            <option value="1" selected>Fart 1×</option>
+            <option value="2">Fart 2×</option>
+            <option value="4">Fart 4×</option>
+            <option value="8">Fart 8×</option>
+          </select>
           <select id="t3_overdriv" class="minivalg" title="Overdriv høyden så formene blir lettere å se">
             <option value="1" selected>Høyde 1×</option>
             <option value="1.5">Høyde 1,5×</option>

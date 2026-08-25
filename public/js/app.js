@@ -4567,12 +4567,16 @@ const App = {
        knappen låser det på for den som vil sammenligne i ro. */
     /* «På bakken» bytter kameramodell: fra å se modellen ovenfra til å stå i
        den. Bare vegen har en skinne å stå på; tomta kommer etter. */
-    if (id2('v3_bakken')) {
-      const kb = id2('v3_bakken');
+    for (const [knappId, visId, lerretId, vis] of [
+      ['v3_bakken', 'vegVis3d', 'veg3dover', () => Veg3d],
+      ['t3_bakken', 'tomtVis3d', 'tomt3dover', () => Tomt3d]]) {
+      const kb = id2(knappId);
+      if (!kb) continue;
+      const v = vis();
       kb.setAttribute('aria-pressed', 'false');
       /* Knappen leser tilstanden ut av visningen, ikke ut av sitt eget klikk.
          ↺ og Esc går også ut av bakkemodus, og da må knappen slippe seg selv. */
-      Veg3d.paaModus = m => {
+      v.paaModus = m => {
         const pa = m === 'bakken';
         kb.classList.toggle('aktiv', pa);
         kb.setAttribute('aria-pressed', pa ? 'true' : 'false');
@@ -4582,9 +4586,9 @@ const App = {
         /* «På bakken» står ved siden av Snitt og 3D, og skal virke derfra selv
            om 3D-en ikke er slått på ennå – ellers er den en knapp som ikke gjør
            noe, og det er verre enn en knapp som er gjemt. */
-        if (Veg3d.modus !== 'bakken' && !Veg3d.aktiv) id2('vegVis3d').click();
-        Veg3d.settModus(Veg3d.modus === 'bakken' ? 'oversikt' : 'bakken');
-        const o = document.getElementById('veg3dover');
+        if (v.modus !== 'bakken' && !v.aktiv) id2(visId).click();
+        v.settModus(v.modus === 'bakken' ? 'oversikt' : 'bakken');
+        const o = document.getElementById(lerretId);
         if (o) o.focus();          // tastene skal virke uten et klikk til
       };
     }

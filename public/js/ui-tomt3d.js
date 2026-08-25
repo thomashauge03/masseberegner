@@ -21,7 +21,16 @@ const Tomt3d = Object.assign(Object.create(Tegner3d), {
      visningene – slår man av terrenget på tomta, forsvant det på vegen òg. */
   yaw: 0,
   pitch: 55,
+  pitchHjem: 55,
   kontekst: 40,
+  /* ØYET PÅ TOMTA ER TO UTM-KOORDINATER.
+     Vegen har en SKINNE – stasjon langs senterlinja og avstand ut fra den – og
+     det er den som gjør at man ikke kan bli borte. En tomt har ingen slik
+     retning; den er en flate. Da er de naturlige tallene x og y i kartplanet,
+     og gitteret er et rett rutenett der, så oppslaget er ren indeksregning.
+     To vanlige felt, ikke en getter/setter-kobling som vegens `kamS`: her
+     finnes det ikke noe profilrutenett som runder dem bort. */
+  kamX: 0, kamY: 0,
   lag: { terreng: true, grav: true, fjell: false, overbygning: false, rutenett: false, grenser: true },
 
 
@@ -249,6 +258,164 @@ const Tomt3d = Object.assign(Object.create(Tegner3d), {
   },
 
 
+  /* ---------------- på bakken ---------------- */
+
+  /**
+   * Gulvet under et punkt, lest AV GITTERET – aldri regnet på nytt.
+   *
+   * Indeksformelen er NØYAKTIG den samme som fargeoverlegget og grensestreken
+   * bruker (`Math.round((x - minX) / rute)`). Skrev man den om her, ville
+   * gulvet og modellen ligge en halv rute i utakt – man ville gått litt ved
+   * siden av bakken man ser, og ingen ville sett hvilken av de to som var feil.
+   *
+   * Gulvet er gravflaten der det graves, terrenget ellers – og det følger
+   * hvilket bilde man ser på, gjennom `_flateHoyde`.
+   */
+  _gulv(g, x, y) {
+    if (!g || !g.rute) return NaN;
+    const i = Math.round((x - g.minX) / g.rute);
+    const j = Math.round((y - g.minY) / g.rute);
+    if (i < 0 || j < 0 || i >= g.nb || j >= g.nh) return NaN;
+    const k = j * g.nb + i;
+    if (!g.finnes[k]) return NaN;
+    const tab = this._flateHoyde(g);
+    if (tab) return tab[k];
+    return g.harGrav[k] ? g.zP[k] : g.zT[k];
+  },
+
+  /** Øyet: der man står, kamH over gulvet. */
+  _bakkePos(g) {
+    if (!g) return null;
+    if (!this._kamSatt) this._bakkeStart(g);
+    const gulv = this._gulv(g, this.kamX, this.kamY);
+    if (!Number.isFinite(gulv)) return null;
+    return { x: this.kamX, y: this.kamY, z: gulv + this.kamH };
+  },
+
+  /**
+   * Hvor man lander når man går ned på bakken.
+   *
+   * Rekkefølgen er ikke tilfeldig: det man SER PÅ er alltid det man vil stå i.
+   *   1. Dreiepunktet, om man har klikket på noe. Da lander man nøyaktig der.
+   *   2. I ENDEN AV TOMTA, ikke midt på den. Står man i midten, ser man halve
+   *      tomta og har den andre halvparten i ryggen. Står man i enden av den
+   *      lengste retningen, ligger hele flata foran – og det er nettopp det
+   *      bildet man går ned for å få.
+   *      Punktet regnes av nodene som er merket `inne`, ikke av gitterets
+   *      randboks: gitteret har en ring kontekstterreng rundt seg, og på en
+   *      L-formet tomt ligger randboksens midtpunkt gjerne utenfor flata. Man
+   *      ville landet i skogen ved siden av.
+   *   3. Midt i gitteret, som siste utvei.
+   */
+  /* Hver gang man går ned, plasseres øyet på nytt – ellers står man der man sto
+     forrige gang, som kan være en helt annen tomt. */
+  _bakkeInn() { this._bakkeStart(this._sisteGitter); },
+
+  _bakkeStart(g) {
+    if (!g || !g.rute) { this._kamSatt = false; return; }
+    this._kamSatt = true;
+    if (this.fokus && Number.isFinite(this.fokus.x)) {
+      this.kamX = this.fokus.x; this.kamY = this.fokus.y;
+      if (Number.isFinite(this._gulv(g, this.kamX, this.kamY))) return;
+    }
+    const m = this._tomtemidte(g);
+    if (!m) { this.kamX = g.midtX; this.kamY = g.midtY; return; }
+    const langsX = (m.maksX - m.minX) >= (m.maksY - m.minY);
+    this.kamX = langsX ? m.minX + g.rute : m.x;
+    this.kamY = langsX ? m.y : m.minY + g.rute;
+    if (!Number.isFinite(this._gulv(g, this.kamX, this.kamY))) { this.kamX = m.x; this.kamY = m.y; }
+    if (!Number.isFinite(this._gulv(g, this.kamX, this.kamY))) { this.kamX = g.midtX; this.kamY = g.midtY; }
+  },
+
+  /** Tyngdepunkt og randboks for SELVE tomta – ikke for gitteret rundt den. */
+  _tomtemidte(g) {
+    let sx = 0, sy = 0, n = 0;
+    let minX = Infinity, maksX = -Infinity, minY = Infinity, maksY = -Infinity;
+    for (let k = 0; k < g.nb * g.nh; k++) {
+      if (!g.finnes[k] || !g.inne || !g.inne[k]) continue;
+      const x = g.wx[k], y = g.wy[k];
+      sx += x; sy += y; n++;
+      if (x < minX) minX = x;
+      if (x > maksX) maksX = x;
+      if (y < minY) minY = y;
+      if (y > maksY) maksY = y;
+    }
+    if (!n) return null;
+    return { x: sx / n, y: sy / n, minX, maksX, minY, maksY };
+  },
+
+  /**
+   * Gåing på en flate: fram er dit man SER, side er til høyre for blikket.
+   *
+   * Vegen legger de samme to tallene på stasjon og avvik, fordi den har en
+   * skinne å følge. En tomt har ingen retning, så her dreies de med `kamYaw`
+   * og legges rett på kartplanet. Blikkretningen i kameraet er
+   * `(sin kamYaw, −cos kamYaw)` – se `_bakkeKamera` – og høyre for den er
+   * `(cos kamYaw, sin kamYaw)`.
+   *
+   * Klemmingen til gitteret er ikke pynt: går man utenfor, gir `_gulv` NaN,
+   * `_bakkePos` gir null, og bildet faller stille tilbake til oversiktskameraet
+   * uten et ord om hva som skjedde.
+   */
+  _bakkeFlytt(fram, side) {
+    const g = this._sisteGitter;
+    if (!g) return;
+    const a = this.kamYaw * Math.PI / 180;
+    const sa = Math.sin(a), ca = Math.cos(a);
+    let nx = this.kamX + fram * sa + side * ca;
+    let ny = this.kamY - fram * ca + side * sa;
+    const marg = g.rute * 0.5;
+    nx = Math.max(g.minX + marg, Math.min(g.minX + (g.nb - 1) * g.rute - marg, nx));
+    ny = Math.max(g.minY + marg, Math.min(g.minY + (g.nh - 1) * g.rute - marg, ny));
+    /* Er det ikke gulv der man vil gå, blir man stående. Hullene i gitteret er
+       ekte – der har terrengmodellen ingen data – og å gå ut i et av dem er å
+       falle ut av modellen. */
+    if (Number.isFinite(this._gulv(g, nx, ny))) { this.kamX = nx; this.kamY = ny; }
+  },
+
+  /**
+   * «Se framover» – mot midten av tomta, med blikket litt ned mot bakken.
+   *
+   * Vegen ser langs vegen. En tomt har ingen langs, men den har en midte, og
+   * det man vil se på når man går ned er nettopp flata. Står man alt i midten,
+   * beholdes retningen.
+   *
+   * Omregningen er ikke identiteten. Blikkretningen er `(sin kamYaw,
+   * −cos kamYaw)`, så for en matematisk vinkel θ = atan2(dy, dx) er
+   * kamYaw = θ + 90°. Feil fortegn her gir et kamera som ser rett bakover, og
+   * bildet ser like troverdig ut.
+   */
+  seFramover() {
+    const g = this._sisteGitter;
+    if (g) {
+      const m = this._tomtemidte(g);
+      const mx = m ? m.x : g.midtX, my = m ? m.y : g.midtY;
+      const dx = mx - this.kamX, dy = my - this.kamY;
+      if (Math.hypot(dx, dy) > 2) this.kamYaw = Math.atan2(dy, dx) * 180 / Math.PI + 90;
+    }
+    this.kamPitch = -Math.atan(this.kamH / Math.max(60, 6 * this.kamH)) * 180 / Math.PI;
+  },
+
+  /** Hvor man står, i den formen en tomt har: koordinat, ikke profilnummer. */
+  _bakkeHud() {
+    const t2 = (v, d = 0) => Rapport.tall(v, d);
+    return ['N ' + t2(this.kamY, 1) + '  Ø ' + t2(this.kamX, 1)];
+  },
+
+  /**
+   * Et klikk i modellen setter stedet – og flytter deg dit når du står i den.
+   *
+   * Ovenfra er det bare dreiepunktet som flyttes (det gjør basen). Står man på
+   * bakken, er et klikk den raskeste måten å komme seg tvers over en tomt på,
+   * og uten den er den eneste veien å gå hele strekket med W.
+   */
+  _velg(k, g) {
+    if (!g || k < 0 || this.modus !== 'bakken') return;
+    if (!g.finnes[k]) return;
+    this.kamX = g.wx[k]; this.kamY = g.wy[k];
+    this._kamSatt = true;
+  },
+
   /** Tallene øverst til venstre. Hver visning har sine egne. */
   _hudLinjer(g) {
     const res = this.app.resultat;
@@ -280,15 +447,18 @@ const Tomt3d = Object.assign(Object.create(Tegner3d), {
         const kk = j * g.nb + i;
         return (i >= 0 && j >= 0 && i < g.nb && j < g.nh && g.finnes[kk]) ? zTab[kk] : g.lav;
       };
+      /* Gjennom _verdensstrek: den klipper mot nærplanet og prøver mot
+         rasterets dybde. Står man PÅ tomta, ligger halve grensa bak øyet, og et
+         punkt bak øyet speiles over til motsatt side av skjermen når man deler
+         på dybden – grensa ble en vifte av streker tvers over bildet.
+         `lukk` blir et ekstra punkt i stedet for closePath: en lukket bane kan
+         ikke klippes stykkevis. */
       const strek = (punkt, farge, bredde, lukk) => {
         if (punkt.length < 2) return;
-        k.strokeStyle = farge; k.lineWidth = bredde; k.beginPath();
-        punkt.forEach((q, i) => {
-          const s = skjerm(q.x, q.y, q.z != null ? q.z : zVed(q.x, q.y));
-          if (i === 0) k.moveTo(s.x, s.y); else k.lineTo(s.x, s.y);
-        });
-        if (lukk) k.closePath();
-        k.stroke();
+        k.strokeStyle = farge; k.lineWidth = bredde;
+        const p3 = punkt.map(q => ({ x: q.x, y: q.y, z: q.z != null ? q.z : zVed(q.x, q.y) }));
+        if (lukk) p3.push(p3[0]);
+        this._verdensstrek(k, p3);
       };
       strek(flate, Farger.veg, 2, true);
       if (t.omrissBetyr === 'yttergrense' && flate !== p) strek(p, Farger.blekkSvak, 1.4, true);

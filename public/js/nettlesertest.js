@@ -1701,6 +1701,112 @@ const Nettlesertest = {
       this.sjekk('3D bruker nøyaktig de høydene volumet er regnet på',
         avvik < 1e-4, 'største avvik ' + avvik.toExponential(1) + ' m');
 
+      /* 6.7 PÅ BAKKEN – OGSÅ PÅ TOMTA.
+         Vegen har en SKINNE: stasjon langs senterlinja og avstand ut fra den,
+         og det er den som gjør at man ikke kan bli borte. En tomt har ingen
+         slik retning – den er en flate – så øyet er to UTM-koordinater, og
+         «fram» er dit man SER.
+         Prøven måler at man står på bakken og ikke i den, at man går dit man
+         ser og ikke et annet sted, og at man ikke kan gå ut av modellen. */
+      {
+        Tomt3d.settModus('oversikt');
+        Tomt3d.nullstill();
+        await this.vent(200);
+        Tomt3d.settModus('bakken');
+        await this.vent(300);
+        this.sjekk('tomta kan gås i', Tomt3d.modus === 'bakken', Tomt3d.modus);
+        const gb = Tomt3d._sisteGitter;
+        const kamb = Tomt3d._sisteKam;
+        this.sjekk('  og kameraet er et ekte perspektivkamera med en posisjon',
+          !!(kamb && kamb.oye));
+        this.sjekk('  ikke oversiktskameraet i forkledning',
+          !!(kamb && kamb.naer > 0), kamb ? 'nærplan ' + kamb.naer : 'ingen kamera');
+
+        /* ØYET STÅR PÅ GULVET, IKKE I DET. */
+        const oyeb = Tomt3d._bakkePos(gb);
+        this.sjekk('øyet finnes', !!oyeb);
+        if (oyeb) {
+          this.naer('og står nøyaktig kamH over gulvet',
+            oyeb.z - Tomt3d._gulv(gb, Tomt3d.kamX, Tomt3d.kamY), Tomt3d.kamH, 0.001);
+        }
+
+        /* MAN LANDER PÅ TOMTA, IKKE I SKOGEN VED SIDEN AV.
+           Gitteret har en ring kontekstterreng rundt seg, så gitterets
+           midtpunkt er ikke tomtas midtpunkt. */
+        const midt = Tomt3d._tomtemidte(gb);
+        this.sjekk('tomta har en midte å regne av', !!midt);
+        if (midt) {
+          const innafor = Tomt3d.kamX >= midt.minX - 2 && Tomt3d.kamX <= midt.maksX + 2
+            && Tomt3d.kamY >= midt.minY - 2 && Tomt3d.kamY <= midt.maksY + 2;
+          this.sjekk('man lander PÅ tomta', innafor,
+            Tomt3d.kamX.toFixed(0) + ',' + Tomt3d.kamY.toFixed(0) + ' i '
+            + midt.minX.toFixed(0) + '–' + midt.maksX.toFixed(0));
+          /* Og i ENDEN av den, ikke midt på: da ligger hele flata foran. */
+          const langs = Math.max(midt.maksX - midt.minX, midt.maksY - midt.minY);
+          const tilMidt = Math.hypot(midt.x - Tomt3d.kamX, midt.y - Tomt3d.kamY);
+          this.sjekk('  i enden av den, så hele flata ligger foran',
+            tilMidt > langs * 0.25, tilMidt.toFixed(0) + ' m fra midten av ' + langs.toFixed(0));
+
+          /* OG MAN SER PÅ DEN. Midtpunktet skal treffe midten av skjermen. */
+          const qm = kamb.punkt(midt.x, midt.y, Tomt3d._gulv(gb, midt.x, midt.y));
+          this.sjekk('  og ser rett på den', Math.abs(qm.px - kamb.cx) < 12,
+            Math.abs(qm.px - kamb.cx).toFixed(1) + ' px fra midten');
+          this.sjekk('  som ligger foran kameraet, ikke bak', qm.w > 0, 'dybde ' + qm.w.toFixed(0));
+
+          /* GÅINGEN ER I BLIKKETS RAMME. W skal nærme deg det du ser på. */
+          const gaaT = (t, dt) => {
+            Tomt3d._taster = new Set(t); Tomt3d._bakkeSteg(dt); Tomt3d._taster = new Set();
+          };
+          Tomt3d.kamH = 2; Tomt3d.fartsfaktor = 1;
+          const foerAvst = Math.hypot(midt.x - Tomt3d.kamX, midt.y - Tomt3d.kamY);
+          gaaT(['w'], 1);
+          const etterAvst = Math.hypot(midt.x - Tomt3d.kamX, midt.y - Tomt3d.kamY);
+          this.sjekk('W går mot det man ser på', etterAvst < foerAvst - 3,
+            foerAvst.toFixed(1) + ' → ' + etterAvst.toFixed(1) + ' m');
+
+          /* D skal gå TIL HØYRE FOR BLIKKET, ikke mot øst. Er fortegnet snudd
+             eller aksene byttet, ser bildet like troverdig ut. */
+          const xf = Tomt3d.kamX, yf = Tomt3d.kamY;
+          const ang = Tomt3d.kamYaw * Math.PI / 180;
+          gaaT(['d'], 1);
+          const dFram = (Tomt3d.kamX - xf) * Math.sin(ang) - (Tomt3d.kamY - yf) * Math.cos(ang);
+          const dSide = (Tomt3d.kamX - xf) * Math.cos(ang) + (Tomt3d.kamY - yf) * Math.sin(ang);
+          this.sjekk('D går rett til høyre for blikket', dSide > 3 && Math.abs(dFram) < 0.05,
+            dSide.toFixed(2) + ' m til høyre, ' + dFram.toFixed(2) + ' m fram);');
+
+          /* MAN KAN IKKE GÅ UT AV MODELLEN.
+             Utenfor gitteret gir _gulv NaN, _bakkePos null, og bildet faller
+             stille tilbake til oversiktskameraet uten et ord. */
+          for (let i = 0; i < 60; i++) gaaT(['w', 'shift'], 1);
+          this.sjekk('man kan ikke løpe ut av modellen', !!Tomt3d._bakkePos(gb),
+            Tomt3d.kamX.toFixed(0) + ',' + Tomt3d.kamY.toFixed(0));
+          this.sjekk('  fordi posisjonen klemmes til gitteret',
+            Tomt3d.kamX >= gb.minX && Tomt3d.kamX <= gb.minX + (gb.nb - 1) * gb.rute
+            && Tomt3d.kamY >= gb.minY && Tomt3d.kamY <= gb.minY + (gb.nh - 1) * gb.rute);
+        }
+
+        /* HUD-en skriver koordinat, ikke profilnummer – tomta har ingen veg. */
+        const hud = Tomt3d._bakkeHud ? Tomt3d._bakkeHud() : [];
+        this.sjekk('bakke-teksten på tomta er koordinater, ikke «Profil 0»',
+          hud.length === 1 && /^N /.test(hud[0]) && !/Profil/.test(hud[0]),
+          hud.join(' | '));
+
+        /* Esc og ↺ er veien hjem, og hjem er TOMTAS synsvinkel – ikke vegens. */
+        Tomt3d._bakkeTast({ key: 'Escape', preventDefault() {}, stopPropagation() {} });
+        await this.vent(200);
+        this.sjekk('Esc tar deg opp igjen', Tomt3d.modus === 'oversikt');
+        this.naer('og hjem er tomtas synsvinkel, ikke vegens 32°',
+          Tomt3d.pitch, Tomt3d.pitchHjem, 0.001);
+        Tomt3d.settModus('bakken');
+        await this.vent(200);
+        Tomt3d.nullstill();
+        await this.vent(250);
+        this.sjekk('↺ er også veien hjem fra bakken – fra BASEN, ikke fra hver visning',
+          Tomt3d.modus === 'oversikt');
+        Tomt3d.kamH = 2; Tomt3d.fartsfaktor = 1;
+        await this.vent(120);
+      }
+
       /* 6.6 Ingenting som fantes ble dårligere. */
       Tomt3d.aktiver(false);
       await this.vent(120);
@@ -2854,6 +2960,143 @@ const Nettlesertest = {
           Veg3d._skalaSatt === false || Tomt3d._skalaSatt === false,
           'veg ' + Veg3d._skalaSatt + ', tomt ' + Tomt3d._skalaSatt);
         await this.vent(150);
+      }
+
+      /* 17.18 STREKENE I OVERLEGGET MÅ KLIPPES MOT ØYET.
+         Fotlinje, vegkant, senterlinje og snittmerke ble tegnet ved å projisere
+         hver node og trekke en strek mellom dem – uten å spørre om noden lå
+         FORAN øyet. Sett ovenfra er det riktig; der er hele modellen foran.
+         Står man i den, ligger halve vegen bak ryggen, og et punkt bak øyet får
+         negativ dybde: px = cx + F·rx/w speiler det over til motsatt side av
+         skjermen. Polylinja trakk da en strek fra et ekte punkt til et
+         speilbilde, og bildet ble en vifte av streker ut fra midten – over
+         himmelen, gjennom terrenget, tvers over alt.
+         Prøven måler BILDET: hvor mange piksler overlegget dekker, og hvor mye
+         det tallet svinger når man snur seg rundt. */
+      {
+        const ov8 = document.getElementById('veg3dover');
+        const dekning8 = () => {
+          const kk = ov8.getContext('2d');
+          const b = kk.getImageData(0, 0, ov8.width, ov8.height).data;
+          let n = 0, tot = 0;
+          for (let i = 3; i < b.length; i += 4 * 3) { tot++; if (b[i] > 40) n++; }
+          return 100 * n / tot;
+        };
+        Veg3d.settModus('oversikt');
+        Veg3d.nullstill();
+        await this.vent(250);
+        const oppe8 = dekning8();
+        this.sjekk('strekene finnes i oversikten', oppe8 > 0.2 && oppe8 < 12,
+          oppe8.toFixed(2) + ' % av ruta');
+
+        App.settTverrStasjon(App.resultat.lengde / 2);
+        Veg3d.settModus('bakken');
+        await this.vent(400);
+        const rundt = [];
+        for (const yaw of [0, 90, 180, 270]) {
+          Veg3d.kamYaw = yaw; Veg3d.tegn();
+          await this.vent(220);
+          rundt.push(dekning8());
+        }
+        const verst8 = Math.max(...rundt), minst8 = Math.min(...rundt);
+        this.sjekk('strekene dekker en liten del av bildet også på bakken',
+          verst8 < 3.5, 'verst ' + verst8.toFixed(2) + ' % av ruta');
+        this.sjekk('  og tallet svinger ikke når man snur seg – ingen vifte',
+          verst8 - minst8 < 1.2,
+          rundt.map(v => v.toFixed(2)).join(' / ') + ' %');
+
+        /* Og det var noe å bomme på: den naive utgaven, uten klipping, måles
+           her ved siden av. Uten den kunne prøven over passert på en modell
+           uten streker i det hele tatt. */
+        const ekte8 = Veg3d._verdensstrek;
+        Veg3d._verdensstrek = function (k, punkter) {
+          const kam = this._strekKam;
+          if (!kam || !this._sisteRb) return;
+          const b = this._strekB, h = this._strekH, rb = this._sisteRb, rh = this._sisteRh;
+          k.beginPath();
+          let teg = false;
+          for (const q of punkter) {
+            if (!q) { teg = false; continue; }
+            const pr = kam.punkt(q.x, q.y, q.z);
+            const sc = { x: pr.px * b / rb, y: pr.py * h / rh };
+            if (teg) k.lineTo(sc.x, sc.y); else { k.moveTo(sc.x, sc.y); teg = true; }
+          }
+          k.stroke();
+        };
+        const naive = [];
+        for (const yaw of [0, 180]) {
+          Veg3d.kamYaw = yaw; Veg3d.tegn();
+          await this.vent(220);
+          naive.push(dekning8());
+        }
+        Veg3d._verdensstrek = ekte8;
+        this.sjekk('uten klipping smører strekene seg utover – slik de gjorde',
+          Math.max(...naive) > verst8 * 1.8,
+          'uten ' + Math.max(...naive).toFixed(2) + ' % mot med ' + verst8.toFixed(2) + ' %');
+
+        Veg3d.settModus('oversikt');
+        Veg3d.nullstill();
+        await this.vent(250);
+      }
+
+      /* 17.19 W GÅR DIT MAN SER, OGSÅ PÅ VEGEN – MEN SKINNA BEHOLDES.
+         Her ble «fram» lagt rett på stasjonen. Snudde man seg nitti grader for å
+         se på en fylling fra siden og trykket W, gled man SIDELENGS langs vegen:
+         man så én vei og gikk en annen. Nå dreies de to tallene med vinkelen
+         mellom blikket og vegen – posisjonen er fortsatt stasjon og avvik, så
+         snittet ved siden av følger med og man kan ikke bli borte. */
+      {
+        const gaa9 = (t, dt) => {
+          Veg3d._taster = new Set(t); Veg3d._bakkeSteg(dt); Veg3d._taster = new Set();
+        };
+        App.settTverrStasjon(App.resultat.lengde / 2);
+        Veg3d.settModus('bakken');
+        await this.vent(300);
+        Veg3d.kamH = 2; Veg3d.fartsfaktor = 1; Veg3d.kamT = 0;
+        Veg3d.seFramover();
+        await this.vent(120);
+
+        const s9 = Veg3d.kamS, t9 = Veg3d.kamT;
+        gaa9(['w'], 1);
+        const langs9 = Veg3d.kamS - s9, tvers9 = Veg3d.kamT - t9;
+        this.sjekk('ser man langs vegen, går W langs vegen',
+          langs9 > 3 && Math.abs(tvers9) < 0.2,
+          langs9.toFixed(2) + ' m langs, ' + tvers9.toFixed(2) + ' m ut');
+
+        /* Snu nitti grader og gå: nå skal man gå UT fra vegen, ikke langs den. */
+        Veg3d.kamS = s9; Veg3d.kamT = 0;
+        Veg3d.kamYaw += 90;
+        const s10 = Veg3d.kamS, t10 = Veg3d.kamT;
+        gaa9(['w'], 1);
+        const langs10 = Veg3d.kamS - s10, tvers10 = Veg3d.kamT - t10;
+        /* Forholdet, ikke det absolutte tallet: vegen svinger, så blikket peker
+           aldri NØYAKTIG nitti grader på tangenten ved den nye stasjonen. Målt
+           her ble det 0,34 m langs mot 4,49 m ut – syv prosent, altså rett vei.
+           Den gamle utgaven ville gitt det motsatte: alt langs, ingenting ut. */
+        this.sjekk('snur man seg, går W dit man ser – ut fra vegen',
+          Math.abs(tvers10) > 3 && Math.abs(langs10) < Math.abs(tvers10) * 0.15,
+          langs10.toFixed(2) + ' m langs, ' + tvers10.toFixed(2) + ' m ut');
+        this.sjekk('  men man er fortsatt PÅ strekket – skinna er ikke borte',
+          Veg3d.kamS >= 0 && Veg3d.kamS <= App.resultat.lengde
+          && Number.isFinite(Veg3d._gulv(Veg3d._sisteGitter, Veg3d.kamS, Veg3d.kamT)));
+
+        /* BLIKKET SVINGER MED VEGEN. Uten det holder man kompassretningen mens
+           vegen dreier bort under, og W flytter deg kortere og kortere. */
+        Veg3d.kamT = 0;
+        Veg3d.seFramover();
+        const yawFoer = Veg3d.kamYaw;
+        const skritt9 = [];
+        for (let i = 0; i < 8; i++) { const f = Veg3d.kamS; gaa9(['w'], 1); skritt9.push(Veg3d.kamS - f); }
+        const spenn9 = Math.max(...skritt9) - Math.min(...skritt9);
+        this.sjekk('åtte skritt er like lange også i en kurve – blikket svinger med vegen',
+          spenn9 < 0.02, 'spenn ' + spenn9.toFixed(3) + ' m');
+        this.sjekk('  og blikket dreide faktisk', Math.abs(Veg3d.kamYaw - yawFoer) > 0.5,
+          (Veg3d.kamYaw - yawFoer).toFixed(1) + '° over ' + skritt9.length + ' skritt');
+
+        Veg3d.settModus('oversikt');
+        Veg3d.kamT = 0; Veg3d.kamH = 2;
+        Veg3d.nullstill();
+        await this.vent(250);
       }
 
       /* 17.10 Kostnad – røykprøve mot en katastrofal regresjon. */
