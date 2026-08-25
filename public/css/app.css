@@ -481,7 +481,19 @@ body {
   border-bottom: 2px solid var(--kant); padding-bottom: 4px;
 }
 .faneinnhold h3:first-child { margin-top: 0; }
-.notis { color: var(--blekk-svak); font-size: 12px; line-height: 1.5; margin: 0 0 10px; }
+/* FORKLARINGEN ER EN SIDEBEMERKNING, IKKE EN RAD I SKJEMAET.
+   Notisene sto med samme innrykk og nesten samme vekt som feltene, i tre-fire
+   linjer mellom dem. Øyet som leter etter «Fyllingsskråning» må da lese seg
+   forbi femti ord som ikke er felt, og skjemaet ser ut som en brosjyre. En
+   hårstrek i venstremargen og litt luft rundt sier «dette er forklaringen til
+   det over» uten et eneste ord, og gjør den mulig å hoppe over – og å finne
+   igjen når man trenger den. */
+.notis {
+  color: var(--blekk-svak); font-size: 11.5px; line-height: 1.55;
+  margin: 2px 0 14px; padding: 1px 0 1px 9px;
+  border-left: 2px solid var(--kant);
+}
+.notis b { color: var(--blekk); font-weight: 700; }
 .tomtekst { color: var(--blekk-svak); }
 
 .felt { display: grid; grid-template-columns: minmax(0, 1fr) 78px 34px; align-items: center; gap: 6px; margin-bottom: 5px; }
