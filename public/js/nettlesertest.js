@@ -2026,6 +2026,18 @@ const Nettlesertest = {
          fargen på skjermen, ikke at et flagg er satt: det er bildet som er
          leveransen her. */
       {
+        /* HELE VEGEN, RAMMET INN, FØR DET MÅLES.
+           Prøvene over flytter snittet, klikker i modellen (som nå setter
+           dreiepunktet) og skrur på vindu og kontekstring. Måles fargen fra det
+           utsnittet, kan man ende på et strekk som bare har skjæring – målt
+           1 750 skjæringspiksler og NULL fyllingspiksler – og da sammenligner
+           prøven en farge mot ingenting. */
+        Veg3d.vindu = 0;
+        Veg3d.kontekst = 30;
+        Veg3d._gitterFor = null;
+        App.settTverrStasjon(App.resultat.lengde / 2);
+        Veg3d.nullstill();
+        await this.vent(300);
         const c3 = document.getElementById('veg3d');
         const snittfarge = () => {
           const kk = c3.getContext('2d');
@@ -2039,7 +2051,8 @@ const Nettlesertest = {
             v[0] += b[p * 4]; v[1] += b[p * 4 + 1]; v[2] += b[p * 4 + 2]; v[3]++;
           }
           const snitt = v => v[3] ? [v[0] / v[3], v[1] / v[3], v[2] / v[3]] : null;
-          return { skj: snitt(gr.skjaering), fyl: snitt(gr.fylling) };
+          return { skj: snitt(gr.skjaering), fyl: snitt(gr.fylling),
+            nSkj: gr.skjaering[3], nFyl: gr.fylling[3] };
         };
         const avstand = (a, b2) => (a && b2)
           ? Math.hypot(a[0] - b2[0], a[1] - b2[1], a[2] - b2[2]) : 0;
@@ -2052,8 +2065,9 @@ const Nettlesertest = {
         const fyldig = snittfarge();
 
         this.sjekk('prøven fant både skjæring og fylling på skjermen',
-          !!(lett.skj && lett.fyl && fyldig.skj && fyldig.fyl));
-        if (lett.skj && fyldig.skj) {
+          !!(lett.skj && lett.fyl && fyldig.skj && fyldig.fyl),
+          `lett ${lett.nSkj}/${lett.nFyl} · fyldig ${fyldig.nSkj}/${fyldig.nFyl} piksler`);
+        if (lett.skj && lett.fyl && fyldig.skj && fyldig.fyl) {
           /* Kravet er at de to blir LETTERE Å SKILLE. Et absolutt fargekrav
              ville låst fargevalget i stilarket; dette måler nettopp det
              innstillingen er til for. */
@@ -2149,6 +2163,109 @@ const Nettlesertest = {
         this.sjekk('og slipper man, er inngrepet tilbake', Veg3d.visFoer === false);
       }
 
+      /* 17.13 DREIEPUNKTET LIGGER I DET MAN SER PÅ.
+         Modellen dreide om midten av HELE gitteret. På en to kilometer lang veg
+         ligger den midten hundrevis av meter fra det man jobber med, og da er
+         dreiing en slynge: motivet flyktet 91 piksler under musa på åtte
+         dreininger, og man mistet det man så på.
+         Med dreiepunktet I motivet er tallet algebraisk null – i fokuspunktet
+         er X=Y=Z=0, altså px=cx og py=cy, uansett yaw, pitch, skala og
+         overdrivning. Prøven måler det på skjermen, ikke i formelen. */
+      {
+        const o5 = document.getElementById('veg3dover');
+        const c5 = document.getElementById('veg3d');
+        const rr5 = () => o5.getBoundingClientRect();
+        const mus5 = (t, x, y) => o5.dispatchEvent(new MouseEvent(t,
+          { bubbles: true, cancelable: true, clientX: rr5().left + x, clientY: rr5().top + y, button: 0 }));
+        const opp5 = (x, y) => window.dispatchEvent(new MouseEvent('mouseup',
+          { bubbles: true, cancelable: true, clientX: rr5().left + x, clientY: rr5().top + y, button: 0 }));
+        /* Rasterpiksel → skjermpiksel går via lerretets FAKTISKE rasterstørrelse,
+           ikke via dpr: under dragning tegnes det i 60 % skala, og en omregning
+           med dpr alene måler da noe annet enn den ser ut som. */
+        const skjerm = k => {
+          const g5 = Veg3d._sisteGitter, kam = Veg3d._sisteKam;
+          const h5 = g5.harGrav[k] ? g5.zP[k] : g5.zT[k];
+          const q = kam.punkt(g5.wx[k], g5.wy[k], h5);
+          return { x: q.px * c5.clientWidth / Veg3d._sisteRb, y: q.py * c5.clientHeight / Veg3d._sisteRh };
+        };
+
+        Veg3d.nullstill();
+        await this.vent(200);
+        const treff5 = [];
+        for (let y = 25; y < o5.clientHeight - 25; y += 9) {
+          for (let x = 25; x < o5.clientWidth - 25; x += 9) {
+            const t = Veg3d._slaOpp({ x, y }, o5);
+            if (t && t.k >= 0) treff5.push(t.k);
+          }
+        }
+        this.sjekk('det er en node å dreie om', treff5.length > 10, treff5.length + ' treff');
+        if (treff5.length > 10) {
+          const node = treff5[(treff5.length / 2) | 0];
+          const dreiAtte = async () => {
+            const start = skjerm(node);
+            let verst = 0;
+            for (let i = 0; i < 8; i++) {
+              mus5('mousedown', 200, 200);
+              mus5('mousemove', 200 + 45 * ((i % 3) - 1), 200 + 30 * (((i + 1) % 3) - 1));
+              opp5(200, 200);
+              await this.vent(170);
+              const na = skjerm(node);
+              verst = Math.max(verst, Math.hypot(na.x - start.x, na.y - start.y));
+            }
+            return verst;
+          };
+
+          Veg3d.nullstill(); await this.vent(200);
+          const utenFokus = await dreiAtte();
+          this.sjekk('uten dreiepunkt flykter motivet – slik det gjorde før',
+            utenFokus > 10, Math.round(utenFokus) + ' px');
+
+          Veg3d.nullstill(); await this.vent(200);
+          Veg3d.settFokus(node, Veg3d._sisteGitter); Veg3d.tegn();
+          await this.vent(150);
+          const medFokus = await dreiAtte();
+          this.sjekk('med dreiepunkt står det man ser på helt stille',
+            medFokus <= 2, medFokus.toFixed(2) + ' px etter åtte dreininger');
+
+          /* Låsen skal holde for ALT, ikke bare for dreining. */
+          const foer = skjerm(node);
+          Veg3d.skala *= 3; Veg3d.overdriv = 3; Veg3d.tegn();
+          await this.vent(150);
+          const etter = skjerm(node);
+          this.naer('og gjennom zoom og overdrivning også',
+            Math.hypot(etter.x - foer.x, etter.y - foer.y), 0, 2);
+          Veg3d.overdriv = 1;
+
+          /* Et klikk skal SETTE dreiepunktet – uten at bildet rikker seg. */
+          Veg3d.nullstill(); await this.vent(200);
+          let mal = null;
+          for (let y = 40; y < o5.clientHeight - 40 && !mal; y += 11) {
+            for (let x = 40; x < o5.clientWidth - 40; x += 11) {
+              const t = Veg3d._slaOpp({ x, y }, o5);
+              if (t && t.k >= 0) { mal = { x, y, k: t.k }; break; }
+            }
+          }
+          if (mal) {
+            const foerKlikk = skjerm(mal.k);
+            mus5('mousedown', mal.x, mal.y); opp5(mal.x, mal.y);
+            await this.vent(200);
+            const etterKlikk = skjerm(mal.k);
+            this.sjekk('et klikk setter dreiepunktet', !!Veg3d.fokus);
+            this.naer('og bildet står stille mens det skjer',
+              Math.hypot(etterKlikk.x - foerKlikk.x, etterKlikk.y - foerKlikk.y), 0, 2);
+          }
+        }
+        /* Legg alt tilbake slik neste prøve finner det. Denne prøven skrur på
+           både zoom, overdrivning og dreiepunkt, og en modell som står igjen
+           utenfor lerretet får den neste til å måle på en tom flate. */
+        Veg3d.overdriv = 1;
+        Veg3d.fokus = null;
+        Veg3d.panX = 0; Veg3d.panY = 0;
+        Veg3d._skalaSatt = false;
+        Veg3d.nullstill();
+        await this.vent(300);
+      }
+
       /* 17.10 Kostnad – røykprøve mot en katastrofal regresjon. */
       {
         Veg3d.tegn();
@@ -2183,6 +2300,7 @@ const Nettlesertest = {
       Veg3d.vindu = 0;
       Veg3d.fyldig = false; Veg3d.glemFarger();
       Veg3d.visFoer = false;
+      Veg3d.fokus = null;
       Veg3d.panX = 0; Veg3d.panY = 0;
       Veg3d._gitterFor = null;
       App.P = JSON.parse(foer);

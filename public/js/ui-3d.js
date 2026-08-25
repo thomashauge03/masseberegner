@@ -72,6 +72,16 @@ const Tegner3d = {
      inne i inngrepet og i ringen rundt. Det er den samme terrengmodellen
      volumet er regnet mot. */
   visFoer: false,
+  /* DREIEPUNKTET.
+     Modellen dreide om midten av HELE gitteret. På en to kilometer lang veg
+     ligger den midten typisk hundrevis av meter fra det man ser på, og da er
+     dreiing ikke dreiing – det er en slynge. Målt: motivet flyttet seg 5,4 til
+     14,8 piksler for hver piksel musa gikk, med dreiepunktet 334 m unna.
+     Med dreiepunktet I motivet er tallet algebraisk NULL: i fokuspunktet er
+     X=Y=Z=0, altså rx=ry=dk=0, altså px=cx og py=cy – uansett yaw, pitch,
+     skala og overdrivning. Punktet er låst til midten av skjermen.
+     Feltet er null naar det betyr «som foer»: midten av gitteret. */
+  fokus: null,
 
 
   /**
@@ -138,8 +148,12 @@ const Tegner3d = {
   _kamera(b, h, g, skala, panX, panY) {
     const a = this.yaw * Math.PI / 180, p = this.pitch * Math.PI / 180;
     const ca = Math.cos(a), sa = Math.sin(a), cp = Math.cos(p), sp = Math.sin(p);
-    const s = this.senter || { x: g.midtX, y: g.midtY };
-    const z0 = (g.lav + g.hoy) / 2;
+    /* To linjer, og hele slyngen forsvinner. Se `fokus` over.
+       z0 MÅ følge med: uten det driver bildet 89 px loddrett når man skrur
+       overdrivningen fra 1x til 3x, fordi punktet da ikke lenger er punktet. */
+    const fo = this.fokus;
+    const s = fo || this.senter || { x: g.midtX, y: g.midtY };
+    const z0 = fo ? fo.z : (g.lav + g.hoy) / 2;
     const dist = Math.max(60, g.diagonal * 1.6);
     const cx = b / 2 + (panX || 0), cy = h / 2 + (panY || 0);
     const ov = this.overdriv;
@@ -189,6 +203,13 @@ const Tegner3d = {
     if (!Number.isFinite(minX)) return { skala: 1, panX: 0, panY: 0 };
     const br = Math.max(1e-6, maksX - minX), ho = Math.max(1e-6, maksY - minY);
     const skala = Math.min((b * 0.84) / br, (h * 0.84) / ho);
+    /* HAR BRUKEREN PEKT UT ET DREIEPUNKT, ER DET HAN SOM HAR SAGT HVA MIDTEN
+       ER. Tilpasningen sentrerer hele modellens randboks, og den kjøres om
+       igjen hver gang lerretet skifter størrelse – stor visning, 3D av og på,
+       et nettbrett som snus. Uten dette unntaket hoppet det utpekte punktet
+       over tusen piksler ved én slik endring, og man sto et helt annet sted
+       enn der man jobbet. */
+    if (this.fokus) return { skala, panX: 0, panY: 0 };
     return {
       skala,
       panX: -((minX + maksX) / 2) * skala,
@@ -661,7 +682,15 @@ const Tegner3d = {
             return { x: t.clientX - r.left, y: t.clientY - r.top }; })()
           : { x: dra.x, y: dra.y };
         const traff = this._slaOpp(p, c);
-        if (traff && traff.k >= 0) this._velg(traff.k, this._sisteGitter);
+        if (traff && traff.k >= 0) {
+          /* Klikk gjør TO ting nå, og bildet rikker seg ikke av den ene:
+             det velger stedet (som før), og det flytter dreiepunktet dit.
+             Fra da av dreier man om det man ser på i stedet for om midten av
+             et gitter som kan ligge en kilometer unna. */
+          this.settFokus(traff.k, this._sisteGitter);
+          this._velg(traff.k, this._sisteGitter);
+          this.tegn();
+        }
       }
       dra = null; this._knip = null; this._knipMidt = null;
       if (this._drar) {
@@ -739,6 +768,14 @@ const Tegner3d = {
         e.preventDefault();
         return;
       }
+      if (e.key === 'f' || e.key === 'F') {
+        /* Ram inn det man dreier om. Uten fokus er det hele modellen, som før. */
+        this._skalaSatt = false;
+        this.tegn();
+        e.preventDefault(); e.stopPropagation();
+        return;
+      }
+      if (e.key === 'Home') { this.nullstill(); e.preventDefault(); e.stopPropagation(); return; }
       const steg = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1 }[e.key];
       if (steg && this._stegVis) {
         this._stegVis(steg * (e.shiftKey ? 10 : 1));
@@ -767,9 +804,49 @@ const Tegner3d = {
 
   nullstill() {
     this.yaw = 0; this.pitch = 55; this.senter = null;
+    this.fokus = null;
     this.panX = 0; this.panY = 0;
     this._skalaSatt = false;
     this.tegn();
+  },
+
+  /**
+   * Setter dreiepunktet til en node i gitteret, uten at bildet rikker seg.
+   *
+   * Det er hele trikset: fokuspunktet er algebraisk låst til midten av
+   * skjermen, så flytter man fokus dit man PEKER, må resten av bildet flyttes
+   * like mye tilbake. Regnes forskyvningen ut fra det gamle og det nye
+   * kameraet, står alt stille – og fra da av dreier man om det man ser på.
+   */
+  settFokus(k, g) {
+    if (!g || k < 0 || k >= g.nb * g.nh || !g.finnes[k]) return;
+    const c = this.lerret;
+    if (!c || c.clientWidth < 20) return;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const rb = c.clientWidth * dpr, rh = c.clientHeight * dpr;
+    const hoyde = (g.zP && g.harGrav && g.harGrav[k]) ? g.zP[k] : g.zT[k];
+
+    /* Hvor ligger noden PÅ SKJERMEN akkurat nå? */
+    const fx0 = this._panFast ? this._panFast.x : 0;
+    const fy0 = this._panFast ? this._panFast.y : 0;
+    const foer = this._kamera(rb, rh, g, this.skala * dpr,
+      (fx0 + (this.panX || 0)) * dpr, (fy0 + (this.panY || 0)) * dpr)
+      .punkt(g.wx[k], g.wy[k], hoyde);
+
+    this.fokus = { x: g.wx[k], y: g.wy[k], z: hoyde };
+    /* MED FOKUS ER TILPASNINGENS FORSKYVNING ALLTID NULL.
+       Den må settes her og ikke overlates til neste tegning: regnet man
+       kompensasjonen mot den GAMLE forskyvningen, og tilpasningen så nullet
+       den, spratt bildet like langt som den gamle forskyvningen var – målt
+       180 px etter åtte dreininger. */
+    this._panFast = { x: 0, y: 0 };
+    const etter = this._kamera(rb, rh, g, this.skala * dpr,
+      (this.panX || 0) * dpr, (this.panY || 0) * dpr)
+      .punkt(g.wx[k], g.wy[k], hoyde);
+
+    this.panX = (this.panX || 0) + (foer.px - etter.px) / dpr;
+    this.panY = (this.panY || 0) + (foer.py - etter.py) / dpr;
+    this._skalaSatt = true;
   },
 
 

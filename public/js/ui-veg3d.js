@@ -109,7 +109,25 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
   stasjonEndret() {
     if (!this.aktiv) return;
     if (this.vindu > 0) this._gitterFor = null;
+    /* DREIEPUNKTET FØLGER SNITTET.
+       Målt før dette: ti trykk på Shift+→ flyttet stasjonen fra 0 til 500 m
+       mens kameraet sto bom stille, og snittmerket havnet 1 458 piksler OVER
+       lerretets overkant. Piltastene flyttet et merke man ikke kunne se.
+       Nå følger dreiepunktet med, og fordi det er algebraisk låst til midten
+       av skjermen, står merket alltid på samme sted. Man kjører langs vegen. */
+    if (this.fokus) this._fokusTilStasjon();
     this.tegn();
+  },
+
+  /** Flytter dreiepunktet til senterlinja ved det snittet som er valgt. */
+  _fokusTilStasjon() {
+    const g = this._sisteGitter;
+    const s = this.app.tverrStasjon;
+    if (!g || s == null || !g.nh) return;
+    let j = 0;
+    for (let q = 1; q < g.nh; q++) if (Math.abs(g.s[q] - s) < Math.abs(g.s[j] - s)) j = q;
+    const k = j * g.nb + g.kn + this.SENTER;
+    if (k >= 0 && k < g.nb * g.nh && g.finnes[k]) this.settFokus(k, g);
   },
 
   /**
