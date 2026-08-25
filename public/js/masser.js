@@ -1105,7 +1105,7 @@ function beregnMasser(o) {
       }
       const iKurven = isFinite(pr.radius);
       merknader.push({
-        s: pr.s, type: 'stigning',
+        s: pr.s, type: 'stigning', verdi: Math.abs(stign) * 100, enhet: '%', vaerst: 'stor',
         tekst: `Stigning ${kom((Math.abs(stign) * 100), 1)} % overstiger ${kom((maks * 100), 0)} % `
           + `${lassetKlatrer ? 'i lassretningen' : 'i returretningen'} `
           + (iKurven ? `(radius ${kom(pr.radius, 0)} m)`
@@ -1116,7 +1116,7 @@ function beregnMasser(o) {
     }
     if (isFinite(pr.radius) && mal.minRadius && pr.radius < mal.minRadius - 1e-6) {
       merknader.push({
-        s: pr.s, type: 'kurvatur',
+        s: pr.s, type: 'kurvatur', verdi: pr.radius, enhet: 'm', vaerst: 'liten',
         tekst: `Radius ${kom(pr.radius, 1)} m er under minstekravet på ${mal.minRadius} m`
       });
     }
@@ -1125,13 +1125,13 @@ function beregnMasser(o) {
     }
     if (mal.maksFyllingshoyde > 0 && pr.maksFylling > mal.maksFyllingshoyde) {
       merknader.push({
-        s: pr.s, type: 'fylling',
+        s: pr.s, type: 'fylling', verdi: pr.maksFylling, enhet: 'm', vaerst: 'stor',
         tekst: `Fyllingshøyde ${kom(pr.maksFylling, 1)} m over grensen på ${mal.maksFyllingshoyde} m`
       });
     }
     if (mal.maksSkjaeringsdybde > 0 && pr.maksSkjaering > mal.maksSkjaeringsdybde) {
       merknader.push({
-        s: pr.s, type: 'skjaering',
+        s: pr.s, type: 'skjaering', verdi: pr.maksSkjaering, enhet: 'm', vaerst: 'stor',
         tekst: `Skjæringsdybde ${kom(pr.maksSkjaering, 1)} m over grensen på ${mal.maksSkjaeringsdybde} m`
       });
     }
@@ -1139,7 +1139,7 @@ function beregnMasser(o) {
       const utslag = Math.max(-pr.fotVenstre, pr.fotHoyre) - pr.halvbredde;
       if (utslag > mal.maksUtslag) {
         merknader.push({
-          s: pr.s, type: 'utslag',
+          s: pr.s, type: 'utslag', verdi: utslag, enhet: 'm', vaerst: 'stor',
           tekst: `Skråningen stikker ${kom(utslag, 1)} m ut fra vegkant, grensen er ${mal.maksUtslag} m`
         });
       }
@@ -1222,8 +1222,91 @@ function beregnMasser(o) {
     });
   }
 
+  /* ÅTTIÉN LINJER SIER IKKE MER ENN ÉN.
+     Målt på en ekte veg: 540 m, 110 profiler, 81 merknader – alle av formen
+     «prof 225 – Fyllingshøyde 4,7 m over grensen på 4 m». Brukeren sa det
+     rett ut: «jeg får alltid så mange merknader som jeg ikke kan ta bort eller
+     rette opp i». Han har rett, og listen var grunnen: den fortalte 81 ganger
+     at det samme kravet er brutt, uten å si hvor mye, hvor langt strekket er,
+     eller hva som skulle til.
+     Tomtesiden har gjort det riktig hele tiden (tomtmasser.js: «Høyeste fylling
+     er X m, grensen er Y»). Dette er den samme sammenslåingen for vegen.
+
+     TO LISTER, IKKE ÉN. `brudd` er den rå listen, én post per profil – den er
+     det kostnadsfunksjonen, opptellingen og opplåsingen av høyder arbeider på,
+     og de MÅ se hvert enkelt brudd. `merknader` er den brukeren leser. Ble de
+     tvunget til å være samme liste, måtte man velge mellom en lesbar melding og
+     en riktig retting. */
+  const brudd = merknader.slice();
+  const grupperbare = { fylling: 1, skjaering: 1, utslag: 1, stigning: 1, kurvatur: 1, data: 1, geometri: 1 };
+  const samlet = [], grupper = new Map();
+  for (const m of merknader) {
+    if (!grupperbare[m.type] || !isFinite(m.s)) { samlet.push(m); continue; }
+    let g = grupper.get(m.type);
+    if (!g) {
+      g = { type: m.type, poster: [], stasjoner: [] };
+      grupper.set(m.type, g);
+      samlet.push(g);            // holder rekkefølgen: gruppa står der den første sto
+    }
+    g.poster.push(m);
+    g.stasjoner.push(m.s);
+  }
+  /* Verdien merknaden handler om står PÅ merknaden, satt der den ble målt.
+     Å lese tallet tilbake ut av en setning man selv har skrevet er den slags
+     kobling som ryker første gang noen retter en skrivefeil. */
+  const grenseAv = {
+    fylling: mal.maksFyllingshoyde, skjaering: mal.maksSkjaeringsdybde,
+    utslag: mal.maksUtslag, kurvatur: mal.minRadius
+  };
+  const hvaAv = { fylling: 'Fyllingshøyde', skjaering: 'Skjæringsdybde',
+    utslag: 'Skråningsutslaget', stigning: 'Stigningen',
+    kurvatur: 'Kurveradien', data: 'Mangler terrengdata',
+    geometri: 'Skråningen når ikke terrenget' };
+  const merknaderUt = samlet.map(g => {
+    if (!g.poster) return g;
+    if (g.poster.length === 1) return g.poster[0];
+    /* Verst er STØRST for alt som har en øvre grense, og MINST for radius, som
+       har en nedre. Ett felt på merknaden avgjør det, i stedet for en liste
+       over typer et sted langt fra der de lages. */
+    let verst = g.poster[0];
+    for (const m of g.poster) {
+      if (!Number.isFinite(m.verdi)) continue;
+      if (!Number.isFinite(verst.verdi)) { verst = m; continue; }
+      if (m.vaerst === 'liten' ? m.verdi < verst.verdi : m.verdi > verst.verdi) verst = m;
+    }
+    const verdi = verst.verdi;
+    const fra = Math.min(...g.stasjoner), til = Math.max(...g.stasjoner);
+    const grense = grenseAv[g.type];
+    const hva = hvaAv[g.type] || g.type;
+    const e = verst.enhet || '';
+    const tekst = Number.isFinite(verdi)
+      ? `${hva} bryter kravet i ${g.poster.length} profiler, prof ${kom(fra, 0)}–${kom(til, 0)}`
+        + (grense ? ` (grensen er ${kom(grense, e === '%' ? 0 : 1)} ${e})` : '')
+        + `. Verst ${kom(verdi, 1)} ${e} ved prof ${kom(verst.s, 0)}.`
+      : `${hva} i ${g.poster.length} profiler, prof ${kom(fra, 0)}–${kom(til, 0)}.`;
+    /* RÅDET MÅ OVERLEVE SAMMENSLÅINGEN.
+       Stigningsmerknaden er den eneste som bærer et maskinlesbart tiltak – «det
+       holder med radius 40» – og et råd som forsvinner når linjene slås sammen,
+       er verre enn ingen sammenslåing: da mister man nettopp det ene man kunne
+       gjort noe med. Radius-rådet foretrekkes, for det er det som peker på en
+       konkret endring; et rent stigningsråd sier bare at kravet er brutt. */
+    const raad = g.poster.find(m => m.raad && m.raad.type === 'radius')
+      || g.poster.find(m => m.raad);
+    return {
+      s: verst.s, type: g.type, tekst,
+      raad: raad ? raad.raad : undefined,
+      antall: g.poster.length, fra, til,
+      verdi: Number.isFinite(verdi) ? verdi : undefined,
+      enhet: verst.enhet,
+      grense: grense == null ? undefined : grense,
+      stasjoner: g.stasjoner.slice(),
+      poster: g.poster
+    };
+  });
+
   return {
-    stasjoner, profiler, intervaller, sum, bruckner, merknader,
+    stasjoner, profiler, intervaller, sum, bruckner,
+    merknader: merknaderUt, brudd,
     antallAvkortet, geometriFor,
     mal, faktorer,
     lengde: linje.lengde * bf,

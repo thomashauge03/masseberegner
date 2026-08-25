@@ -1718,9 +1718,17 @@ const App = {
    */
   hoyderVedBrudd(marg = 60) {
     if (!this.resultat) return [];
-    const steder = this.resultat.merknader
-      .filter(m => this.BRUDDTYPER[m.type] === 'profil' && isFinite(m.s))
-      .map(m => m.s);
+    /* HELE STREKKET, ikke bare den verste profilen.
+       Merknadene er slått sammen for lesbarhet, og en gruppert merknad har bare
+       ÉN stasjon – den verste. Leste opplåsingen bare den, krympet vinduet fra
+       81 profiler til ett punkt, og «lås opp høyder ved brudd» fikk ingenting å
+       arbeide med på nøyaktig den vegen som trengte det mest. */
+    const steder = [];
+    for (const m of this.resultat.merknader) {
+      if (this.BRUDDTYPER[m.type] !== 'profil') continue;
+      if (Array.isArray(m.stasjoner) && m.stasjoner.length) steder.push(...m.stasjoner);
+      else if (isFinite(m.s)) steder.push(m.s);
+    }
     if (!steder.length) return [];
     return this.P.vip.filter(v => steder.some(s => Math.abs(v.s - s) <= marg));
   },
@@ -1757,9 +1765,16 @@ const App = {
     if (!r || !Array.isArray(r.merknader)) return null;
     const ut = { profil: 0, linje: 0, annet: 0, totalt: 0, per: {} };
     for (const m of r.merknader) {
-      // oppsummeringslinjen «N vertikalkurver til» teller det den sier
-      const flere = /^(\d+) (vertikalkurver|profiler) til/.exec(m.tekst || '');
-      const antall = flere ? 1 + parseInt(flere[1], 10) : 1;
+      /* EN GRUPPERT MERKNAD TELLER DET DEN DEKKER.
+         Her sto en regex som leste antallet ut av merknadens EGEN TEKST –
+         `/^(\d+) (vertikalkurver|profiler) til/` – og la til én. To feil i én
+         linje: alternativet «profiler til» finnes ikke i noen tekst, og +1
+         telte oppsummeringslinjen som et brudd i tillegg til de den oppsummerte.
+         Verre: så snart merknadene ble slått sammen, ville 81 brudd kollapset
+         til 1, og rettingen ville sluttet å prioritere nettopp den vegen som
+         trengte det mest. Nå står tallet i et felt. */
+      const flere = /^(\d+) vertikalkurver til/.exec(m.tekst || '');
+      const antall = m.antall || (flere ? parseInt(flere[1], 10) : 1);
       const gruppe = this.BRUDDTYPER[m.type] || 'annet';
       ut[gruppe] += antall;
       ut.per[m.type] = (ut.per[m.type] || 0) + antall;
