@@ -122,11 +122,26 @@
     <div class="panelhode">
       <span>Tverrprofil</span>
       <button class="utvidknapp" data-utvid="tverr" title="Stor visning (skjuler de andre)">⤢</button>
+      <!-- ⤢ gir panelet hele arbeidsflaten; ⛶ gir det hele SKJERMEN. Forskjellen
+           er 150 px verktøylinjer og nettleserens eget hode – på en bærbar er
+           det en fjerdedel av bildet, og i bakkemodus er det forskjellen på å
+           se seg om og å kikke gjennom en glugge. -->
+      <button class="fullskjermknapp" data-fullskjerm="tverr" aria-pressed="false"
+              title="Fyll hele skjermen (Esc eller F11 tilbake)">⛶</button>
       <!-- Samme veksler som tomta: snittet er nøyaktig, 3D-en viser hvordan
            skråningene legger seg i terrenget langs strekket. -->
+      <!-- TRE MÅTER Å SE VEGEN PÅ, PÅ SAMME STED.
+           «På bakken» lå inne i «Vis ▾», som nr. 7 av ni like knapper på samme
+           rad – mellom «Grenser» og «Før». Den ble ikke funnet, og det er ikke
+           rart: den så ut som en lagbryter, den lå bak et klikk, og menyen den
+           lå i la seg oppå bildet man nettopp gikk ned i. Her står den ved siden
+           av Snitt og 3D, som er nøyaktig det den er – den tredje måten å se
+           det samme på. -->
       <div class="visvalg">
         <button id="vegVisSnitt" class="verktoyknapp aktiv" title="Tverrsnitt gjennom vegen">Snitt</button>
         <button id="vegVis3d" class="verktoyknapp" title="Se vegen i tre dimensjoner">3D</button>
+        <button id="v3_bakken" class="verktoyknapp" aria-pressed="false"
+                title="Gå ned på bakken og kjør strekket. W A S D eller piltastene kjører, Shift løper, musa ser seg om, Q og E hever og senker deg, + og − endrer farten, Esc tar deg tilbake.">På bakken</button>
       </div>
       <div class="verktoy">
         <button id="tverrForrige" class="verktoyknapp">◀</button>
@@ -154,10 +169,27 @@
             <button id="v3_fjell" class="verktoyknapp" title="Fjelloverflaten">Fjell</button>
             <button id="v3_rutenett" class="verktoyknapp" title="10 m-rutenett drapert på flaten">10 m</button>
             <button id="v3_grenser" class="verktoyknapp aktiv" title="Skråningsfot, vegkant og senterlinje">Grenser</button>
-            <button id="v3_bakken" class="verktoyknapp" title="Gå ned på bakken og kjør strekket. W A S D eller piltastene kjører, Shift løper, musa ser seg om, Q og E hever og senker deg, Esc tar deg tilbake.">På bakken</button>
-            <button id="v3_foer" class="verktoyknapp" title="Vis terrenget slik det er i dag, uten inngrepet. Hold mellomrom for å kikke.">Før</button>
             <button id="v3_fyldig" class="verktoyknapp" title="Mal massen helt – terrenget står igjen bare der det ikke røres">Fyldig</button>
           </span>
+          <!-- FØR, MASSER OG ETTER ER TRE BILDER, IKKE TRE BRYTERE.
+               Sto de som løse av/på-knapper, kunne «Før» og «Etter» stå trykket
+               inn samtidig – og det er ikke et bilde. Her er de gjensidig
+               utelukkende, som fanene de er. -->
+          <span class="synvalg" role="radiogroup" aria-label="Hva modellen viser">
+            <button id="v3_foer" class="verktoyknapp" aria-pressed="false"
+                    title="Terrenget slik det ligger i dag, uten inngrepet. Hold mellomrom for å kikke.">Før</button>
+            <button id="v3_vanlig" class="verktoyknapp aktiv" aria-pressed="true"
+                    title="Arbeidsbildet: terrenget med skjæring og fylling malt oppå">Masser</button>
+            <button id="v3_etter" class="verktoyknapp" aria-pressed="false"
+                    title="Landskapet slik det blir når alt er ferdig: ferdig vegbane, skråningene der de lander, dagens mark utenfor. Ingen massefarger.">Etter</button>
+          </span>
+          <select id="v3_fart" class="minivalg" title="Hvor fort man går i bakkemodus. + og − gjør det samme.">
+            <option value="0.5">Fart ½×</option>
+            <option value="1" selected>Fart 1×</option>
+            <option value="2">Fart 2×</option>
+            <option value="4">Fart 4×</option>
+            <option value="8">Fart 8×</option>
+          </select>
           <select id="v3_vindu" class="minivalg" title="Hvor langt strekk som vises om gangen">
             <option value="0" selected>Hele vegen</option>
             <option value="250">±250 m</option>
@@ -206,6 +238,8 @@
     <div class="panelhode">
       <span>Tomta</span>
       <button class="utvidknapp" data-utvid="tomt" title="Stor visning">⤢</button>
+      <button class="fullskjermknapp" data-fullskjerm="tomt" aria-pressed="false"
+              title="Fyll hele skjermen (Esc eller F11 tilbake)">⛶</button>
       <!-- Snitt eller 3D. To måter å se det samme på: snittet er nøyaktig,
            3D-en viser hvordan skråningene legger seg rundt. -->
       <div class="visvalg">
@@ -246,9 +280,16 @@
             <button id="t3_fjell" class="verktoyknapp" title="Fjelloverflaten">Fjell</button>
             <button id="t3_overbygning" class="verktoyknapp" title="Ferdig overflate med overbygning">Overbygn.</button>
             <button id="t3_rutenett" class="verktoyknapp" title="10 m-rutenett drapert på flaten">10 m</button>
-            <button id="t3_foer" class="verktoyknapp" title="Vis terrenget slik det er i dag, uten inngrepet. Hold mellomrom for å kikke.">Før</button>
             <button id="t3_fyldig" class="verktoyknapp" title="Mal massen helt – terrenget står igjen bare der det ikke røres">Fyldig</button>
             <button id="t3_grenser" class="verktoyknapp aktiv" title="Tomtegrense og skråningsfot">Grenser</button>
+          </span>
+          <span class="synvalg" role="radiogroup" aria-label="Hva modellen viser">
+            <button id="t3_foer" class="verktoyknapp" aria-pressed="false"
+                    title="Terrenget slik det ligger i dag, uten inngrepet. Hold mellomrom for å kikke.">Før</button>
+            <button id="t3_vanlig" class="verktoyknapp aktiv" aria-pressed="true"
+                    title="Arbeidsbildet: terrenget med skjæring og fylling malt oppå">Masser</button>
+            <button id="t3_etter" class="verktoyknapp" aria-pressed="false"
+                    title="Landskapet slik det blir når alt er ferdig: ferdig tomteflate, skråningene der de lander, dagens mark utenfor. Ingen massefarger.">Etter</button>
           </span>
           <select id="t3_overdriv" class="minivalg" title="Overdriv høyden så formene blir lettere å se">
             <option value="1" selected>Høyde 1×</option>

@@ -34,7 +34,7 @@ const Tomt3d = Object.assign(Object.create(Tegner3d), {
     /* Samme mønster som tverrprofilen: lerretet endrer størrelse når panelet
        gjør det, og da må det tegnes på nytt. Observatøren fyrer også når
        panelet er skjult (størrelse null), og da returnerer tegn() med én gang. */
-    new ResizeObserver(() => this.tegn()).observe(this.lerret);
+    new ResizeObserver(() => tegnSnart(this)).observe(this.lerret);
     return this;
   },
 
@@ -211,9 +211,20 @@ const Tomt3d = Object.assign(Object.create(Tegner3d), {
     /* Midtpunkt og diagonal som ekte tall, ikke som formel av nb og rute.
        Kameraet trenger dem, og for en veg finnes det ingen `rute` å regne dem
        av. På et rett rutenett gir de nøyaktig det samme som formelen gjorde. */
+    /* LANDSKAPET SLIK DET BLIR – ÉN SAMMENHENGENDE FLATE.
+       zP er planum, ikke ferdig nivå: inne på tomta ligger hele overbygningen
+       oppå den. zFerdig finnes derfor bare INNE på tomta; utenfor er det
+       skråningen som gjelder, og der legges ingen overbygning – da er planum
+       selve den ferdige flaten. I ringen rundt er zP alt satt til terrenget, så
+       flaten går sømløst ut i marka.
+       Masken må sjekkes: zFerdig er en Float32Array som står på 0 der den ikke
+       er fylt, og uten sjekken faller tomta til kote 0. */
+    const zEtter = new Float32Array(n);
+    for (let k = 0; k < n; k++) zEtter[k] = harFerdig[k] ? zFerdig[k] : zP[k];
+
     const g = {
       nb, nh, rute, minX, minY, lav, hoy, maksAvvik: Math.max(0.5, maksAvvik),
-      utenGrav,
+      utenGrav, zEtter,
       midtX: (minX + maksX) / 2, midtY: (minY + maksY) / 2,
       diagonal: Math.hypot(maksX - minX, maksY - minY),
       wx, wy, zT, zP, zF, zFerdig, harFerdig, harGrav, d: maksD, finnes, inne, usikker,
@@ -229,7 +240,9 @@ const Tomt3d = Object.assign(Object.create(Tegner3d), {
     const t2 = (v, d = 0) => Rapport.tall(v, d);
     const d = g.d[kk];
     return [
-      `Terreng ${t2(g.zT[kk], 2)} · planum ${t2(g.zP[kk], 2)}`,
+      // ser man «etter», peker man på ferdig flate – da må ferdig kote stå der
+      `Terreng ${t2(g.zT[kk], 2)} · planum ${t2(g.zP[kk], 2)}`
+        + (this.visning === 'etter' && g.zEtter ? ` · ferdig ${t2(g.zEtter[kk], 2)}` : ''),
       d >= 0 ? `Skjæring ${t2(d, 2)} m` : `Fylling ${t2(-d, 2)} m`,
       `N ${t2(g.wy[kk], 1)}  Ø ${t2(g.wx[kk], 1)}`
     ];
@@ -258,10 +271,14 @@ const Tomt3d = Object.assign(Object.create(Tegner3d), {
       const t = this.app.P.tomt;
       const p = this.app.tomtIUtm(t);
       const flate = this.app._innerflate || p;
+      /* Omrisset skal ligge PÅ den flaten som tegnes, ikke alltid på planum –
+         ellers svever tomtegrensa over marka i «før» og ligger nede i
+         bærelaget i «etter». */
+      const zTab = this._flateHoyde(g) || g.zP;
       const zVed = (x, y) => {
         const i = Math.round((x - g.minX) / g.rute), j = Math.round((y - g.minY) / g.rute);
         const kk = j * g.nb + i;
-        return (i >= 0 && j >= 0 && i < g.nb && j < g.nh && g.finnes[kk]) ? g.zP[kk] : g.lav;
+        return (i >= 0 && j >= 0 && i < g.nb && j < g.nh && g.finnes[kk]) ? zTab[kk] : g.lav;
       };
       const strek = (punkt, farge, bredde, lukk) => {
         if (punkt.length < 2) return;

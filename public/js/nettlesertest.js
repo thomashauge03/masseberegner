@@ -2483,16 +2483,25 @@ const Nettlesertest = {
         };
         Veg3d.kamT = 0;
         Veg3d.kamH = 2;
-        const vent6 = Math.max(2.2, 1.1 * 2);
+        Veg3d.fartsfaktor = 1;
+        /* Prøven måler ETT skritt og bruker det som målestokk for de andre. Sto
+           tallet 2,2 skrevet inn her, ville prøven brutt hver gang noen justerte
+           grunnfarten – og det som faktisk skal holde er FORHOLDENE: bakover er
+           like langt som framover, Shift ganger med 3,5, et halvt sekund er
+           halvparten, og på skrå er man ikke raskere enn rett fram.
+           Selve grunnfarten har bare ett krav, og det er et brukskrav: et
+           menneskelig napp på tasten skal SYNES. */
         let f6 = Veg3d.kamS; gaa6(['w'], 1);
-        this.naer('W ett sekund går én ganghastighet framover', Veg3d.kamS - f6, vent6, 0.05);
+        const enhet6 = Veg3d.kamS - f6;
+        this.sjekk('et napp på W flytter deg langt nok til at man ser det',
+          enhet6 >= 4 && enhet6 <= 9, enhet6.toFixed(2) + ' m i sekundet på gangfart');
         f6 = Veg3d.kamS; gaa6(['s'], 1);
-        this.naer('S går like langt bakover', Veg3d.kamS - f6, -vent6, 0.05);
+        this.naer('S går like langt bakover', Veg3d.kamS - f6, -enhet6, 0.05);
         f6 = Veg3d.kamS; gaa6(['w', 'shift'], 1);
-        this.naer('Shift løper', Veg3d.kamS - f6, vent6 * 3.5, 0.05);
+        this.naer('Shift løper', Veg3d.kamS - f6, enhet6 * 3.5, 0.05);
         f6 = Veg3d.kamS; gaa6(['w'], 0.5);
         this.naer('et halvt sekund er halvparten – farten er per SEKUND',
-          Veg3d.kamS - f6, vent6 / 2, 0.05);
+          Veg3d.kamS - f6, enhet6 / 2, 0.05);
 
         /* To taster samtidig skal gi ETT skritt på skrå, ikke to skritt etter
            hverandre – ellers går man raskere på skrå enn rett fram. */
@@ -2500,8 +2509,35 @@ const Nettlesertest = {
         const t6 = Veg3d.kamT;
         gaa6(['w', 'd'], 1);
         this.naer('W og D samtidig går på skrå, ikke fortere',
-          Math.hypot(Veg3d.kamS - f6, Veg3d.kamT - t6), vent6, 0.06);
+          Math.hypot(Veg3d.kamS - f6, Veg3d.kamT - t6), enhet6, 0.06);
         Veg3d.kamT = 0;
+
+        /* FARTSFAKTOREN ER DEN VARIGE INNSTILLINGEN.
+           Grunnfarten følger øyehøyden, men på en veg som er to kilometer lang
+           er gangfart tolv minutter fra ende til ende. Shift løper, men den må
+           holdes; faktoren står til man endrer den. */
+        Veg3d.settFart(4);
+        f6 = Veg3d.kamS; gaa6(['w'], 1);
+        this.naer('fartsfaktoren ganger farten', Veg3d.kamS - f6, enhet6 * 4, 0.1);
+        Veg3d.settFart(1000);
+        this.sjekk('men den kan ikke skrus opp til noe man ikke kan styre',
+          Veg3d.fartsfaktor <= 16, Veg3d.fartsfaktor + '×');
+        Veg3d.settFart(0.0001);
+        this.sjekk('og ikke ned til stillstand heller', Veg3d.fartsfaktor >= 0.25,
+          Veg3d.fartsfaktor + '×');
+        /* + og − gjør det samme som velgeren, og velgeren skal vise det. */
+        Veg3d.settFart(1);
+        Veg3d._bakkeTast({ key: '+', preventDefault() {}, stopPropagation() {} });
+        this.sjekk('«+» skrur farten opp', Veg3d.fartsfaktor > 1.3, Veg3d.fartsfaktor.toFixed(2) + '×');
+        const velger6 = document.getElementById('v3_fart');
+        if (velger6) {
+          this.sjekk('og velgeren følger med, så den aldri lyver om farten',
+            Math.abs(+velger6.value - Veg3d.fartsfaktor) <= Veg3d.fartsfaktor,
+            'velger ' + velger6.value + ' mot ' + Veg3d.fartsfaktor.toFixed(2));
+        }
+        Veg3d._bakkeTast({ key: '-', preventDefault() {}, stopPropagation() {} });
+        this.naer('og «−» tilbake igjen', Veg3d.fartsfaktor, 1, 0.02);
+        Veg3d.fartsfaktor = 1;
 
         /* JEVNT. Snittet hopper i profiler; kameraet skal ikke. Målt før dette:
            2,20 og 2,80 m annenhver gang, fordi omtegningen av tverrprofilen
@@ -2518,8 +2554,9 @@ const Nettlesertest = {
            veg på to kilometer. */
         Veg3d.kamH = 60;
         f6 = Veg3d.kamS; gaa6(['w'], 1);
-        this.naer('hever man seg, går man fortere – uten en eneste innstilling',
-          Veg3d.kamS - f6, 66, 1);
+        this.sjekk('hever man seg, går man fortere – uten en eneste innstilling',
+          (Veg3d.kamS - f6) > enhet6 * 8, (Veg3d.kamS - f6).toFixed(0) + ' m/s på 60 m høyde mot '
+            + enhet6.toFixed(1) + ' på bakken');
         Veg3d.kamH = 2;
 
         const h6 = Veg3d.kamH; gaa6(['e'], 1);
@@ -2594,6 +2631,229 @@ const Nettlesertest = {
         Veg3d.kamH = 2;
         App.settTverrStasjon(L6 / 2);
         await this.vent(200);
+      }
+
+      /* 17.15 «ETTER»: LANDSKAPET SLIK DET BLIR.
+         «Før» viser det som ligger der i dag. «Etter» viser det som står igjen
+         når alt er ferdig – og det er bildet man legger i et tilbud.
+         Den store fellen er å bygge den på `zP`. zP er jordarbeidsflaten, ikke
+         ferdig nivå: under vegbanen ligger den bærelag pluss slitelag lavere,
+         med standardmalen 0,70 m. En «etter»-visning på zP viser en veg som
+         ligger sytti centimeter for lavt, og det ser helt troverdig ut. */
+      {
+        const c7 = document.getElementById('veg3d');
+        Veg3d.settModus('oversikt');
+        Veg3d.nullstill();
+        await this.vent(280);
+        const g7 = Veg3d._sisteGitter;
+        this.sjekk('gitteret bærer en ferdig flate', !!(g7 && g7.zEtter));
+        if (g7 && g7.zEtter) {
+          /* FERDIG NIVÅ ER zVeg DER VEGBANEN FINNES, jordarbeidsflaten ellers.
+             Masken må sjekkes for hånd: zVeg er en Float32Array som står på 0
+             der vegbanen ikke er fylt, og uten sjekken faller halve modellen
+             til kote 0. */
+          let avvik = 0, medVeg = 0, storsteOb = 0, nuller = 0;
+          for (let k = 0; k < g7.nb * g7.nh; k++) {
+            if (!g7.finnes[k]) continue;
+            const skal = g7.harVeg[k] ? g7.zVeg[k] : g7.zP[k];
+            if (Math.abs(g7.zEtter[k] - skal) > 1e-6) avvik++;
+            if (g7.harVeg[k]) { medVeg++; storsteOb = Math.max(storsteOb, g7.zVeg[k] - g7.zP[k]); }
+            if (g7.zEtter[k] === 0) nuller++;
+          }
+          this.sjekk('ferdig flate er vegbanen der den finnes, jordarbeid ellers',
+            avvik === 0, avvik + ' noder feil');
+          this.sjekk('  og vegbanen ligger OVER planum – ikke på det', storsteOb > 0.3,
+            'overbygning ' + storsteOb.toFixed(2) + ' m');
+          this.sjekk('ingen node falt til kote 0 – masken ble sjekket', nuller === 0,
+            nuller + ' noder på null');
+          this.sjekk('  (og det var vegbane å måle på)', medVeg > 50, medVeg + ' noder');
+        }
+
+        /* BILDET, ikke bare flagget. «Etter» skal være landskapet: ingen rød
+           skjæring, ingen grønn fylling, én sammenhengende flate. */
+        const farger7 = () => {
+          const kk = c7.getContext('2d');
+          const b = kk.getImageData(0, 0, c7.width, c7.height).data;
+          const bak = [b[0], b[1], b[2]];
+          let kulor = 0, n = 0;
+          for (let i = 0; i < b.length; i += 4 * 5) {
+            const r = b[i], g2 = b[i + 1], bl = b[i + 2];
+            if (r === bak[0] && g2 === bak[1] && bl === bak[2]) continue;
+            n++;
+            if (r > g2 + 22 && r > bl + 22) kulor++;
+            else if (g2 > r + 16) kulor++;
+          }
+          return { n, del: n ? kulor / n : 0 };
+        };
+        Veg3d.settVisning('vanlig'); await this.vent(200);
+        const vanlig7 = farger7();
+        Veg3d.settVisning('etter'); await this.vent(220);
+        const etter7 = farger7();
+        this.sjekk('«etter» har ingen massefarger – det er et landskap, ikke et regnskap',
+          etter7.del === 0, Math.round(100 * etter7.del) + ' % farget');
+        this.sjekk('men modellen står der fortsatt', etter7.n > vanlig7.n * 0.7,
+          etter7.n + ' mot ' + vanlig7.n + ' piksler');
+        this.sjekk('  (og arbeidsbildet HAR massefarger å miste)', vanlig7.del > 0.01,
+          Math.round(100 * vanlig7.del) + ' %');
+
+        /* TRE BILDER, ETT AV GANGEN. To boolske flagg kunne stått på samtidig. */
+        const trykt = () => ['foer', 'vanlig', 'etter']
+          .filter(x => document.getElementById('v3_' + x)
+            && document.getElementById('v3_' + x).getAttribute('aria-pressed') === 'true');
+        this.sjekk('nøyaktig én knapp er trykket inn', trykt().length === 1, trykt().join(','));
+        this.sjekk('  og det er den som viser det man ser', trykt()[0] === 'etter');
+        Veg3d.settVisning('foer'); await this.vent(200);
+        this.sjekk('bytter man bilde, slipper den forrige knappen seg selv',
+          trykt().length === 1 && trykt()[0] === 'foer', trykt().join(','));
+
+        /* GULVET FØLGER FLATEN MAN SER. Sto det fast på planum, gikk man sytti
+           centimeter nede i asfalten i «etter» og under bakken i «før». */
+        App.settTverrStasjon(App.resultat.lengde / 2);
+        await this.vent(150);
+        /* MÅLT DER DET ER NOE Å MÅLE. Første utgave sto på midtstasjonen og
+           krevde at «før» lå merkbart over planum. På prøvevegen ligger den
+           stasjonen tilfeldigvis i dagen – åtte centimeter skilte – og prøven
+           feilet på en tilfeldighet i stedet for på en feil. Her letes det opp
+           en stasjon med minst en meter skjæring på senterlinja. */
+        const gg7 = Veg3d._sisteGitter;
+        let dypS = null;
+        for (let j = 0; j < gg7.nh && !dypS; j++) {
+          const k = j * gg7.nb + gg7.kn + Veg3d.SENTER;
+          if (gg7.finnes[k] && gg7.harGrav[k] && gg7.zT[k] - gg7.zP[k] > 1) dypS = gg7.s[j];
+        }
+        this.sjekk('prøvevegen har en skjæring på senterlinja å stå i', dypS != null);
+        if (dypS != null) App.settTverrStasjon(dypS);
+        await this.vent(150);
+        const gulv7 = v => { Veg3d.settVisning(v); return Veg3d._gulv(Veg3d._sisteGitter, Veg3d.kamS, 0); };
+        const gV = gulv7('vanlig'), gE = gulv7('etter'), gF = gulv7('foer');
+        this.sjekk('i «etter» står man PÅ ferdig veg, ikke nede i den',
+          gE > gV + 0.3, 'ferdig ' + gE.toFixed(2) + ' mot planum ' + gV.toFixed(2));
+        this.sjekk('og i «før» står man på dagens mark, over skjæringen',
+          gF > gV + 0.5, 'terreng ' + gF.toFixed(2) + ' mot planum ' + gV.toFixed(2));
+        Veg3d.settVisning('vanlig');
+        await this.vent(200);
+
+        /* Mellomrom kikker fortsatt – og skal legge deg tilbake der du var,
+           ikke i arbeidsbildet. Med en boolsk hukommelse var det umulig. */
+        const o7 = document.getElementById('veg3dover');
+        Veg3d.settVisning('etter'); await this.vent(150);
+        o7.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', bubbles: true, cancelable: true }));
+        await this.vent(150);
+        this.sjekk('mellomrom kikker på «før» også fra «etter»', Veg3d.visning === 'foer');
+        o7.dispatchEvent(new KeyboardEvent('keyup', { code: 'Space', bubbles: true, cancelable: true }));
+        await this.vent(150);
+        this.sjekk('og slipper man, er man tilbake i «etter» – ikke i arbeidsbildet',
+          Veg3d.visning === 'etter', Veg3d.visning);
+        Veg3d.settVisning('vanlig');
+        await this.vent(150);
+      }
+
+      /* 17.16 VEIEN INN I BAKKEMODUS, OG TASTENE ETTERPÅ.
+         Brukeren spurte «hvordan kommer man inn i modusen?» og meldte at W A S D
+         ikke virket. Begge deler var sant, og prøvene over kunne ikke fange
+         noen av dem: de kalte _bakkeSteg direkte og sendte tastene rett på
+         lerretet, altså hoppet de over både veien inn og fokuset. */
+      {
+        const kb7 = document.getElementById('v3_bakken');
+        this.sjekk('«På bakken» står framme, ikke bak et menyklikk',
+          !!(kb7 && kb7.offsetParent), kb7 ? 'synlig' : 'finnes ikke');
+        this.sjekk('  og den står sammen med Snitt og 3D – den er den tredje måten å se på',
+          !!(kb7 && kb7.closest('.visvalg')));
+        const meny7 = document.getElementById('v3_menypanel');
+        this.sjekk('  og altså ikke inne i «Vis»-menyen', !(meny7 && meny7.contains(kb7)));
+
+        Veg3d.settModus('oversikt');
+        await this.vent(200);
+        /* Menyen er position:fixed over lerretet. Står den åpen når man går ned
+           på bakken, dekker den bildet man nettopp gikk ned i – og fordi
+           lukkeregelen hopper over klikk INNI panelet, ble den stående. */
+        document.getElementById('v3_meny').click();
+        await this.vent(180);
+        this.sjekk('menyen kan åpnes', !meny7.classList.contains('skjult'));
+        kb7.click();
+        await this.vent(500);
+        this.sjekk('ett klikk tar deg ned på bakken', Veg3d.modus === 'bakken', Veg3d.modus);
+        this.sjekk('  og menyen viker – den lå oppå bildet',
+          meny7.classList.contains('skjult'));
+        this.sjekk('  og lerretet har fokus, så tastene virker uten et klikk til',
+          document.activeElement === document.getElementById('veg3dover'),
+          document.activeElement.id || document.activeElement.tagName);
+
+        /* TASTENE MÅ VIRKE OGSÅ NÅR FOKUS HAR SKLIDD BORT.
+           Målt: etter et klikk i 3D-bildet sto activeElement på BODY, fordi
+           dragningen kaller preventDefault og det avlyser fokusering. Da var
+           W A S D døde uten at noe forklarte hvorfor. */
+        document.activeElement.blur();
+        this.sjekk('fokus kan gli bort til BODY', document.activeElement === document.body);
+        Veg3d._taster = new Set();
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'w', bubbles: true, cancelable: true }));
+        this.sjekk('men tasten fanges likevel – vinduet lytter mens man står på bakken',
+          Veg3d._taster.has('w'), [...Veg3d._taster].join(','));
+        window.dispatchEvent(new KeyboardEvent('keyup', { key: 'w', bubbles: true, cancelable: true }));
+        this.sjekk('  og slippes når den slippes', !Veg3d._taster.has('w'));
+
+        /* Men den som skriver et tall skal få skrive det. */
+        const felt7 = document.querySelector('.faneinnhold.aktiv input[type=number]')
+          || document.querySelector('input[type=number]');
+        felt7 && felt7.focus();
+        if (felt7 && document.activeElement === felt7) {
+          Veg3d._taster = new Set();
+          window.dispatchEvent(new KeyboardEvent('keydown', { key: 'w', bubbles: true, cancelable: true }));
+          this.sjekk('skriver man i et felt, går tasten dit og ikke til kameraet',
+            !Veg3d._taster.has('w'));
+          felt7.blur();
+        }
+
+        /* Et klikk i bildet skal GI lerretet fokus, ikke ta det. */
+        Veg3d._taster = new Set();
+        document.body.focus();
+        document.activeElement.blur();
+        const ov7 = document.getElementById('veg3dover');
+        const rr7 = ov7.getBoundingClientRect();
+        ov7.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true,
+          clientX: rr7.left + rr7.width / 2, clientY: rr7.top + rr7.height / 2, button: 0 }));
+        window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true,
+          clientX: rr7.left + rr7.width / 2, clientY: rr7.top + rr7.height / 2, button: 0 }));
+        await this.vent(200);
+        this.sjekk('et klikk i bildet gir lerretet fokus', document.activeElement === ov7,
+          document.activeElement.id || document.activeElement.tagName);
+
+        Veg3d.settModus('oversikt');
+        await this.vent(250);
+        this.sjekk('og ute av bakkemodus lar vinduet tastene være i fred',
+          (() => { Veg3d._taster = new Set();
+            window.dispatchEvent(new KeyboardEvent('keydown', { key: 'w', bubbles: true, cancelable: true }));
+            return !Veg3d._taster.has('w'); })());
+        Veg3d.nullstill();
+        await this.vent(200);
+      }
+
+      /* 17.17 FULLSKJERM.
+         ⤢ gir panelet arbeidsflaten; ⛶ gir det hele skjermen. Prøven kan ikke
+         BE om fullskjerm – nettleseren krever en ekte brukerbevegelse, og en
+         syntetisk hendelse blir avvist. Den måler derfor det den kan: at
+         knappen finnes begge steder, at den peker på et panel, og at
+         omvisningen etter en fullskjermendring faktisk måler lerretene på
+         nytt. Uten det siste ble modellen stående innrammet for den gamle
+         størrelsen, som en frimerkestor tegning midt på en svart skjerm. */
+      {
+        const knapper7 = [...document.querySelectorAll('.fullskjermknapp')];
+        this.sjekk('begge panelene har en fullskjermknapp', knapper7.length >= 2,
+          knapper7.length + ' knapper');
+        this.sjekk('  og hver av dem peker på et panel',
+          knapper7.every(b => !!b.closest('.panel')));
+        this.sjekk('  med navnet på panelet den fyller',
+          knapper7.every(b => !!b.dataset.fullskjerm),
+          knapper7.map(b => b.dataset.fullskjerm).join(','));
+        /* Etter en fullskjermendring må innrammingen gjøres om. Flagget er det
+           som styrer det, og prøven krever at hendelsen setter det. */
+        Veg3d._skalaSatt = true; Tomt3d._skalaSatt = true;
+        document.dispatchEvent(new Event('fullscreenchange'));
+        await this.vent(220);
+        this.sjekk('en fullskjermendring rammer modellene inn på nytt',
+          Veg3d._skalaSatt === false || Tomt3d._skalaSatt === false,
+          'veg ' + Veg3d._skalaSatt + ', tomt ' + Tomt3d._skalaSatt);
+        await this.vent(150);
       }
 
       /* 17.10 Kostnad – røykprøve mot en katastrofal regresjon. */

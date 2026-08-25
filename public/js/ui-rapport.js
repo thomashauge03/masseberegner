@@ -315,7 +315,7 @@ const Rapport = {
     Farger.glem(); Tomt3d.glemFarger();
     const foer = {
       lerret: Tomt3d.lerret, over: Tomt3d.over, aktiv: Tomt3d.aktiv,
-      yaw: Tomt3d.yaw, pitch: Tomt3d.pitch, fyldig: Tomt3d.fyldig,
+      yaw: Tomt3d.yaw, pitch: Tomt3d.pitch, fyldig: Tomt3d.fyldig, visning: Tomt3d.visning,
       senter: Tomt3d.senter, skala: Tomt3d.skala, panX: Tomt3d.panX, panY: Tomt3d.panY,
       skalaSatt: Tomt3d._skalaSatt, gitterFor: Tomt3d._gitterFor, bilde: Tomt3d._bilde,
       lag: Object.assign({}, Tomt3d.lag), kontekst: Tomt3d.kontekst
@@ -333,6 +333,11 @@ const Rapport = {
       Tomt3d.lerret = r; Tomt3d.over = o;
       Tomt3d.aktiv = true;
       Tomt3d.yaw = yaw; Tomt3d.pitch = pitch; Tomt3d.fyldig = fyldig;
+      /* RAPPORTEN SKAL ALDRI ARVE EN SKJERMTILSTAND.
+         Sto «Før» på da rapporten ble laget, ble alle tomtetegningene bart
+         terreng – riktig etter koden, tomt etter formålet. Tegningene i en
+         rapport viser massene; det er det rapporten handler om. */
+      Tomt3d.visning = 'vanlig';
       Tomt3d.senter = null; Tomt3d.panX = 0; Tomt3d.panY = 0;
       Tomt3d._skalaSatt = false;
       Tomt3d._gitterFor = null;
@@ -372,11 +377,13 @@ const Rapport = {
     } finally {
       Object.assign(Tomt3d, {
         lerret: foer.lerret, over: foer.over, aktiv: foer.aktiv,
-        yaw: foer.yaw, pitch: foer.pitch, fyldig: foer.fyldig,
+        yaw: foer.yaw, pitch: foer.pitch, fyldig: foer.fyldig, visning: foer.visning,
         senter: foer.senter, skala: foer.skala, panX: foer.panX, panY: foer.panY,
         _skalaSatt: foer.skalaSatt, _gitterFor: null, _bilde: null, lag: foer.lag,
         kontekst: foer.kontekst
       });
+      // knappene eier ikke tilstanden, så de må få vite at den er lagt tilbake
+      if (Tomt3d.paaVisning) Tomt3d.paaVisning(Tomt3d.visning);
       document.documentElement.removeAttribute('data-utskrift');
       Farger.glem(); Tomt3d.glemFarger();
       if (Tomt3d.aktiv) Tomt3d.tegn();

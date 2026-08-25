@@ -99,7 +99,7 @@ const Lengdeprofil = {
       const { s, z } = this.fraSkjerm(e);
       this.app.leggTilHoyde(Math.round(s), z);
     });
-    new ResizeObserver(() => this.tegn()).observe(l);
+    new ResizeObserver(() => tegnSnart(this)).observe(l);
     return this;
   },
 

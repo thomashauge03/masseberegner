@@ -61,7 +61,7 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
     this.over = document.getElementById('veg3dover');
     if (!this.lerret) return this;
     this._musKobling();
-    new ResizeObserver(() => this.tegn()).observe(this.lerret);
+    new ResizeObserver(() => tegnSnart(this)).observe(this.lerret);
     return this;
   },
 
@@ -176,6 +176,13 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
       if (d < bestD) { bestD = d; best = k; }
     }
     if (best < 0) return NaN;
+    /* GULVET ER DEN FLATEN MAN SER.
+       Ser man «etter», står man på ferdig veg; ser man «før», står man på dagens
+       mark. Det var ikke slik: gulvet sto alltid på planum, altså sytti
+       centimeter nede i asfalten – umerkelig i arbeidsbildet, og tydelig galt
+       i det øyeblikket ferdig vegbane blir tegnet. */
+    const tab = this._flateHoyde(g);
+    if (tab) return tab[best];
     /* FERDIG FLATE, IKKE DEN HØYESTE.
        Her sto `Math.max(zT, zP)` – «man går aldri under noen av dem». Det er
        feil i en skjæring: der ligger vegen UNDER terrenget, og maksimum løftet
@@ -401,12 +408,27 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
       minY = Math.min(minY, wy[k]); maksY = Math.max(maksY, wy[k]);
     }
 
+    /* LANDSKAPET SLIK DET BLIR – ÉN SAMMENHENGENDE FLATE.
+       Fristelsen er å bruke zP, som jo er «flaten det graves til». Men zP er
+       jordarbeidsflaten: under vegbanen ligger den bærelag pluss slitelag
+       lavere, med standardmalen 0,70 m. En «etter»-visning bygd på zP viser en
+       veg som ligger sytti centimeter for lavt – og det ser helt troverdig ut.
+       Ferdig nivå er zVeg der vegbanen finnes. Utenfor vegkanten – i grøft og
+       skråning – ER jordarbeidsflaten den ferdige flaten; der legges ingen
+       overbygning. Og i ringen utenfor inngrepet er zJord alt satt til
+       terrenghøyden, så flaten går sømløst ut i landskapet uten et eneste
+       spesialtilfelle.
+       Masken må sjekkes for hånd: zVeg er en Float32Array som står på 0 der
+       vegbanen ikke finnes, og uten sjekken faller halve modellen til kote 0. */
+    const zEtter = new Float32Array(n);
+    for (let k = 0; k < n; k++) zEtter[k] = harVeg[k] ? zVeg[k] : zJord[k];
+
     const g = {
       nb, nh, lav, hoy, maksAvvik: Math.max(0.5, maksAvvik),
       midtX: (minX + maksX) / 2, midtY: (minY + maksY) / 2,
       diagonal: Math.hypot(maksX - minX, maksY - minY),
       linjebredde: 1,
-      wx, wy, zT, zP: zJord, zF: zFjell, zVeg, harVeg,
+      wx, wy, zT, zP: zJord, zF: zFjell, zVeg, harVeg, zEtter,
       d, tAkse, s: sRad, finnes, harGrav, utenGrav, usikker, celleSperre,
       sperret, utenGeo, fra: rader[0].s, til: rader[rader.length - 1].s,
       totalt: n, kn
@@ -463,13 +485,19 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
   /** Fot, vegkant og senterlinje er bare kolonneindekser i gitteret. */
   _overleggEkstra(k, g, kam, skjerm) {
     if (!this.lag.grenser) return;
+    /* STREKENE MÅ LIGGE PÅ DEN FLATEN MAN SER.
+       De sto alltid på gravflaten. I «før» fløt de derfor i lufta over dagens
+       terreng, og i «etter» ville vegkant og senterlinje ligget sytti
+       centimeter NEDE i vegbanen. Samme tabell som rasteret, og de kan ikke
+       drive fra hverandre. */
+    const zF2 = this._flateHoyde(g) || g.zP;
     const kol = (i, farge, bredde) => {
       k.strokeStyle = farge; k.lineWidth = bredde; k.beginPath();
       let forrige = false;
       for (let j = 0; j < g.nh; j++) {
         const kk = j * g.nb + i;
         if (!g.finnes[kk]) { forrige = false; continue; }
-        const p = skjerm(g.wx[kk], g.wy[kk], g.zP[kk]);
+        const p = skjerm(g.wx[kk], g.wy[kk], zF2[kk]);
         if (forrige) k.lineTo(p.x, p.y); else k.moveTo(p.x, p.y);
         forrige = true;
       }
@@ -498,7 +526,7 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
       for (let i = 0; i < g.nb; i++) {
         const kk = j * g.nb + i;
         if (!g.finnes[kk]) { forrige = false; continue; }
-        const p = skjerm(g.wx[kk], g.wy[kk], g.zP[kk]);
+        const p = skjerm(g.wx[kk], g.wy[kk], zF2[kk]);
         if (forrige) k.lineTo(p.x, p.y); else k.moveTo(p.x, p.y);
         forrige = true;
       }
@@ -554,7 +582,11 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
     const dd = g.d[kk];
     return [
       `Profil ${t2(g.s[j], 1)} · avvik ${t2(g.tAkse[kk], 2)} m`,
-      `Terreng ${t2(g.zT[kk], 2)} · jordarbeid ${t2(g.zP[kk], 2)}`,
+      /* I «etter» peker man på FERDIG veg, og da må tallet være ferdig kote.
+         Sto det bare «jordarbeid», leste man planumkoten som om det var flaten
+         under markøren – sytti centimeter feil, uten noe som røpet det. */
+      `Terreng ${t2(g.zT[kk], 2)} · jordarbeid ${t2(g.zP[kk], 2)}`
+        + (this.visning === 'etter' && g.zEtter ? ` · ferdig ${t2(g.zEtter[kk], 2)}` : ''),
       g.harGrav[kk]
         ? (dd >= 0 ? `Skjæring ${t2(dd, 2)} m` : `Fylling ${t2(-dd, 2)} m`)
         : 'Terreng utenfor inngrepet'

@@ -283,6 +283,20 @@ body {
 .verktoygruppe.skjult { display: none; }
 .lagvalg { display: flex; gap: 2px; flex-wrap: wrap; }
 .lagvalg .verktoyknapp { padding: 2px 7px; font-size: 11px; }
+/* FØR · MASSER · ETTER ER ÉN BRYTER MED TRE STILLINGER, ikke tre brytere.
+   Lagbryterne over er uavhengige av hverandre – man kan ha på både terreng og
+   grav. Disse tre er gjensidig utelukkende, og da skal de også SE slik ut:
+   sammenhengende, uten mellomrom, med ramme rundt hele gruppa. Sto de som seks
+   like knapper på samme rad, var det ingenting som sa at det å trykke «Etter»
+   slår av «Før». */
+.synvalg {
+  display: flex; margin-top: 6px;
+  border: 2px solid var(--kant); width: 100%;
+}
+.synvalg .verktoyknapp {
+  flex: 1; border: 0; padding: 3px 6px; font-size: 11px; text-align: center;
+}
+.synvalg .verktoyknapp + .verktoyknapp { border-left: 2px solid var(--kant); }
 
 /* PANELHOVUDET SKAL ALDRI ETE HEILE PANELET.
    På ei smal rute bryt verktøylinja over mange rader. Med 3D-verktøya inne vart
@@ -334,6 +348,18 @@ body {
 }
 .utvidknapp:hover { color: var(--hm-raud); }
 .utvidknapp.aktiv { color: var(--hm-raud); }
+/* ⛶ er søsteren til ⤢ og skal se ut som den: samme farge, samme vekt, samme
+   plass. Forskjellen er hva de tar – arbeidsflaten mot hele skjermen. */
+.fullskjermknapp {
+  background: none; border: none; color: var(--blekk-svak); cursor: pointer;
+  font-size: 14px; line-height: 1; padding: 2px 5px; margin-left: -8px;
+}
+.fullskjermknapp:hover { color: var(--hm-raud); }
+.fullskjermknapp.aktiv { color: var(--hm-raud); }
+/* I fullskjerm ligger panelet alene på en svart flate. Uten en bakgrunn her
+   arver det nettleserens hvite standardflate, og et mørkt tema blir blendende
+   hvitt i det øyeblikket man trykker ⛶. */
+.panel:fullscreen { background: var(--flate); width: 100%; height: 100%; }
 
 .panel { background: var(--flate); position: relative; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .panelhode {
@@ -1020,12 +1046,14 @@ html[data-peker="grov"] .kartknapp,
 html[data-peker="grov"] .modusknapp,
 html[data-peker="grov"] .fane,
 html[data-peker="grov"] .utvidknapp,
+html[data-peker="grov"] .fullskjermknapp,
 html[data-peker="grov"] .kartlagknapp,
 html[data-peker="grov"] .menyknapp {
   min-height: 44px;
   padding-left: 12px; padding-right: 12px;
 }
-html[data-peker="grov"] .utvidknapp { min-width: 44px; }
+html[data-peker="grov"] .utvidknapp,
+html[data-peker="grov"] .fullskjermknapp { min-width: 44px; }
 html[data-peker="grov"] .hjelpknapp { min-width: 44px; min-height: 44px; }
 html[data-peker="grov"] .minitall input,
 html[data-peker="grov"] .punkthoyder input,

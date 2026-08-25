@@ -64,14 +64,31 @@ const Tegner3d = {
      I fyldig blir terrenget stående IGJEN der det ikke røres, og massen males
      med full farge. Da ser man volumet, ikke sløret. */
   fyldig: false,
-  /* FØR: terrenget slik det ligger i dag, uten inngrepet.
-     Man ser HVA som blir gjort ved å se det som var der før ved siden av. Med
-     bare «etter» er det umulig å vite om den grønne vingen ligger i ei li eller
-     på et jorde – man ser resultatet uten å se utgangspunktet.
-     Ingen ny beregning: høydene ligger allerede i gitteret som `zT`, både
-     inne i inngrepet og i ringen rundt. Det er den samme terrengmodellen
-     volumet er regnet mot. */
-  visFoer: false,
+  /* TRE BILDER AV DET SAMME STEDET, OG BARE ETT AV GANGEN.
+     · `vanlig` – massene: terrenget med skjæring og fylling malt oppå. Det er
+       arbeidsbildet, det man regner med.
+     · `foer`   – terrenget slik det ligger i dag, uten inngrepet. Man ser HVA
+       som blir gjort ved å se det som lå der før: uten det er det umulig å vite
+       om den grønne vingen ligger i ei li eller på et jorde.
+     · `etter`  – landskapet slik det BLIR når alt er ferdig. Ferdig vegbane og
+       ferdig tomteflate der det bygges, skråningene der de lander, og dagens
+       mark utenfor – én sammenhengende flate, uten en eneste massefarge. Det er
+       bildet man viser kunden.
+     Ingen av dem regner noe nytt: alle tre høydene ligger i gitteret (zT, zP,
+     zEtter), lest av den samme modellen volumet er regnet mot.
+
+     ÉN STRENG, IKKE TRE BOOLSKE FLAGG. Tre flagg har åtte tilstander, og fem av
+     dem er meningsløse – «før og etter samtidig» er ikke et bilde. Med én streng
+     finnes de ugyldige tilstandene ikke.
+     `visFoer` under er samme tilstand sett gjennom det gamle navnet. Den er en
+     AKSESSOR på prototypen, og det er ikke tilfeldig: et vanlig felt ville blitt
+     skygget av `Veg3d.visFoer = true` (egen egenskap), mens en aksessor kaller
+     setteren – så alle de gamle leserne fortsetter å virke uendret. */
+  visning: 'vanlig',        // 'vanlig' | 'foer' | 'etter'
+  get visFoer() { return this.visning === 'foer'; },
+  set visFoer(v) { this.visning = v ? 'foer' : (this.visning === 'foer' ? 'vanlig' : this.visning); },
+  get visEtter() { return this.visning === 'etter'; },
+  set visEtter(v) { this.visning = v ? 'etter' : (this.visning === 'etter' ? 'vanlig' : this.visning); },
   /* DREIEPUNKTET.
      Modellen dreide om midten av HELE gitteret. På en to kilometer lang veg
      ligger den midten typisk hundrevis av meter fra det man ser på, og da er
@@ -93,6 +110,14 @@ const Tegner3d = {
   modus: 'oversikt',        // 'oversikt' | 'bakken'
   fov: 60,                  // grader loddrett, fast - ikke en innstilling
   kamH: 2.0,                // øyehøyde over gulvet, meter
+  /* FARTEN MÅ KUNNE SKRUS OPP.
+     Grunnfarten følger øyehøyden, og det er riktig: står man nede går man i
+     gangfart, hever man seg flyr man. Men gangfart på en veg som er to
+     kilometer lang er tolv minutter fra ende til ende, og et kort trykk på W
+     flytter deg 22 cm – man tror tasten er død. Shift løper, men den må holdes.
+     Faktoren er den varige innstillingen: den står til man endrer den, og den
+     ganger både gange og løp. */
+  fartsfaktor: 1,
   kamYaw: 0,                // kompassretning
   kamPitch: 0,              // blikkets høydevinkel, 0 = vannrett
 
@@ -105,6 +130,26 @@ const Tegner3d = {
    * faktisk skal se om det blir graving eller fylling – ikke drukner i det
    * ene punktet som er seks meter dypt.
    */
+  /**
+   * Flaten man faktisk SER, som høydetabell. Én kilde, fire brukere.
+   *
+   * Rasteret, dreiepunktet, dybden man tar tak i når man drar, og gulvet under
+   * føttene i bakkemodus må alle svare på det samme spørsmålet: hvor høyt ligger
+   * bakken i node k? Sto svaret fire steder, ville de drive fra hverandre – og
+   * det gjorde de: bakkekameraet sto på planum mens bildet viste ferdig veg,
+   * altså sytti centimeter nede i asfalten, og overleggsstrekene fløt i lufta
+   * over «før»-terrenget.
+   *
+   * `zEtter` kan mangle i et gitter som er bygd av en eldre utgave; da faller
+   * den tilbake til gravflaten i stedet for å tegne et svart hull.
+   */
+  _flateHoyde(g) {
+    if (!g) return null;
+    if (this.visning === 'foer') return g.zT;
+    if (this.visning === 'etter') return g.zEtter || g.zP;
+    return g.zP;
+  },
+
   _palett() {
     const tema = Farger.hent('flate') + '|' + Farger.hent('data-skjaering-flate')
       + '|' + (this.fyldig ? 'fyldig' : 'lett');
@@ -504,8 +549,13 @@ const Tegner3d = {
        for den størrelsen. `nullstill` tegner selv, så vi går ut etterpå. */
     if (this._maaRammes) {
       this._maaRammes = false;
-      this.nullstill();
-      return;
+      /* PÅ BAKKEN FINNES DET INGEN INNRAMMING Å GJØRE.
+         `nullstill` er veien hjem til oversikten, og den gikk ut av bakkemodus.
+         Slår man på 3D og går ned på bakken i samme klikk, kom den etterpå og
+         hentet kameraet opp igjen – knappen så ut til å ikke virke i det hele
+         tatt. Innrammingen gjelder oversiktskameraet; står man i modellen, er
+         det ingenting å ramme inn. */
+      if (this.modus !== 'bakken') { this.nullstill(); return; }
     }
     if (!this.senter) this.senter = { x: g.midtX, y: g.midtY };
     /* Tilpasningen må gjøres om igjen når lerretet skifter størrelse. Uten
@@ -580,20 +630,24 @@ const Tegner3d = {
        under vet ingenting om hva en gravflate eller en vegbane er.
        Alternativet var en `if (kilde === 'veg')` spredt gjennom hele
        tegneveien, og da blir hver tomtefeil en vegfeil og omvendt. */
-    /* I FØR-visningen tegnes ÉN flate: terrenget, over hele gitteret.
-       Overstyringen ligger her og ikke i hver visning, fordi den er den samme
-       for tomt og veg – og fordi den da ikke kan bli glemt i den ene. */
-    const lagene = this.visFoer
-      ? [{
-        hoyde: g.zT, blanding: 0,
+    /* I FØR OG ETTER tegnes ÉN flate over hele gitteret – bare høyden skiller
+       dem. Overstyringen ligger her og ikke i hver visning, fordi den er den
+       samme for tomt og veg, og fordi den da ikke kan bli glemt i den ene.
+       INGEN `krev`. Det er nettopp fraværet av den som gir én sammenhengende
+       flate: lagene i arbeidsbildet krever harGrav eller utenGrav i alle fire
+       hjørner, og lar derfor en celle bred søm stå utegnet langs skråningsfoten.
+       Her er hele poenget at landskapet henger sammen. */
+    const lagene = this.visning === 'vanlig'
+      ? this._lagliste(g, pal)
+      : [{
+        hoyde: this._flateHoyde(g), blanding: 0,
         farge: (k00, k10, k01, k11, z) => {
           const rgb = Farger.terrengFlateRgb;
           const ly = this._lys(g, k00, k10, k01, z, this._kamNa);
           const r = Math.min(255, rgb[0] * ly), gg = Math.min(255, rgb[1] * ly), bl = Math.min(255, rgb[2] * ly);
           return (255 << 24) | (bl << 16) | (gg << 8) | r;
         }
-      }]
-      : this._lagliste(g, pal);
+      }];
     this._kamNa = kam;
     for (const lag of lagene) {
       if (!lag) continue;
@@ -707,13 +761,19 @@ const Tegner3d = {
          man ikke bruker, og det er ingen annen plass å skrive dem. */
       linjerB.push('W A S D eller piltaster kjører · Shift løper · Q E hever og senker'
         + ' · musa ser seg om · F ser framover · Esc tilbake');
+      linjerB.push('Fart ' + t2(this.fartsfaktor || 1) + '× – trykk + og − for å endre'
+        + (this.visning === 'etter' ? ' · du går på FERDIG veg'
+          : this.visning === 'foer' ? ' · du går på dagens mark' : ''));
       this._hudNa = linjerB;
     }
     const linjer = (this.modus === 'bakken' && this._hudNa) ? this._hudNa
-      : this.visFoer
+      : this.visning === 'foer'
         ? ['FØR – terrenget som det ligger i dag, uten inngrepet',
           'Slipp mellomrom, eller trykk «Før» igjen, for å se hva som blir gjort']
-        : (this._hudLinjer ? this._hudLinjer(g) : []);
+        : this.visning === 'etter'
+          ? ['ETTER – landskapet slik det blir når alt er ferdig',
+            'Ferdig nivå der det bygges, skråningene der de lander, dagens mark utenfor']
+          : (this._hudLinjer ? this._hudLinjer(g) : []);
     k.textAlign = 'left';
     k.font = '11px system-ui, sans-serif';
     linjer.forEach((s, i) => {
@@ -795,6 +855,15 @@ const Tegner3d = {
       return { x: (a.clientX + b.clientX) / 2 - r.left, y: (a.clientY + b.clientY) / 2 - r.top };
     };
     const start = e => {
+      /* ET KLIKK I BILDET MÅ GI LERRETET FOKUS.
+         Målt: etter et klikk midt i 3D-bildet sto `document.activeElement` på
+         BODY. Tastene gikk da til appens egen document-håndtering, og W A S D
+         gjorde ingenting – i det øyeblikket man gjorde det aller første man gjør
+         i en 3D-visning, nemlig å klikke i den for å se seg om.
+         Grunnen er at dragningen kaller preventDefault for å hindre at
+         nettleseren markerer tekst, og det avlyser samtidig standardoppførselen
+         som gir et element med tabindex fokus. Da må fokus settes for hånd. */
+      if (document.activeElement !== c) c.focus({ preventScroll: true });
       if (e.touches && e.touches.length > 1) {
         dra = null;
         this._knip = this._avstand(e);
@@ -936,14 +1005,14 @@ const Tegner3d = {
     }, { passive: false });
     c.addEventListener('keyup', e => {
       if (e.code !== 'Space' || this._foerFoerKikk === undefined) return;
-      this.visFoer = this._foerFoerKikk;
+      this.settVisning(this._foerFoerKikk);
       this._foerFoerKikk = undefined;
       this.tegn();
     });
     // slipper man tasten utenfor lerretet, skal kikket likevel ta slutt
     window.addEventListener('blur', () => {
       if (this._foerFoerKikk === undefined) return;
-      this.visFoer = this._foerFoerKikk;
+      this.settVisning(this._foerFoerKikk);
       this._foerFoerKikk = undefined;
       if (this.aktiv) this.tegn();
     });
@@ -963,9 +1032,11 @@ const Tegner3d = {
        ved siden av hverandre må man sammenligne, ett bilde som blinker ser man. */
     c.addEventListener('keydown', e => {
       if (e.code === 'Space' && !e.repeat) {
-        this._foerFoerKikk = this.visFoer;
-        this.visFoer = true;
-        this.tegn();
+        /* Kikken husker HVILKET bilde man kom fra, ikke bare om det var «før».
+           Med tre bilder er en boolsk hukommelse en tapt tilstand: kikket man
+           fra «Etter», landet man i «Masser» da man slapp. */
+        this._foerFoerKikk = this.visning;
+        this.settVisning('foer');
         e.preventDefault();
         return;
       }
@@ -978,28 +1049,7 @@ const Tegner3d = {
         return;
       }
       if (e.key === 'Home') { this.nullstill(); e.preventDefault(); e.stopPropagation(); return; }
-      if (this.modus === 'bakken' && this._bakkeFlytt) {
-        if (e.key === 'Escape') {
-          this.settModus('oversikt');
-          e.preventDefault(); e.stopPropagation(); return;
-        }
-        if (Tegner3d.GAATASTER[e.key.toLowerCase()]) {
-          /* Tasten LEGGES NED, den utfører ingenting.
-             Første forsøk flyttet kameraet ett hakk per tastetrykk. Da bestemmer
-             nettleserens repetasjonsrate farten: en halv sekunds pause, så tretti
-             hakk i sekundet. Man står stille, og så farer man av sted. Og to
-             taster samtidig – fram og til siden – ble to skritt etter hverandre
-             i stedet for ett på skrå.
-             Her holder vi bare rede på hvilke taster som er NEDE. Løkka under
-             gjør resten, i meter per sekund. */
-          this._taster.add(e.key.toLowerCase());
-          this._bakkeLop();
-          e.preventDefault(); e.stopPropagation(); return;
-        }
-        if ((e.key === 'f' || e.key === 'F') && this.seFramover) {
-          this.seFramover(); this.tegn(); e.preventDefault(); e.stopPropagation(); return;
-        }
-      }
+      if (this._bakkeTast(e)) { e.preventDefault(); e.stopPropagation(); return; }
       const steg = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1 }[e.key];
       if (steg && this._stegVis) {
         this._stegVis(steg * (e.shiftKey ? 10 : 1));
@@ -1008,10 +1058,88 @@ const Tegner3d = {
       }
     });
     c.addEventListener('keyup', e => { this._taster.delete(e.key.toLowerCase()); });
+
+    /* TASTENE MÅ VIRKE UANSETT HVOR FOKUS LIGGER.
+       Lytteren over sitter på lerretet, og krever at lerretet har fokus. Det er
+       riktig for en tegning man klikker seg inn i, men galt for en modus man STÅR
+       i: lukker man menyen, drar i skyveren eller bare klikker et sted uten
+       tabindex, ligger fokus på BODY, og W A S D gjør ingenting uten at det
+       finnes noe å se som forklarer hvorfor. Et spill slipper ikke tastaturet
+       fordi man klikket feil sted.
+       Derfor tar vinduet imot gåtastene i FANGSTFASEN så lenge man står på
+       bakken – men bare da, bare når visningen er synlig, og aldri fra noen som
+       holder på å skrive et tall. */
+    const vindusTast = e => {
+      if (this.modus !== 'bakken' || !this.aktiv || !this._bakkeFlytt) return;
+      if (!this.lerret || this.lerret.offsetParent === null) return;
+      const a = document.activeElement;
+      if (a === c) return;              // lerretet håndterer det selv, i boblefasen
+      if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA'
+        || a.tagName === 'SELECT' || a.isContentEditable)) return;
+      if (e.type === 'keyup') { this._taster.delete(e.key.toLowerCase()); return; }
+      if (this._bakkeTast(e)) { e.preventDefault(); e.stopPropagation(); }
+    };
+    window.addEventListener('keydown', vindusTast, true);
+    window.addEventListener('keyup', vindusTast, true);
+
     /* Slipper man tasten mens man er i et annet vindu, kommer keyup aldri – og
        kameraet ville gått for egen maskin i det uendelige. */
     c.addEventListener('blur', () => this._taster.clear());
     window.addEventListener('blur', () => this._taster.clear());
+  },
+
+  /**
+   * Gåtastene, ett sted – lerretet og vinduet kaller den samme.
+   *
+   * Returnerer true når tasten er brukt, så den som kalte kan stoppe den.
+   */
+  _bakkeTast(e) {
+    if (this.modus !== 'bakken' || !this._bakkeFlytt) return false;
+    if (e.key === 'Escape') { this.settModus('oversikt'); return true; }
+    if (Tegner3d.GAATASTER[e.key.toLowerCase()]) {
+      /* Tasten LEGGES NED, den utfører ingenting.
+         Første forsøk flyttet kameraet ett hakk per tastetrykk. Da bestemmer
+         nettleserens repetasjonsrate farten: en halv sekunds pause, så tretti
+         hakk i sekundet. Man står stille, og så farer man av sted. Og to taster
+         samtidig – fram og til siden – ble to skritt etter hverandre i stedet
+         for ett på skrå.
+         Her holder vi bare rede på hvilke taster som er NEDE. Løkka gjør resten,
+         i meter per sekund. */
+      this._taster.add(e.key.toLowerCase());
+      this._bakkeLop();
+      return true;
+    }
+    if ((e.key === 'f' || e.key === 'F') && this.seFramover) {
+      this.seFramover(); this.tegn(); return true;
+    }
+    /* + og − skrur farten opp og ned. Tastene ligger der hendene alt er, og de
+       finnes i tre utgaver på et tastatur – pluss, plusstasten på talldelen, og
+       likhetstegnet som er den ubeskyttede plussen på norsk oppsett. */
+    if (e.key === '+' || e.key === '=' || e.key === 'Add') { this.settFart(this.fartsfaktor * 1.6); return true; }
+    if (e.key === '-' || e.key === '_' || e.key === 'Subtract') { this.settFart(this.fartsfaktor / 1.6); return true; }
+    return false;
+  },
+
+  /**
+   * Bytter mellom de tre bildene, og forteller knappene om det.
+   *
+   * Alle veier inn hit: knappene, mellomromskikken og prøvene. Da kan ikke to
+   * knapper stå trykket inn samtidig, og en tilstand satt av tastaturet kan
+   * ikke bli usynlig for knappen ved siden av.
+   */
+  settVisning(v) {
+    if (v !== 'vanlig' && v !== 'foer' && v !== 'etter') return;
+    if (this.visning === v) return;
+    this.visning = v;
+    if (this.paaVisning) this.paaVisning(v);
+    this.tegn();
+  },
+
+  /** Farten som varig innstilling, klippet til noe man kan styre. */
+  settFart(f) {
+    this.fartsfaktor = Math.max(0.25, Math.min(16, f));
+    if (this.paaFart) this.paaFart(this.fartsfaktor);
+    this.tegn();
   },
 
   /**
@@ -1022,8 +1150,14 @@ const Tegner3d = {
    * på skrå med samme fart som rett fram (derav normeringen).
    *
    * FARTEN FØLGER ØYEHØYDEN. Én regel, og både en fylling på tretti meter og en
-   * veg på to kilometer får riktig fart uten en eneste innstilling: står man på
-   * bakken går man i gangfart, hever man seg flyr man. Shift løper, Ctrl sniker.
+   * veg på to kilometer får riktig fart av seg selv: står man på bakken går man
+   * i gangfart, hever man seg flyr man. Shift løper, Ctrl sniker.
+   *
+   * Grunnfarten er hevet fra 2,2 til 4,5 m/s. Målt på gangfart: et menneskelig
+   * napp på tasten – rundt hundre millisekunder – flyttet kameraet 22 cm på en
+   * veg som er nesten to kilometer lang. Det ser ikke ut som en langsom modell,
+   * det ser ut som en tast som ikke virker. `fartsfaktor` ganger oppå, og den
+   * står til man endrer den.
    */
   _bakkeSteg(dt) {
     const t = this._taster;
@@ -1034,7 +1168,8 @@ const Tegner3d = {
       if (!r) continue;
       fram += r[0]; side += r[1]; opp += r[2];
     }
-    const fart = Math.max(2.2, Math.min(400, 1.1 * this.kamH))
+    const fart = Math.max(4.5, Math.min(600, 2.2 * this.kamH))
+      * (this.fartsfaktor || 1)
       * (t.has('shift') ? 3.5 : 1) * (t.has('control') ? 0.3 : 1);
     let endret = false;
     if (fram || side) {
@@ -1091,7 +1226,8 @@ const Tegner3d = {
     const t = this._slaOpp(pos, c);
     const g = this._sisteGitter, kam = this._sisteKam;
     if (!t || t.k < 0 || !g || !kam) return 30;
-    const h = (g.harGrav && g.harGrav[t.k]) ? g.zP[t.k] : g.zT[t.k];
+    const tab = this._flateHoyde(g);
+    const h = tab ? tab[t.k] : ((g.harGrav && g.harGrav[t.k]) ? g.zP[t.k] : g.zT[t.k]);
     const q = kam.punkt(g.wx[t.k], g.wy[t.k], h);
     return Number.isFinite(q.w) && q.w > 1 ? q.w : 30;
   },
@@ -1160,7 +1296,8 @@ const Tegner3d = {
     if (!c || c.clientWidth < 20) return;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     const rb = c.clientWidth * dpr, rh = c.clientHeight * dpr;
-    const hoyde = (g.zP && g.harGrav && g.harGrav[k]) ? g.zP[k] : g.zT[k];
+    const tabF = this._flateHoyde(g);
+    const hoyde = tabF ? tabF[k] : ((g.zP && g.harGrav && g.harGrav[k]) ? g.zP[k] : g.zT[k]);
 
     /* Hvor ligger noden PÅ SKJERMEN akkurat nå? */
     const fx0 = this._panFast ? this._panFast.x : 0;
@@ -1222,7 +1359,32 @@ const Tegner3d = {
 
   /** Fargene er hentet fra stilarket og må bygges på nytt ved temabytte. */
   glemFarger() { this._palettFor = null; },
+
 };
+
+/**
+ * Tegn på neste bilde, ikke nå. Til ResizeObserver.
+ *
+ * `tegn()` setter `canvas.width`, og det ENDRER elementets boks. Kalt rett inne
+ * i observatørens tilbakekall melder nettleseren «ResizeObserver loop completed
+ * with undelivered notifications» – en advarsel som ser skummel ut, men som
+ * bare sier at man skrev til layouten mens den ble målt.
+ *
+ * Utsatt til neste bilde er skrivingen utenfor målingen, og flere varsler i
+ * samme omgang – panelet vokser, lerretet vokser, fullskjerm slår inn – blir til
+ * ÉN opptegning i stedet for tre.
+ *
+ * Fri funksjon og ikke en metode: den brukes av fem visninger som ikke deler
+ * prototype – to i 3D og tre flate. Å låne en metode på tvers med `call` ville
+ * skjult nettopp det at de ikke er i slekt.
+ */
+function tegnSnart(vis) {
+  if (vis._venterTegn) return;
+  vis._venterTegn = requestAnimationFrame(() => {
+    vis._venterTegn = 0;
+    vis.tegn();
+  });
+}
 
 /**
  * Tastene man går med, som [fram, side, opp].

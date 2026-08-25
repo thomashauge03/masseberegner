@@ -4437,6 +4437,49 @@ const App = {
     });
 
     /**
+     * HELE SKJERMEN, IKKE BARE HELE ARBEIDSFLATEN.
+     *
+     * ⤢ skjuler de andre panelene; ⛶ tar bort verktøylinjene, sidepanelet og
+     * nettleserens eget hode i tillegg. På en bærbar på 1366×768 er det rundt
+     * 240 px – en tredjedel av høyden. I bakkemodus er det forskjellen på å se
+     * seg om og å kikke gjennom en glugge.
+     *
+     * Panelet, ikke lerretet, går i fullskjerm: verktøylinja må bli med, ellers
+     * finnes det ingen knapper å styre bildet med mens man er der inne.
+     */
+    const fullskjerm = knapp => {
+      const navn = knapp.dataset.fullskjerm;
+      const panel = knapp.closest('.panel');
+      if (!panel) return;
+      if (document.fullscreenElement === panel) { document.exitFullscreen(); return; }
+      /* Panelet må ha plass FØR det blåses opp: er det 172 px høyt i oppsettet,
+         beholder det de 172 pikslene som en stripe midt på en svart skjerm. */
+      settStor(navn, true);
+      this._storAv3d = null;
+      const be = panel.requestFullscreen || panel.webkitRequestFullscreen;
+      if (!be) { this.status('Nettleseren tillater ikke fullskjerm her'); return; }
+      be.call(panel).catch(() => this.status('Fullskjerm ble avvist av nettleseren'));
+    };
+    document.querySelectorAll('.fullskjermknapp').forEach(b => { b.onclick = () => fullskjerm(b); });
+    /* Esc og F11 går ut av fullskjerm UTENOM knappen. Da må knappen slippe seg
+       selv, og lerretene måles på nytt – de leser CSS-pikslene sine. */
+    document.addEventListener('fullscreenchange', () => {
+      const pa = document.fullscreenElement;
+      document.querySelectorAll('.fullskjermknapp').forEach(b => {
+        const min = pa && b.closest('.panel') === pa;
+        b.classList.toggle('aktiv', !!min);
+        b.setAttribute('aria-pressed', min ? 'true' : 'false');
+        b.textContent = min ? '⛶' : '⛶';
+      });
+      setTimeout(() => {
+        if (Kart.kart) Kart.kart.invalidateSize();
+        Lengdeprofil.tegn(); Tverrprofil.tegn(); Tomteprofil.tegn();
+        Tomt3d._skalaSatt = false; Veg3d._skalaSatt = false;
+        Tomt3d.tegn(); Veg3d.tegn();
+      }, 80);
+    });
+
+    /**
      * 3D SKAL HA HELE ARBEIDSFLATEN.
      *
      * Målt: tverrpanelet er 172 px høyt i det vanlige oppsettet, så 3D-lerretet
@@ -4536,20 +4579,58 @@ const App = {
         kb.textContent = pa ? 'Se ovenfra' : 'På bakken';
       };
       kb.onclick = () => {
+        /* «På bakken» står ved siden av Snitt og 3D, og skal virke derfra selv
+           om 3D-en ikke er slått på ennå – ellers er den en knapp som ikke gjør
+           noe, og det er verre enn en knapp som er gjemt. */
+        if (Veg3d.modus !== 'bakken' && !Veg3d.aktiv) id2('vegVis3d').click();
         Veg3d.settModus(Veg3d.modus === 'bakken' ? 'oversikt' : 'bakken');
         const o = document.getElementById('veg3dover');
         if (o) o.focus();          // tastene skal virke uten et klikk til
       };
     }
-    for (const [id3, vis] of [['t3_foer', () => Tomt3d], ['v3_foer', () => Veg3d]]) {
+    /* Fartsvelgeren og tastene + og − er den SAMME innstillingen.
+       Skruen står i menyen fordi den er en innstilling; tastene finnes fordi man
+       ikke vil åpne en meny midt i en kjøretur. Da må de holde hverandre
+       oppdatert, ellers viser menyen 1× mens man farer av sted i 8×. */
+    for (const [id3, vis] of [['v3_fart', () => Veg3d], ['t3_fart', () => Tomt3d]]) {
       const e = id2(id3);
       if (!e) continue;
-      e.onclick = () => {
-        const v = vis();
-        v.visFoer = !v.visFoer;
-        e.classList.toggle('aktiv', v.visFoer);
-        v.tegn();
+      const v = vis();
+      v.paaFart = f => {
+        // nærmeste trinn i lista, så skruen alltid peker på noe som finnes
+        let best = e.options[0];
+        for (const o of e.options) {
+          if (Math.abs(+o.value - f) < Math.abs(+best.value - f)) best = o;
+        }
+        e.value = best.value;
       };
+      e.onchange = () => { v.fartsfaktor = +e.value; v.tegn(); };
+    }
+    /* FØR · MASSER · ETTER – tre bilder av samme sted, ett av gangen.
+       Her sto «Før» som en løs av/på-knapp. Legger man «Etter» ved siden av som
+       en til, kan begge stå trykket inn samtidig, og da må koden bestemme hvem
+       som vinner – en tilstand som ikke er noe bilde. Med tre knapper som leser
+       den samme strengen finnes ikke den tilstanden.
+       Knappene leser tilstanden ut av visningen og eier den ikke selv: mellomrom
+       kikker på «før» uten å røre en knapp, og da må knappene følge etter. */
+    for (const [pre, vis] of [['t3', () => Tomt3d], ['v3', () => Veg3d]]) {
+      const knapper = [['foer', 'foer'], ['vanlig', 'vanlig'], ['etter', 'etter']]
+        .map(([suff, verdi]) => [id2(pre + '_' + suff), verdi])
+        .filter(([e]) => e);
+      if (!knapper.length) continue;
+      const v = vis();
+      const oppdater = () => {
+        for (const [e, verdi] of knapper) {
+          const pa = v.visning === verdi;
+          e.classList.toggle('aktiv', pa);
+          e.setAttribute('aria-pressed', pa ? 'true' : 'false');
+        }
+      };
+      v.paaVisning = oppdater;
+      for (const [e, verdi] of knapper) {
+        e.onclick = () => { v.settVisning(verdi); };
+      }
+      oppdater();
     }
     for (const [id3, vis] of [['t3_fyldig', () => Tomt3d], ['v3_fyldig', () => Veg3d]]) {
       const e = id2(id3);
@@ -4596,6 +4677,20 @@ const App = {
         if (!panel.classList.contains('skjult') && !panel.contains(e.target) && e.target !== knapp) sett(false);
       });
       document.addEventListener('keydown', e => { if (e.key === 'Escape') sett(false); });
+      /* MENYEN MÅ LUKKE SEG NÅR MAN GÅR NED PÅ BAKKEN.
+         Den er `position: fixed` med z-index 900 mot lerretets 2, og lå derfor
+         oppå øvre hjørne av nøyaktig det bildet man nettopp gikk ned i. Verre:
+         lukkeregelen hopper over klikk som treffer noe INNI panelet, og
+         «På bakken» lå inni panelet – så den lukket seg aldri av seg selv.
+         Da klikket man et sted for å bli kvitt den, fokus havnet på BODY, og
+         W A S D var døde. Knappen er flyttet ut, men menyen kan fortsatt stå
+         åpen fra et lagvalg, og da skal den vike. */
+      const visning = m === 'v3' ? Veg3d : Tomt3d;
+      const gammelModus = visning.paaModus;
+      visning.paaModus = mm => {
+        if (mm === 'bakken') sett(false);
+        if (gammelModus) gammelModus(mm);
+      };
     }
 
     if (id2('t3_nullstill')) id2('t3_nullstill').onclick = () => Tomt3d.nullstill();

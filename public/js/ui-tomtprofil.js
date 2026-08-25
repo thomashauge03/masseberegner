@@ -21,7 +21,7 @@ const Tomteprofil = {
     this.app = app;
     this.lerret = document.getElementById('tomtprofil');
     if (!this.lerret) return this;
-    new ResizeObserver(() => this.tegn()).observe(this.lerret);
+    new ResizeObserver(() => tegnSnart(this)).observe(this.lerret);
     /* Klikk i snittet flytter det ferdige nivaet dit man peker. Det er den
        raskeste maten a prøve seg fram pa - samme grep som a dra et knekkpunkt
        i lengdeprofilen. */

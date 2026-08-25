@@ -18,7 +18,7 @@ const Tverrprofil = {
     };
     document.getElementById('tverrForrige').onclick = () => this.flytt(-1);
     document.getElementById('tverrNeste').onclick = () => this.flytt(1);
-    new ResizeObserver(() => this.tegn()).observe(this.lerret);
+    new ResizeObserver(() => tegnSnart(this)).observe(this.lerret);
 
     /* Musepekeren leser av snittet der den star: avstand fra senterlinjen,
        høyder, hvor dypt det skal graves eller fylles - og helningen bade
