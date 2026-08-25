@@ -255,14 +255,38 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
       }
     }
     if (tvers) {
-      const g = this._sisteGitter;
-      let lav = -30, hoy = 30;
-      if (g && g.nh) {
-        const pr = res.profiler.find(q => Math.abs(q.s - this.kamS) < this._profilsteg(res));
-        if (pr) { lav = pr.fotVenstre - 0.8 * this.kontekst; hoy = pr.fotHoyre + 0.8 * this.kontekst; }
-      }
-      this.kamT = Math.max(lav, Math.min(hoy, this.kamT + tvers));
+      const gr = this._sidegrense(res);
+      this.kamT = Math.max(gr.lav, Math.min(gr.hoy, this.kamT + tvers));
     }
+  },
+
+  /** Lander man, kommer man ned PÅ vegen – ikke ved siden av den. */
+  _ferdEndret() {
+    const gr = this._sidegrense(this.app && this.app.resultat);
+    this.kamT = Math.max(gr.lav, Math.min(gr.hoy, this.kamT));
+  },
+
+  /**
+   * Hvor langt ut fra senterlinja man får gå – og det avhenger av HVA man gjør.
+   *
+   * GÅR man, går man PÅ VEGEN. Vegkanten er kanten: går man ut over den, står
+   * man i grøfta eller nedover skråningen, og da er man ikke lenger på vegen.
+   * Det er hele poenget med å gå i stedet for å fly – man skal ikke kunne rote
+   * seg bort, og det man ser skal være det den som kjører der kommer til å se.
+   *
+   * FLYR man, er bare fotavtrykket pluss litt terreng rundt grensa. Da er det
+   * inngrepets bredde man er ute etter.
+   */
+  _sidegrense(res) {
+    const pr = res && res.profiler
+      && res.profiler.find(q => Math.abs(q.s - this.kamS) < this._profilsteg(res));
+    if (this.ferd === 'gaa') {
+      // en halv meter utenfor asfaltkanten: man får stå på skulderen
+      const b = (pr && pr.halvbredde) ? pr.halvbredde + 0.5 : 3;
+      return { lav: -b, hoy: b };
+    }
+    if (!pr) return { lav: -30, hoy: 30 };
+    return { lav: pr.fotVenstre - 0.8 * this.kontekst, hoy: pr.fotHoyre + 0.8 * this.kontekst };
   },
 
   /** «Se framover» – langs vegen, med blikket litt ned mot bakken. */

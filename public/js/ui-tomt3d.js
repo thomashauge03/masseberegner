@@ -344,8 +344,9 @@ const Tomt3d = Object.assign(Object.create(Tegner3d), {
     const langsX = (m.maksX - m.minX) >= (m.maksY - m.minY);
     this.kamX = langsX ? m.minX + g.rute : m.x;
     this.kamY = langsX ? m.y : m.minY + g.rute;
-    if (!Number.isFinite(this._gulv(g, this.kamX, this.kamY))) { this.kamX = m.x; this.kamY = m.y; }
-    if (!Number.isFinite(this._gulv(g, this.kamX, this.kamY))) { this.kamX = g.midtX; this.kamY = g.midtY; }
+    const gaar = this.ferd === 'gaa';
+    if (!this._kanStaa(g, this.kamX, this.kamY, gaar)) { this.kamX = m.x; this.kamY = m.y; }
+    if (!this._kanStaa(g, this.kamX, this.kamY, gaar)) { this.kamX = g.midtX; this.kamY = g.midtY; }
   },
 
   /** Tyngdepunkt og randboks for SELVE tomta – ikke for gitteret rundt den. */
@@ -391,8 +392,43 @@ const Tomt3d = Object.assign(Object.create(Tegner3d), {
     ny = Math.max(g.minY + marg, Math.min(g.minY + (g.nh - 1) * g.rute - marg, ny));
     /* Er det ikke gulv der man vil gå, blir man stående. Hullene i gitteret er
        ekte – der har terrengmodellen ingen data – og å gå ut i et av dem er å
-       falle ut av modellen. */
-    if (Number.isFinite(this._gulv(g, nx, ny))) { this.kamX = nx; this.kamY = ny; }
+       falle ut av modellen.
+       GÅR man, er tomtegrensa veggen i tillegg: da holder man seg på flata.
+
+       SKLI LANGS VEGGEN, IKKE STOPP MOT DEN. Går man skrått inn i en kant og
+       hele skrittet forkastes, står man bom fast selv om den ene komponenten var
+       lovlig – og det kjennes som om tastene henger. Derfor prøves først hele
+       skrittet, så bare den ene aksen, så bare den andre. Det er tre oppslag i
+       et rutenett, altså ingenting, og forskjellen er hele følelsen av å gå. */
+    const gaar = this.ferd === 'gaa';
+    if (this._kanStaa(g, nx, ny, gaar)) { this.kamX = nx; this.kamY = ny; return; }
+    if (this._kanStaa(g, nx, this.kamY, gaar)) { this.kamX = nx; return; }
+    if (this._kanStaa(g, this.kamX, ny, gaar)) { this.kamY = ny; }
+  },
+
+  /** Finnes det gulv her – og får man stå her? */
+  _kanStaa(g, x, y, baregpaaTomta) {
+    if (!Number.isFinite(this._gulv(g, x, y))) return false;
+    if (!baregpaaTomta || !g.inne) return true;
+    const i = Math.round((x - g.minX) / g.rute), j = Math.round((y - g.minY) / g.rute);
+    if (i < 0 || j < 0 || i >= g.nb || j >= g.nh) return false;
+    return !!g.inne[j * g.nb + i];
+  },
+
+  /** Lander man, kommer man ned PÅ tomta – ikke ved siden av den. */
+  _ferdEndret(f) {
+    const g = this._sisteGitter;
+    if (f !== 'gaa' || !g) return;
+    if (this._kanStaa(g, this.kamX, this.kamY, true)) return;
+    /* Utenfor flata: gå til nærmeste node som ER innenfor. Rett fram til
+       tyngdepunktet ville hoppet tvers over tomta og mistet det man så på. */
+    let best = -1, bestD = Infinity;
+    for (let k = 0; k < g.nb * g.nh; k++) {
+      if (!g.finnes[k] || !g.inne[k]) continue;
+      const d = (g.wx[k] - this.kamX) ** 2 + (g.wy[k] - this.kamY) ** 2;
+      if (d < bestD) { bestD = d; best = k; }
+    }
+    if (best >= 0) { this.kamX = g.wx[best]; this.kamY = g.wy[best]; }
   },
 
   /**

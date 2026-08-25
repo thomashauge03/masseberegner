@@ -125,6 +125,18 @@ const Tegner3d = {
   fartsfaktor: 1,
   kamYaw: 0,                // kompassretning
   kamPitch: 0,              // blikkets høydevinkel, 0 = vannrett
+  /* GÅ ELLER FLY – to helt forskjellige måter å være i modellen på.
+     GÅ er et menneske på anlegget: øyet står i 1,7 m, føttene holder seg på
+     vegen eller inne på tomta, og man kommer seg ikke ut. Det er den man vil ha
+     når spørsmålet er «hvordan blir dette å kjøre?» eller «hvor høyt rager
+     fyllinga over meg?» – og det er umulig å rote seg bort i den.
+     FLY er kameraet uten bånd: hev deg, gå ut over skråningsfoten, se anlegget
+     ovenfra og skrått. Det er den man vil ha når spørsmålet er «hvor bredt blir
+     inngrepet?».
+     Å blande dem var det gamle: man gikk «på bakken», men kunne heve seg til
+     fire tusen meter og vandre ut i skogen. Da er verken det ene eller det
+     andre til å stole på. */
+  ferd: 'gaa',              // 'gaa' | 'fly'
 
 
   /**
@@ -861,7 +873,9 @@ const Tegner3d = {
     this._hudNa = null;
     if (this.modus === 'bakken' && kam.oye) {
       const t2 = v => Rapport.tall(v, v < 10 ? 1 : 0);
-      const linjerB = ['PÅ BAKKEN · øyet ' + t2(this.kamH) + ' m over bakken'];
+      const gaar = this.ferd === 'gaa';
+      const linjerB = [(gaar ? 'GÅR' : 'FLYR') + ' · øyet ' + t2(this.kamH) + ' m over bakken'
+        + (gaar ? ' – du holder deg på anlegget' : ' – fritt')];
       /* HVOR MAN STÅR VET BARE VISNINGEN.
          Her sto vegens «Profil … · på senterlinja», lest rett av
          `app.tverrStasjon`. På en tomt er det tallet 0 og ikke null, så tomta
@@ -869,8 +883,9 @@ const Tegner3d = {
       if (this._bakkeHud) linjerB.push(...this._bakkeHud());
       /* Tastene MÅ stå i bildet. Et kamera man må gjette seg til er et kamera
          man ikke bruker, og det er ingen annen plass å skrive dem. */
-      linjerB.push('W A S D eller piltaster kjører · Shift løper · Q E hever og senker'
-        + ' · musa ser seg om · F ser framover · Esc tilbake');
+      linjerB.push('W A S D eller piltaster kjører · Shift løper · musa ser seg om'
+        + ' · G ' + (gaar ? 'letter' : 'lander') + ' · F ser framover · Esc tilbake'
+        + (gaar ? '' : ' · Q E hever og senker'));
       linjerB.push('Fart ' + t2(this.fartsfaktor || 1) + '× – trykk + og − for å endre'
         + (this.visning === 'etter' ? ' · du går på FERDIG veg'
           : this.visning === 'foer' ? ' · du går på dagens mark' : ''));
@@ -1110,6 +1125,12 @@ const Tegner3d = {
            Én kontroll styrer da både en 30 m fylling og en 2,6 km veg, fordi
            farten følger høyden: står man lavt går man sakte, hever man seg
            flyr man. Og det er veien opp når man har rotet seg bort. */
+        /* Går man, letter man av hjulet – man hever seg ikke i det stille med
+           føttene på bakken. Det er den samme regelen som Q og E følger. */
+        if (this.ferd === 'gaa') {
+          if (e.deltaY < 0) { this.settFerd('fly'); e.preventDefault(); }
+          return;
+        }
         this.kamH = Math.max(1.6, Math.min(4000, this.kamH * (e.deltaY < 0 ? 1 / 1.15 : 1.15)));
         this.tegn();
         return;
@@ -1275,6 +1296,10 @@ const Tegner3d = {
     if ((e.key === 'f' || e.key === 'F') && this.seFramover) {
       this.seFramover(); this.tegn(); return true;
     }
+    if (e.key === 'g' || e.key === 'G') {
+      this.settFerd(this.ferd === 'gaa' ? 'fly' : 'gaa');
+      return true;
+    }
     /* + og − skrur farten opp og ned. Tastene ligger der hendene alt er, og de
        finnes i tre utgaver på et tastatur – pluss, plusstasten på talldelen, og
        likhetstegnet som er den ubeskyttede plussen på norsk oppsett. */
@@ -1296,6 +1321,26 @@ const Tegner3d = {
     this.visning = v;
     if (this.paaVisning) this.paaVisning(v);
     this.tegn();
+  },
+
+  /**
+   * Bytter mellom å gå og å fly, og setter øyehøyden deretter.
+   *
+   * 1,7 m er ikke et rundt tall som ser fint ut: det er øyehøyden til en voksen
+   * som står. Hele poenget med å gå er at fyllinga skal rage nøyaktig så høyt
+   * over deg som den kommer til å gjøre.
+   */
+  settFerd(f) {
+    if (f !== 'gaa' && f !== 'fly') return;
+    if (this.ferd === f) return;
+    this.ferd = f;
+    if (f === 'gaa') this.kamH = Tegner3d.OYEHOYDE;
+    /* Landingen må hente deg INN på anlegget. Fløy man ut over skråningsfoten
+       og trykket G, ble man stående utenfor med en grense som sa at man ikke
+       kunne komme dit – uten en eneste tast som førte tilbake. */
+    if (this._ferdEndret) this._ferdEndret(f);
+    if (this.paaFerd) this.paaFerd(f);
+    if (this.modus === 'bakken') this.tegn();
   },
 
   /** Farten som varig innstilling, klippet til noe man kan styre. */
@@ -1339,7 +1384,12 @@ const Tegner3d = {
       if (!r) continue;
       fram += r[0]; side += r[1]; opp += r[2];
     }
-    const fart = Math.max(4.5, Math.min(600, 2.2 * this.kamH))
+    /* GÅR MAN, FØLGER IKKE FARTEN HØYDEN – for høyden står stille.
+       Regelen «farten følger øyehøyden» er riktig når man flyr: står man nede
+       går man sakte, hever man seg dekker man strekning. Går man, er høyden
+       låst i 1,7 m, og da degenererer regelen til gulvet uansett. Ett tall,
+       skrevet én gang. */
+    const fart = (this.ferd === 'gaa' ? 4.5 : Math.max(4.5, Math.min(600, 2.2 * this.kamH)))
       * (this.fartsfaktor || 1)
       * (t.has('shift') ? 3.5 : 1) * (t.has('alt') ? 0.3 : 1);
     let endret = false;
@@ -1349,6 +1399,11 @@ const Tegner3d = {
       endret = true;
     }
     if (opp) {
+      /* Q og E HEVER BARE NÅR MAN FLYR. Går man, er øyehøyden det som gjør
+         bildet troverdig – en fylling som rager tolv meter over hodet ditt skal
+         rage tolv meter, ikke ni eller femten. Første trykk bytter derfor til
+         fly i stedet for å heve i det stille. */
+      if (this.ferd === 'gaa') { this.settFerd('fly'); return true; }
       // høyden ganges, ikke legges til: ett sekund på Q er alltid samme SPRANG
       this.kamH = Math.max(1.6, Math.min(4000, this.kamH * Math.exp(opp * 1.6 * dt)));
       endret = true;
@@ -1425,7 +1480,7 @@ const Tegner3d = {
     // en tast som sto nede skal ikke fortsette å gå i den andre modusen
     if (this._taster) this._taster.clear();
     if (m === 'bakken') {
-      this.kamH = 2.0;
+      this.kamH = this.ferd === 'gaa' ? Tegner3d.OYEHOYDE : 2.0;
       /* Plasser øyet FØR blikket settes: `seFramover` snur seg mot noe, og det
          kan den ikke gjøre før den vet hvor den står. */
       if (this._bakkeInn) this._bakkeInn();
@@ -1587,6 +1642,11 @@ function tegnSnart(vis) {
  * Alt slås opp i småbokstaver, ellers slutter W å virke i det øyeblikket man
  * holder shift for å løpe.
  */
+/* Øyehøyden til en voksen som står. Ikke et rundt tall som ser fint ut – hele
+   poenget med å gå er at fyllinga skal rage nøyaktig så høyt over deg som den
+   kommer til å gjøre. */
+Tegner3d.OYEHOYDE = 1.7;
+
 Tegner3d.GAATASTER = {
   w: [1, 0, 0], arrowup: [1, 0, 0],
   s: [-1, 0, 0], arrowdown: [-1, 0, 0],

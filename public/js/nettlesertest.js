@@ -1807,6 +1807,60 @@ const Nettlesertest = {
         await this.vent(120);
       }
 
+      /* 6.8 GÅ PÅ TOMTA, ELLER FLY OVER DEN.
+         Går man, er tomtegrensa veggen. Det gjør at man ikke kan rote seg bort,
+         og at det man ser er det som faktisk blir stående på flata.
+         Fella er å STOPPE mot veggen i stedet for å SKLI langs den: går man
+         skrått inn i en kant og hele skrittet forkastes, står man bom fast selv
+         om den ene komponenten var lovlig – og det kjennes som om tastene
+         henger. */
+      {
+        const gaaT = (t, dt) => {
+          Tomt3d._taster = new Set(t); Tomt3d._bakkeSteg(dt); Tomt3d._taster = new Set();
+        };
+        Tomt3d.settFerd('gaa');
+        Tomt3d.settModus('oversikt');
+        await this.vent(150);
+        Tomt3d.settModus('bakken');
+        await this.vent(350);
+        const gT = Tomt3d._sisteGitter;
+        const paaT = () => Tomt3d._kanStaa(gT, Tomt3d.kamX, Tomt3d.kamY, true);
+        this.sjekk('man går som standard', Tomt3d.ferd === 'gaa');
+        this.naer('og øyet står i en menneskehøyde', Tomt3d.kamH, 1.7, 0.001);
+        this.sjekk('og man står PÅ tomta', paaT(),
+          Tomt3d.kamX.toFixed(0) + ',' + Tomt3d.kamY.toFixed(0));
+
+        for (let i = 0; i < 40; i++) gaaT(['w', 'shift'], 1);
+        this.sjekk('førti sekunders løping rett fram fører deg ikke ut av tomta', paaT(),
+          Tomt3d.kamX.toFixed(0) + ',' + Tomt3d.kamY.toFixed(0));
+
+        /* SKRÅTT INN I ET HJØRNE: man skal komme seg videre langs kanten. */
+        Tomt3d.kamYaw = 45;
+        const f1 = { x: Tomt3d.kamX, y: Tomt3d.kamY };
+        for (let i = 0; i < 30; i++) gaaT(['w', 'shift'], 1);
+        const flyttet = Math.hypot(Tomt3d.kamX - f1.x, Tomt3d.kamY - f1.y);
+        this.sjekk('og man setter seg ikke fast i et hjørne – man glir langs kanten',
+          flyttet > 10, flyttet.toFixed(1) + ' m');
+        this.sjekk('  fortsatt på tomta', paaT());
+
+        /* FLY: ut over kanten, og opp. */
+        Tomt3d.settFerd('fly');
+        for (let i = 0; i < 25; i++) gaaT(['w', 'shift'], 1);
+        this.sjekk('flyr man, kommer man ut over tomtegrensa', !paaT(),
+          Tomt3d.kamX.toFixed(0) + ',' + Tomt3d.kamY.toFixed(0));
+        gaaT(['e'], 2);
+        this.sjekk('og man kan heve seg', Tomt3d.kamH > 5, Tomt3d.kamH.toFixed(1) + ' m');
+
+        Tomt3d.settFerd('gaa');
+        this.naer('lander man, står øyet i menneskehøyde igjen', Tomt3d.kamH, 1.7, 0.001);
+        this.sjekk('  og man er hentet inn på tomta igjen', paaT(),
+          Tomt3d.kamX.toFixed(0) + ',' + Tomt3d.kamY.toFixed(0));
+
+        Tomt3d.settModus('oversikt');
+        Tomt3d.nullstill();
+        await this.vent(200);
+      }
+
       /* 6.6 Ingenting som fantes ble dårligere. */
       Tomt3d.aktiver(false);
       await this.vent(120);
@@ -2590,6 +2644,12 @@ const Nettlesertest = {
         Veg3d.kamT = 0;
         Veg3d.kamH = 2;
         Veg3d.fartsfaktor = 1;
+        /* FARTSPRØVENE GJELDER FLYGING. Regelen «farten følger øyehøyden» er en
+           flyregel: går man, står høyden i 1,7 m og regelen har ingenting å
+           følge. Og går man, stopper man mot vegkanten etter tre meter, så en
+           sidelengs måling ville målt veggen og ikke farten. */
+        Veg3d.settFerd('fly');
+        Veg3d.kamH = 2;
         /* Prøven måler ETT skritt og bruker det som målestokk for de andre. Sto
            tallet 2,2 skrevet inn her, ville prøven brutt hver gang noen justerte
            grunnfarten – og det som faktisk skal holde er FORHOLDENE: bakover er
@@ -3093,6 +3153,7 @@ const Nettlesertest = {
         this.sjekk('  og blikket dreide faktisk', Math.abs(Veg3d.kamYaw - yawFoer) > 0.5,
           (Veg3d.kamYaw - yawFoer).toFixed(1) + '° over ' + skritt9.length + ' skritt');
 
+        Veg3d.settFerd('gaa');
         Veg3d.settModus('oversikt');
         Veg3d.kamT = 0; Veg3d.kamH = 2;
         Veg3d.nullstill();
@@ -3179,6 +3240,82 @@ const Nettlesertest = {
           kB.punkt(bakM.x, bakM.y, Veg3d._gulv(gB, sB - 40, 0)).w < 0);
 
         Veg3d.settModus('oversikt');
+        Veg3d.nullstill();
+        await this.vent(250);
+      }
+
+      /* 17.21 GÅ ELLER FLY – to måter å være i modellen på.
+         Å blande dem var det gamle: man gikk «på bakken», men kunne heve seg
+         til fire tusen meter og vandre ut i skogen. Da er verken det ene eller
+         det andre til å stole på.
+         GÅ er et menneske på anlegget: øyet i 1,7 m, føttene på vegen. Det er
+         den som svarer på «hvor høyt rager fyllinga over meg?», og svaret er
+         bare verdt noe hvis øyehøyden faktisk er en øyehøyde.
+         FLY er kameraet uten bånd, for «hvor bredt blir inngrepet?». */
+      {
+        const gaaF = (t, dt) => {
+          Veg3d._taster = new Set(t); Veg3d._bakkeSteg(dt); Veg3d._taster = new Set();
+        };
+        App.settTverrStasjon(App.resultat.lengde / 2);
+        Veg3d.settFerd('gaa');
+        Veg3d.settModus('bakken');
+        await this.vent(350);
+        this.sjekk('man går som standard – ikke svever', Veg3d.ferd === 'gaa', Veg3d.ferd);
+        this.naer('og øyet står i en menneskehøyde', Veg3d.kamH, 1.7, 0.001);
+
+        /* PÅ VEGEN, IKKE VED SIDEN AV DEN. */
+        const grG = Veg3d._sidegrense(App.resultat);
+        this.sjekk('gågrensa er vegkanten, ikke skråningsfoten',
+          grG.hoy > 1 && grG.hoy < 8, '±' + grG.hoy.toFixed(1) + ' m');
+        Veg3d.kamT = 0;
+        Veg3d.kamYaw += 90;                       // se rett ut fra vegen
+        for (let i = 0; i < 25; i++) gaaF(['w', 'shift'], 1);
+        this.sjekk('går man rett ut fra vegen, stopper man ved kanten',
+          Math.abs(Veg3d.kamT) <= grG.hoy + 0.01, 'avvik ' + Veg3d.kamT.toFixed(2) + ' m');
+        this.sjekk('  og man er fortsatt på vegen',
+          Number.isFinite(Veg3d._gulv(Veg3d._sisteGitter, Veg3d.kamS, Veg3d.kamT)));
+
+        /* Q og E hever ikke når man går – de LETTER. Å heve seg i det stille
+           med føttene på bakken ville gjort øyehøyden til en løgn. */
+        const hG = Veg3d.kamH;
+        gaaF(['e'], 1);
+        this.sjekk('E letter i stedet for å heve i det stille', Veg3d.ferd === 'fly');
+        /* Selve byttet flytter ikke øyet: man letter FRA der man står. Ville
+           det hoppet til en annen høyde i samme trykk, ville man mistet det man
+           så på i det øyeblikket man ba om å komme høyere. */
+        this.naer('  og man letter fra der man sto', Veg3d.kamH, hG, 0.001);
+        gaaF(['e'], 1);
+        this.sjekk('  neste trykk hever', Veg3d.kamH > hG * 1.5,
+          hG.toFixed(2) + ' → ' + Veg3d.kamH.toFixed(2) + ' m');
+
+        /* FLY: nå er det fotavtrykket som er grensa, og høyden er fri. */
+        const grF = Veg3d._sidegrense(App.resultat);
+        this.sjekk('flygrensa er videre enn gågrensa', grF.hoy > grG.hoy + 3,
+          '±' + grF.hoy.toFixed(1) + ' mot ±' + grG.hoy.toFixed(1) + ' m');
+        for (let i = 0; i < 25; i++) gaaF(['w', 'shift'], 1);
+        this.sjekk('flyr man, kommer man ut forbi vegkanten',
+          Math.abs(Veg3d.kamT) > grG.hoy + 1, 'avvik ' + Veg3d.kamT.toFixed(1) + ' m');
+        gaaF(['e'], 2);
+        this.sjekk('og man kan heve seg', Veg3d.kamH > 5, Veg3d.kamH.toFixed(1) + ' m');
+
+        /* LANDINGEN MÅ HENTE DEG INN. Fløy man ut over fotlinja og landet, ville
+           man stått utenfor en grense som sa at man ikke kunne komme dit. */
+        Veg3d.settFerd('gaa');
+        this.naer('lander man, står øyet i menneskehøyde igjen', Veg3d.kamH, 1.7, 0.001);
+        this.sjekk('  og man er hentet inn på vegen',
+          Math.abs(Veg3d.kamT) <= grG.hoy + 0.01, 'avvik ' + Veg3d.kamT.toFixed(2) + ' m');
+
+        /* G er den samme bryteren som velgeren i menyen. */
+        Veg3d._bakkeTast({ key: 'g', preventDefault() {}, stopPropagation() {} });
+        this.sjekk('G letter', Veg3d.ferd === 'fly');
+        const velgF = document.getElementById('v3_ferd');
+        if (velgF) this.sjekk('  og velgeren følger med, så den aldri lyver',
+          velgF.value === 'fly', velgF.value);
+        Veg3d._bakkeTast({ key: 'g', preventDefault() {}, stopPropagation() {} });
+        this.sjekk('og G lander igjen', Veg3d.ferd === 'gaa');
+
+        Veg3d.settModus('oversikt');
+        Veg3d.kamT = 0;
         Veg3d.nullstill();
         await this.vent(250);
       }

@@ -4596,6 +4596,17 @@ const App = {
        Skruen står i menyen fordi den er en innstilling; tastene finnes fordi man
        ikke vil åpne en meny midt i en kjøretur. Da må de holde hverandre
        oppdatert, ellers viser menyen 1× mens man farer av sted i 8×. */
+    /* GÅ ELLER FLY. Velgeren og G-tasten er den SAMME innstillingen, så de må
+       holde hverandre oppdatert – ellers står det «Gå på anlegget» i menyen mens
+       man svever femti meter over den. */
+    for (const [id3, vis] of [['v3_ferd', () => Veg3d], ['t3_ferd', () => Tomt3d]]) {
+      const e = id2(id3);
+      if (!e) continue;
+      const v = vis();
+      v.paaFerd = f => { e.value = f; };
+      e.onchange = () => v.settFerd(e.value);
+      e.value = v.ferd;
+    }
     for (const [id3, vis] of [['v3_fart', () => Veg3d], ['t3_fart', () => Tomt3d]]) {
       const e = id2(id3);
       if (!e) continue;
