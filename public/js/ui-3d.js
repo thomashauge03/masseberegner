@@ -82,6 +82,19 @@ const Tegner3d = {
      skala og overdrivning. Punktet er låst til midten av skjermen.
      Feltet er null naar det betyr «som foer»: midten av gitteret. */
   fokus: null,
+  /* PÅ BAKKEN.
+     Oversikten er riktig verktøy for å se HVOR det svulmer, og feil verktøy for
+     å navigere: motivet er 0,9-2,6 % av lerretet, og man ser aldri en fylling
+     slik den ser ut fra grøfta. Bakkemodus er et ekte perspektivkamera med en
+     posisjon, og øyet ligger på en SKINNE langs vegen - aldri fritt.
+     Skinnen er ikke en begrensning, den er grunnen til at man ikke kan bli
+     borte: med øyet minst 1,6 m over flaten kommer man aldri under bakken, og
+     med stasjonen bundet til vegen er man alltid PÅ strekket. */
+  modus: 'oversikt',        // 'oversikt' | 'bakken'
+  fov: 60,                  // grader loddrett, fast - ikke en innstilling
+  kamH: 2.0,                // øyehøyde over gulvet, meter
+  kamYaw: 0,                // kompassretning
+  kamPitch: 0,              // blikkets høydevinkel, 0 = vannrett
 
 
   /**
@@ -146,6 +159,10 @@ const Tegner3d = {
    * skala, kan heller ikke tegne feil.
    */
   _kamera(b, h, g, skala, panX, panY) {
+    if (this.modus === 'bakken') {
+      const bk = this._bakkeKamera(b, h, g);
+      if (bk) return bk;
+    }
     const a = this.yaw * Math.PI / 180, p = this.pitch * Math.PI / 180;
     const ca = Math.cos(a), sa = Math.sin(a), cp = Math.cos(p), sp = Math.sin(p);
     /* To linjer, og hele slyngen forsvinner. Se `fokus` over.
@@ -157,17 +174,60 @@ const Tegner3d = {
     const dist = Math.max(60, g.diagonal * 1.6);
     const cx = b / 2 + (panX || 0), cy = h / 2 + (panY || 0);
     const ov = this.overdriv;
+    /* F er brennvidden i rasterpiksler. `px = cx + F·rx/w` er algebraisk
+       identisk med den gamle `cx + rx·(dist/(dist+dk))·skala` – bare skrevet
+       slik at bakkekameraet, som har en ekte øyeposisjon, kan bruke NØYAKTIG
+       den samme rasteriseringen. */
+    const F = dist * skala;
     return {
-      dist, skala,
-      /** @returns {{px,py,dk}} px/py i piksler, dk er dybden (vokser bortover) */
+      dist, skala, F, cx, cy,
+      /**
+       * @returns {{px,py,rx,sy,w}} px/py i rasterpiksler.
+       *   rx/sy/w er kamerarommet, og de trengs der ute: nærplanklippingen må
+       *   skje FØR divisjonen, fordi bare rx, sy og w er lineære i
+       *   verdensposisjonen. Etter divisjonen er de det ikke, og en trekant som
+       *   krysser øyeplanet smøres over hele skjermen med snudd fortegn.
+       */
       punkt: (wx, wy, wz) => {
         const x = wx - s.x, y = wy - s.y, z = (wz - z0) * ov;
         const rx = x * ca + y * sa;
         const ry = -x * sa + y * ca;
         const dk = -(ry * cp + z * sp);
         const sy = ry * sp - z * cp;
-        const f = dist / (dist + dk);
-        return { px: cx + rx * f * skala, py: cy + sy * f * skala, dk };
+        const w = dist + dk;
+        return { px: cx + F * rx / w, py: cy + F * sy / w, rx, sy, w };
+      }
+    };
+  },
+
+  /**
+   * Kameraet når man står PÅ bakken.
+   *
+   * Rotasjonen er de samme fire linjene som over. Det eneste som er byttet er
+   * origo (dreiepunktet → øyet), nevneren (`dist + dk` → dybden fra øyet, som
+   * kan bli null eller negativ) og fortegnet på pitch – her er den BLIKKETS
+   * høydevinkel, ikke kameraets høyde over bakken.
+   *
+   * Brennvidden er fast: `fov` er ikke en innstilling. En telelinse er nettopp
+   * det man klager på i dreieskiva, og et synsfelt man kan skru på er en ny
+   * måte å rote seg bort på.
+   */
+  _bakkeKamera(b, h, g) {
+    const E = this._bakkePos ? this._bakkePos(g) : null;
+    if (!E || !Number.isFinite(E.z)) return null;
+    const a = this.kamYaw * Math.PI / 180, p = -this.kamPitch * Math.PI / 180;
+    const ca = Math.cos(a), sa = Math.sin(a), cp = Math.cos(p), sp = Math.sin(p);
+    const F = (h / 2) / Math.tan(this.fov * Math.PI / 360);
+    const cx = b / 2, cy = h / 2;
+    return {
+      F, cx, cy, oye: E, naer: 0.35,
+      punkt: (wx, wy, wz) => {
+        const x = wx - E.x, y = wy - E.y, z = wz - E.z;
+        const rx = x * ca + y * sa;
+        const ry = -x * sa + y * ca;
+        const w = -(ry * cp + z * sp);
+        const sy = ry * sp - z * cp;
+        return { px: cx + F * rx / w, py: cy + F * sy / w, rx, sy, w };
       }
     };
   },
@@ -185,6 +245,10 @@ const Tegner3d = {
    * ytterpunktet ligge midt på en kant. Derfor prøves kanten rundt.
    */
   _tilpassSkala(b, h, g) {
+    /* På bakken finnes ingen innramming: kameraet har en posisjon, og skala og
+       forskyvning brukes ikke i det hele tatt. Uten dette ville tilpasningen
+       regnet en meningsløs skala av et perspektivbilde og skrevet den inn. */
+    if (this.modus === 'bakken') return { skala: 1, panX: 0, panY: 0 };
     const k = this._kamera(b, h, g, 1, 0, 0);
     let minX = Infinity, maksX = -Infinity, minY = Infinity, maksY = -Infinity;
     const legg = (i, j) => {
@@ -233,21 +297,29 @@ const Tegner3d = {
   _raster(g, hoyde, farge, ut, dyp, id, b, h, kam, krev) {
     const nb = g.nb, nh = g.nh;
     // projiser hver node én gang, ikke fire ganger per celle
-    const px = this._px || (this._px = []);
-    const py = this._py || (this._py = []);
-    const pd = this._pd || (this._pd = []);
+    const rx = this._rx || (this._rx = []);
+    const sy = this._sy || (this._sy = []);
+    const pw = this._pw || (this._pw = []);
     const n = nb * nh;
-    if (px.length < n) { px.length = n; py.length = n; pd.length = n; }
+    if (rx.length < n) { rx.length = n; sy.length = n; pw.length = n; }
     for (let j = 0; j < nh; j++) {
       for (let i = 0; i < nb; i++) {
         const k = j * nb + i;
-        if (!g.finnes[k]) { pd[k] = NaN; continue; }
+        if (!g.finnes[k]) { pw[k] = NaN; continue; }
         const q = kam.punkt(g.wx[k], g.wy[k], hoyde[k]);
-        px[k] = q.px; py[k] = q.py; pd[k] = q.dk;
+        rx[k] = q.rx; sy[k] = q.sy; pw[k] = q.w;
       }
     }
 
-    const trekant = (ax, ay, ad, bx, by, bd, cx2, cy2, cd, f) => {
+    const F = kam.F, cx = kam.cx, cy = kam.cy;
+    const naer = kam.naer || 1e-6;
+
+    /* Selve fyllingen. Kantfunksjoner, som før – men den regner px/py selv,
+       fordi den nå får hjørnene i kamerarommet. */
+    const fyll = (arx, asy, aw, brx, bsy, bw, crx, csy, cw, f) => {
+      const ax = cx + F * arx / aw, ay = cy + F * asy / aw;
+      const bx = cx + F * brx / bw, by = cy + F * bsy / bw;
+      const cx2 = cx + F * crx / cw, cy2 = cy + F * csy / cw;
       let minX = Math.max(0, Math.floor(Math.min(ax, bx, cx2)));
       let maksX = Math.min(b - 1, Math.ceil(Math.max(ax, bx, cx2)));
       let minY = Math.max(0, Math.floor(Math.min(ay, by, cy2)));
@@ -259,18 +331,68 @@ const Tegner3d = {
       for (let y = minY; y <= maksY; y++) {
         for (let x = minX; x <= maksX; x++) {
           const qx = x + 0.5, qy = y + 0.5;
-          let w0 = ((bx - ax) * (qy - ay) - (by - ay) * (qx - ax)) * inv;
-          let w1 = ((cx2 - bx) * (qy - by) - (cy2 - by) * (qx - bx)) * inv;
-          let w2 = ((ax - cx2) * (qy - cy2) - (ay - cy2) * (qx - cx2)) * inv;
+          const w0 = ((bx - ax) * (qy - ay) - (by - ay) * (qx - ax)) * inv;
+          const w1 = ((cx2 - bx) * (qy - by) - (cy2 - by) * (qx - bx)) * inv;
+          const w2 = ((ax - cx2) * (qy - cy2) - (ay - cy2) * (qx - cx2)) * inv;
           if (w0 < 0 || w1 < 0 || w2 < 0) continue;
           // w1 hører til hjørne a, w2 til b, w0 til c
-          const d = ad * w1 + bd * w2 + cd * w0;
-          const p = y * b + x;
-          if (d >= dyp[p]) continue;
-          dyp[p] = d;
-          ut[p] = f;
-          if (id) id[p] = this._idNa;
+          const d = aw * w1 + bw * w2 + cw * w0;
+          const pp = y * b + x;
+          if (d >= dyp[pp]) continue;
+          dyp[pp] = d;
+          ut[pp] = f;
+          if (id) id[pp] = this._idNa;
         }
+      }
+    };
+
+    /**
+     * Klipper mot nærplanet før den fyller.
+     *
+     * Står man på vegen, ligger 72 % av nodene BAK øyet. Uten klipping
+     * projiserer hver trekant som krysser øyeplanet med snudd fortegn og
+     * smøres over hele skjermen – og det ser ikke ut som en feil, det ser ut
+     * som en flate. Klippingen må skje i kamerarommet, der rx, sy og w er
+     * lineære i verdensposisjonen; etter divisjonen er de det ikke.
+     *
+     * I oversiktsmodus slår den aldri til: minste målte dybde er 1 907 m mot
+     * et nærplan på null. Kostnaden er tre sammenligninger per trekant.
+     */
+    const trekant = (arx, asy, aw, brx, bsy, bw, crx, csy, cw, f) => {
+      const ai = aw >= naer, bi = bw >= naer, ci = cw >= naer;
+      const antall = (ai ? 1 : 0) + (bi ? 1 : 0) + (ci ? 1 : 0);
+      if (antall === 0) return;
+      if (antall === 3) { fyll(arx, asy, aw, brx, bsy, bw, crx, csy, cw, f); return; }
+      // klipp kanten P→Q der P er innenfor
+      const klipp = (prx, psy, pw2, qrx, qsy, qw) => {
+        const t = (pw2 - naer) / (pw2 - qw);
+        return [prx + t * (qrx - prx), psy + t * (qsy - psy), naer];
+      };
+      // ordne slik at A alltid er innenfor
+      let A = [arx, asy, aw], B = [brx, bsy, bw], C = [crx, csy, cw];
+      let inne = [ai, bi, ci];
+      while (!inne[0]) {                       // roter til A er innenfor
+        const t1 = A; A = B; B = C; C = t1;
+        const t2 = inne[0]; inne = [inne[1], inne[2], t2];
+      }
+      if (antall === 1) {
+        const nb2 = klipp(A[0], A[1], A[2], B[0], B[1], B[2]);
+        const nc = klipp(A[0], A[1], A[2], C[0], C[1], C[2]);
+        fyll(A[0], A[1], A[2], nb2[0], nb2[1], nb2[2], nc[0], nc[1], nc[2], f);
+        return;
+      }
+      /* To innenfor. Etter roteringen er A innenfor; den andre innenfor er B
+         eller C, og firkanten som blir igjen deles i to. */
+      if (inne[1]) {                            // A og B inne, C ute
+        const bc = klipp(B[0], B[1], B[2], C[0], C[1], C[2]);
+        const ca = klipp(A[0], A[1], A[2], C[0], C[1], C[2]);
+        fyll(A[0], A[1], A[2], B[0], B[1], B[2], bc[0], bc[1], bc[2], f);
+        fyll(A[0], A[1], A[2], bc[0], bc[1], bc[2], ca[0], ca[1], ca[2], f);
+      } else {                                  // A og C inne, B ute
+        const ab = klipp(A[0], A[1], A[2], B[0], B[1], B[2]);
+        const cb = klipp(C[0], C[1], C[2], B[0], B[1], B[2]);
+        fyll(A[0], A[1], A[2], ab[0], ab[1], ab[2], cb[0], cb[1], cb[2], f);
+        fyll(A[0], A[1], A[2], cb[0], cb[1], cb[2], C[0], C[1], C[2], f);
       }
     };
 
@@ -291,8 +413,8 @@ const Tegner3d = {
         this._idNa = k00;
         const f = farge(k00, k10, k01, k11, hoyde);
         if (f === 0) continue;
-        trekant(px[k00], py[k00], pd[k00], px[k10], py[k10], pd[k10], px[k11], py[k11], pd[k11], f);
-        trekant(px[k00], py[k00], pd[k00], px[k11], py[k11], pd[k11], px[k01], py[k01], pd[k01], f);
+        trekant(rx[k00], sy[k00], pw[k00], rx[k10], sy[k10], pw[k10], rx[k11], sy[k11], pw[k11], f);
+        trekant(rx[k00], sy[k00], pw[k00], rx[k11], sy[k11], pw[k11], rx[k01], sy[k01], pw[k01], f);
       }
     }
   },
@@ -306,7 +428,7 @@ const Tegner3d = {
    * blir en mørkt belyst grønn like mørk som en rød, og da forsvinner nettopp
    * det man skal se.
    */
-  _lys(g, k00, k10, k01, z) {
+  _lys(g, k00, k10, k01, z, kam) {
     /* NORMALEN FRA DE TO EKTE KANTENE, IKKE FRA ETT STEG PER AKSE.
        Her sto `(z10 - z00) / rute` for begge retningene. På en tomt er det
        riktig – rutenettet er kvadratisk. På en VEG er det ikke i nærheten:
@@ -321,6 +443,18 @@ const Tegner3d = {
     let nx = ay * bz - az * by;
     let ny = az * bx - ax * bz;
     let nz = ax * by - ay * bx;
+    /* BAKSIDEN AV ET ARK SKAL IKKE LYSE SOM FORSIDEN.
+       Linja under tvinger normalen oppover, og det er riktig sett ovenfra – da
+       ser man alltid oversiden. Står man i en skjæring og ser opp forbi
+       skjæringstoppen, ser man UNDERSIDEN av terrengarket, og med normalen
+       tvunget opp lyses den som en opplyst forside: et lysende ark som svever.
+       0,45 ligger under bunnen av lysintervallet (0,55), så en bakside kan
+       aldri forveksles med en forside. */
+    if (kam && kam.oye) {
+      const bak2 = (nx * (kam.oye.x - g.wx[k00]) + ny * (kam.oye.y - g.wy[k00])
+        + nz * (kam.oye.z - z[k00])) < 0;
+      if (bak2) return 0.45;
+    }
     if (nz < 0) { nx = -nx; ny = -ny; nz = -nz; }   // normalen skal peke opp
     const len = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
     // lyset kommer fra nordvest og litt oppe: retningen er (-0,4  0,4  0,82)
@@ -341,8 +475,8 @@ const Tegner3d = {
     if (b < 20 || h < 20) { this._sisteGitter = null; return; }
 
     const dpr = Math.min(2, window.devicePixelRatio || 1);
-    // under dragning tegnes rasteret grovere og blåses opp
-    const kvalitet = this._drar ? 0.6 : 1;
+    // under dragning og gåing tegnes rasteret grovere og blåses opp
+    const kvalitet = (this._drar || this._farer) ? 0.6 : 1;
     const rb = Math.max(2, Math.round(b * dpr * kvalitet));
     const rh = Math.max(2, Math.round(h * dpr * kvalitet));
     if (c.width !== rb || c.height !== rh) { c.width = rb; c.height = rh; }
@@ -419,6 +553,22 @@ const Tegner3d = {
     const bak = Farger.flateRgb;
     const bakVerdi = (255 << 24) | (bak[2] << 16) | (bak[1] << 8) | bak[0];
     this._piksler.fill(bakVerdi);
+    /* HORISONTEN.
+       Står man på bakken og ser utover, er øvre halvdel av skjermen én flat
+       farge – og det ser ikke ut som himmel, det ser ut som et ødelagt bilde.
+       To toner i stedet for én koster ett ekstra fill og ingen geometri:
+       himmel over horisontlinja, fjern bakke under. Linja ligger nøyaktig der
+       blikket er vannrett, så den flytter seg riktig når man ser opp og ned. */
+    if (kam.oye) {
+      const pyH = rh / 2 + kam.F * Math.tan(this.kamPitch * Math.PI / 180);
+      const ton = (rgb, f2) => (255 << 24)
+        | (Math.min(255, rgb[2] * f2) << 16) | (Math.min(255, rgb[1] * f2) << 8) | Math.min(255, rgb[0] * f2);
+      const himmel = ton(bak, 1.35);
+      const fjern = ton(Farger.terrengFlateRgb, 0.75);
+      const grense = Math.max(0, Math.min(rh, Math.round(pyH)));
+      this._piksler.fill(himmel, 0, grense * rb);
+      this._piksler.fill(fjern, grense * rb, rh * rb);
+    }
     this._dyp.fill(Infinity);
     this._id.fill(-1);
 
@@ -438,12 +588,13 @@ const Tegner3d = {
         hoyde: g.zT, blanding: 0,
         farge: (k00, k10, k01, k11, z) => {
           const rgb = Farger.terrengFlateRgb;
-          const ly = this._lys(g, k00, k10, k01, z);
+          const ly = this._lys(g, k00, k10, k01, z, this._kamNa);
           const r = Math.min(255, rgb[0] * ly), gg = Math.min(255, rgb[1] * ly), bl = Math.min(255, rgb[2] * ly);
           return (255 << 24) | (bl << 16) | (gg << 8) | r;
         }
       }]
       : this._lagliste(g, pal);
+    this._kamNa = kam;
     for (const lag of lagene) {
       if (!lag) continue;
       if (!(lag.blanding > 0)) {
@@ -543,10 +694,26 @@ const Tegner3d = {
        Et bilde av terrenget uten inngrepet ser ut som et bilde av terrenget MED
        et lite inngrep. Uten merket er de to umulige å skille i et skjermbilde
        som legges i et tilbud – og da er «før» verre enn ingenting. */
-    const linjer = this.visFoer
-      ? ['FØR – terrenget som det ligger i dag, uten inngrepet',
-        'Slipp mellomrom, eller trykk «Før» igjen, for å se hva som blir gjort']
-      : (this._hudLinjer ? this._hudLinjer(g) : []);
+    this._hudNa = null;
+    if (this.modus === 'bakken' && kam.oye) {
+      const t2 = v => Rapport.tall(v, v < 10 ? 1 : 0);
+      const linjerB = ['PÅ BAKKEN · øyet ' + t2(this.kamH) + ' m over bakken'];
+      if (this.app.tverrStasjon != null) {
+        linjerB.push('Profil ' + t2(this.app.tverrStasjon) + ' · '
+          + (this.kamT ? t2(Math.abs(this.kamT)) + ' m ' + (this.kamT > 0 ? 'til høyre' : 'til venstre') + ' for senterlinja'
+            : 'på senterlinja'));
+      }
+      /* Tastene MÅ stå i bildet. Et kamera man må gjette seg til er et kamera
+         man ikke bruker, og det er ingen annen plass å skrive dem. */
+      linjerB.push('W A S D eller piltaster kjører · Shift løper · Q E hever og senker'
+        + ' · musa ser seg om · F ser framover · Esc tilbake');
+      this._hudNa = linjerB;
+    }
+    const linjer = (this.modus === 'bakken' && this._hudNa) ? this._hudNa
+      : this.visFoer
+        ? ['FØR – terrenget som det ligger i dag, uten inngrepet',
+          'Slipp mellomrom, eller trykk «Før» igjen, for å se hva som blir gjort']
+        : (this._hudLinjer ? this._hudLinjer(g) : []);
     k.textAlign = 'left';
     k.font = '11px system-ui, sans-serif';
     linjer.forEach((s, i) => {
@@ -613,6 +780,9 @@ const Tegner3d = {
   _musKobling() {
     const c = this.over || this.lerret;
     let dra = null;
+    /* Egen for hver visning. Lå den på prototypen, ville en tast man holdt nede
+       i vegen fortsatt vært nede i tomta. */
+    this._taster = new Set();
     const pos = e => {
       const r = c.getBoundingClientRect();
       const t = e.touches ? e.touches[0] : e;
@@ -637,7 +807,10 @@ const Tegner3d = {
       const flytter = !e.touches && (e.button === 1 || e.button === 2 || e.shiftKey);
       dra = Object.assign(pos(e), {
         yaw: this.yaw, pitch: this.pitch, flytter,
-        panX: this.panX || 0, panY: this.panY || 0, flyttet: 0
+        kamYaw: this.kamYaw, kamPitch: this.kamPitch,
+        panX: this.panX || 0, panY: this.panY || 0, flyttet: 0,
+        // hvor langt unna er det man tok tak i? Det setter meter per piksel.
+        dybde: this._dybdeUnder(pos(e), c)
       });
       this._drar = true;
     };
@@ -662,7 +835,26 @@ const Tegner3d = {
         return;
       }
       dra.flyttet = Math.max(dra.flyttet, Math.hypot(p.x - dra.x, p.y - dra.y));
-      if (dra.flytter) {
+      if (this.modus === 'bakken') {
+        /* EN TIL EN.
+           Følsomheten er ikke valgt, den er utledet: `atan(1/F)` er nøyaktig
+           den vinkelen som flytter motivet i midten én skjermpiksel per
+           musepiksel. Målt på dreieskiva var forholdet 12 til 15 – man dro
+           én piksel og motivet forsvant. Den regnes i SKJERMpiksler, så den
+           endrer seg ikke når rasteret krymper til 60 % under dragningen. */
+        const Fs = (c.clientHeight / 2) / Math.tan(this.fov * Math.PI / 360);
+        const grad = Math.atan(1 / Fs) * 180 / Math.PI;
+        if (dra.flytter) {
+          // gå: motivet under markøren blir stående under markøren
+          const m = (dra.dybde || 30) / Fs;
+          this._bakkeFlytt(-(p.y - dra.y) * m * Math.cos(this.kamPitch * Math.PI / 180),
+            (p.x - dra.x) * m);
+          dra.x = p.x; dra.y = p.y;
+        } else {
+          this.kamYaw = dra.kamYaw + (p.x - dra.x) * grad;
+          this.kamPitch = Math.max(-85, Math.min(85, dra.kamPitch - (p.y - dra.y) * grad));
+        }
+      } else if (dra.flytter) {
         this.panX = dra.panX + (p.x - dra.x);
         this.panY = dra.panY + (p.y - dra.y);
       } else {
@@ -722,6 +914,15 @@ const Tegner3d = {
          for å stå stille. Perspektivet gjør at det ikke kan bli helt eksakt for
          alle dybder, men feilen er da under en piksel i stedet for titalls. */
       const p = pos(e);
+      if (this.modus === 'bakken') {
+        /* HJULET ER ØYEHØYDEN, ikke zoom og ikke fart.
+           Én kontroll styrer da både en 30 m fylling og en 2,6 km veg, fordi
+           farten følger høyden: står man lavt går man sakte, hever man seg
+           flyr man. Og det er veien opp når man har rotet seg bort. */
+        this.kamH = Math.max(1.6, Math.min(4000, this.kamH * (e.deltaY < 0 ? 1 / 1.15 : 1.15)));
+        this.tegn();
+        return;
+      }
       const f = e.deltaY < 0 ? 1.12 : 1 / 1.12;
       const fx = this._panFast ? this._panFast.x : 0;
       const fy = this._panFast ? this._panFast.y : 0;
@@ -768,14 +969,37 @@ const Tegner3d = {
         e.preventDefault();
         return;
       }
-      if (e.key === 'f' || e.key === 'F') {
-        /* Ram inn det man dreier om. Uten fokus er det hele modellen, som før. */
+      if ((e.key === 'f' || e.key === 'F') && this.modus !== 'bakken') {
+        /* Ram inn det man dreier om. Uten fokus er det hele modellen, som før.
+           På bakken betyr F noe annet – se framover – og den ligger nedenfor. */
         this._skalaSatt = false;
         this.tegn();
         e.preventDefault(); e.stopPropagation();
         return;
       }
       if (e.key === 'Home') { this.nullstill(); e.preventDefault(); e.stopPropagation(); return; }
+      if (this.modus === 'bakken' && this._bakkeFlytt) {
+        if (e.key === 'Escape') {
+          this.settModus('oversikt');
+          e.preventDefault(); e.stopPropagation(); return;
+        }
+        if (Tegner3d.GAATASTER[e.key.toLowerCase()]) {
+          /* Tasten LEGGES NED, den utfører ingenting.
+             Første forsøk flyttet kameraet ett hakk per tastetrykk. Da bestemmer
+             nettleserens repetasjonsrate farten: en halv sekunds pause, så tretti
+             hakk i sekundet. Man står stille, og så farer man av sted. Og to
+             taster samtidig – fram og til siden – ble to skritt etter hverandre
+             i stedet for ett på skrå.
+             Her holder vi bare rede på hvilke taster som er NEDE. Løkka under
+             gjør resten, i meter per sekund. */
+          this._taster.add(e.key.toLowerCase());
+          this._bakkeLop();
+          e.preventDefault(); e.stopPropagation(); return;
+        }
+        if ((e.key === 'f' || e.key === 'F') && this.seFramover) {
+          this.seFramover(); this.tegn(); e.preventDefault(); e.stopPropagation(); return;
+        }
+      }
       const steg = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1 }[e.key];
       if (steg && this._stegVis) {
         this._stegVis(steg * (e.shiftKey ? 10 : 1));
@@ -783,6 +1007,69 @@ const Tegner3d = {
         e.stopPropagation();
       }
     });
+    c.addEventListener('keyup', e => { this._taster.delete(e.key.toLowerCase()); });
+    /* Slipper man tasten mens man er i et annet vindu, kommer keyup aldri – og
+       kameraet ville gått for egen maskin i det uendelige. */
+    c.addEventListener('blur', () => this._taster.clear());
+    window.addEventListener('blur', () => this._taster.clear());
+  },
+
+  /**
+   * Gåing i meter per sekund, ikke i hakk per tastetrykk.
+   *
+   * `dt` er tiden siden forrige bilde. Da blir farten den samme enten maskinen
+   * klarer 60 bilder i sekundet eller 12, og to taster samtidig gir ett skritt
+   * på skrå med samme fart som rett fram (derav normeringen).
+   *
+   * FARTEN FØLGER ØYEHØYDEN. Én regel, og både en fylling på tretti meter og en
+   * veg på to kilometer får riktig fart uten en eneste innstilling: står man på
+   * bakken går man i gangfart, hever man seg flyr man. Shift løper, Ctrl sniker.
+   */
+  _bakkeSteg(dt) {
+    const t = this._taster;
+    if (!t.size) return false;
+    let fram = 0, side = 0, opp = 0;
+    for (const k of t) {
+      const r = Tegner3d.GAATASTER[k];
+      if (!r) continue;
+      fram += r[0]; side += r[1]; opp += r[2];
+    }
+    const fart = Math.max(2.2, Math.min(400, 1.1 * this.kamH))
+      * (t.has('shift') ? 3.5 : 1) * (t.has('control') ? 0.3 : 1);
+    let endret = false;
+    if (fram || side) {
+      const n = Math.hypot(fram, side);
+      this._bakkeFlytt(fram / n * fart * dt, side / n * fart * dt);
+      endret = true;
+    }
+    if (opp) {
+      // høyden ganges, ikke legges til: ett sekund på Q er alltid samme SPRANG
+      this.kamH = Math.max(1.6, Math.min(4000, this.kamH * Math.exp(opp * 1.6 * dt)));
+      endret = true;
+    }
+    return endret;
+  },
+
+  /** Løkka som holder gåingen i gang så lenge en tast er nede. */
+  _bakkeLop() {
+    if (this._lopId) return;
+    let forrige = performance.now();
+    const steg = na => {
+      const dt = Math.min(0.1, Math.max(0, (na - forrige) / 1000));
+      forrige = na;
+      if (this.modus !== 'bakken' || !this._taster.size || !this.aktiv) {
+        this._lopId = 0;
+        this._farer = false;
+        // ett skarpt bilde til slutt: under gåingen tegnes det i 60 % oppløsning
+        clearTimeout(this._skarpt);
+        this._skarpt = setTimeout(() => this.tegn(), 90);
+        return;
+      }
+      this._farer = true;
+      if (this._bakkeSteg(dt)) this.tegn();
+      this._lopId = requestAnimationFrame(steg);
+    };
+    this._lopId = requestAnimationFrame(steg);
   },
 
 
@@ -791,6 +1078,55 @@ const Tegner3d = {
     return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
   },
 
+
+  /**
+   * Dybden til det man tok tak i, i meter.
+   *
+   * Den setter hvor mange meter en musepiksel er verdt når man går: tar man
+   * tak i noe nært, går man kort; tar man tak i horisonten, går man langt.
+   * Det er det som gjør at «gå» kjennes som å dra i bakken og ikke som å skyve
+   * et kamera.
+   */
+  _dybdeUnder(pos, c) {
+    const t = this._slaOpp(pos, c);
+    const g = this._sisteGitter, kam = this._sisteKam;
+    if (!t || t.k < 0 || !g || !kam) return 30;
+    const h = (g.harGrav && g.harGrav[t.k]) ? g.zP[t.k] : g.zT[t.k];
+    const q = kam.punkt(g.wx[t.k], g.wy[t.k], h);
+    return Number.isFinite(q.w) && q.w > 1 ? q.w : 30;
+  },
+
+  /**
+   * Bytter mellom å se modellen ovenfra og å stå i den.
+   *
+   * Byttet er ikke et klipp: man lander på stasjonen som alt er valgt, ser
+   * langs vegen, og står to meter over bakken. Fra bakken tilbake beholdes
+   * retningen. Man lander aldri et sted man ikke kjenner igjen.
+   */
+  settModus(m, stille) {
+    if (m === this.modus) return;
+    this.modus = m;
+    // en tast som sto nede skal ikke fortsette å gå i den andre modusen
+    if (this._taster) this._taster.clear();
+    if (m === 'bakken') {
+      this.kamH = 2.0;
+      if (this.seFramover) this.seFramover();
+    } else {
+      this.yaw = this.kamYaw;
+      this.pitch = 32;
+      this.fokus = null;
+      this.panX = 0; this.panY = 0;
+      this._skalaSatt = false;
+    }
+    /* KNAPPEN SPØR IKKE, DEN FÅR BESKJED.
+       Her sto det en `classList.toggle` både i knappens onclick og i `nullstill`
+       – to steder som måtte huske det samme. ↺ glemte det ene, og knappen ble
+       stående som trykket inn i oversiktsmodus. Nå eier `settModus` tilstanden
+       og forteller om den; det finnes ikke en vei ut av bakkemodus som ikke går
+       gjennom denne linja. */
+    if (this.paaModus) this.paaModus(m);
+    if (!stille) this.tegn();
+  },
 
   /** Cella under et skjermpunkt, slått opp i id-bufferet. O(1). */
   _slaOpp(p, c) {
@@ -886,6 +1222,26 @@ const Tegner3d = {
 
   /** Fargene er hentet fra stilarket og må bygges på nytt ved temabytte. */
   glemFarger() { this._palettFor = null; },
+};
+
+/**
+ * Tastene man går med, som [fram, side, opp].
+ *
+ * WASD OG PILTASTENE GJØR DET SAMME. Den som har spilt et spill rekker etter
+ * WASD uten å tenke; den som ikke har det, rekker etter piltastene. Å velge én
+ * av dem er å gjøre halvparten av folk til nybegynnere igjen.
+ *
+ * Alt slås opp i småbokstaver, ellers slutter W å virke i det øyeblikket man
+ * holder shift for å løpe.
+ */
+Tegner3d.GAATASTER = {
+  w: [1, 0, 0], arrowup: [1, 0, 0],
+  s: [-1, 0, 0], arrowdown: [-1, 0, 0],
+  a: [0, -1, 0], arrowleft: [0, -1, 0],
+  d: [0, 1, 0], arrowright: [0, 1, 0],
+  e: [0, 0, 1], pageup: [0, 0, 1],
+  q: [0, 0, -1], pagedown: [0, 0, -1],
+  shift: [0, 0, 0], control: [0, 0, 0]
 };
 
 if (typeof module !== 'undefined') module.exports = Tegner3d;

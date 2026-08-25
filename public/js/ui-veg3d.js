@@ -115,8 +115,9 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
        lerretets overkant. Piltastene flyttet et merke man ikke kunne se.
        Nå følger dreiepunktet med, og fordi det er algebraisk låst til midten
        av skjermen, står merket alltid på samme sted. Man kjører langs vegen. */
-    if (this.fokus) this._fokusTilStasjon();
-    this.tegn();
+    if (this.fokus && this.modus !== 'bakken') this._fokusTilStasjon();
+    // går man selv, tegner gåløkka bildet uansett – to ganger er én for mye
+    if (!this._lopId) this.tegn();
   },
 
   /** Flytter dreiepunktet til senterlinja ved det snittet som er valgt. */
@@ -141,6 +142,89 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
     if (!g || k < 0) return;
     const j = (k / g.nb) | 0;
     if (j >= 0 && j < g.nh) this.app.settTverrStasjon(g.s[j]);
+  },
+
+  /* ---------------- på bakken ---------------- */
+
+  /* `kamS` – stasjonen kameraet står på – er ikke her, men nederst i fila.
+     Den er en getter, og `Object.assign` LESER gettere fra kilden i stedet for
+     å flytte dem: sto den her, ble den kalt én gang under innlastingen, med
+     `this.app` fortsatt undefined, og hele fila stoppet. */
+  kamT: 0,
+
+  /**
+   * Gulvet under et punkt, lest AV GITTERET – aldri regnet på nytt.
+   *
+   * Fristelsen er å spørre `App.vprofil.hoyde(s)`, som er ett kall. Men da har
+   * man to geometrikilder ved siden av hverandre, og husregelen i denne fila er
+   * at 3D-en aldri regner ut sin egen geometri. Leses gulvet fra gitteret, er
+   * det per definisjon den samme flaten volumet er regnet på.
+   */
+  _gulv(g, s, t) {
+    if (!g || !g.nh) return NaN;
+    let lav = 0, hoy = g.nh - 1;
+    while (hoy - lav > 1) {
+      const m = (lav + hoy) >> 1;
+      if (g.s[m] <= s) lav = m; else hoy = m;
+    }
+    const j = Math.abs(g.s[hoy] - s) < Math.abs(g.s[lav] - s) ? hoy : lav;
+    let best = -1, bestD = Infinity;
+    for (let i = 0; i < g.nb; i++) {
+      const k = j * g.nb + i;
+      if (!g.finnes[k]) continue;
+      const d = Math.abs(g.tAkse[k] - t);
+      if (d < bestD) { bestD = d; best = k; }
+    }
+    if (best < 0) return NaN;
+    /* FERDIG FLATE, IKKE DEN HØYESTE.
+       Her sto `Math.max(zT, zP)` – «man går aldri under noen av dem». Det er
+       feil i en skjæring: der ligger vegen UNDER terrenget, og maksimum løftet
+       kameraet opp på den urørte bakken. Målt slik: bakken 200 m framme lå 71
+       piksler for lavt på skjermen, altså 29 m under det den skulle – man svevde
+       over skjæringen i stedet for å stå i den, og hele poenget med å gå
+       strekket var borte.
+       Gulvet er den flaten som finnes ETTER arbeidet: gravflaten der det graves
+       eller fylles, terrenget ellers. Ser man «før», er det terrenget – da har
+       ingenting skjedd ennå. */
+    if (this.visFoer) return g.zT[best];
+    return g.harGrav[best] ? g.zP[best] : g.zT[best];
+  },
+
+  /** Øyet: på skinna, kamH over gulvet. Kan ikke havne under en flate. */
+  _bakkePos(g) {
+    const app = this.app;
+    if (!app.linje || !g) return null;
+    const p2 = app.linje.punktMedAvvik(this.kamS, this.kamT);
+    if (!p2 || !Number.isFinite(p2.x)) return null;
+    const gulv = this._gulv(g, this.kamS, this.kamT);
+    if (!Number.isFinite(gulv)) return null;
+    return { x: p2.x, y: p2.y, z: gulv + this.kamH };
+  },
+
+  /** Framover, bakover, sidelengs. Alt bundet til vegen. */
+  _bakkeFlytt(fram, side) {
+    const res = this.app.resultat;
+    if (!res) return;
+    if (fram) this.kamS = this.kamS + fram;
+    if (side) {
+      const g = this._sisteGitter;
+      let lav = -30, hoy = 30;
+      if (g && g.nh) {
+        const pr = res.profiler.find(q => Math.abs(q.s - this.kamS) < (res.profilsteg || 5));
+        if (pr) { lav = pr.fotVenstre - 0.8 * this.kontekst; hoy = pr.fotHoyre + 0.8 * this.kontekst; }
+      }
+      this.kamT = Math.max(lav, Math.min(hoy, this.kamT + side));
+    }
+  },
+
+  /** «Se framover» – langs vegen, med blikket litt ned mot bakken. */
+  seFramover() {
+    const app = this.app;
+    if (!app.linje) return;
+    const p2 = app.linje.punktVed(this.kamS);
+    if (p2 && Number.isFinite(p2.retning)) this.kamYaw = p2.retning * 180 / Math.PI + 90;
+    this.kamPitch = -Math.atan(this.kamH / Math.max(60, 6 * this.kamH)) * 180 / Math.PI;
+    this.kamT = 0;
   },
 
   /** Piltastene går bortover langs vegen, ett profil om gangen. */
@@ -334,7 +418,7 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
   _lagliste(g, pal) {
     const enkel = (rgb, hopp) => (k00, k10, k01, k11, z) => {
       if (hopp && hopp(k00)) return 0;
-      const ly = this._lys(g, k00, k10, k01, z);
+      const ly = this._lys(g, k00, k10, k01, z, this._kamNa);
       const r = Math.min(255, rgb[0] * ly), gg = Math.min(255, rgb[1] * ly), bl = Math.min(255, rgb[2] * ly);
       return (255 << 24) | (bl << 16) | (gg << 8) | r;
     };
@@ -348,7 +432,7 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
           const tab = dd >= 0 ? pal.skjaering : pal.fylling;
           const i = Math.min(pal.N - 1, Math.round(t * (pal.N - 1))) * 3;
           let r = tab[i], gg = tab[i + 1], bl = tab[i + 2];
-          const ly = this._lys(g, k00, k10, k01, z);
+          const ly = this._lys(g, k00, k10, k01, z, this._kamNa);
           const m = g.usikker[k00] ? 0.82 : 1;
           r = Math.min(255, r * ly * m); gg = Math.min(255, gg * ly * m); bl = Math.min(255, bl * ly * m);
           if (this.lag.rutenett && this._paaRutelinje(g, k00)) { r *= 0.72; gg *= 0.72; bl *= 0.72; }
@@ -494,6 +578,8 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
   nullstill() {
     const app = this.app;
     const res = app && app.resultat;
+    /* ↺ er alltid veien hjem, også fra bakken. */
+    if (this.modus === 'bakken') this.settModus('oversikt', true);
     this.panX = 0; this.panY = 0;
     this.senter = null;
     this._skalaSatt = false;
@@ -512,6 +598,68 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
       }
     }
     this.tegn();
+  }
+});
+
+/**
+ * Kameraets plass på skinna: stasjonen langs vegen.
+ *
+ * KAMERAET GÅR JEVNT, SNITTET HOPPER I PROFILER.
+ * Første forsøk lot `kamS` VÆRE `App.tverrStasjon` – ett tall, én eier. Det
+ * låste seg umiddelbart: `settTverrStasjon` runder til nærmeste profil, så et
+ * skritt på 0,7 m ble rundet bort igjen med det samme, og man sto bom fast.
+ * Kameraet trenger meter, snittet trenger profiler. Derfor to tall – men bare
+ * én RETNING på koblingen: kameraet skyver stasjonen, aldri motsatt.
+ *
+ * Motsatt vei ville vært en løkke. I stedet husker vi hva vi selv skjøv
+ * (`_kamSSkjovet`), og oppdager at NOEN ANDRE flyttet stasjonen – skyveren,
+ * ◀ ▶, et klikk i kartet – ved at den ikke lenger er den vi skjøv. Da hopper
+ * kameraet dit. Alle de gamle kontrollene er dermed kamerakontroller uten en
+ * eneste ny knapp.
+ *
+ * Den defineres HER og ikke i objektlitteralen over, fordi `Object.assign`
+ * kopierer VERDIEN av en getter, ikke getteren selv. Skrevet i litteralen ble
+ * den kalt under innlastingen, før `Veg3d.app` fantes, og hele fila kastet.
+ */
+Object.defineProperty(Veg3d, 'kamS', {
+  configurable: true,
+  get() {
+    const s = (this.app && this.app.tverrStasjon) || 0;
+    if (this._kamS === undefined || Math.abs(s - (this._kamSSkjovet || 0)) > 0.001) {
+      this._kamS = s;
+      this._kamSSkjovet = s;
+    }
+    return this._kamS;
+  },
+  set(v) {
+    if (!this.app) return;
+    const res = this.app.resultat;
+    const L = (res && res.lengde) || 0;
+    this._kamS = Math.max(0, Math.min(L, v));
+    /* BARE NÅR SNITTET FAKTISK BYTTER PROFIL.
+       `settTverrStasjon` tegner om tverrprofilen, punkthøydene, kartmerket og
+       lengdeprofilen. Kalt hvert bilde mens man går, er det fire omtegninger i
+       sekstiendedels sekund for å vise nøyaktig det samme snittet. Går man en
+       meter og profilene står med fem, skal ingenting skje. */
+    let ns = this._kamS, best = Infinity;
+    if (res && res.profiler) {
+      for (const p of res.profiler) {
+        const d = Math.abs(p.s - this._kamS);
+        if (d < best) { best = d; ns = p.s; }
+      }
+    }
+    if (ns !== this.app.tverrStasjon) {
+      /* MERKET FØR KALLET, ikke etter.
+         `settTverrStasjon` tegner om – og omtegningen leser `kamS` igjen, midt
+         inne i denne setteren. Sto merket fortsatt på den GAMLE stasjonen da,
+         så getteren en stasjon som ikke var den vi skjøv, trodde noen andre
+         hadde flyttet den, og hentet kameraet tilbake til profilen. Målt: seks
+         skritt på 2,20 m ble 2,20 og 2,80 annenhver gang – kameraet ble dratt
+         mot profilrutenettet i stedet for å gå jevnt. */
+      this._kamSSkjovet = ns;
+      this.app.settTverrStasjon(this._kamS);
+    }
+    this._kamSSkjovet = this.app.tverrStasjon;
   }
 });
 

@@ -2266,6 +2266,225 @@ const Nettlesertest = {
         await this.vent(300);
       }
 
+      /* 17.14 PÅ BAKKEN: KAMERAET STÅR I MODELLEN, IKKE OVER DEN.
+         En modell som dreier om en akse er et utstillingsobjekt. Den som skal
+         vurdere en linje vil se den slik den blir sett – fra førerhuset. Her
+         måles fire ting, og alle fire var feil i første forsøk:
+           · gulvet er den FERDIGE flaten (i en skjæring lå kameraet 29 m for
+             høyt fordi det tok det høyeste av terreng og gravflate),
+           · kameraet går i METER PER SEKUND, ikke i hakk per tastetrykk,
+           · det går JEVNT (snittets profilrutenett dro det i rykk på 2,2 og 2,8
+             m annenhver gang),
+           · og man ser LANGS vegen, ikke på tvers av den. */
+      {
+        const o6 = document.getElementById('veg3dover');
+        const c6 = document.getElementById('veg3d');
+        Veg3d.nullstill();
+        await this.vent(250);
+        const L6 = App.resultat.lengde;
+        App.settTverrStasjon(L6 / 2);
+        await this.vent(150);
+
+        Veg3d.settModus('bakken');
+        await this.vent(300);
+        this.sjekk('«På bakken» setter kameraet i modellen', Veg3d.modus === 'bakken');
+        this.sjekk('og knappen viser at man står der',
+          document.getElementById('v3_bakken').getAttribute('aria-pressed') === 'true');
+
+        const g6 = Veg3d._sisteGitter, kam6 = Veg3d._sisteKam;
+        this.sjekk('kameraet har et øye – et punkt, ikke en retning', !!(kam6 && kam6.oye));
+
+        /* GULVET ER DEN FERDIGE FLATEN.
+           Står man på en veg i skjæring, står man PÅ VEGEN. Prøven finner en
+           node der terrenget ligger merkbart over gravflaten og krever at gulvet
+           følger gravflaten. Med `Math.max(zT, zP)` – som sto her – svevde man
+           over skjæringen og så ingenting av den. */
+        /* Den DYPESTE skjæringen på hele strekket, uansett hvor i profilen den
+           ligger. Første utgave lette bare på senterlinja og bare dypere enn
+           halvannen meter – og fant ingenting på prøvevegen, så hele kravet ble
+           hoppet over uten et ord. En prøve som stilltiende forsvinner er verre
+           enn ingen prøve: mutasjonen som satte det gamle maksimumet tilbake
+           gikk rett gjennom med 502 av 502. */
+        let dyp = null;
+        for (let j = 0; j < g6.nh; j++) {
+          for (let i = 0; i < g6.nb; i++) {
+            const k = j * g6.nb + i;
+            if (!g6.finnes[k] || !g6.harGrav[k]) continue;
+            const kutt = g6.zT[k] - g6.zP[k];
+            if (kutt > 0.5 && (!dyp || kutt > dyp.kutt)) {
+              dyp = { s: g6.s[j], t: g6.tAkse[k], zP: g6.zP[k], zT: g6.zT[k], kutt };
+            }
+          }
+        }
+        this.sjekk('prøvevegen har en skjæring å måle gulvet i', !!dyp,
+          dyp ? dyp.kutt.toFixed(1) + ' m på det dypeste' : 'fant ingen');
+        if (dyp) {
+          this.naer('gulvet i en skjæring er vegen, ikke det urørte terrenget',
+            Veg3d._gulv(g6, dyp.s, dyp.t), dyp.zP, 0.3);
+        }
+
+        App.settTverrStasjon(L6 / 2);
+        await this.vent(150);
+        Veg3d.seFramover();
+        Veg3d.tegn();
+        await this.vent(220);
+        const oye6 = Veg3d._bakkePos(Veg3d._sisteGitter);
+        this.naer('øyet står kamH over gulvet – hverken i den eller over den',
+          oye6.z - Veg3d._gulv(Veg3d._sisteGitter, Veg3d.kamS, Veg3d.kamT), Veg3d.kamH, 0.01);
+
+        /* SER MAN LANGS VEGEN? Et punkt på senterlinja rett fram skal ligge midt
+           på skjermen, uansett hvor langt fram det er. Er yaw en halv grad feil,
+           ser man ut i skogen. */
+        const kam7 = Veg3d._sisteKam;
+        for (const d of [3, 20, 50, 150]) {
+          const pd = App.linje.punktVed(Veg3d.kamS + d);
+          if (!pd) continue;
+          const q = kam7.punkt(pd.x, pd.y, Veg3d._gulv(Veg3d._sisteGitter, Veg3d.kamS + d, 0));
+          this.sjekk('  ' + d + ' m fram ligger foran kameraet, ikke bak', q.w > 0,
+            'dybde ' + q.w.toFixed(0) + ' m');
+        }
+        /* MÅLT TETT INNTIL, ikke langt fram. Blikket følger TANGENTEN, så i en
+           kurve skal senterlinja 150 m fram ligge ut til siden – det er riktig,
+           og en prøve som krevde midten der målte kurvaturen og ikke kameraet
+           (den slo ut med 205 px på en R=120-kurve). Tre meter fram er derimot
+           midten uansett kurve, og en yaw som er snudd, speilvendt eller 90
+           grader feil flytter det punktet flere hundre piksler. */
+        const pn7 = App.linje.punktVed(Veg3d.kamS + 3);
+        const qn7 = kam7.punkt(pn7.x, pn7.y, Veg3d._gulv(Veg3d._sisteGitter, Veg3d.kamS + 3, 0));
+        this.sjekk('man ser LANGS vegen – senterlinja rett foran treffer midten',
+          Math.abs(qn7.px - kam7.cx) < 30, Math.abs(qn7.px - kam7.cx).toFixed(1) + ' px unna midten');
+        /* Tretti piksler er tre grader, altså sju centimeter sideveis på tre
+           meter – det er kurven, ikke siktet. Prøven skal fange en yaw som er
+           snudd, speilvendt eller lagt på feil akse, og alle tre bommer med
+           titalls grader. En strammere grense ville bare målt radien. */
+        const bak6 = App.linje.punktVed(Math.max(0, Veg3d.kamS - 50));
+        this.sjekk('og det som er bak, er bak',
+          kam7.punkt(bak6.x, bak6.y, Veg3d._gulv(Veg3d._sisteGitter, Veg3d.kamS - 50, 0)).w < 0);
+
+        /* FART I METER PER SEKUND.
+           `_bakkeSteg(dt)` er hele bevegelsen; løkka over den gir bare `dt`.
+           Prøven kaller den med kjent `dt`, så den måler farten og ikke
+           nettleserens repetasjonsrate eller maskinens bildefrekvens. */
+        const gaa6 = (taster, dt) => {
+          Veg3d._taster = new Set(taster);
+          Veg3d._bakkeSteg(dt);
+          Veg3d._taster = new Set();
+        };
+        Veg3d.kamT = 0;
+        Veg3d.kamH = 2;
+        const vent6 = Math.max(2.2, 1.1 * 2);
+        let f6 = Veg3d.kamS; gaa6(['w'], 1);
+        this.naer('W ett sekund går én ganghastighet framover', Veg3d.kamS - f6, vent6, 0.05);
+        f6 = Veg3d.kamS; gaa6(['s'], 1);
+        this.naer('S går like langt bakover', Veg3d.kamS - f6, -vent6, 0.05);
+        f6 = Veg3d.kamS; gaa6(['w', 'shift'], 1);
+        this.naer('Shift løper', Veg3d.kamS - f6, vent6 * 3.5, 0.05);
+        f6 = Veg3d.kamS; gaa6(['w'], 0.5);
+        this.naer('et halvt sekund er halvparten – farten er per SEKUND',
+          Veg3d.kamS - f6, vent6 / 2, 0.05);
+
+        /* To taster samtidig skal gi ETT skritt på skrå, ikke to skritt etter
+           hverandre – ellers går man raskere på skrå enn rett fram. */
+        f6 = Veg3d.kamS;
+        const t6 = Veg3d.kamT;
+        gaa6(['w', 'd'], 1);
+        this.naer('W og D samtidig går på skrå, ikke fortere',
+          Math.hypot(Veg3d.kamS - f6, Veg3d.kamT - t6), vent6, 0.06);
+        Veg3d.kamT = 0;
+
+        /* JEVNT. Snittet hopper i profiler; kameraet skal ikke. Målt før dette:
+           2,20 og 2,80 m annenhver gang, fordi omtegningen av tverrprofilen
+           leste stasjonen tilbake og dro kameraet mot rutenettet. */
+        App.settTverrStasjon(L6 / 2);
+        Veg3d.kamH = 2;
+        const skritt = [];
+        for (let i = 0; i < 8; i++) { const a6 = Veg3d.kamS; gaa6(['w'], 1); skritt.push(Veg3d.kamS - a6); }
+        const spenn = Math.max(...skritt) - Math.min(...skritt);
+        this.sjekk('åtte skritt er åtte like skritt – profilrutenettet drar ikke i kameraet',
+          spenn < 0.02, 'spenn ' + spenn.toFixed(3) + ' m');
+
+        /* Farten følger høyden: én kontroll for en fylling på tretti meter og en
+           veg på to kilometer. */
+        Veg3d.kamH = 60;
+        f6 = Veg3d.kamS; gaa6(['w'], 1);
+        this.naer('hever man seg, går man fortere – uten en eneste innstilling',
+          Veg3d.kamS - f6, 66, 1);
+        Veg3d.kamH = 2;
+
+        const h6 = Veg3d.kamH; gaa6(['e'], 1);
+        this.sjekk('E hever øyet', Veg3d.kamH > h6 * 2, h6.toFixed(1) + ' → ' + Veg3d.kamH.toFixed(1) + ' m');
+        gaa6(['q'], 4);
+        this.sjekk('Q senker det igjen, men aldri ned i bakken', Veg3d.kamH >= 1.6,
+          Veg3d.kamH.toFixed(2) + ' m');
+
+        /* SKYVEREN ER OGSÅ EN KAMERAKONTROLL. Flytter noen andre stasjonen –
+           skyveren, ◀ ▶, et klikk i kartet – skal kameraet dit. */
+        App.settTverrStasjon(L6 * 0.75);
+        await this.vent(120);
+        this.naer('flytter man snittet, følger kameraet med',
+          Veg3d.kamS, App.tverrStasjon, 0.01);
+
+        /* Tastene skal legges NED, ikke utføres. Det er løkka som går. */
+        Veg3d._taster = new Set();
+        o6.dispatchEvent(new KeyboardEvent('keydown', { key: 'w', bubbles: true, cancelable: true }));
+        this.sjekk('en tast som holdes nede blir liggende nede', Veg3d._taster.has('w'));
+        o6.dispatchEvent(new KeyboardEvent('keyup', { key: 'w', bubbles: true, cancelable: true }));
+        this.sjekk('og slippes når den slippes', !Veg3d._taster.has('w'));
+        o6.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }));
+        this.sjekk('piltastene gjør det samme som WASD', Veg3d._taster.has('arrowup'));
+        Veg3d._taster = new Set();
+
+        /* Bildet må ikke rakne mens man går. Nærplanet klipper i kamerarommet;
+           gjøres det etter divisjonen, smører trekanter seg over hele skjermen
+           og dekningen hopper. */
+        const dekning6 = () => {
+          const kk = c6.getContext('2d');
+          const b = kk.getImageData(0, 0, c6.width, c6.height).data;
+          const bg = [b[0], b[1], b[2]];
+          let n = 0, tot = 0;
+          for (let i = 0; i < b.length; i += 4 * 5) {
+            tot++;
+            if (Math.abs(b[i] - bg[0]) + Math.abs(b[i + 1] - bg[1]) + Math.abs(b[i + 2] - bg[2]) > 8) n++;
+          }
+          return 100 * n / tot;
+        };
+        App.settTverrStasjon(L6 / 2);
+        Veg3d.seFramover();
+        Veg3d.tegn();
+        await this.vent(200);
+        const rad6 = [];
+        for (let i = 0; i < 6; i++) {
+          gaa6(['w'], 1.2);
+          Veg3d.tegn();
+          await this.vent(140);
+          rad6.push(dekning6());
+        }
+        let hopp = 0;
+        for (let i = 1; i < rad6.length; i++) hopp = Math.max(hopp, Math.abs(rad6[i] - rad6[i - 1]));
+        this.sjekk('bildet holder seg mens man går – nærplanet smører ikke',
+          hopp < 12 && rad6.every(v => v > 15),
+          'største sprang ' + hopp.toFixed(1) + ' prosentpoeng');
+
+        /* Esc og ↺ er begge veien hjem, og knappen skal slippe seg selv. */
+        o6.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+        await this.vent(250);
+        this.sjekk('Esc tar deg opp igjen', Veg3d.modus === 'oversikt');
+        this.sjekk('og knappen slipper seg selv',
+          document.getElementById('v3_bakken').getAttribute('aria-pressed') === 'false');
+        Veg3d.settModus('bakken');
+        await this.vent(200);
+        Veg3d.nullstill();
+        await this.vent(250);
+        this.sjekk('↺ er også veien hjem fra bakken', Veg3d.modus === 'oversikt');
+        this.sjekk('  og knappen fulgte med dit også',
+          document.getElementById('v3_bakken').getAttribute('aria-pressed') === 'false');
+
+        Veg3d.kamT = 0;
+        Veg3d.kamH = 2;
+        App.settTverrStasjon(L6 / 2);
+        await this.vent(200);
+      }
+
       /* 17.10 Kostnad – røykprøve mot en katastrofal regresjon. */
       {
         Veg3d.tegn();

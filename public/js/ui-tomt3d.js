@@ -295,7 +295,7 @@ const Tomt3d = Object.assign(Object.create(Tegner3d), {
   _lagliste(g, pal) {
     const enkel = (rgb, hopp) => (k00, k10, k01, k11, z) => {
       if (hopp && hopp(k00)) return 0;
-      const ly = this._lys(g, k00, k10, k01, z);
+      const ly = this._lys(g, k00, k10, k01, z, this._kamNa);
       const r = Math.min(255, rgb[0] * ly), gg = Math.min(255, rgb[1] * ly), bl = Math.min(255, rgb[2] * ly);
       return (255 << 24) | (bl << 16) | (gg << 8) | r;
     };
@@ -309,7 +309,7 @@ const Tomt3d = Object.assign(Object.create(Tegner3d), {
           const tab = d >= 0 ? pal.skjaering : pal.fylling;
           const i = Math.min(pal.N - 1, Math.round(t * (pal.N - 1))) * 3;
           let r = tab[i], gg = tab[i + 1], bl = tab[i + 2];
-          const ly = this._lys(g, k00, k10, k01, z);
+          const ly = this._lys(g, k00, k10, k01, z, this._kamNa);
           // celler der skråningen ikke sto på egne ben tones ned
           const m = g.usikker[k00] ? 0.82 : 1;
           r = Math.min(255, r * ly * m); gg = Math.min(255, gg * ly * m); bl = Math.min(255, bl * ly * m);

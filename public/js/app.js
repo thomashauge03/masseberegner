@@ -4507,6 +4507,25 @@ const App = {
        må paletten glemmes – den er bufret på tema. */
     /* «Før» viser terrenget uten inngrepet. Mellomrom kikker mens man holder;
        knappen låser det på for den som vil sammenligne i ro. */
+    /* «På bakken» bytter kameramodell: fra å se modellen ovenfra til å stå i
+       den. Bare vegen har en skinne å stå på; tomta kommer etter. */
+    if (id2('v3_bakken')) {
+      const kb = id2('v3_bakken');
+      kb.setAttribute('aria-pressed', 'false');
+      /* Knappen leser tilstanden ut av visningen, ikke ut av sitt eget klikk.
+         ↺ og Esc går også ut av bakkemodus, og da må knappen slippe seg selv. */
+      Veg3d.paaModus = m => {
+        const pa = m === 'bakken';
+        kb.classList.toggle('aktiv', pa);
+        kb.setAttribute('aria-pressed', pa ? 'true' : 'false');
+        kb.textContent = pa ? 'Se ovenfra' : 'På bakken';
+      };
+      kb.onclick = () => {
+        Veg3d.settModus(Veg3d.modus === 'bakken' ? 'oversikt' : 'bakken');
+        const o = document.getElementById('veg3dover');
+        if (o) o.focus();          // tastene skal virke uten et klikk til
+      };
+    }
     for (const [id3, vis] of [['t3_foer', () => Tomt3d], ['v3_foer', () => Veg3d]]) {
       const e = id2(id3);
       if (!e) continue;
