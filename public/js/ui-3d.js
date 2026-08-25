@@ -137,6 +137,13 @@ const Tegner3d = {
      fire tusen meter og vandre ut i skogen. Da er verken det ene eller det
      andre til å stole på. */
   ferd: 'gaa',              // 'gaa' | 'fly'
+  /* I FLYMODUS ER HØYDEN EN KOTE, IKKE EN AVSTAND TIL BAKKEN.
+     Med bare `kamH` klistret kameraet seg til terrenget: man «fløy», men fulgte
+     hver kul og hver grøft i konstant høyde over dem, som en helikoptersimulator
+     med bakkeradar. Da kan man ikke stige opp og se utover, og W med blikket
+     ned fører ikke nedover. `kamZ` er den frie høyden over havet; `kamH` er den
+     som gjelder når man går, og blir en avlesning når man flyr. */
+  kamZ: null,
 
 
   /**
@@ -472,6 +479,13 @@ const Tegner3d = {
            krappe kurver på en veg – tegnes ikke. Dybdebufferet ville tegnet
            dem uten et ord. Tomta setter aldri feltet. */
         if (g.celleSperre && g.celleSperre[k00]) continue;
+        /* HELT BAK ØYET? DA ER DET INGENTING Å REGNE PÅ.
+           Står man i modellen, ligger omtrent halve gitteret bak ryggen, og hver
+           eneste av de cellene gikk gjennom lysberegningen – et kryssprodukt,
+           en normalisering og et oppslag i paletten – før klippingen kastet dem.
+           Fire sammenligninger i stedet. Målt på en veg med 27 000 noder:
+           56,7 ms per bilde ble 34,4, altså 18 bilder i sekundet mot 29. */
+        if (pw[k00] <= naer && pw[k10] <= naer && pw[k01] <= naer && pw[k11] <= naer) continue;
         this._idNa = k00;
         const f = farge(k00, k10, k01, k11, hoyde);
         if (f === 0) continue;
@@ -537,8 +551,27 @@ const Tegner3d = {
     if (b < 20 || h < 20) { this._sisteGitter = null; return; }
 
     const dpr = Math.min(2, window.devicePixelRatio || 1);
-    // under dragning og gåing tegnes rasteret grovere og blåses opp
-    const kvalitet = (this._drar || this._farer) ? 0.6 : 1;
+    /* OPPLØSNINGEN FØLGER MASKINEN, IKKE ET FAST TALL.
+       Her sto 0,6 i bevegelse og 1 ellers. Det er riktig på ett gitter og galt
+       på alle andre: målt på en veg med 27 000 noder tok et bilde 32 ms i 60 %,
+       altså 31 i sekundet, mens en liten tomt gikk i 4 ms og hadde tålt full
+       oppløsning hele veien. Et fast tall gir enten et hakkete stort anlegg
+       eller et unødig grovt lite.
+       Nå styres den av tiden forrige bilde tok, mot et budsjett på 28 ms – den
+       ene tingen brukeren faktisk merker. Justeringen er myk (10 % per bilde),
+       for et bilde som hopper mellom skarpt og grovt er verre å se på enn et
+       som er jevnt grovt. */
+    let kvalitet = 1;
+    if (this._drar || this._farer) {
+      const t = this._sisteTegnetid || 16;
+      const mal = 28;
+      let k = this._farteKvalitet || 0.7;
+      if (t > mal * 1.25) k -= 0.1;
+      else if (t < mal * 0.7) k += 0.1;
+      this._farteKvalitet = Math.max(0.4, Math.min(1, k));
+      kvalitet = this._farteKvalitet;
+    }
+    const tegnStart = performance.now();
     const rb = Math.max(2, Math.round(b * dpr * kvalitet));
     const rh = Math.max(2, Math.round(h * dpr * kvalitet));
     if (c.width !== rb || c.height !== rh) { c.width = rb; c.height = rh; }
@@ -712,6 +745,8 @@ const Tegner3d = {
     this._sisteKam = kam;
     this._sisteRb = rb; this._sisteRh = rh;
     this._tegnOverlegg(g, kam, b, h, dpr);
+    // det neste bildet velger oppløsning etter hvor lang tid dette tok
+    this._sisteTegnetid = performance.now() - tegnStart;
   },
 
 
@@ -1334,7 +1369,15 @@ const Tegner3d = {
     if (f !== 'gaa' && f !== 'fly') return;
     if (this.ferd === f) return;
     this.ferd = f;
-    if (f === 'gaa') this.kamH = Tegner3d.OYEHOYDE;
+    if (f === 'gaa') { this.kamH = Tegner3d.OYEHOYDE; this.kamZ = null; }
+    else {
+      /* Man letter FRA der man står: den frie høyden settes til den man hadde.
+         Uten det ville et trykk på G kastet kameraet til forrige gangs kote –
+         gjerne et helt annet sted i landskapet. */
+      const g = this._sisteGitter;
+      const gulv = (g && this._gulvNa) ? this._gulvNa(g) : null;
+      this.kamZ = (gulv != null && Number.isFinite(gulv)) ? gulv + this.kamH : null;
+    }
     /* Landingen må hente deg INN på anlegget. Fløy man ut over skråningsfoten
        og trykket G, ble man stående utenfor med en grense som sa at man ikke
        kunne komme dit – uten en eneste tast som førte tilbake. */
@@ -1389,13 +1432,23 @@ const Tegner3d = {
        går man sakte, hever man seg dekker man strekning. Går man, er høyden
        låst i 1,7 m, og da degenererer regelen til gulvet uansett. Ett tall,
        skrevet én gang. */
-    const fart = (this.ferd === 'gaa' ? 4.5 : Math.max(4.5, Math.min(600, 2.2 * this.kamH)))
+    const flyr = this.ferd === 'fly';
+    const fart = (flyr ? Math.max(4.5, Math.min(600, 2.2 * this.kamH)) : 4.5)
       * (this.fartsfaktor || 1)
       * (t.has('shift') ? 3.5 : 1) * (t.has('alt') ? 0.3 : 1);
     let endret = false;
     if (fram || side) {
       const n = Math.hypot(fram, side);
-      this._bakkeFlytt(fram / n * fart * dt, side / n * fart * dt);
+      /* FLYR MAN, GÅR W DIT NESA PEKER – OGSÅ NEDOVER.
+         Uten dette fløy man i vannrett plan uansett hvor man så: pekte man nesa
+         ned mot en fylling og ga gass, ble man svevende like høyt og gled forbi
+         over den. Fram deles derfor på en vannrett og en loddrett del etter
+         blikkets høydevinkel, akkurat som et fly. Sidelengs er alltid vannrett –
+         man ruller ikke. */
+      const p = flyr ? this.kamPitch * Math.PI / 180 : 0;
+      const vann = Math.cos(p);
+      this._bakkeFlytt(fram / n * fart * dt * vann, side / n * fart * dt);
+      if (flyr && fram) this._bakkeHev(fram / n * fart * dt * Math.sin(p));
       endret = true;
     }
     if (opp) {
@@ -1403,12 +1456,33 @@ const Tegner3d = {
          bildet troverdig – en fylling som rager tolv meter over hodet ditt skal
          rage tolv meter, ikke ni eller femten. Første trykk bytter derfor til
          fly i stedet for å heve i det stille. */
-      if (this.ferd === 'gaa') { this.settFerd('fly'); return true; }
-      // høyden ganges, ikke legges til: ett sekund på Q er alltid samme SPRANG
-      this.kamH = Math.max(1.6, Math.min(4000, this.kamH * Math.exp(opp * 1.6 * dt)));
+      if (!flyr) { this.settFerd('fly'); return true; }
+      /* Loddrett fart i meter per sekund, samme tall som framover. Her sto en
+         ganging – `kamH * exp(...)` – og den er riktig for en zoom, men gal for
+         en heis: nær bakken krøp man oppover i centimeter, og høyt oppe skjøt
+         man forbi hele modellen på et sekund. */
+      this._bakkeHev(opp * fart * dt);
       endret = true;
     }
     return endret;
+  },
+
+  /**
+   * Hever eller senker kameraet i flymodus. Meter, ikke faktor.
+   *
+   * Under bakken slipper vi ingen: én meter over gulvet er gulvet i flymodus
+   * òg. Å havne INNI terrenget er ikke en utsikt, det er en svart skjerm uten
+   * forklaring, og det er den enkleste måten å tro at programmet har hengt seg.
+   */
+  _bakkeHev(dz) {
+    if (this.ferd !== 'fly' || !dz) return;
+    const g = this._sisteGitter;
+    const gulv = (g && this._gulvNa) ? this._gulvNa(g) : null;
+    const na = this.kamZ != null ? this.kamZ : ((gulv != null ? gulv : 0) + this.kamH);
+    let ny = na + dz;
+    if (gulv != null && Number.isFinite(gulv)) ny = Math.max(gulv + 1.6, Math.min(gulv + 4000, ny));
+    this.kamZ = ny;
+    if (gulv != null && Number.isFinite(gulv)) this.kamH = ny - gulv;
   },
 
   /** Løkka som holder gåingen i gang så lenge en tast er nede. */

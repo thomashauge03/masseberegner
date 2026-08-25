@@ -4699,7 +4699,15 @@ const App = {
        noen faktisk trykker på den. */
     const id2 = i => document.getElementById(i);
     if (id2('tomtVisSnitt')) id2('tomtVisSnitt').onclick = () => Tomt3d.aktiver(false);
-    if (id2('tomtVis3d')) id2('tomtVis3d').onclick = () => Tomt3d.aktiver(true);
+    /* «Se ovenfra» er en av de tre kameramåtene, ikke bare en av/på-bryter:
+       står man i modellen og trykker på den, skal man opp og se hele tomta.
+       Uten dette var aktiver(true) et null-kall når 3D alt var på, og knappen
+       gjorde ingenting mens den så trykket ut. */
+    if (id2('tomtVis3d')) id2('tomtVis3d').onclick = () => {
+      Tomt3d.aktiver(true);
+      Tomt3d.settModus('oversikt');
+      if (Tomt3d.paaModus) Tomt3d.paaModus('oversikt');
+    };
     for (const [felt, boks] of [['terreng', 't3_terreng'], ['grav', 't3_grav'],
       ['fjell', 't3_fjell'], ['overbygning', 't3_overbygning'],
       ['rutenett', 't3_rutenett'], ['grenser', 't3_grenser']]) {
@@ -4727,46 +4735,53 @@ const App = {
        knappen låser det på for den som vil sammenligne i ro. */
     /* «På bakken» bytter kameramodell: fra å se modellen ovenfra til å stå i
        den. Bare vegen har en skinne å stå på; tomta kommer etter. */
-    for (const [knappId, visId, lerretId, vis] of [
-      ['v3_bakken', 'vegVis3d', 'veg3dover', () => Veg3d],
-      ['t3_bakken', 'tomtVis3d', 'tomt3dover', () => Tomt3d]]) {
-      const kb = id2(knappId);
-      if (!kb) continue;
+    /* TRE MÅTER Å SE ANLEGGET PÅ, SOM TRE KNAPPER SOM SLÅR HVERANDRE AV.
+       «Se ovenfra» er hele modellen på avstand. «Gå» er et menneske på
+       anlegget. «Fly» er kameraet fritt i lufta. Det er tre kameraer, ikke ett
+       med to brytere, og da skal de se ut som tre valg – ikke som en knapp som
+       bytter tekst mellom «På bakken» og «Se ovenfra» avhengig av en tilstand
+       man ikke ser. */
+    for (const [pre, visId, lerretId, vis] of [
+      ['v3', 'vegVis3d', 'veg3dover', () => Veg3d],
+      ['t3', 'tomtVis3d', 'tomt3dover', () => Tomt3d]]) {
+      const kGaa = id2(pre + '_bakken'), kFly = id2(pre + '_fly'), kOpp = id2(visId);
+      if (!kGaa || !kFly) continue;
       const v = vis();
-      kb.setAttribute('aria-pressed', 'false');
-      /* Knappen leser tilstanden ut av visningen, ikke ut av sitt eget klikk.
-         ↺ og Esc går også ut av bakkemodus, og da må knappen slippe seg selv. */
-      v.paaModus = m => {
-        const pa = m === 'bakken';
-        kb.classList.toggle('aktiv', pa);
-        kb.setAttribute('aria-pressed', pa ? 'true' : 'false');
-        kb.textContent = pa ? 'Se ovenfra' : 'På bakken';
+      const vis3 = () => {
+        const paaGaa = v.aktiv && v.modus === 'bakken' && v.ferd === 'gaa';
+        const paaFly = v.aktiv && v.modus === 'bakken' && v.ferd === 'fly';
+        for (const [k, pa] of [[kGaa, paaGaa], [kFly, paaFly]]) {
+          k.classList.toggle('aktiv', pa);
+          k.setAttribute('aria-pressed', pa ? 'true' : 'false');
+        }
+        // «Se ovenfra» er på når 3D er på og man ikke står i modellen
+        if (kOpp) kOpp.classList.toggle('aktiv', v.aktiv && v.modus !== 'bakken');
       };
-      kb.onclick = () => {
-        /* «På bakken» står ved siden av Snitt og 3D, og skal virke derfra selv
-           om 3D-en ikke er slått på ennå – ellers er den en knapp som ikke gjør
-           noe, og det er verre enn en knapp som er gjemt. */
-        if (v.modus !== 'bakken' && !v.aktiv) id2(visId).click();
-        v.settModus(v.modus === 'bakken' ? 'oversikt' : 'bakken');
+      /* Knappene leser tilstanden ut av visningen, ikke ut av sitt eget klikk:
+         ↺, Esc og G går også mellom modusene, og da må knappene følge etter. */
+      v.paaModus = () => vis3();
+      v.paaFerd = () => vis3();
+      const inn = ferd => {
+        /* Knappene står ved siden av Snitt og «Se ovenfra», og skal virke
+           derfra selv om 3D-en ikke er slått på ennå – ellers er de knapper som
+           ikke gjør noe, og det er verre enn knapper som er gjemt. */
+        if (!v.aktiv) id2(visId).click();
+        v.settFerd(ferd);
+        v.settModus('bakken');
+        vis3();
         const o = document.getElementById(lerretId);
         if (o) o.focus();          // tastene skal virke uten et klikk til
       };
+      kGaa.onclick = () => (v.modus === 'bakken' && v.ferd === 'gaa'
+        ? v.settModus('oversikt') : inn('gaa'));
+      kFly.onclick = () => (v.modus === 'bakken' && v.ferd === 'fly'
+        ? v.settModus('oversikt') : inn('fly'));
+      vis3();
     }
     /* Fartsvelgeren og tastene + og − er den SAMME innstillingen.
        Skruen står i menyen fordi den er en innstilling; tastene finnes fordi man
        ikke vil åpne en meny midt i en kjøretur. Da må de holde hverandre
        oppdatert, ellers viser menyen 1× mens man farer av sted i 8×. */
-    /* GÅ ELLER FLY. Velgeren og G-tasten er den SAMME innstillingen, så de må
-       holde hverandre oppdatert – ellers står det «Gå på anlegget» i menyen mens
-       man svever femti meter over den. */
-    for (const [id3, vis] of [['v3_ferd', () => Veg3d], ['t3_ferd', () => Tomt3d]]) {
-      const e = id2(id3);
-      if (!e) continue;
-      const v = vis();
-      v.paaFerd = f => { e.value = f; };
-      e.onchange = () => v.settFerd(e.value);
-      e.value = v.ferd;
-    }
     for (const [id3, vis] of [['v3_fart', () => Veg3d], ['t3_fart', () => Tomt3d]]) {
       const e = id2(id3);
       if (!e) continue;
@@ -4872,7 +4887,12 @@ const App = {
 
     /* Det samme for vegen, i tverrprofil-panelet. */
     if (id2('vegVisSnitt')) id2('vegVisSnitt').onclick = () => Veg3d.aktiver(false);
-    if (id2('vegVis3d')) id2('vegVis3d').onclick = () => Veg3d.aktiver(true);
+    // «Se ovenfra» tar deg OPP, også fra bakken – se tomtVis3d over
+    if (id2('vegVis3d')) id2('vegVis3d').onclick = () => {
+      Veg3d.aktiver(true);
+      Veg3d.settModus('oversikt');
+      if (Veg3d.paaModus) Veg3d.paaModus('oversikt');
+    };
     for (const [felt, boks] of [['terreng', 'v3_terreng'], ['grav', 'v3_grav'],
       ['vegbane', 'v3_vegbane'], ['fjell', 'v3_fjell'],
       ['rutenett', 'v3_rutenett'], ['grenser', 'v3_grenser']]) {

@@ -139,9 +139,10 @@
            det samme på. -->
       <div class="visvalg">
         <button id="vegVisSnitt" class="verktoyknapp aktiv" title="Tverrsnitt gjennom vegen">Snitt</button>
-        <button id="vegVis3d" class="verktoyknapp" title="Se vegen i tre dimensjoner">3D</button>
+        <button id="vegVis3d" class="verktoyknapp" title="Se hele vegen i tre dimensjoner, ovenfra og skrått">Ovenfra</button>
+        <button id="v3_fly" class="verktoyknapp" aria-pressed="false" title="Fly fritt over anlegget. W A S D flyr dit nesa peker, Q og E hever og senker, musa styrer. G lander deg.">Fly</button>
         <button id="v3_bakken" class="verktoyknapp" aria-pressed="false"
-                title="Gå ned på bakken og kjør strekket. W A S D eller piltastene kjører, Shift løper, musa ser seg om, Q og E hever og senker deg, + og − endrer farten, Esc tar deg tilbake.">På bakken</button>
+                title="Gå ned på bakken og kjør strekket. W A S D eller piltastene kjører, Shift løper, musa ser seg om, Q og E hever og senker deg, + og − endrer farten, Esc tar deg tilbake.">Gå</button>
       </div>
       <div class="verktoy">
         <button id="tverrForrige" class="verktoyknapp">◀</button>
@@ -183,10 +184,6 @@
             <button id="v3_etter" class="verktoyknapp" aria-pressed="false"
                     title="Landskapet slik det blir når alt er ferdig: ferdig vegbane, skråningene der de lander, dagens mark utenfor. Ingen massefarger.">Etter</button>
           </span>
-          <select id="v3_ferd" class="minivalg" title="Gå: øyet står i 1,7 m og du holder deg på anlegget. Fly: fritt, hev deg og se hvor bredt inngrepet blir. G bytter.">
-            <option value="gaa" selected>Gå på anlegget</option>
-            <option value="fly">Fly fritt</option>
-          </select>
           <select id="v3_fart" class="minivalg" title="Hvor fort man går i bakkemodus. + og − gjør det samme.">
             <option value="0.5">Fart ½×</option>
             <option value="1" selected>Fart 1×</option>
@@ -248,9 +245,10 @@
            3D-en viser hvordan skråningene legger seg rundt. -->
       <div class="visvalg">
         <button id="tomtVisSnitt" class="verktoyknapp aktiv" title="Tverrsnitt gjennom tomta">Snitt</button>
-        <button id="tomtVis3d" class="verktoyknapp" title="Se tomta i tre dimensjoner">3D</button>
+        <button id="tomtVis3d" class="verktoyknapp" title="Se hele tomta i tre dimensjoner, ovenfra og skrått">Ovenfra</button>
+        <button id="t3_fly" class="verktoyknapp" aria-pressed="false" title="Fly fritt over tomta. W A S D flyr dit nesa peker, Q og E hever og senker, musa styrer. G lander deg.">Fly</button>
         <button id="t3_bakken" class="verktoyknapp" aria-pressed="false"
-                title="Gå ned på bakken og gå rundt på tomta. W A S D eller piltastene går, Shift løper, musa ser seg om, Q og E hever og senker deg, + og − endrer farten, Esc tar deg tilbake.">På bakken</button>
+                title="Gå ned på bakken og gå rundt på tomta. W A S D eller piltastene går, Shift løper, musa ser seg om, Q og E hever og senker deg, + og − endrer farten, Esc tar deg tilbake.">Gå</button>
       </div>
       <div class="verktoy">
         <label class="minitall">Ferdig kote
@@ -297,10 +295,6 @@
             <button id="t3_etter" class="verktoyknapp" aria-pressed="false"
                     title="Landskapet slik det blir når alt er ferdig: ferdig tomteflate, skråningene der de lander, dagens mark utenfor. Ingen massefarger.">Etter</button>
           </span>
-          <select id="t3_ferd" class="minivalg" title="Gå: øyet står i 1,7 m og du holder deg på anlegget. Fly: fritt, hev deg og se hvor bredt inngrepet blir. G bytter.">
-            <option value="gaa" selected>Gå på anlegget</option>
-            <option value="fly">Fly fritt</option>
-          </select>
           <select id="t3_fart" class="minivalg" title="Hvor fort man går i bakkemodus. + og − gjør det samme.">
             <option value="0.5">Fart ½×</option>
             <option value="1" selected>Fart 1×</option>

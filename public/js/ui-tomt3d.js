@@ -310,8 +310,20 @@ const Tomt3d = Object.assign(Object.create(Tegner3d), {
       gulv = this._gulv(g, this.kamX, this.kamY);
     }
     if (!Number.isFinite(gulv)) return null;
+    /* Flyr man, står høyden stille mens landskapet ruller under. Går man,
+       følger øyet bakken slavisk – det er det føtter gjør. Se ui-veg3d.js. */
+    if (this.ferd === 'fly') {
+      if (this.kamZ == null) this.kamZ = gulv + this.kamH;
+      const z = Math.max(gulv + 1.6, this.kamZ);
+      this.kamZ = z;
+      this.kamH = z - gulv;
+      return { x: this.kamX, y: this.kamY, z };
+    }
     return { x: this.kamX, y: this.kamY, z: gulv + this.kamH };
   },
+
+  /** Gulvet rett under kameraet – det basen trenger for å begrense flygingen. */
+  _gulvNa(g) { return this._gulv(g, this.kamX, this.kamY); },
 
   /**
    * Hvor man lander når man går ned på bakken.

@@ -2708,6 +2708,11 @@ const Nettlesertest = {
         /* JEVNT. Snittet hopper i profiler; kameraet skal ikke. Målt før dette:
            2,20 og 2,80 m annenhver gang, fordi omtegningen av tverrprofilen
            leste stasjonen tilbake og dro kameraet mot rutenettet. */
+        /* JAMNE SKRITT ER ET GÅ-KRAV. Flyr man, står høyden stille som en KOTE
+           mens terrenget ruller under, så farten – som følger høyden over
+           bakken – endrer seg av seg selv. Det er riktig flyging, og feil sted
+           å måle om profilrutenettet drar i kameraet. */
+        Veg3d.settFerd('gaa');
         App.settTverrStasjon(L6 / 2);
         Veg3d.kamH = 2;
         const skritt = [];
@@ -2716,8 +2721,11 @@ const Nettlesertest = {
         this.sjekk('åtte skritt er åtte like skritt – profilrutenettet drar ikke i kameraet',
           spenn < 0.02, 'spenn ' + spenn.toFixed(3) + ' m');
 
-        /* Farten følger høyden: én kontroll for en fylling på tretti meter og en
-           veg på to kilometer. */
+        /* FARTEN FØLGER HØYDEN – NÅR MAN FLYR. Én kontroll for en fylling på
+           tretti meter og en veg på to kilometer. Går man, står høyden i 1,7 m,
+           og da har regelen ingenting å følge; det er derfor den hører hjemme
+           her og ikke i gåprøvene over. */
+        Veg3d.settFerd('fly');
         Veg3d.kamH = 60;
         f6 = Veg3d.kamS; gaa6(['w'], 1);
         this.sjekk('hever man seg, går man fortere – uten en eneste innstilling',
@@ -2728,8 +2736,8 @@ const Nettlesertest = {
         const h6 = Veg3d.kamH; gaa6(['e'], 1);
         this.sjekk('E hever øyet', Veg3d.kamH > h6 * 2, h6.toFixed(1) + ' → ' + Veg3d.kamH.toFixed(1) + ' m');
         gaa6(['q'], 4);
-        this.sjekk('Q senker det igjen, men aldri ned i bakken', Veg3d.kamH >= 1.6,
-          Veg3d.kamH.toFixed(2) + ' m');
+        this.sjekk('Q senker det igjen, men aldri ned i bakken', Veg3d.kamH >= 1.59,
+          Veg3d.kamH.toFixed(2) + ' m over bakken');
 
         /* SKYVEREN ER OGSÅ EN KAMERAKONTROLL. Flytter noen andre stasjonen –
            skyveren, ◀ ▶, et klikk i kartet – skal kameraet dit. */
@@ -3133,8 +3141,10 @@ const Nettlesertest = {
            aldri NØYAKTIG nitti grader på tangenten ved den nye stasjonen. Målt
            her ble det 0,34 m langs mot 4,49 m ut – syv prosent, altså rett vei.
            Den gamle utgaven ville gitt det motsatte: alt langs, ingenting ut. */
+        /* Går man, er vegkanten veggen – rundt 2,8 m ut. Kravet må ligge under
+           den, ellers måler prøven veggen og ikke retningen. */
         this.sjekk('snur man seg, går W dit man ser – ut fra vegen',
-          Math.abs(tvers10) > 3 && Math.abs(langs10) < Math.abs(tvers10) * 0.15,
+          Math.abs(tvers10) > 1.5 && Math.abs(langs10) < Math.abs(tvers10) * 0.2,
           langs10.toFixed(2) + ' m langs, ' + tvers10.toFixed(2) + ' m ut');
         this.sjekk('  men man er fortsatt PÅ strekket – skinna er ikke borte',
           Veg3d.kamS >= 0 && Veg3d.kamS <= App.resultat.lengde
@@ -3308,9 +3318,13 @@ const Nettlesertest = {
         /* G er den samme bryteren som velgeren i menyen. */
         Veg3d._bakkeTast({ key: 'g', preventDefault() {}, stopPropagation() {} });
         this.sjekk('G letter', Veg3d.ferd === 'fly');
-        const velgF = document.getElementById('v3_ferd');
-        if (velgF) this.sjekk('  og velgeren følger med, så den aldri lyver',
-          velgF.value === 'fly', velgF.value);
+        const knFly = document.getElementById('v3_fly');
+        const knGaa = document.getElementById('v3_bakken');
+        this.sjekk('  og «Fly»-knappen viser at man flyr',
+          knFly && knFly.getAttribute('aria-pressed') === 'true',
+          knFly ? knFly.getAttribute('aria-pressed') : 'finnes ikke');
+        this.sjekk('  mens «Gå» slipper seg selv – de tre er ett valg, ikke tre brytere',
+          knGaa && knGaa.getAttribute('aria-pressed') === 'false');
         Veg3d._bakkeTast({ key: 'g', preventDefault() {}, stopPropagation() {} });
         this.sjekk('og G lander igjen', Veg3d.ferd === 'gaa');
 

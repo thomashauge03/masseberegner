@@ -205,7 +205,17 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
     return g.harGrav[best] ? g.zP[best] : g.zT[best];
   },
 
-  /** Øyet: på skinna, kamH over gulvet. Kan ikke havne under en flate. */
+  /** Gulvet rett under kameraet – det basen trenger for å begrense flygingen. */
+  _gulvNa(g) { return this._gulv(g, this.kamS, this.kamT); },
+
+  /**
+   * Øyet: på skinna. Går man, kamH over gulvet; flyr man, på sin egen kote.
+   *
+   * Forskjellen er hele forskjellen mellom de to måtene: går man, følger øyet
+   * bakken slavisk, for det er det føtter gjør. Flyr man, står høyden stille
+   * mens landskapet ruller under – ellers er det ikke flyging, det er en
+   * svevende gange som følger hver kul.
+   */
   _bakkePos(g) {
     const app = this.app;
     if (!app.linje || !g) return null;
@@ -213,6 +223,13 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
     if (!p2 || !Number.isFinite(p2.x)) return null;
     const gulv = this._gulv(g, this.kamS, this.kamT);
     if (!Number.isFinite(gulv)) return null;
+    if (this.ferd === 'fly') {
+      if (this.kamZ == null) this.kamZ = gulv + this.kamH;
+      const z = Math.max(gulv + 1.6, this.kamZ);
+      this.kamZ = z;
+      this.kamH = z - gulv;              // avlesning: hvor høyt over bakken man er nå
+      return { x: p2.x, y: p2.y, z };
+    }
     return { x: p2.x, y: p2.y, z: gulv + this.kamH };
   },
 

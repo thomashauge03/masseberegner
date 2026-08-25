@@ -277,8 +277,12 @@ body {
 #tverrprofil { flex: 1; min-width: 0; }
 
 /* Vekslaren mellom snitt og 3D. Står i panelhovudet, rett etter tittelen. */
-.visvalg { display: flex; gap: 2px; margin-left: 6px; flex: none; }
-.visvalg .verktoyknapp { padding: 2px 9px; }
+/* FIRE KAMERAMÅTER I STEDET FOR TO tok hodet fra én rad til to – 39 px ble 69,
+   og tegneflaten betaler hver piksel. Knappene står tett i tett fordi de er ÉN
+   bryter med fire stillinger; da trenger de ikke luft mellom seg, bare rundt
+   gruppa. */
+.visvalg { display: flex; gap: 1px; margin-left: 6px; flex: none; }
+.visvalg .verktoyknapp { padding: 2px 6px; }
 .verktoygruppe { display: contents; }
 .verktoygruppe.skjult { display: none; }
 .lagvalg { display: flex; gap: 2px; flex-wrap: wrap; }
@@ -474,7 +478,7 @@ body {
 /* Skyveren gir fra seg plass i stedet for å tvinge fram en ny rad. Med fast
    220 px var den det som brøt tverrpanelets verktøylinje på smal skjerm, og en
    ekstra rad koster 29 px av tegneflaten. */
-.skyver { flex: 1 1 140px; min-width: 110px; max-width: 220px; accent-color: var(--hm-raud); }
+.skyver { flex: 1 1 110px; min-width: 70px; max-width: 220px; accent-color: var(--hm-raud); }
 
 /* ── sidepanel ─────────────────────────────────────────── */
 /* FANENE MÅ ALLE VÆRE PÅ SKJERMEN.
