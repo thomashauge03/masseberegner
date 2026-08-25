@@ -3099,6 +3099,90 @@ const Nettlesertest = {
         await this.vent(250);
       }
 
+      /* 17.20 MODELLEN SKAL IKKE VÆRE ET SPEILBILDE AV KARTET.
+         Dette lå i kameraet fra første dag og var usynlig: en terrengflate ser
+         like troverdig ut speilvendt. Rotasjonen var venstrehendt – skjermens
+         høyreakse var (cos a, sin a) der den skulle vært (−cos a, −sin a) – så
+         modellen viste øst til høyre men NORD NEDOVER. Sett rett ovenfra var
+         den et speilbilde av kartet, og på bakken lå høyre side av vegen til
+         venstre i bildet.
+         For et masseberegningsprogram er det ikke en skjønnhetsfeil: «fyllinga
+         ligger på venstre side oppover» er da feil side, og det er den setningen
+         som havner i et tilbud.
+         Prøven binder bildet til KARTET, ikke til formelen: øst skal være til
+         høyre og nord oppover når man ser rett ned, og høyre side av vegen skal
+         ligge til høyre når man står på den og ser framover. */
+      {
+        Veg3d.settModus('oversikt');
+        Veg3d.nullstill();
+        await this.vent(250);
+        const gS = Veg3d._sisteGitter;
+        this.sjekk('det finnes et gitter å måle på', !!gS);
+        if (gS) {
+          /* NESTEN RETT NED: da skal bildet være kartet. */
+          Veg3d.yaw = 0; Veg3d.pitch = 89;
+          Veg3d.fokus = null; Veg3d.panX = 0; Veg3d.panY = 0;
+          Veg3d._skalaSatt = false;
+          Veg3d.tegn();
+          await this.vent(300);
+          const kS = Veg3d._sisteKam;
+          const midt = { x: gS.midtX, y: gS.midtY, z: (gS.lav + gS.hoy) / 2 };
+          const q0 = kS.punkt(midt.x, midt.y, midt.z);
+          const qOst = kS.punkt(midt.x + 100, midt.y, midt.z);
+          const qNord = kS.punkt(midt.x, midt.y + 100, midt.z);
+          this.sjekk('sett rett ned ligger ØST til høyre, som i kartet',
+            qOst.px - q0.px > 20, Math.round(qOst.px - q0.px) + ' px');
+          this.sjekk('og NORD oppover, som i kartet',
+            q0.py - qNord.py > 20, Math.round(q0.py - qNord.py) + ' px');
+          /* Nordpila peker samme vei som nord faktisk går. Uten dette kunne
+             begge være snudd, og de to feilene ville skjult hverandre. */
+          const aP = -Veg3d.yaw * Math.PI / 180;
+          this.sjekk('  og nordpila peker samme vei som nord faktisk går',
+            Math.sign(-Math.cos(aP)) === Math.sign(qNord.py - q0.py) || Math.abs(qNord.py - q0.py) < 1,
+            'pil ' + (-Math.cos(aP)).toFixed(2) + ' mot bilde ' + Math.sign(qNord.py - q0.py));
+          Veg3d.pitch = Veg3d.pitchHjem;
+        }
+
+        /* PÅ BAKKEN: høyre side av vegen skal ligge til høyre i bildet. */
+        App.settTverrStasjon(App.resultat.lengde / 2);
+        Veg3d.settModus('bakken');
+        await this.vent(350);
+        Veg3d.kamT = 0;
+        Veg3d.seFramover();
+        Veg3d.tegn();
+        await this.vent(250);
+        const kB = Veg3d._sisteKam, gB = Veg3d._sisteGitter;
+        const sB = Veg3d.kamS;
+        const zB = Veg3d._gulv(gB, sB + 40, 0);
+        const hoyre = App.linje.punktMedAvvik(sB + 40, 8);
+        const venstre = App.linje.punktMedAvvik(sB + 40, -8);
+        const senter = App.linje.punktVed(sB + 40);
+        const qH = kB.punkt(hoyre.x, hoyre.y, zB);
+        const qV = kB.punkt(venstre.x, venstre.y, zB);
+        const qM = kB.punkt(senter.x, senter.y, zB);
+        this.sjekk('det man går mot ligger FORAN kameraet', qM.w > 0, 'dybde ' + qM.w.toFixed(0) + ' m');
+        /* MÅLT MOT SENTERLINJA, IKKE MOT SKJERMENS MIDTE.
+           I en kurve ligger senterlinja 40 m framme ute til siden – det er
+           riktig, blikket følger tangenten – og en prøve som krevde midten
+           målte da radien og ikke hendigheten. Forholdet mellom de tre punktene
+           er derimot det samme uansett kurve: høyre kant til høyre for
+           senterlinja, venstre kant til venstre. Det er nettopp det speilingen
+           snudde. */
+        this.sjekk('HØYRE side av vegen ligger til HØYRE for senterlinja i bildet',
+          qH.px > qM.px + 2, 'høyre px ' + qH.px.toFixed(0) + ' mot senter ' + qM.px.toFixed(0));
+        this.sjekk('og venstre side til venstre for den',
+          qV.px < qM.px - 2, 'venstre px ' + qV.px.toFixed(0) + ' mot senter ' + qM.px.toFixed(0));
+        this.sjekk('  og de to ligger på hver sin side, ikke oppå hverandre',
+          qH.px - qV.px > 10, (qH.px - qV.px).toFixed(0) + ' px mellom kantene');
+        const bakM = App.linje.punktVed(Math.max(0, sB - 40));
+        this.sjekk('og det man har gått forbi ligger bak',
+          kB.punkt(bakM.x, bakM.y, Veg3d._gulv(gB, sB - 40, 0)).w < 0);
+
+        Veg3d.settModus('oversikt');
+        Veg3d.nullstill();
+        await this.vent(250);
+      }
+
       /* 17.10 Kostnad – røykprøve mot en katastrofal regresjon. */
       {
         Veg3d.tegn();

@@ -82,6 +82,12 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
       const k = document.getElementById(id);
       if (k) k.classList.toggle('aktiv', pa2);
     }
+    /* SLÅR MAN AV 3D, ER MAN IKKE PÅ BAKKEN LENGER.
+       `aktiver` rørte ikke modus. Sto man på bakken og trykket «Snitt», ble
+       modus stående på 'bakken' mens knappen fortsatt sa «Se ovenfra» – og
+       trykket man da på den, slo den bare av en modus ingen kunne se. Klikket
+       så ut som om det ikke gjorde noe. */
+    if (!this.aktiv && this.modus === 'bakken') this.settModus('oversikt', true);
     /* Modellen fyller arbeidsflaten. Se App.stort3d. */
     if (this.app.stort3d) this.app.stort3d('tverr', this.aktiv);
     if (this.aktiv) { this._gitterFor = null; this._skalaSatt = false; this.tegn(); }
@@ -227,7 +233,7 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
     const res = this.app.resultat;
     if (!res || !this.app.linje) return;
     const p2 = this.app.linje.punktVed(this.kamS);
-    const vegYaw = (p2 && Number.isFinite(p2.retning)) ? p2.retning * 180 / Math.PI + 90 : this.kamYaw;
+    const vegYaw = (p2 && Number.isFinite(p2.retning)) ? p2.retning * 180 / Math.PI - 90 : this.kamYaw;
     const d = (this.kamYaw - vegYaw) * Math.PI / 180;
     const cd = Math.cos(d), sd = Math.sin(d);
     const langs = fram * cd + side * sd;      // komponenten som følger vegen
@@ -245,14 +251,14 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
          kjører forbi. Det er slik det er å sitte i et førerhus. */
       const p3 = this.app.linje.punktVed(this.kamS);
       if (p3 && Number.isFinite(p3.retning)) {
-        this.kamYaw += (p3.retning * 180 / Math.PI + 90) - vegYaw;
+        this.kamYaw += (p3.retning * 180 / Math.PI - 90) - vegYaw;
       }
     }
     if (tvers) {
       const g = this._sisteGitter;
       let lav = -30, hoy = 30;
       if (g && g.nh) {
-        const pr = res.profiler.find(q => Math.abs(q.s - this.kamS) < (res.profilsteg || 5));
+        const pr = res.profiler.find(q => Math.abs(q.s - this.kamS) < this._profilsteg(res));
         if (pr) { lav = pr.fotVenstre - 0.8 * this.kontekst; hoy = pr.fotHoyre + 0.8 * this.kontekst; }
       }
       this.kamT = Math.max(lav, Math.min(hoy, this.kamT + tvers));
@@ -264,16 +270,34 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
     const app = this.app;
     if (!app.linje) return;
     const p2 = app.linje.punktVed(this.kamS);
-    if (p2 && Number.isFinite(p2.retning)) this.kamYaw = p2.retning * 180 / Math.PI + 90;
+    if (p2 && Number.isFinite(p2.retning)) this.kamYaw = p2.retning * 180 / Math.PI - 90;
     this.kamPitch = -Math.atan(this.kamH / Math.max(60, 6 * this.kamH)) * 180 / Math.PI;
     this.kamT = 0;
+  },
+
+  /**
+   * Avstanden mellom to profiler, MÅLT PÅ DEM.
+   *
+   * Her sto `res.profilsteg || 5` to steder. Feltet finnes ikke – det heter
+   * `res.mal.profilAvstand` – så uttrykket var alltid 5. Med profilavstand 10
+   * eller 20 m fant sideklemmingen ingen profil innenfor fem meter og falt
+   * tilbake på ±30 m, og piltastene flyttet snittet fem meter av gangen på et
+   * rutenett der det ikke sto noen profil. Måler man på profilene selv, kan
+   * tallet ikke bli galt igjen – uansett hva feltet måtte hete i morgen.
+   */
+  _profilsteg(res) {
+    if (res && res.profiler && res.profiler.length > 1) {
+      const d = res.profiler[1].s - res.profiler[0].s;
+      if (d > 0.01) return d;
+    }
+    return (res && res.mal && res.mal.profilAvstand) || 5;
   },
 
   /** Piltastene går bortover langs vegen, ett profil om gangen. */
   _stegVis(n) {
     const res = this.app && this.app.resultat;
     if (!res || !res.profiler || !res.profiler.length) return;
-    const steg = res.profilsteg || 5;
+    const steg = this._profilsteg(res);
     const na = this.app.tverrStasjon || 0;
     this.app.settTverrStasjon(Math.max(0, Math.min(res.lengde, na + n * steg)));
   },
@@ -525,7 +549,15 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
        terreng, og i «etter» ville vegkant og senterlinje ligget sytti
        centimeter NEDE i vegbanen. Samme tabell som rasteret, og de kan ikke
        drive fra hverandre. */
-    const zF2 = this._flateHoyde(g) || g.zP;
+    /* STREKENE MÅ LIGGE PÅ DEN ØVERSTE FLATEN SOM FAKTISK TEGNES.
+       `_flateHoyde` gir jordarbeidsflaten i arbeidsbildet, og det er riktig for
+       fotlinja – men vegbanen tegnes 0,70 m HØYERE, og senterlinja og
+       vegkantene lå da under sin egen asfalt. Ovenfra så man dem likevel, fordi
+       overlegget ikke visste om dybde. Med dybdeprøven på plass forsvant de:
+       man sto på vegen og hadde ingen senterlinje. */
+    const zF2 = this.visning === 'vanlig' && this.lag.vegbane && g.zEtter
+      ? g.zEtter
+      : (this._flateHoyde(g) || g.zP);
     /* Strekene går gjennom _verdensstrek, som klipper mot nærplanet og prøver
        mot rasterets dybde. Uten den ble en veg man STÅR i til en vifte av
        streker ut fra midten av skjermen: halve vegen ligger bak øyet, og et
@@ -711,7 +743,14 @@ Object.defineProperty(Veg3d, 'kamS', {
   set(v) {
     if (!this.app) return;
     const res = this.app.resultat;
-    const L = (res && res.lengde) || 0;
+    /* KARTLENGDE, IKKE BAKKELENGDE.
+       `res.lengde` er lengden LANGS BAKKEN – linja ganget med bakkefaktoren.
+       Stasjonene i `profiler`, i `punktVed` og i skyveren er derimot
+       kartstasjoner. I bratt terreng er bakkelengden noen prosent lengre, og
+       klemmingen slapp kameraet forbi enden av vegen: `punktVed` svarte null,
+       gulvet ble NaN og bildet falt tilbake til oversikten. Motsatt vei, med
+       bakkefaktor under 1, ville man ikke kommet helt fram. */
+    const L = (res && (res.lengdeKart != null ? res.lengdeKart : res.lengde)) || 0;
     this._kamS = Math.max(0, Math.min(L, v));
     /* BARE NÅR SNITTET FAKTISK BYTTER PROFIL.
        `settTverrStasjon` tegner om tverrprofilen, punkthøydene, kartmerket og

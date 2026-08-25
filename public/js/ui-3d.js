@@ -241,7 +241,7 @@ const Tegner3d = {
       punkt: (wx, wy, wz) => {
         const x = wx - s.x, y = wy - s.y, z = (wz - z0) * ov;
         const rx = x * ca + y * sa;
-        const ry = -x * sa + y * ca;
+        const ry = x * sa - y * ca;              // se MODELLEN VAR SPEILVENDT
         const dk = -(ry * cp + z * sp);
         const sy = ry * sp - z * cp;
         const w = dist + dk;
@@ -274,7 +274,7 @@ const Tegner3d = {
       punkt: (wx, wy, wz) => {
         const x = wx - E.x, y = wy - E.y, z = wz - E.z;
         const rx = x * ca + y * sa;
-        const ry = -x * sa + y * ca;
+        const ry = x * sa - y * ca;              // se MODELLEN VAR SPEILVENDT
         const w = -(ry * cp + z * sp);
         const sy = ry * sp - z * cp;
         return { px: cx + F * rx / w, py: cy + F * sy / w, rx, sy, w };
@@ -537,6 +537,15 @@ const Tegner3d = {
        gang en sjekk på res.rutenett, som er tomtas felt; en veg har profiler i
        stedet, og da ga tegneren opp før den kom til gitteret. */
     if (!this._harData(res)) {
+      /* GITTERET MÅ DØ MED DATAENE.
+         De tre utgangene over nuller `_sisteGitter`; denne og den under gjorde
+         det ikke. Da lå et helt gitter igjen fra forrige modell, og hover-grenen
+         i musekoblingen tegnet overlegget på nytt av det: den gamle tomtegrensa,
+         den gamle skråningsfoten og de gamle nøkkeltallene, malt oppå «Tegn
+         tomta i kartet og sett en kote». Bytter man samtidig anlegg, er
+         `res` null når `_overleggEkstra` leser `res.skraningsfot`, og da kaster
+         den på hver eneste musebevegelse. */
+      this._sisteGitter = null; this._sisteKam = null;
       this._tomMelding(g2, rb, rh, dpr * kvalitet);
       this._tegnOverlegg(null, null, b, h, dpr);
       return;
@@ -548,7 +557,12 @@ const Tegner3d = {
     const pikslerPerMeter = (this.skala || 1) * dpr * kvalitet;
     const steg = Math.max(1, Math.ceil(1.6 / Math.max(0.02, pikslerPerMeter)));
     let g = this._gitter(steg);
-    if (!g) { this._tomMelding(g2, rb, rh, dpr * kvalitet, 'For mye å tegne i 3D på én gang'); return; }
+    if (!g) {
+      this._sisteGitter = null; this._sisteKam = null;
+      this._tomMelding(g2, rb, rh, dpr * kvalitet, 'For mye å tegne i 3D på én gang');
+      this._tegnOverlegg(null, null, b, h, dpr);
+      return;
+    }
 
     /* Nettopp slått på: nå VET vi hvor stort lerretet ble, og kan ramme inn
        for den størrelsen. `nullstill` tegner selv, så vi går ut etterpå. */
@@ -888,14 +902,21 @@ const Tegner3d = {
       this._merketBrent = false;
     }
 
-    // målestokk: en to meters pinne i det laveste punktet
-    const pinne = 2;
-    const p0 = skjerm(g.wx[0], g.wy[0], g.lav);
-    const p1 = skjerm(g.wx[0], g.wy[0], g.lav + pinne);
-    k.strokeStyle = Farger.blekk; k.lineWidth = 2;
-    k.beginPath(); k.moveTo(p0.x, p0.y); k.lineTo(p1.x, p1.y); k.stroke();
-    k.fillStyle = Farger.blekk; k.font = '10px system-ui, sans-serif'; k.textAlign = 'left';
-    k.fillText(pinne + ' m', p1.x + 4, p1.y + 3);
+    /* MÅLESTOKK: en to meters pinne i det laveste punktet.
+       Den står i gitterets hjørne 0, og på bakken kan det hjørnet ligge BAK
+       øyet – da speiles pinna ut i bildet som en tilfeldig strek med «2 m» på.
+       En målestokk gir dessuten ingen mening i et perspektivbilde: to meter er
+       ikke like mange piksler nær og fjernt. Derfor bare i oversikten. */
+    const q0 = kam.punkt(g.wx[0], g.wy[0], g.lav);
+    if (!kam.oye && q0.w > 0) {
+      const pinne = 2;
+      const p0 = skjerm(g.wx[0], g.wy[0], g.lav);
+      const p1 = skjerm(g.wx[0], g.wy[0], g.lav + pinne);
+      k.strokeStyle = Farger.blekk; k.lineWidth = 2;
+      k.beginPath(); k.moveTo(p0.x, p0.y); k.lineTo(p1.x, p1.y); k.stroke();
+      k.fillStyle = Farger.blekk; k.font = '10px system-ui, sans-serif'; k.textAlign = 'left';
+      k.fillText(pinne + ' m', p1.x + 4, p1.y + 3);
+    }
 
     // avlesning under markøren
     if (this._peker && this._peker.k >= 0 && g.finnes[this._peker.k]) {
@@ -1171,13 +1192,33 @@ const Tegner3d = {
        bakken – men bare da, bare når visningen er synlig, og aldri fra noen som
        holder på å skrive et tall. */
     const vindusTast = e => {
+      /* KEYUP FØRST, FØR ALLE VAKTER.
+         Bokføringen lå bak dem. Trykket man W og klikket i et tallfelt før man
+         slapp tasten, kom keyup til en vakt som sa «her skrives det, la den
+         være» – og W ble liggende nede for alltid. Kameraet gikk videre av seg
+         selv, uendelig, og den eneste veien ut var å laste siden på nytt.
+         En tast som SLIPPES skal alltid bokføres, uansett hvor man er. */
+      if (e.type === 'keyup') {
+        if (this._taster) this._taster.delete(e.key.toLowerCase());
+        // og kikken skal ta slutt selv om lerretet ikke hadde fokus da man slapp
+        if (e.code === 'Space' && this._foerFoerKikk !== undefined) {
+          this.settVisning(this._foerFoerKikk);
+          this._foerFoerKikk = undefined;
+        }
+        return;
+      }
       if (this.modus !== 'bakken' || !this.aktiv || !this._bakkeFlytt) return;
       if (!this.lerret || this.lerret.offsetParent === null) return;
       const a = document.activeElement;
       if (a === c) return;              // lerretet håndterer det selv, i boblefasen
       if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA'
         || a.tagName === 'SELECT' || a.isContentEditable)) return;
-      if (e.type === 'keyup') { this._taster.delete(e.key.toLowerCase()); return; }
+      /* ER DET EN DIALOG OPPE, EIER DEN TASTATURET.
+         Escape lukker dialogen. Fanget vi den her, ble dialogen stående åpen
+         mens man i tillegg ble kastet opp av bakkemodus – to ting man ikke ba
+         om, og den ene skjult bak den andre. */
+      const dia = document.getElementById('dialog');
+      if (dia && dia.offsetParent !== null) return;
       if (this._bakkeTast(e)) { e.preventDefault(); e.stopPropagation(); }
     };
     window.addEventListener('keydown', vindusTast, true);
@@ -1202,6 +1243,22 @@ const Tegner3d = {
        avhenge av at noe annet er ferdig. */
     if (this.modus === 'bakken' && e.key === 'Escape') { this.settModus('oversikt'); return true; }
     if (this.modus !== 'bakken' || !this._bakkeFlytt) return false;
+    /* MELLOMROM KIKKER, OGSÅ NÅR FOKUS LIGGER PÅ EN KNAPP.
+       Sto fokus på ⛶ eller på et lagvalg – og det gjør det rett etter at man
+       har trykket på dem – gikk mellomrom dit i stedet, og TRYKKET knappen på
+       nytt: fullskjerm slo seg av, laget skrudde seg tilbake. Står man på
+       bakken, eier kameraet tastaturet. */
+    if (e.code === 'Space' && !e.repeat) {
+      this._foerFoerKikk = this.visning;
+      this.settVisning('foer');
+      return true;
+    }
+    /* CTRL OG ⌘ TILHØRER PROGRAMMET, IKKE KAMERAET.
+       `s` er gåtasten bakover, og den ble slukt med preventDefault. Ctrl+S
+       lagret da ikke så lenge man sto på bakken – man trykket, ingenting
+       skjedde, og man trodde det var lagret. Det samme gjaldt Ctrl+Z og Ctrl+Y.
+       Ctrl alene er «snik», og den bruker ikke S. */
+    if (e.metaKey || (e.ctrlKey && e.key.length === 1)) return false;
     if (Tegner3d.GAATASTER[e.key.toLowerCase()]) {
       /* Tasten LEGGES NED, den utfører ingenting.
          Første forsøk flyttet kameraet ett hakk per tastetrykk. Da bestemmer
@@ -1257,7 +1314,7 @@ const Tegner3d = {
    *
    * FARTEN FØLGER ØYEHØYDEN. Én regel, og både en fylling på tretti meter og en
    * veg på to kilometer får riktig fart av seg selv: står man på bakken går man
-   * i gangfart, hever man seg flyr man. Shift løper, Ctrl sniker.
+   * i gangfart, hever man seg flyr man. Shift løper, Alt sniker.
    *
    * Grunnfarten er hevet fra 2,2 til 4,5 m/s. Målt på gangfart: et menneskelig
    * napp på tasten – rundt hundre millisekunder – flyttet kameraet 22 cm på en
@@ -1284,7 +1341,7 @@ const Tegner3d = {
     }
     const fart = Math.max(4.5, Math.min(600, 2.2 * this.kamH))
       * (this.fartsfaktor || 1)
-      * (t.has('shift') ? 3.5 : 1) * (t.has('control') ? 0.3 : 1);
+      * (t.has('shift') ? 3.5 : 1) * (t.has('alt') ? 0.3 : 1);
     let endret = false;
     if (fram || side) {
       const n = Math.hypot(fram, side);
@@ -1537,7 +1594,11 @@ Tegner3d.GAATASTER = {
   d: [0, 1, 0], arrowright: [0, 1, 0],
   e: [0, 0, 1], pageup: [0, 0, 1],
   q: [0, 0, -1], pagedown: [0, 0, -1],
-  shift: [0, 0, 0], control: [0, 0, 0]
+  /* SNIKETASTEN ER ALT, IKKE CTRL.
+     Ctrl+bokstav er programmets egne snarveier – S lagrer, Z angrer, Y gjør om –
+     og S er samtidig gåtasten bakover. Med Ctrl som snik måtte gåingen enten
+     sluke Ctrl+S eller slippe sniket; Alt kolliderer med ingenting. */
+  shift: [0, 0, 0], alt: [0, 0, 0]
 };
 
 if (typeof module !== 'undefined') module.exports = Tegner3d;

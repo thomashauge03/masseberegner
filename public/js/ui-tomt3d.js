@@ -67,6 +67,8 @@ const Tomt3d = Object.assign(Object.create(Tegner3d), {
       const k = document.getElementById(id);
       if (k) k.classList.toggle('aktiv', pa2);
     }
+    // slår man av 3D, er man ikke på bakken lenger – se samme sted i ui-veg3d.js
+    if (!this.aktiv && this.modus === 'bakken') this.settModus('oversikt', true);
     /* Modellen fyller arbeidsflaten. Se App.stort3d. */
     if (this.app.stort3d) this.app.stort3d('tomt', this.aktiv);
     if (this.aktiv) this.tegn(); else Tomteprofil.tegn();
@@ -287,7 +289,26 @@ const Tomt3d = Object.assign(Object.create(Tegner3d), {
   _bakkePos(g) {
     if (!g) return null;
     if (!this._kamSatt) this._bakkeStart(g);
-    const gulv = this._gulv(g, this.kamX, this.kamY);
+    /* TOMTA KAN HA FLYTTET SEG UNDER FØTTENE.
+       Tegner man om omrisset, endrer koten eller bytter prosjekt mens man står
+       på bakken, bygges gitteret på nytt med andre minX/minY – og posisjonen
+       man sto i kan havne utenfor det. Da gir `_gulv` NaN, `_bakkeKamera` gir
+       null, og `_kamera` faller stille tilbake til oversiktskameraet, som i
+       bakkemodus har skala 1: et frimerke midt på lerretet, uten et ord om hva
+       som skjedde. Er man havnet utenfor, plasseres man på nytt. */
+    let gulv = this._gulv(g, this.kamX, this.kamY);
+    if (!Number.isFinite(gulv)) {
+      this._bakkeStart(g);
+      /* OG SNU BLIKKET MED.
+         `settModus` setter posisjon og retning i to skritt, og retningen bare
+         én gang. Går man ned på bakken FØR det finnes et gitter – tomta er
+         tegnet, men koten ikke satt ennå – sto kamYaw igjen på det den var, og
+         når gitteret dukket opp ble man plassert i enden av tomta med hele
+         flata rett bak ryggen. Bildet var kontekstterreng og himmel, og
+         ingenting sa hvorfor. */
+      if (this.seFramover) this.seFramover();
+      gulv = this._gulv(g, this.kamX, this.kamY);
+    }
     if (!Number.isFinite(gulv)) return null;
     return { x: this.kamX, y: this.kamY, z: gulv + this.kamH };
   },
@@ -350,8 +371,9 @@ const Tomt3d = Object.assign(Object.create(Tegner3d), {
    * Vegen legger de samme to tallene på stasjon og avvik, fordi den har en
    * skinne å følge. En tomt har ingen retning, så her dreies de med `kamYaw`
    * og legges rett på kartplanet. Blikkretningen i kameraet er
-   * `(sin kamYaw, −cos kamYaw)` – se `_bakkeKamera` – og høyre for den er
-   * `(cos kamYaw, sin kamYaw)`.
+   * `(−sin kamYaw, cos kamYaw)` – se `_bakkeKamera` – og høyre for den er
+   * `(cos kamYaw, sin kamYaw)`. Med den retningen er kamYaw det samme som en
+   * kompassretning: 0 er nord, 90 er øst.
    *
    * Klemmingen til gitteret er ikke pynt: går man utenfor, gir `_gulv` NaN,
    * `_bakkePos` gir null, og bildet faller stille tilbake til oversiktskameraet
@@ -362,8 +384,8 @@ const Tomt3d = Object.assign(Object.create(Tegner3d), {
     if (!g) return;
     const a = this.kamYaw * Math.PI / 180;
     const sa = Math.sin(a), ca = Math.cos(a);
-    let nx = this.kamX + fram * sa + side * ca;
-    let ny = this.kamY - fram * ca + side * sa;
+    let nx = this.kamX - fram * sa + side * ca;
+    let ny = this.kamY + fram * ca + side * sa;
     const marg = g.rute * 0.5;
     nx = Math.max(g.minX + marg, Math.min(g.minX + (g.nb - 1) * g.rute - marg, nx));
     ny = Math.max(g.minY + marg, Math.min(g.minY + (g.nh - 1) * g.rute - marg, ny));
@@ -391,7 +413,7 @@ const Tomt3d = Object.assign(Object.create(Tegner3d), {
       const m = this._tomtemidte(g);
       const mx = m ? m.x : g.midtX, my = m ? m.y : g.midtY;
       const dx = mx - this.kamX, dy = my - this.kamY;
-      if (Math.hypot(dx, dy) > 2) this.kamYaw = Math.atan2(dy, dx) * 180 / Math.PI + 90;
+      if (Math.hypot(dx, dy) > 2) this.kamYaw = Math.atan2(-dx, dy) * 180 / Math.PI;
     }
     this.kamPitch = -Math.atan(this.kamH / Math.max(60, 6 * this.kamH)) * 180 / Math.PI;
   },

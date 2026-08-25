@@ -316,8 +316,10 @@ const Rapport = {
     const foer = {
       lerret: Tomt3d.lerret, over: Tomt3d.over, aktiv: Tomt3d.aktiv,
       yaw: Tomt3d.yaw, pitch: Tomt3d.pitch, fyldig: Tomt3d.fyldig, visning: Tomt3d.visning,
+      modus: Tomt3d.modus, fokus: Tomt3d.fokus,
       senter: Tomt3d.senter, skala: Tomt3d.skala, panX: Tomt3d.panX, panY: Tomt3d.panY,
       skalaSatt: Tomt3d._skalaSatt, gitterFor: Tomt3d._gitterFor, bilde: Tomt3d._bilde,
+      fitSkala: Tomt3d._fitSkala, tilpassetFor: Tomt3d._tilpassetFor,
       lag: Object.assign({}, Tomt3d.lag), kontekst: Tomt3d.kontekst
     };
     const lag = (b, h, yaw, pitch, fyldig) => {
@@ -338,6 +340,13 @@ const Rapport = {
          terreng – riktig etter koden, tomt etter formålet. Tegningene i en
          rapport viser massene; det er det rapporten handler om. */
       Tomt3d.visning = 'vanlig';
+      /* OG ALDRI EN KAMERAPOSISJON HELLER.
+         Sto man på bakken da rapporten ble laget, tegnet den tomtebildene fra
+         øyehøyde: perspektiv, horisont og himmel i en plantegning. Og med et
+         dreiepunkt satt av et klikk ble bildet sentrert der brukeren sist
+         pekte, så deler av tomta falt utenfor. Rapporten er ikke skjermen. */
+      Tomt3d.modus = 'oversikt';
+      Tomt3d.fokus = null;
       Tomt3d.senter = null; Tomt3d.panX = 0; Tomt3d.panY = 0;
       Tomt3d._skalaSatt = false;
       Tomt3d._gitterFor = null;
@@ -378,7 +387,15 @@ const Rapport = {
       Object.assign(Tomt3d, {
         lerret: foer.lerret, over: foer.over, aktiv: foer.aktiv,
         yaw: foer.yaw, pitch: foer.pitch, fyldig: foer.fyldig, visning: foer.visning,
+        modus: foer.modus, fokus: foer.fokus,
         senter: foer.senter, skala: foer.skala, panX: foer.panX, panY: foer.panY,
+        /* OG INNRAMMINGEN MÅ LEGGES TILBAKE.
+           Rapporten tegner på egne lerret på 1560 px og skriver da _fitSkala og
+           _tilpassetFor for DEN størrelsen. Uten dette leste den neste
+           opptegningen på skjermen forholdet mellom skjermens skala og
+           rapportlerretets innramming – og modellen krympet rundt 40 % for hver
+           PDF man laget, uten at noe rørte seg mens man så på. */
+        _fitSkala: foer.fitSkala, _tilpassetFor: foer.tilpassetFor,
         _skalaSatt: foer.skalaSatt, _gitterFor: null, _bilde: null, lag: foer.lag,
         kontekst: foer.kontekst
       });
