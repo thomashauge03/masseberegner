@@ -1163,6 +1163,14 @@ const Nettlesertest = {
         App.byttAnlegg(veg1.id);
         await this.vent(300);
         const foerOmfang = Veg3d.lag.andre;
+        /* AKTIV-FLAGGET MÅ LEGGES TILBAKE.
+           Første utgave satte `Veg3d.aktiv = true` for å få tegne, og glemte
+           det. Etterpå trodde programmet at 3D-bildet sto framme mens panelet
+           viste snittet – «Alle anlegg»-knappen ble stående i verktøylinja i
+           tillegg til alle snittverktøyene, og panelhode-prøven lenger ned
+           meldte 69 px og 35 % av panelet. Feilen var i prøven, ikke i
+           programmet, og det er den slags som er vanskeligst å lete etter. */
+        const foerVegAktiv = Veg3d.aktiv, foerTomtAktiv = Tomt3d.aktiv;
         Veg3d.aktiv = true;
         try {
           Tegner3d.settVisAndre(false);
@@ -1174,6 +1182,44 @@ const Nettlesertest = {
           this.sjekk('  bryteren slår inn i BEGGE visningene, ikke bare den man står i',
             Veg3d.lag.andre === true && Tomt3d.lag.andre === true,
             'veg ' + Veg3d.lag.andre + ', tomt ' + Tomt3d.lag.andre);
+
+          /* BRYTEREN MÅ VÆRE TIL Å FINNE.
+             Den lå først blant lagbryterne bak «Vis ▾», og en funksjon man
+             ikke vet finnes er like nyttig som en som ikke finnes – det var
+             nøyaktig tilbakemeldingen: «kan fortsatt ikke se alle de
+             forskjellige tomtene og vegene». Nå står den i verktøylinja, og
+             bare når det finnes andre anlegg å vise. */
+          {
+            const kn = document.getElementById('v3_andre');
+            this.sjekk('  «Alle anlegg» står i verktøylinja, ikke i en lukket meny',
+              !!kn && !kn.closest('.menypanel'),
+              kn ? (kn.closest('.menypanel') ? 'ligger i menypanelet' : 'i verktøylinja') : 'finnes ikke');
+            if (kn) {
+              Tegner3d.visAndreknapp();
+              this.sjekk('    og den er framme når prosjektet har flere anlegg',
+                !kn.classList.contains('skjult'), kn.className);
+              /* Med ett anlegg finnes det ingen andre å vise, og en knapp som
+                 ikke kan gjøre noe er verre enn ingen knapp. */
+              const alle = App.P.anlegg;
+              App.P.anlegg = [alle[0]];
+              Tegner3d.visAndreknapp();
+              this.sjekk('    og borte med bare ett anlegg', kn.classList.contains('skjult'),
+                kn.className);
+              App.P.anlegg = alle;
+              /* OG BORTE I SNITTMODUS.
+                 Sto den framme der òg, kom den i tillegg til alle
+                 snittverktøyene og brøt verktøylinja til to rader – målt gikk
+                 panelhodet fra 39 til 69 px og tok 35 % av panelet. Samme
+                 regel som resten av 3D-verktøya følger. */
+              const foerAktiv = Veg3d.aktiv;
+              Veg3d.aktiv = false;
+              Tegner3d.visAndreknapp();
+              this.sjekk('    og borte når 3D-bildet ikke vises',
+                kn.classList.contains('skjult'), kn.className);
+              Veg3d.aktiv = foerAktiv;
+              Tegner3d.visAndreknapp();
+            }
+          }
 
           const paa = Veg3d._bakgrunnsgitre();
           const andre = App.P.anlegg.filter(a => a.id !== App.P.aktivt);
@@ -1363,14 +1409,16 @@ const Nettlesertest = {
               this.sjekk('    og bryteren står fortsatt på etterpå – rapporten låner, den tar ikke',
                 Tomt3d.lag.andre === true);
             }
-            Tomt3d.aktiv = false;
+            Tomt3d.aktiv = foerTomtAktiv;    // ikke «false» – tilbake til det den var
             App.byttAnlegg(veg1.id);
             await this.vent(300);
           }
         } finally {
           Tegner3d.settVisAndre(foerOmfang);
+          Veg3d.aktiv = foerVegAktiv; Tomt3d.aktiv = foerTomtAktiv;
           Veg3d._andreNokkel = null;
           Tomt3d._andreNokkel = null;
+          Tegner3d.visAndreknapp();
         }
       }
 

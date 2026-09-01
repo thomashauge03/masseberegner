@@ -427,6 +427,14 @@ body {
   flex: 1; border: 0; padding: 4px 6px; font-size: 11.5px; text-align: center;
 }
 .omfangvalg .verktoyknapp + .verktoyknapp { border-left: 2px solid var(--kant); }
+
+/* «Alle anlegg» står i 3D-verktøylinja, ikke i menyen bak «Vis ▾». Fargen er
+   den samme blåfargen naboanleggene tegnes i, så knappen og det den slår på
+   hører synlig sammen. */
+.andreknapp { flex: none; border-color: var(--data-annet); color: var(--data-annet); }
+.andreknapp:hover { background: var(--data-annet); border-color: var(--data-annet); color: #fff; }
+.andreknapp.aktiv { background: var(--data-annet); border-color: var(--data-annet); color: #fff; }
+.andreknapp.skjult { display: none; }
 .minivalg, .minitall input {
   background: var(--flate-opp); color: var(--blekk); border: 2px solid var(--kant);
   padding: 2px 5px; font-size: 11.5px; font-family: var(--skrift);

@@ -180,6 +180,15 @@
         <button id="v3_bakken" class="verktoyknapp" aria-pressed="false"
                 title="Gå ned på bakken og kjør strekket. W A S D eller piltastene kjører, Shift løper, musa ser seg om, Q og E hever og senker deg, + og − endrer farten, Esc tar deg tilbake.">Gå</button>
       </div>
+      <!-- ALLE ANLEGG STÅR FRAMME, IKKE I EN LUKKET MENY.
+           Den lå først blant lagbryterne bak «Vis ▾». Der er den riktig
+           plassert etter hva den ER – et lag til i scenen – og helt feil
+           plassert etter hva man SPØR om: «hvor er de andre anleggene mine?»
+           Man leter ikke i en lukket meny etter svaret på et spørsmål man ikke
+           vet at programmet kan svare på. Nå står den i verktøylinja, og bare
+           når prosjektet faktisk har flere anlegg – med ett er den støy. -->
+      <button id="v3_andre" class="verktoyknapp andreknapp skjult" aria-pressed="false"
+              title="Vis de andre anleggene i prosjektet i samme bilde. De tegnes dempet, som ferdige flater – uten skråninger og uten masser.">⬟▬ Alle anlegg</button>
       <div class="verktoy">
         <button id="tverrForrige" class="verktoyknapp">◀</button>
         <input type="range" id="tverrSkyver" min="0" max="100" value="0" class="skyver">
@@ -207,13 +216,6 @@
             <button id="v3_rutenett" class="verktoyknapp" title="10 m-rutenett drapert på flaten">10 m</button>
             <button id="v3_grenser" class="verktoyknapp aktiv" title="Skråningsfot, vegkant og senterlinje">Grenser</button>
             <button id="v3_fyldig" class="verktoyknapp" title="Mal massen helt – terrenget står igjen bare der det ikke røres">Fyldig</button>
-            <!-- DE ANDRE ANLEGGENE I SAMME BILDE.
-                 Står sammen med lagbryterne fordi det er slik det oppleves –
-                 et lag til i scenen. Men den følger deg mellom vegen og tomta,
-                 for spørsmålet «hvordan ligger disse i forhold til hverandre»
-                 er det samme hvilken av dem man står i. -->
-            <button id="v3_andre" class="verktoyknapp" aria-pressed="false"
-                    title="Vis de andre anleggene i prosjektet i samme bilde. De tegnes dempet, som ferdige flater – uten skråninger og uten masser.">Alle anlegg</button>
           </span>
           <!-- FØR, MASSER OG ETTER ER TRE BILDER, IKKE TRE BRYTERE.
                Sto de som løse av/på-knapper, kunne «Før» og «Etter» stå trykket
@@ -293,6 +295,9 @@
         <button id="t3_bakken" class="verktoyknapp" aria-pressed="false"
                 title="Gå ned på bakken og gå rundt på tomta. W A S D eller piltastene går, Shift løper, musa ser seg om, Q og E hever og senker deg, + og − endrer farten, Esc tar deg tilbake.">Gå</button>
       </div>
+      <!-- Se kommentaren ved v3_andre: framme, ikke i en lukket meny. -->
+      <button id="t3_andre" class="verktoyknapp andreknapp skjult" aria-pressed="false"
+              title="Vis de andre anleggene i prosjektet i samme bilde. De tegnes dempet, som ferdige flater – uten skråninger og uten masser.">⬟▬ Alle anlegg</button>
       <div class="verktoy">
         <label class="minitall">Ferdig kote
           <input type="number" id="tm_kote" step="0.05" title="Høyden på det ferdige nivået"></label>
@@ -330,8 +335,6 @@
             <button id="t3_rutenett" class="verktoyknapp" title="10 m-rutenett drapert på flaten">10 m</button>
             <button id="t3_fyldig" class="verktoyknapp" title="Mal massen helt – terrenget står igjen bare der det ikke røres">Fyldig</button>
             <button id="t3_grenser" class="verktoyknapp aktiv" title="Tomtegrense og skråningsfot">Grenser</button>
-            <button id="t3_andre" class="verktoyknapp" aria-pressed="false"
-                    title="Vis de andre anleggene i prosjektet i samme bilde. De tegnes dempet, som ferdige flater – uten skråninger og uten masser.">Alle anlegg</button>
           </span>
           <span class="synvalg" role="radiogroup" aria-label="Hva modellen viser">
             <button id="t3_foer" class="verktoyknapp" aria-pressed="false"

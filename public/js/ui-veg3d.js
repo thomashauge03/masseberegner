@@ -82,6 +82,8 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
     vis('tverrprofil', !this.aktiv);
     vis('veg3dverktoy', this.aktiv);
     vis('tverrpunkthoyder', !this.aktiv);
+    // «Alle anlegg» hører til 3D-bildet – se Tegner3d.visAndreknapp
+    if (Tegner3d.visAndreknapp) Tegner3d.visAndreknapp();
     for (const [id, pa2] of [['vegVis3d', this.aktiv], ['vegVisSnitt', !this.aktiv]]) {
       const k = document.getElementById(id);
       if (k) k.classList.toggle('aktiv', pa2);

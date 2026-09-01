@@ -743,13 +743,37 @@ const Tegner3d = {
       vis._andreNokkel = null;
       vis._skalaSatt = false;                 // innrammingen dekker nå noe annet
     }
-    for (const id of ['v3_andre', 't3_andre']) {
-      const e = document.getElementById(id);
-      if (e) { e.classList.toggle('aktiv', !!pa); e.setAttribute('aria-pressed', pa ? 'true' : 'false'); }
-    }
+    this.visAndreknapp();
     for (const vis of [typeof Veg3d !== 'undefined' ? Veg3d : null,
       typeof Tomt3d !== 'undefined' ? Tomt3d : null]) {
       if (vis && vis.aktiv) vis.tegn();
+    }
+  },
+
+  /**
+   * Knappen skal stå framme når den betyr noe, og være borte når den ikke gjør det.
+   *
+   * Med ett anlegg finnes det ingen andre å vise, og en knapp som ikke kan
+   * gjøre noe er verre enn ingen knapp: man trykker på den, ingenting skjer,
+   * og så stoler man ikke på den neste gang heller.
+   */
+  visAndreknapp() {
+    const app = this.app || (typeof App !== 'undefined' ? App : null);
+    const antall = (app && app.P && Array.isArray(app.P.anlegg)) ? app.P.anlegg.length : 0;
+    const paa = !!(typeof Veg3d !== 'undefined' && Veg3d.lag && Veg3d.lag.andre);
+    /* KNAPPEN HØRER TIL 3D-BILDET, OG SKAL VÆRE BORTE NÅR DET IKKE VISES.
+       Sto den framme i snittmodus også, kom den i tillegg til alle
+       snittverktøyene – og verktøylinja brøt til to rader. Målt: panelhodet
+       gikk fra 39 til 69 px og tok 35 % av panelet, mot regelen om at hodet
+       aldri skal ete tegneflaten. Samme regel som `veg3dverktoy` følger. */
+    for (const [id, vis] of [['v3_andre', typeof Veg3d !== 'undefined' ? Veg3d : null],
+      ['t3_andre', typeof Tomt3d !== 'undefined' ? Tomt3d : null]]) {
+      const e = document.getElementById(id);
+      if (!e) continue;
+      e.classList.toggle('skjult', antall < 2 || !(vis && vis.aktiv));
+      e.classList.toggle('aktiv', paa);
+      e.setAttribute('aria-pressed', paa ? 'true' : 'false');
+      e.textContent = paa ? '⬟▬ Alle anlegg' : '⬟▬ Alle anlegg (' + Math.max(0, antall - 1) + ')';
     }
   },
 
@@ -1280,6 +1304,31 @@ const Tegner3d = {
    */
   _merkBakgrunn(k, kam, b, h) {
     const gitre = this._andreNa;
+    /* «HVOR ER DE ANDRE ANLEGGENE MINE?» SKAL BESVARES DER SPØRSMÅLET STILLES.
+       Bryteren lå først i en lukket meny, og en funksjon man ikke vet finnes
+       er nøyaktig like nyttig som en som ikke finnes. Står det flere anlegg i
+       prosjektet mens modellen viser ett, sier modellen det selv – og sier
+       hvor knappen er. Linja forsvinner i samme øyeblikk bryteren slås på. */
+    if (!gitre || !gitre.length) {
+      const app = this.app;
+      const flere = app && app.P && Array.isArray(app.P.anlegg)
+        ? app.P.anlegg.length - 1 : 0;
+      if (flere > 0 && !(this.lag && this.lag.andre)) {
+        const s = flere === 1
+          ? 'Ett anlegg til i prosjektet – «Alle anlegg» viser det her'
+          : flere + ' andre anlegg i prosjektet – «Alle anlegg» viser dem her';
+        k.font = '11px system-ui, sans-serif';
+        k.textAlign = 'left';
+        k.textBaseline = 'alphabetic';
+        const br = k.measureText(s).width;
+        k.fillStyle = Farger.flate;
+        k.globalAlpha = 0.75;
+        k.fillRect(6, h - 43, br + 10, 20);
+        k.globalAlpha = 1;
+        k.fillStyle = Farger.annetAnlegg;
+        k.fillText(s, 10, h - 29);
+      }
+    }
     if (!gitre) return;
     /* ET ANLEGG SOM IKKE KAN TEGNES SKAL DET SIES FRA OM – OG DET SKAL SIES
        HVA MAN GJØR MED DET.

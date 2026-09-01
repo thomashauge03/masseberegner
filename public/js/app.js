@@ -4073,6 +4073,8 @@ const App = {
        kommer til å lage. */
     tekst('knappRapport', this.alleAnlegg() ? 'Rapport · alle' : 'Rapport');
     tekst('knappPdf', this.alleAnlegg() ? 'PDF · alle' : 'PDF');
+    // «Alle anlegg» i 3D-verktøylinja: framme bare når det finnes andre å vise
+    if (typeof Tegner3d !== 'undefined') Tegner3d.visAndreknapp();
     this.visEksportomfang();
     const notis = document.getElementById('eksportnotis');
     if (notis) {
