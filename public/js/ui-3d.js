@@ -470,14 +470,21 @@ const Tegner3d = {
        dette ble den som sto NEDE I MODELLEN og trykte «Full detalj» kastet opp
        i oversikten, uten dreiepunktet han nettopp klikket ut. Og det er
        nøyaktig han som vil se naboene. */
-    const kamera = [Veg3d, Tomt3d].map(v => ({
-      v, modus: v.modus, ferd: v.ferd, senter: v.senter, fokus: v.fokus,
-      panX: v.panX, panY: v.panY, skala: v.skala, yaw: v.yaw, pitch: v.pitch,
-      kamS: v.kamS, kamT: v.kamT, kamX: v.kamX, kamY: v.kamY, kamZ: v.kamZ,
-      kamH: v.kamH, kamYaw: v.kamYaw, kamPitch: v.kamPitch,
-      fitSkala: v._fitSkala, panFast: v._panFast, tilpassetFor: v._tilpassetFor,
-      kamSatt: v._kamSatt
-    }));
+    /* BARE RENE FELT – ALDRI EN AKSESSOR.
+       `Veg3d.kamS` er ikke et tall, det er et par getter/setter, og setteren
+       kaller `App.settTverrStasjon`, som leser vegens profiler. Å legge den
+       tilbake mens en TOMT er aktiv leste `resultat.profiler[0]` på et
+       tomteresultat og kastet. Den samme fellen som `Object.assign` gikk i da
+       visningene ble bygd: et felt som ser ut som en verdi er en funksjon.
+       Det som skal legges tilbake, er `_kamS` under den. */
+    const FELT = ['modus', 'ferd', 'senter', 'fokus', 'panX', 'panY', 'skala',
+      'yaw', 'pitch', 'kamT', 'kamX', 'kamY', 'kamZ', 'kamH', 'kamYaw', 'kamPitch',
+      '_kamS', '_kamSSkjovet', '_fitSkala', '_panFast', '_tilpassetFor', '_kamSatt'];
+    const kamera = [Veg3d, Tomt3d].map(v => {
+      const s = { v, felt: {} };
+      for (const f of FELT) if (f in v) s.felt[f] = v[f];
+      return s;
+    });
     /* Programmets egen runde er ikke noe å angre – se App.merk. */
     app._ikkeMerk = true;
     try {
@@ -542,14 +549,7 @@ const Tegner3d = {
       }
       app._ikkeMerk = false;
       for (const s of kamera) {
-        const v = s.v;
-        v.modus = s.modus; v.ferd = s.ferd; v.senter = s.senter; v.fokus = s.fokus;
-        v.panX = s.panX; v.panY = s.panY; v.skala = s.skala;
-        v.yaw = s.yaw; v.pitch = s.pitch;
-        v.kamS = s.kamS; v.kamT = s.kamT; v.kamX = s.kamX; v.kamY = s.kamY;
-        v.kamZ = s.kamZ; v.kamH = s.kamH; v.kamYaw = s.kamYaw; v.kamPitch = s.kamPitch;
-        v._fitSkala = s.fitSkala; v._panFast = s.panFast; v._tilpassetFor = s.tilpassetFor;
-        v._kamSatt = s.kamSatt;
+        for (const f of Object.keys(s.felt)) s.v[f] = s.felt[f];
       }
       app.framdrift(false);
       Tegner3d._byggerFulle = false;

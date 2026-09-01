@@ -69,7 +69,11 @@ const KARTLAG = {
       wms: 'https://wms.geonorge.no/skwms1/wms.matrikkelkart',
       /* Begge lag må bes om samtidig: grensene kommer på vanlig arbeidszoom,
          mens teigene med matrikkelnummer først slår inn lenger inn. */
-      lag: 'eiendomsgrense,teig', opacity: 0.85, attribusjon: '© Kartverket (matrikkel)'
+      lag: 'eiendomsgrense,teig', opacity: 0.85, attribusjon: '© Kartverket (matrikkel)',
+      /* RØDE GRENSER. Tjenesten tegner dem i sin egen mørke farge, og en WMS
+         leverer et ferdig bilde – man kan ikke be om en annen. Fargen settes
+         derfor i stilarket, på flisene. */
+      klasse: 'kartlag-matrikkel'
     },
     {
       navn: 'vegnavn', tekst: 'Vegnavn', standard: true, zIndex: 500, kunFoto: true,
@@ -138,7 +142,11 @@ const Kart = {
         lag = L.tileLayer.wms(v.wms, {
           layers: v.lag, format: 'image/png', transparent: true,
           opacity: v.opacity, zIndex: v.zIndex, maxZoom: 21,
-          attribution: v.attribusjon, crossOrigin: 'anonymous'
+          attribution: v.attribusjon, crossOrigin: 'anonymous',
+          /* Klassen lar stilarket farge laget. Se `.kartlag-matrikkel` i
+             app.css: eiendomsgrensene kommer som et ferdig bilde fra
+             Kartverket, i deres egen farge, og kan ikke bes om i en annen. */
+          className: v.klasse || ''
         });
       }
       this.overlegg[v.navn] = lag;

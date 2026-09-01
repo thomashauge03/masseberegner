@@ -431,6 +431,21 @@ body {
 /* «Alle anlegg» står i 3D-verktøylinja, ikke i menyen bak «Vis ▾». Fargen er
    den samme blåfargen naboanleggene tegnes i, så knappen og det den slår på
    hører synlig sammen. */
+/* EIENDOMSGRENSENE I RØDT.
+   Kartverkets matrikkel-WMS leverer et ferdig bilde i sin egen mørke farge, og
+   en WMS kan ikke bes om en annen. Filteret farger flisene på klienten:
+   `brightness(0)` gjør alt som ikke er gjennomsiktig svart – gjennomsikten
+   røres ikke, så teigene blir ikke firkanter – og resten dreier svart til
+   HM-rødt. Rekkefølgen er ikke fri: invert må komme før sepia, ellers har
+   sepia ingen luminans å farge.
+   Grensene skal skille seg fra alt annet i kartet. Brukerens egen tegning er
+   rød òg, men den er en strek man har satt selv og ligger over; grensene er
+   tynne og ligger under, og det er nettopp forholdet mellom de to man leser. */
+.kartlag-matrikkel {
+  filter: brightness(0) saturate(100%) invert(21%) sepia(89%) saturate(4200%)
+          hue-rotate(352deg) brightness(94%) contrast(97%);
+}
+
 /* Lista over naboanlegg i «Vis»-menyen: én rad per anlegg, og knappen som
    regner dem ut for fullt. Egen rad, ikke på linje med lagbryterne – det er
    ikke lag, det er hvilke MODELLER som er med i bildet. */
