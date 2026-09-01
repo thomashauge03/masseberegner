@@ -987,6 +987,12 @@ const Nettlesertest = {
       await this.vent(200);
       App.P.tomt.punkter = [[0, 500], [50, 500], [50, 560], [0, 560]]
         .map(([x, y]) => ({ lat: lat0 + dLat(y), lon: lon0 + dLon(x) }));
+      /* Tomta må ha en ferdig kote, ellers finnes den ikke som modell – og da
+         prøver samleeksporten under noe helt annet enn den skal. */
+      App.P.tomt.nivaa = { modus: 'flat', kote: 101, fall: 0, fallretning: 0, punkt: null };
+      App.tomtEndret();
+      await App.beregnTomt();
+      await this.vent(200);
       App.leggTilAnlegg('veg');
       await this.vent(200);
       // veg nummer to må ha geometri, ellers har den ingenting å tegne som bakgrunn
@@ -1079,6 +1085,111 @@ const Nettlesertest = {
       App.byttAnlegg(v1.id);
       await this.vent(200);
       this.sjekk('  men står der man la det', (App.P.tverrfall || []).length === 1);
+
+      /* ================================================================
+         SAMLEEKSPORT: alle anleggene i én fil.
+
+         Det som må stemme er ikke at filen blir skrevet – det gjør den
+         alltid – men at HVERT anlegg står i den, og at de kan skilles fra
+         hverandre etterpå. En samlefil der veg nummer to har overskrevet
+         veg nummer én ser ut som en fil med én veg, og det er umulig å se
+         forskjell på den og en fil som bare skulle hatt én.
+         ================================================================ */
+      App.byttAnlegg(v1.id);
+      await this.vent(250);
+      const forrigeOmfang = App._eksportomfang;
+      const gammelNed = Rapport.lastNed;
+      const skrevet = {};
+      Rapport.lastNed = (n, i) => { skrevet[n] = String(i); };
+      try {
+        App.settEksportomfang('alle');
+        this.sjekk('omfangsbryteren slår inn når prosjektet har flere anlegg',
+          App.alleAnlegg() === true);
+
+        await Rapport.eksporterAlle('kof');
+        const kof = skrevet[Object.keys(skrevet).find(k => /\.KOF$/.test(k))] || '';
+        const pkt = kof.split('\r\n').filter(r => r.startsWith(' 05'));
+        const navn = pkt.map(r => r.slice(4, 14).trim());
+        this.sjekk('KOF: samlefilen har punkt fra flere anlegg', pkt.length > 0,
+          pkt.length + ' punkt');
+        this.sjekk('  og ingen to punkt har samme navn – ellers overskriver de hverandre',
+          new Set(navn).size === navn.length,
+          navn.length - new Set(navn).size + ' navnekollisjoner');
+        this.sjekk('  og hvert anlegg har sitt eget merke i punktnavnet',
+          new Set(navn.map(n => n[0])).size >= 2,
+          [...new Set(navn.map(n => n[0]))].join(''));
+        this.sjekk('  og hodet sier hvilket merke som er hvilket anlegg',
+          /-05 MERK: [A-Z] = /.test(kof));
+
+        await Rapport.eksporterAlle('landxml');
+        const xml = skrevet[Object.keys(skrevet).find(k => /\.xml$/.test(k))] || '';
+        const dok = new DOMParser().parseFromString(xml, 'application/xml');
+        this.sjekk('LandXML: samlefilen er velformet', !dok.querySelector('parsererror'));
+        const modellnavn = [...dok.getElementsByTagName('Alignment')]
+          .concat([...dok.getElementsByTagName('Surface')]).map(e => e.getAttribute('name'));
+        this.sjekk('  og har flere modeller i seg', modellnavn.length >= 2,
+          modellnavn.length + ': ' + modellnavn.join(', '));
+        this.sjekk('  med hvert sitt navn – to like navn er én modell for mottakeren',
+          new Set(modellnavn).size === modellnavn.length, modellnavn.join(', '));
+        this.sjekk('  og ETT koordinatsystem for hele filen',
+          dok.getElementsByTagName('CoordinateSystem').length === 1);
+
+        await Rapport.eksporterAlle('sosi');
+        const sos = (skrevet[Object.keys(skrevet).find(k => /\.sos$/.test(k))] || '').split('\r\n');
+        const nr = sos.filter(r => /^\.(KURVE|FLATE|PUNKT)\s+\d+:/.test(r))
+          .map(r => +r.match(/\s(\d+):/)[1]);
+        this.sjekk('SOSI: objektnummeret er unikt i HELE filen, ikke per anlegg',
+          nr.length > 1 && new Set(nr).size === nr.length,
+          nr.length + ' objekt, ' + new Set(nr).size + ' unike');
+        this.sjekk('  og hodet har ett .HODE og filen én .SLUTT',
+          sos.filter(r => r === '.HODE').length === 1
+          && sos.filter(r => r === '.SLUTT').length === 1);
+
+        await Rapport.eksporterAlle('dxf');
+        const dxf = (skrevet[Object.keys(skrevet).find(k => /\.dxf$/.test(k))] || '').split('\r\n');
+        this.sjekk('DXF: samlefilen har én SECTION og én EOF',
+          dxf.filter(r => r === 'SECTION').length === 1 && dxf.filter(r => r === 'EOF').length === 1);
+        const lagnavn = new Set();
+        for (let i = 0; i < dxf.length - 1; i++) {
+          if (dxf[i] === '8' && /^[A-Z]/.test(dxf[i + 1])) lagnavn.add(dxf[i + 1]);
+        }
+        this.sjekk('  og lagene bærer anleggets navn, så tegneren kan skille dem',
+          [...lagnavn].some(l => l.includes('_')), [...lagnavn].slice(0, 4).join(', '));
+        this.sjekk('  og ingen lagnavn har tegn R12 ikke godtar',
+          [...lagnavn].every(l => /^[A-Z0-9_]+$/.test(l)),
+          [...lagnavn].filter(l => !/^[A-Z0-9_]+$/.test(l)).join(', '));
+
+        await Rapport.eksporterAlle('geojson');
+        const geo = JSON.parse(skrevet[Object.keys(skrevet).find(k => /\.geojson$/.test(k))] || '{}');
+        const merket = (geo.features || []).filter(f => f.properties && f.properties.anlegg);
+        this.sjekk('GeoJSON: hvert objekt vet hvilket anlegg det hører til',
+          merket.length === (geo.features || []).length && merket.length > 0,
+          merket.length + ' av ' + (geo.features || []).length);
+        this.sjekk('  og flere anlegg er representert',
+          new Set(merket.map(f => f.properties.anlegg)).size >= 2);
+
+        await Rapport.eksporterCsvAlle('stikning');
+        const csv = (skrevet[Object.keys(skrevet).find(k => /_alle_stikning\.csv$/.test(k))] || '')
+          .split('\r\n');
+        const blokker = csv.filter(r => r.startsWith('# ANLEGG:'));
+        this.sjekk('CSV: ett avsnitt per anlegg, hvert med sin egen overskrift',
+          blokker.length >= 2, blokker.length + ' avsnitt');
+
+        /* ET ANLEGG SOM IKKE KOM MED SKAL SIES FRA OM.
+           Rutenettet finnes bare for en tomt. En fil med to av tre anlegg som
+           melder «3 av 3» er verre enn en som feiler: den ser komplett ut. */
+        await Rapport.eksporterCsvAlle('rutenett');
+        const melding = document.getElementById('eksportsvar').textContent;
+        this.sjekk('det sies fra når et anlegg ikke kom med i samlefilen',
+          /Ikke med/.test(melding) && /av \d+ anlegg/.test(melding), melding.trim().slice(0, 120));
+
+        /* MED ETT ANLEGG FINNES IKKE VALGET. */
+        App.settEksportomfang('dette');
+        this.sjekk('bryteren kan settes tilbake', App.alleAnlegg() === false);
+      } finally {
+        Rapport.lastNed = gammelNed;
+        App._eksportomfang = forrigeOmfang;
+      }
 
       /* TO ANLEGG MED SAMME ID ER ETT ANLEGG SOM IKKE FINNES. */
       App.P.anlegg[1].id = App.P.anlegg[0].id;

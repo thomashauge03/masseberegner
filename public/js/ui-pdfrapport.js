@@ -31,6 +31,7 @@ const Pdfrapport = {
   ROD: [0.847, 0.118, 0.157],
   GRA: [0.42, 0.42, 0.45],
   LYSGRA: [0.894, 0.894, 0.906],
+  HVIT: [1, 1, 1],
   BAKGRUNN: [0.957, 0.957, 0.961],
   PANEL: [0.957, 0.957, 0.961],
 
@@ -87,14 +88,144 @@ const Pdfrapport = {
     }
   },
 
-  async _bygg(app, res) {
-    const P = new PdfSkriver();
+  /**
+   * PDF for HELE prosjektet: sammendrag først, så hvert anlegg etter hverandre.
+   *
+   * ÉN PDF, IKKE TRE. Den som skal gi en pris leser ett dokument og finner
+   * summen på første side. Tre separate filer er tre dokumenter der summen ikke
+   * står noe sted, og der det er leserens jobb å legge dem sammen.
+   *
+   * Sidetallet, bunnteksten og «Side x av y» settes til slutt, over alle
+   * sidene under ett – derfor bygger hvert anlegg inn i den SAMME PdfSkriver-en
+   * i stedet for å lage sin egen.
+   */
+  async lagProsjekt(lastNed = true) {
+    const app = this.app;
+    if (!app.P || app.P.anlegg.length < 2) return this.lag(lastNed);
+    app.framdrift(true, 'Lager PDF for hele prosjektet…', 0.1);
+    try {
+      const P = new PdfSkriver();
+      const delt = { P, tilstand: { y: 0, sidetall: 0 } };
+      const innmarg = P.bredde - this.MARG;
+      const rader = [];
+      const { tatt, hoppet } = await Rapport.gjennomAlleAnlegg(async (a2, res, anl, i) => {
+        app.framdrift(true, 'Lager PDF … ' + (anl.navn || anl.type),
+          0.1 + 0.8 * (i / Math.max(1, app.P.anlegg.length)));
+        delt.anleggsnavn = Rapport.anleggskode(i) + ' · ' + (anl.navn || anl.type);
+        /* Sammendragsraden må hentes FØR siden bygges: `_bygg` bytter ikke
+           anlegg, men den er det siste som ser dette resultatet. */
+        rader.push({ navn: anl.navn || anl.type, type: anl.type, sum: res.sum,
+          kode: Rapport.anleggskode(i) });
+        await this._bygg(a2, res, delt);
+        return true;
+      });
+      if (!tatt.length) {
+        app.status('Ingen av anleggene kunne rapporteres – '
+          + hoppet.map(h => (h.anlegg.navn || h.anlegg.type) + ': ' + h.grunn).join('; '));
+        return null;
+      }
+      this._sammendragsside(app, P, delt.tilstand, innmarg, rader, hoppet);
+      this._bunn(P, innmarg);
+      const bytes = P.bygg();
+      if (lastNed) {
+        const navn = Lager.filnavn(app.P.navn) + '_prosjekt.pdf';
+        const blob = new Blob([bytes], { type: 'application/pdf' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = navn;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+        app.status(`PDF for ${tatt.length} anlegg lastet ned · ${(bytes.length / 1024).toFixed(0)} kB`
+          + (hoppet.length ? ' · ikke med: ' + hoppet.map(h => h.anlegg.navn || h.anlegg.type).join(', ') : ''));
+      }
+      return bytes;
+    } catch (e) {
+      app.status('Klarte ikke å lage PDF: ' + e.message);
+      console.error(e);
+      return null;
+    } finally {
+      app.framdrift(false);
+    }
+  },
+
+  /**
+   * Sammendraget – flyttet FORAN alle anleggene når dokumentet er ferdig.
+   *
+   * Den bygges til slutt fordi tallene ikke finnes før hvert anlegg er regnet,
+   * men den hører hjemme først fordi det er der man ser etter en sum. Derfor
+   * lages siden sist og flyttes fremst i sidelisten – ikke omvendt.
+   */
+  _sammendragsside(app, P, tilstand, innmarg, rader, hoppet) {
+    const t = v => Rapport.tall(v);
+    const foer = P.sider.length;
+    P.nySide();
+    tilstand.sidetall++;
+    P.tekst(this.MARG, 34, this._sperret('MASSEBEREGNING'),
+      { storrelse: 6.4, fet: true, farge: this.ROD });
+    P.tekst(this.MARG, 54, String(app.P.navn), { storrelse: this.T1, fet: true, farge: this.SVART });
+    P.rektangel(this.MARG, 64, innmarg - this.MARG, 2.5, { fyll: this.ROD });
+    let y = 96;
+    P.tekst(this.MARG, y, 'HELE PROSJEKTET', { storrelse: this.T3, fet: true, farge: this.SVART });
+    y += 4;
+    P.linje(this.MARG, y, innmarg, y, { tykkelse: 0.8, farge: this.SVART });
+    y += 16;
+
+    const kol = [innmarg - 320, innmarg - 210, innmarg - 105, innmarg];
+    const hoderad = ['Anlegg', 'Skjæring m³', 'Sprengning m³', 'Fylling m³'];
+    P.tekst(this.MARG, y, hoderad[0], { storrelse: this.T5, fet: true, farge: this.GRA });
+    for (let i = 1; i < 4; i++) {
+      P.tekst(kol[i], y, hoderad[i], { storrelse: this.T5, fet: true, farge: this.GRA, juster: 'h' });
+    }
+    y += 12;
+    for (const r of rader) {
+      P.tekst(this.MARG, y, r.kode + ' · ' + r.navn, { storrelse: this.T4, farge: this.SVART });
+      P.tekst(kol[1], y, t(r.sum.skjaering), { storrelse: this.T4, juster: 'h', farge: this.SVART });
+      P.tekst(kol[2], y, t(r.sum.skjaeringFjell), { storrelse: this.T4, juster: 'h', farge: this.SVART });
+      P.tekst(kol[3], y, t(r.sum.fylling), { storrelse: this.T4, juster: 'h', farge: this.SVART });
+      y += 13;
+    }
+    /* Et anlegg som ikke kom med står her med grunnen sin. Uten linjen ser
+       summen ut som hele prosjektet, og det er den ikke. */
+    for (const h of hoppet) {
+      P.tekst(this.MARG, y, (h.anlegg.navn || h.anlegg.type) + ' – ikke regnet: ' + h.grunn,
+        { storrelse: this.T5, farge: this.ROD });
+      y += 12;
+    }
+    y += 4;
+    P.linje(this.MARG, y - 8, innmarg, y - 8, { tykkelse: 1.4, farge: this.SVART });
+    const sum = app.prosjektsum() || {};
+    P.tekst(this.MARG, y, 'SUM · ' + rader.length + ' anlegg',
+      { storrelse: this.T4, fet: true, farge: this.SVART });
+    P.tekst(kol[1], y, t(sum.skjaering), { storrelse: this.T4, fet: true, juster: 'h', farge: this.SVART });
+    P.tekst(kol[2], y, t(sum.skjaeringFjell), { storrelse: this.T4, fet: true, juster: 'h', farge: this.SVART });
+    P.tekst(kol[3], y, t(sum.fylling), { storrelse: this.T4, fet: true, juster: 'h', farge: this.SVART });
+    y += 22;
+    if (sum.manglerTotalt > 1) {
+      P.tekst(this.MARG, y, 'Må kjøres inn: ' + t(sum.manglerTotalt) + ' m³',
+        { storrelse: this.T4, fet: true, farge: this.ROD });
+      y += 12;
+    }
+    P.tekst(this.MARG, y, 'Til deponi: ' + t(sum.tilDeponi) + ' m³',
+      { storrelse: this.T4, farge: this.GRA });
+
+    // fremst, ikke bakerst
+    const side = P.sider.splice(foer, 1)[0];
+    P.sider.unshift(side);
+  },
+
+  /**
+   * @param {Object} [delt] settes når flere anlegg skal i SAMME dokument.
+   *   `delt.P` og `delt.tilstand` lever da på tvers av anleggene, og bunnen og
+   *   selve byggingen gjøres av den som kaller – én gang, når alt står i.
+   */
+  async _bygg(app, res, delt) {
+    const P = (delt && delt.P) || new PdfSkriver();
     const t = (v, d = 0) => Rapport.tall(v, d);
     const s = res.sum, b = res.balanse, m = res.mal, f = res.faktorer;
     const dato = new Date().toLocaleDateString('nb-NO', { day: '2-digit', month: 'long', year: 'numeric' });
     const innmarg = P.bredde - this.MARG;
 
-    const tilstand = { y: 0, sidetall: 0 };
+    const tilstand = (delt && delt.tilstand) || { y: 0, sidetall: 0 };
 
     /* Brevhodet: svart bjelke med rød strek under, logoen til venstre.
        Logoen hentes som bilde en gang og deles mellom alle sidene. */
@@ -323,14 +454,17 @@ const Pdfrapport = {
        felt ville tatt åtte krasj på rad. */
     if (app.erTomt()) {
       await this._tomteinnhold(app, res, {
-        P, t, tilstand, innmarg, nySide, plass, overskrift, nokkeltabell, toSpalter, band, tabell, brodtekst
+        P, t, tilstand, innmarg, nySide, plass, overskrift, nokkeltabell, toSpalter, band, tabell, brodtekst,
+        delt
       });
+      if (delt) return null;
       this._bunn(P, innmarg);
       return P.bygg();
     }
 
     /* ---------------- side 1 ---------------- */
     nySide();
+    if (delt && delt.anleggsnavn) this._anleggstittel(P, tilstand, innmarg, delt.anleggsnavn);
     P.tekst(this.MARG, tilstand.y, `Terrengmodell: Kartverket DTM1 (1 m laserdata) · EUREF89 UTM${app.sone}`,
       { storrelse: this.T5, farge: this.GRA });
     tilstand.y += 10;
@@ -514,8 +648,24 @@ const Pdfrapport = {
       );
     }
 
+    if (delt) return null;
     this._bunn(P, innmarg);
     return P.bygg();
+  },
+
+  /**
+   * Navnet på anlegget, øverst på den første siden dets.
+   *
+   * I en prosjektrapport bærer sidehodet PROSJEKTETS navn på hver side – det er
+   * riktig, det er samme kunde og samme jobb. Men da står det ingenting om
+   * hvilket av anleggene tallene nedenfor hører til, og en tabell uten den
+   * opplysningen er en tabell man kan lese feil uten å merke det.
+   */
+  _anleggstittel(P, tilstand, innmarg, navn) {
+    P.rektangel(this.MARG, tilstand.y - 4, innmarg - this.MARG, 20, { fyll: this.SVART });
+    P.tekst(this.MARG + 8, tilstand.y + 10, String(navn).toUpperCase(),
+      { storrelse: this.T3 + 1.5, fet: true, farge: this.HVIT });
+    tilstand.y += 30;
   },
 
   /** Bunnteksten på hver side. Felles for veg og tomt. */
@@ -552,6 +702,9 @@ const Pdfrapport = {
     const bf = app.bakkefaktor();
 
     nySide();
+    if (r.delt && r.delt.anleggsnavn) {
+      this._anleggstittel(P, tilstand, innmarg, r.delt.anleggsnavn);
+    }
     P.tekst(this.MARG, tilstand.y, `Terrengmodell: Kartverket DTM1 (1 m laserdata) · EUREF89 UTM${app.sone}`
       + ` · rutenett ${t(m.rutestorrelse, 2)} m · ${res.celler} celler`,
     { storrelse: 7.6, farge: this.GRA });

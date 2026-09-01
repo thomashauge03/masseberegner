@@ -390,6 +390,18 @@
       <p class="notis" id="eksportnotis">Formatene er skrevet etter spesifikasjonene, men er ikke
         prøvd mot hvert enkelt mottakersystem. Ta en prøveimport av én fil før dere baserer en
         jobb på dem.</p>
+      <!-- Hva eksporten gjelder. Med flere anlegg i prosjektet er «bare det jeg
+           står i» og «hele prosjektet» to helt ulike leveranser, og valget hører
+           hjemme OVER knappene – ikke gjemt i hver enkelt av dem. -->
+      <div class="eksportomfang skjult" id="eksportomfang">
+        <span class="omfangnavn">Gjelder</span>
+        <div class="omfangvalg" role="group" aria-label="Hva eksporten gjelder">
+          <button type="button" class="verktoyknapp aktiv" data-omfang="dette"
+            aria-pressed="true">Dette anlegget</button>
+          <button type="button" class="verktoyknapp" data-omfang="alle"
+            aria-pressed="false">Alle i prosjektet</button>
+        </div>
+      </div>
       <div class="knappekolonne">
         <button id="knappEksportKof" class="knapp bred">Stikningsdata (KOF)</button>
         <button id="knappEksportLandxml" class="knapp bred">Linjeføring og profil (LandXML)</button>

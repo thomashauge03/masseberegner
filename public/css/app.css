@@ -400,6 +400,24 @@ body {
 .verktoyknapp.aktiv { background: var(--hm-raud); border-color: var(--hm-raud); color: #fff; font-weight: 700; }
 .verktoyknapp.rett { border-color: var(--hm-raud); color: var(--raud); font-weight: 700; }
 .verktoyknapp.rett:hover { background: var(--hm-raud); color: #fff; }
+
+/* OMFANGET ER ÉN BRYTER MED TO STILLINGER, ikke to knapper.
+   Samme grep som FØR·MASSER·ETTER over 3D-ruta: valgene utelukker hverandre, og
+   da skal de sitte sammen i én ramme. To frittstående knapper hadde sett ut som
+   to eksporter man kunne trykke på hver for seg – og det er nettopp det de ikke
+   er. Bryteren vises bare når prosjektet HAR flere anlegg; med ett anlegg er
+   «dette» og «alle» det samme, og et valg uten forskjell er bare støy. */
+.eksportomfang { margin: 0 0 10px; }
+.eksportomfang.skjult { display: none; }
+.omfangnavn {
+  display: block; margin-bottom: 4px; color: var(--blekk-svak); font-size: 11px;
+  font-family: var(--skrift-tittel); text-transform: uppercase; letter-spacing: .05em;
+}
+.omfangvalg { display: flex; border: 2px solid var(--kant); width: 100%; }
+.omfangvalg .verktoyknapp {
+  flex: 1; border: 0; padding: 4px 6px; font-size: 11.5px; text-align: center;
+}
+.omfangvalg .verktoyknapp + .verktoyknapp { border-left: 2px solid var(--kant); }
 .minivalg, .minitall input {
   background: var(--flate-opp); color: var(--blekk); border: 2px solid var(--kant);
   padding: 2px 5px; font-size: 11.5px; font-family: var(--skrift);

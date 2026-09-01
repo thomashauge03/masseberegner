@@ -275,6 +275,39 @@ const App = {
   /** Er det en tomt vi jobber med na? */
   erTomt() { const a = this.anlegg(); return !!a && a.type === 'tomt'; },
 
+  /**
+   * Skal eksporten gjelde hele prosjektet?
+   *
+   * MED ETT ANLEGG FINNES IKKE VALGET. «Alle i prosjektet» og «dette anlegget»
+   * er da den samme filen, og en bryter som ikke gjør noe er verre enn ingen –
+   * den får brukeren til å lete etter en forskjell som ikke er der. Derfor
+   * svarer denne alltid nei så lenge prosjektet har ett anlegg, uansett hva
+   * bryteren sto på sist.
+   */
+  alleAnlegg() {
+    return this._eksportomfang === 'alle' && !!this.P && this.P.anlegg.length > 1;
+  },
+
+  settEksportomfang(omfang) {
+    this._eksportomfang = omfang === 'alle' ? 'alle' : 'dette';
+    this.visEksportomfang();
+    this.malTilSkjema();                    // knappetekster og notis følger valget
+  },
+
+  /** Viser bryteren når den betyr noe, og skjuler den når den ikke gjør det. */
+  visEksportomfang() {
+    const boks = document.getElementById('eksportomfang');
+    if (!boks) return;
+    const flere = !!this.P && this.P.anlegg.length > 1;
+    boks.classList.toggle('skjult', !flere);
+    const na = this.alleAnlegg() ? 'alle' : 'dette';
+    for (const b of boks.querySelectorAll('[data-omfang]')) {
+      const pa = b.dataset.omfang === na;
+      b.classList.toggle('aktiv', pa);
+      b.setAttribute('aria-pressed', pa ? 'true' : 'false');
+    }
+  },
+
   /** Bytter hvilket anlegg som er oppe. */
   byttAnlegg(id) {
     if (!this.P.anlegg.some(a => a.id === id)) return;
@@ -3874,16 +3907,32 @@ const App = {
     tekst('knappEksportStikning', tomt ? 'Stikningspunkt (CSV)' : 'Stikningsdata (CSV)');
     tekst('knappEksportMasser', tomt ? 'Massesammendrag (CSV)' : 'Masseoppsett per profil (CSV)');
     tekst('knappEksportGeojson', tomt ? 'Tomt, grense og utslag (GeoJSON)' : 'Linje og fotavtrykk (GeoJSON)');
-    vis('#knappEksportRutenett', tomt);
+    /* Rutenettet finnes bare for en tomt. Gjelder eksporten HELE prosjektet, er
+       spørsmålet om det finnes en tomt i det – ikke om man tilfeldigvis står i
+       en. Uten dette var knappen borte så lenge man sto i vegen, og de to
+       tomtene i samme prosjekt kunne ikke hentes ut i det hele tatt. */
+    vis('#knappEksportRutenett', this.alleAnlegg()
+      ? this.P.anlegg.some(a => a.type === 'tomt') : tomt);
+    /* RAPPORTKNAPPEN LIGGER I TOPPLINJA, BRYTEREN INNE I EKSPORTFANEN.
+       En knapp som gjør to forskjellige ting etter en innstilling man ikke ser
+       derfra, er en knapp man ikke kan stole på. Derfor sier den selv hva den
+       kommer til å lage. */
+    tekst('knappRapport', this.alleAnlegg() ? 'Rapport · alle' : 'Rapport');
+    tekst('knappPdf', this.alleAnlegg() ? 'PDF · alle' : 'PDF');
+    this.visEksportomfang();
     const notis = document.getElementById('eksportnotis');
     if (notis) {
-      notis.textContent = tomt
-        ? 'Filene inneholder den ferdige flaten, tomtegrensa, skråningsutslaget og murene. '
-        + 'Der skråningen ikke landet, blir utslagslinja delt opp og merket – den lukkes '
-        + 'aldri over et sted som ikke er regnet. Ta en prøveimport av én fil før dere '
-        + 'baserer en jobb på dem.'
-        : 'Formatene er skrevet etter spesifikasjonene, men er ikke prøvd mot hvert enkelt '
-        + 'mottakersystem. Ta en prøveimport av én fil før dere baserer en jobb på dem.';
+      notis.textContent = this.alleAnlegg()
+        ? 'Alle anleggene havner i én fil per format, med hvert sitt navn på punktene, '
+        + 'flatene og lagene. Programmet må innom hvert anlegg for å regne det ut, så '
+        + 'dette tar noen sekunder. Ta en prøveimport av én fil før dere baserer en jobb på dem.'
+        : tomt
+          ? 'Filene inneholder den ferdige flaten, tomtegrensa, skråningsutslaget og murene. '
+          + 'Der skråningen ikke landet, blir utslagslinja delt opp og merket – den lukkes '
+          + 'aldri over et sted som ikke er regnet. Ta en prøveimport av én fil før dere '
+          + 'baserer en jobb på dem.'
+          : 'Formatene er skrevet etter spesifikasjonene, men er ikke prøvd mot hvert enkelt '
+          + 'mottakersystem. Ta en prøveimport av én fil før dere baserer en jobb på dem.';
     }
     for (const [navn, tekst, etter] of [['tomthoyde', 'Høyde', 'masser'], ['tomtemal', 'Tomtemal', 'tomthoyde']]) {
       if (document.querySelector('.fane[data-fane="' + navn + '"]')) continue;
@@ -5023,8 +5072,10 @@ const App = {
       Kart.settModus('tegn');
       this.status('Nytt prosjekt – klikk i kartet for å tegne senterlinjen. Dobbeltklikk for å avslutte.');
     };
-    id('knappRapport').onclick = () => Rapport.apneRapport();
-    id('knappPdf').onclick = () => Pdfrapport.lag();
+    id('knappRapport').onclick = () => this.alleAnlegg()
+      ? Rapport.apneProsjektrapport() : Rapport.apneRapport();
+    id('knappPdf').onclick = () => this.alleAnlegg()
+      ? Pdfrapport.lagProsjekt() : Pdfrapport.lag();
 
     id('knappForeslaProfil').onclick = () => {
       if (!this.terrengProfil) return;
@@ -5108,14 +5159,25 @@ const App = {
       this.visStrekninger(); this.grunnEndret();
     };
 
+    /* «Gjelder: dette anlegget / alle i prosjektet» styrer HVER eksportknapp.
+       Alternativet var et eget sett samleknapper ved siden av – fjorten knapper
+       der sju holder, og to kolonner som er like helt til man leser dem. */
+    for (const b of document.querySelectorAll('#eksportomfang [data-omfang]')) {
+      b.onclick = () => this.settEksportomfang(b.dataset.omfang);
+    }
     for (const [knapp, format] of [['knappEksportKof', 'kof'], ['knappEksportLandxml', 'landxml'],
     ['knappEksportSosi', 'sosi'], ['knappEksportDxf', 'dxf']]) {
-      id(knapp).onclick = () => Rapport.eksporter(format);
+      id(knapp).onclick = () => this.alleAnlegg()
+        ? Rapport.eksporterAlle(format) : Rapport.eksporter(format);
     }
-    id('knappEksportStikning').onclick = () => Rapport.eksportStikning();
-    id('knappEksportMasser').onclick = () => Rapport.eksportMasser();
-    id('knappEksportGeojson').onclick = () => Rapport.eksportGeojson();
-    id('knappEksportRutenett').onclick = () => Rapport.eksportRutenett();
+    id('knappEksportStikning').onclick = () => this.alleAnlegg()
+      ? Rapport.eksporterCsvAlle('stikning') : Rapport.eksportStikning();
+    id('knappEksportMasser').onclick = () => this.alleAnlegg()
+      ? Rapport.eksporterCsvAlle('masser') : Rapport.eksportMasser();
+    id('knappEksportGeojson').onclick = () => this.alleAnlegg()
+      ? Rapport.eksporterAlle('geojson') : Rapport.eksportGeojson();
+    id('knappEksportRutenett').onclick = () => this.alleAnlegg()
+      ? Rapport.eksporterCsvAlle('rutenett') : Rapport.eksportRutenett();
     id('knappKontroller').onclick = () => this.kontrollerHoyder();
 
     /* Stor visning. Panelene tegner seg sjøl pa nytt via ResizeObserver,

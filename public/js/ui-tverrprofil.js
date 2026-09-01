@@ -260,7 +260,14 @@ const Tverrprofil = {
     c.strokeStyle = Farger.planum; c.lineWidth = 1.8; bane(jord); c.stroke();
 
     // vegkropp: baerelag og slitelag
-    const hb = pr.halvbredde, mal = this.app.resultat ? this.app.resultat.mal : StandardMal;
+    /* AT DET FINNES ET RESULTAT BETYR IKKE AT DET ER ET VEGRESULTAT.
+       Her sto `resultat ? resultat.mal : StandardMal`. Et TOMTEresultat har
+       ingen `mal`, og da ble `mal` undefined – vakten slapp den gjennom fordi
+       resultatet fantes. Neste linje leste `mal.slitelagTykkelse` og kastet.
+       Det skjer hver gang programmet står i en tomt mens et vegtverrsnitt
+       tegnes, og det gjør det for eksempel når en samleeksport går gjennom
+       anleggene. Spørsmålet er om malen finnes, ikke om resultatet gjør det. */
+    const hb = pr.halvbredde, mal = (this.app.resultat && this.app.resultat.mal) || StandardMal;
     const veg = pr.geometri.veg;
     if (veg.length > 1) {
       const planum = veg.map(([t, z]) => [t, z - mal.slitelagTykkelse - mal.baerelagTykkelse]);

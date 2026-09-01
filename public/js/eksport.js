@@ -172,25 +172,49 @@ const Eksport = {
       + z.toFixed(3).padStart(8);
   },
 
-  kof(app, res) {
-    const rader = this.kofHode(app);
-    /* Punktnavnet var `Math.round(pt.s)`. Er sluttstasjonen 227,4 m, het det
-       siste punktet S227 – et navn som peker 0,4 m feil – og lå sluttstasjonen
-       nærmere enn en halv meter etter siste rutenettsteg, fikk to profiler
-       samme navn. Duplikate punktnavn i en maskinstyring er ikke en skjønnhets-
-       feil: det ene punktet overskriver det andre. */
+  /**
+   * Navnegiveren for en KOF-fil.
+   *
+   * Punktnavnet var `Math.round(pt.s)`. Er sluttstasjonen 227,4 m, het det
+   * siste punktet S227 – et navn som peker 0,4 m feil – og lå sluttstasjonen
+   * nærmere enn en halv meter etter siste rutenettsteg, fikk to profiler
+   * samme navn. Duplikate punktnavn i en maskinstyring er ikke en skjønnhets-
+   * feil: det ene punktet overskriver det andre.
+   *
+   * I en samlefil gjelder det på tvers av anlegg også: to veger har begge en
+   * profil 0, og uten prefiks ville S0 fra den ene overskrevet S0 fra den
+   * andre. Derfor eier navnegiveren settet, og den lever så lenge FILEN gjør –
+   * ikke så lenge ett anlegg gjør.
+   *
+   * Ti tegn er taket mange instrumenter kutter ved. Kappes navnet, kan to navn
+   * bli like uten at noen ser det – derfor sjekkes settet ETTER kappingen.
+   */
+  kofNavner(pre = '') {
     const brukt = new Set();
-    const navn = (bokstav, s) => {
-      const n = bokstav + (Number.isInteger(s) ? String(s) : s.toFixed(1).replace('.', '_'));
+    return base => {
+      const n = (pre + base).slice(0, 10);
       if (brukt.has(n)) throw new Error('To punkt fikk samme navn i KOF: ' + n);
       brukt.add(n);
       return n;
     };
+  },
+
+  /** Koordinatlinjene for en veg, uten hode. */
+  kofKroppVeg(app, res, navner) {
+    const rader = [];
+    const navn = (bokstav, s) =>
+      navner(bokstav + (Number.isInteger(s) ? String(s) : s.toFixed(1).replace('.', '_')));
     for (const pt of this.punkter(app, res)) {
       rader.push(this.kofPunkt(navn('S', pt.s), 'SENTER', pt.senter.n, pt.senter.o, pt.senter.z));
       rader.push(this.kofPunkt(navn('V', pt.s), 'VKANT', pt.venstre.n, pt.venstre.o, pt.venstre.z));
       rader.push(this.kofPunkt(navn('H', pt.s), 'HKANT', pt.hoyre.n, pt.hoyre.o, pt.hoyre.z));
     }
+    return rader;
+  },
+
+  kof(app, res) {
+    const rader = this.kofHode(app);
+    for (const r of this.kofKroppVeg(app, res, this.kofNavner())) rader.push(r);
     return rader.join('\r\n') + '\r\n';
   },
 
@@ -201,7 +225,33 @@ const Eksport = {
    * maskinstyringen far den samme geometrien og ikke en kjede korder.
    * Merk at LandXML oppgir punkt som "nord øst", ikke omvendt.
    */
-  landxml(app, res) {
+  /**
+   * Hodet og halen i en LandXML-fil – likt for én modell og for en samlefil.
+   *
+   * Ett `<CoordinateSystem>` per fil. Det er også hele grunnen til at en
+   * samlefil er bedre enn tre enkeltfiler: mottakeren får ETT system, og
+   * modellene kan ikke havne i hver sin projeksjon ved et uhell.
+   */
+  landxmlDokument(app, kropp) {
+    const nå = new Date().toISOString();
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<LandXML xmlns="http://www.landxml.org/schema/LandXML-1.2" version="1.2" date="${nå.slice(0, 10)}" time="${nå.slice(11, 19)}">
+  <Units><Metric linearUnit="meter" areaUnit="squareMeter" volumeUnit="cubicMeter" temperatureUnit="celsius" pressureUnit="milliBars" angularUnit="decimal degrees" directionUnit="decimal degrees"/></Units>
+  <Application name="Massekalk" manufacturer="Hauge Maskin" version="1.0"/>
+  <CoordinateSystem epsgCode="${Geo.epsg(app.sone)}" horizontalDatum="ETRS89" verticalDatum="NN2000"/>
+${kropp}
+</LandXML>
+`;
+  },
+
+  /**
+   * Linjeføringen som ett `<Alignment>`, uten dokumentet rundt.
+   *
+   * `navn` er det modellen skal hete i mottakersystemet. I en samlefil er det
+   * anleggsnavnet – to alignments som begge heter prosjektnavnet er ikke to
+   * modeller, det er én modell og en navnekollisjon.
+   */
+  landxmlAlignment(app, res, navn) {
     const linje = app.linje;
     /* NEKT HELLER ENN Å SKRIVE EN TOM MODELL.
        Uten linjeføring skrev denne en velformet fil på ~800 tegn med
@@ -212,7 +262,6 @@ const Eksport = {
     if (!linje || !linje.elementer || !linje.elementer.length || !(linje.lengde > 0)) {
       throw new Error('Ingen linjeføring å skrive – LandXML for veg krever minst to knekkpunkt');
     }
-    const nå = new Date().toISOString();
     const nk = p => `${p.y.toFixed(4)} ${p.x.toFixed(4)}`;
 
     const elementer = linje.elementer.map(el => {
@@ -254,13 +303,7 @@ const Eksport = {
         : `          <PVI>${v.s.toFixed(4)} ${v.z.toFixed(4)}</PVI>`;
     }).join('\n');
 
-    return `<?xml version="1.0" encoding="UTF-8"?>
-<LandXML xmlns="http://www.landxml.org/schema/LandXML-1.2" version="1.2" date="${nå.slice(0, 10)}" time="${nå.slice(11, 19)}">
-  <Units><Metric linearUnit="meter" areaUnit="squareMeter" volumeUnit="cubicMeter" temperatureUnit="celsius" pressureUnit="milliBars" angularUnit="decimal degrees" directionUnit="decimal degrees"/></Units>
-  <Application name="Massekalk" manufacturer="Hauge Maskin" version="1.0"/>
-  <CoordinateSystem epsgCode="${Geo.epsg(app.sone)}" horizontalDatum="ETRS89" verticalDatum="NN2000"/>
-  <Alignments name="${this.xml(app.P.navn)}">
-    <Alignment name="${this.xml(app.P.navn)}" length="${linje.lengde.toFixed(4)}" staStart="0">
+    return `    <Alignment name="${this.xml(navn)}" length="${linje.lengde.toFixed(4)}" staStart="0">
       <CoordGeom>
 ${elementer}
       </CoordGeom>
@@ -269,10 +312,14 @@ ${elementer}
 ${pvi}
         </ProfAlign>
       </Profile>
-    </Alignment>
-  </Alignments>
-</LandXML>
-`;
+    </Alignment>`;
+  },
+
+  landxml(app, res) {
+    const navn = app.P.navn;
+    return this.landxmlDokument(app, `  <Alignments name="${this.xml(navn)}">
+${this.landxmlAlignment(app, res, navn)}
+  </Alignments>`);
   },
 
   /**
@@ -281,7 +328,18 @@ ${pvi}
    * Koordinatene oppgis i hele centimeter, som ENHET 0.01 sier. Filen far
    * senterlinjen som en kurve og fotavtrykket som en flate.
    */
-  sosi(app, res) {
+  /**
+   * Objektene en veg bidrar med, uten hode og uten `.SLUTT`.
+   *
+   * OBJEKTNUMMERET ER UNIKT I FILEN, IKKE I MODELLEN.
+   * Her sto 1, 2 og 3 fast. I en samlefil ville hver eneste veg fått de samme
+   * tre numrene, og en SOSI-leser som slår opp `..REF :2` finner da tre
+   * kandidater. Nummereringen kommer derfor utenfra og telles opp gjennom hele
+   * filen.
+   *
+   * @returns {{rader:Array<string>, omr:Object, niva:number, nesteId:number}}
+   */
+  sosiDelerVeg(app, res, idFra = 1, navn = null) {
     const punkter = this.punkter(app, res);
     const cm = v => Math.round(v * 100);
     // omradet ma dekke alt som faktisk star i filen, ikke bare senterlinjen
@@ -292,27 +350,31 @@ ${pvi}
         minO = Math.min(minO, q.o); maksO = Math.max(maksO, q.o);
       }
     }
+    const rader = [];
+    let id = idFra;
 
-    const rader = this.sosiHode(app, { minN, maksN, minO, maksO }, 2);
-
-    rader.push('.KURVE 1:');
+    rader.push('.KURVE ' + (id++) + ':');
     rader.push('..OBJTYPE ' + OBJTYPER.senterlinje);
     /* Sto som `..VEGNAVN <navn>`, som ikke er en SOSI-egenskap, og verdien var
        ikke i anførselstegn. Et prosjektnavn med mellomrom brøt da strukturen. */
-    rader.push('..NAVN ' + this.sosiTekst(app.P.navn));
+    rader.push('..NAVN ' + this.sosiTekst(navn || app.P.navn));
     rader.push('..NØH');
     for (const p of punkter) rader.push(`${cm(p.senter.n)} ${cm(p.senter.o)} ${cm(p.senter.z)}`);
 
-    rader.push('.KURVE 2:');
-    rader.push('..OBJTYPE ' + OBJTYPER.vegkant);
-    rader.push('..NØH');
-    for (const p of punkter) rader.push(`${cm(p.venstre.n)} ${cm(p.venstre.o)} ${cm(p.venstre.z)}`);
+    for (const side of ['venstre', 'hoyre']) {
+      rader.push('.KURVE ' + (id++) + ':');
+      rader.push('..OBJTYPE ' + OBJTYPER.vegkant);
+      if (navn) rader.push('..NAVN ' + this.sosiTekst(navn));
+      rader.push('..NØH');
+      for (const p of punkter) rader.push(`${cm(p[side].n)} ${cm(p[side].o)} ${cm(p[side].z)}`);
+    }
 
-    rader.push('.KURVE 3:');
-    rader.push('..OBJTYPE ' + OBJTYPER.vegkant);
-    rader.push('..NØH');
-    for (const p of punkter) rader.push(`${cm(p.hoyre.n)} ${cm(p.hoyre.o)} ${cm(p.hoyre.z)}`);
+    return { rader, omr: { minN, maksN, minO, maksO }, niva: 2, nesteId: id };
+  },
 
+  sosi(app, res) {
+    const d = this.sosiDelerVeg(app, res, 1);
+    const rader = this.sosiHode(app, d.omr, d.niva).concat(d.rader);
     rader.push('.SLUTT');
     return rader.join('\r\n') + '\r\n';
   },
@@ -367,17 +429,33 @@ ${pvi}
    * Skrevet som R12-ASCII, som er det formatet flest program leser uten
    * innsigelser.
    */
-  dxf(app, res) {
+  /**
+   * Lagnavn i en samlefil: modellens navn foran tegningens eget lagnavn.
+   *
+   * R12 tåler ikke mellomrom, æøå eller de fleste skilletegn i et lagnavn – en
+   * tegning med et ulovlig lagnavn åpner enten ikke, eller åpner med lagene
+   * slått sammen. Derfor renskes navnet ned til det formatet faktisk godtar,
+   * og kappes så tegneren fortsatt kan lese hva laget er.
+   */
+  dxfLagpre(navn) {
+    const rent = String(navn || '')
+      .replace(/[æÆ]/g, 'AE').replace(/[øØ]/g, 'OE').replace(/[åÅ]/g, 'AA')
+      .toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+    return rent ? rent.slice(0, 16) + '_' : '';
+  },
+
+  /** Tegningsobjektene for en veg, uten SECTION-rammen. */
+  dxfKroppVeg(app, res, lagpre = '') {
     const p = this.punkter(app, res);
     const ut = [];
     const par = (kode, verdi) => { ut.push(String(kode)); ut.push(String(verdi)); };
 
-    par(0, 'SECTION'); par(2, 'ENTITIES');
     /* `lukket` setter bit 1 i 70-flagget. Uten den hadde fotavtrykket et gap på
        hele jordarbeidsbredden ved profil 0 - målt 9,7 m - og en flate med et
        hull i er ingen flate. Å duplisere startpunktet i stedet gir en strekning
        uten lengde, som enkelte lesere klager på. */
-    const polylinje = (navn, farge, punkt, lukket) => {
+    const polylinje = (lag, farge, punkt, lukket) => {
+      const navn = lagpre + lag;
       par(0, 'POLYLINE'); par(8, navn); par(62, farge); par(66, 1);
       par(70, 8 | (lukket ? 1 : 0));
       for (const q of punkt) {
@@ -415,12 +493,21 @@ ${pvi}
     for (let k = 0; k <= antall; k++) {
       const q = app.linje.punktVed(k * 50);
       if (!q || !Number.isFinite(q.x)) continue;
-      par(0, 'TEXT'); par(8, 'PROFILNUMMER'); par(62, 7);
+      par(0, 'TEXT'); par(8, lagpre + 'PROFILNUMMER'); par(62, 7);
       par(10, q.x.toFixed(4)); par(20, q.y.toFixed(4)); par(30, '0');
       par(40, '2'); par(1, String(k * 50));
     }
-    par(0, 'ENDSEC'); par(0, 'EOF');
-    return ut.join('\r\n') + '\r\n';
+    return ut;
+  },
+
+  /** Rammen rundt en DXF – én per fil, uansett hvor mange modeller som står i den. */
+  dxfDokument(kropp) {
+    return ['0', 'SECTION', '2', 'ENTITIES']
+      .concat(kropp, ['0', 'ENDSEC', '0', 'EOF']).join('\r\n') + '\r\n';
+  },
+
+  dxf(app, res) {
+    return this.dxfDokument(this.dxfKroppVeg(app, res));
   },
 
 
@@ -444,8 +531,8 @@ ${pvi}
    * modell – tusen punkt i en fil stikkeren skal lese på et instrument er
    * ubrukelig. Hjørnene, grensa, utslaget og murene er det som stikkes.
    */
-  kofTomt(app, res) {
-    const d = this.tomtpunkter(app, res);
+  /** Merknadene tomte-KOF-en bærer i hodet – de hører til dataene, ikke til filen. */
+  kofMerknaderTomt(d) {
     const uten = d.fot.filter(f => f.type !== 'apen' && f.traff !== true).length;
     const merk = [];
     if (uten) {
@@ -455,21 +542,27 @@ ${pvi}
     if (d.erYttergrense) {
       merk.push('G-punktene er tomtegrensa (utslagsgrense). F/P-punktene er ferdig flate innenfor.');
     }
-    const rader = this.kofHode(app, merk);
+    return merk;
+  },
+
+  /** Koordinatlinjene for en tomt, uten hode. */
+  kofKroppTomt(app, res, navner, d) {
+    d = d || this.tomtpunkter(app, res);
+    const rader = [];
     const nr2 = n => String(n).padStart(2, '0');
     const nr4 = n => String(n).padStart(4, '0');
 
     for (const h of d.hjorner) {
       if (!Number.isFinite(h.zFerdig)) continue;
-      rader.push(this.kofPunkt('F' + nr2(h.nr), 'FERDIG', h.y, h.x, h.zFerdig));
-      rader.push(this.kofPunkt('P' + nr2(h.nr), 'PLANUM', h.y, h.x, h.zPlanum));
+      rader.push(this.kofPunkt(navner('F' + nr2(h.nr)), 'FERDIG', h.y, h.x, h.zFerdig));
+      rader.push(this.kofPunkt(navner('P' + nr2(h.nr)), 'PLANUM', h.y, h.x, h.zPlanum));
     }
     if (d.erYttergrense) {
       for (const g of d.grense) {
         const naer = Tomtmasser.naermestePaOmriss(d.flate, g.x, g.y);
         const z = Tomtmasser.nivaaVed(d.nivaa, naer.x, naer.y, Tomt.tyngdepunkt(d.flate)) - d.ob;
         if (!Number.isFinite(z)) continue;
-        rader.push(this.kofPunkt('G' + nr2(g.nr), 'GRENSE', g.y, g.x, z));
+        rader.push(this.kofPunkt(navner('G' + nr2(g.nr)), 'GRENSE', g.y, g.x, z));
       }
     }
     /* Utslagspunktene tynnes til minst to meter mellom hvert. Marsjen legger et
@@ -480,12 +573,19 @@ ${pvi}
       if (f.type === 'apen' || f.traff !== true || !Number.isFinite(f.z)) continue;
       if (forrige && Math.hypot(f.x - forrige.x, f.y - forrige.y) < 2) continue;
       forrige = f;
-      rader.push(this.kofPunkt('U' + nr4(++k),
+      rader.push(this.kofPunkt(navner('U' + nr4(++k)),
         f.type === 'skjaering' ? 'SKJTOPP' : 'FYLLFOT', f.y, f.x, f.z));
     }
     for (const m of this.murpunkter(d)) {
-      rader.push(this.kofPunkt(m.navn, m.kode, m.y, m.x, m.z));
+      rader.push(this.kofPunkt(navner(m.navn), m.kode, m.y, m.x, m.z));
     }
+    return rader;
+  },
+
+  kofTomt(app, res) {
+    const d = this.tomtpunkter(app, res);
+    const rader = this.kofHode(app, this.kofMerknaderTomt(d));
+    for (const r of this.kofKroppTomt(app, res, this.kofNavner(), d)) rader.push(r);
     if (rader.filter(r => r.startsWith(' 05')).length === 0) {
       throw new Error('Ingen punkt å skrive – tomta har ingen ferdig kote ennå');
     }
@@ -533,7 +633,7 @@ ${pvi}
   },
 
   /** SOSI for en tomt: en flate med grenser, ikke tre kurver. */
-  sosiTomt(app, res) {
+  sosiDelerTomt(app, res, idFra = 1, navn = null) {
     const d = this.tomtpunkter(app, res);
     const cm = v => Math.round(v * 100);
     let minN = Infinity, maksN = -Infinity, minO = Infinity, maksO = -Infinity;
@@ -545,9 +645,8 @@ ${pvi}
     d.fot.forEach(f => { if (f.traff === true) sett(f); });
     if (!Number.isFinite(minN)) throw new Error('Tomta har ingen geometri å skrive');
 
-    // .FLATE krever nivå 4; på nivå 2 finnes bare punkt og kurver
-    const rader = this.sosiHode(app, { minN, maksN, minO, maksO }, 4);
-    let id = 0;
+    const rader = [];
+    let id = idFra - 1;
     const tp = Tomt.tyngdepunkt(d.flate);
     const zVed = q => {
       const z = Tomtmasser.nivaaVed(d.nivaa, q.x, q.y, tp);
@@ -570,7 +669,7 @@ ${pvi}
     const iFlate = ++id;
     rader.push(`.FLATE ${iFlate}:`);
     rader.push('..OBJTYPE ' + OBJTYPER.tomteflate);
-    rader.push('..NAVN ' + this.sosiTekst(app.P.navn));
+    rader.push('..NAVN ' + this.sosiTekst(navn || app.P.navn));
     rader.push('..REF :' + iRing);
     rader.push('..NØH');
     rader.push(`${cm(tp.y)} ${cm(tp.x)} ${cm(zVed(tp))}`);
@@ -590,18 +689,26 @@ ${pvi}
       const a = d.flate[k.nr], b = d.flate[(k.nr + 1) % d.flate.length];
       if (a && b) kurve(type === 'mur' ? OBJTYPER.mur : OBJTYPER.bergvegg, [a, b], q => zVed(q));
     }
+    // .FLATE krever nivå 4; på nivå 2 finnes bare punkt og kurver
+    return { rader, omr: { minN, maksN, minO, maksO }, niva: 4, nesteId: id + 1 };
+  },
+
+  sosiTomt(app, res) {
+    const d = this.sosiDelerTomt(app, res, 1);
+    const rader = this.sosiHode(app, d.omr, d.niva).concat(d.rader);
     rader.push('.SLUTT');
     return rader.join('\r\n') + '\r\n';
   },
 
   /** DXF for en tomt: lagene en tegner faktisk vil ha fra hverandre. */
-  dxfTomt(app, res) {
+  /** Tegningsobjektene for en tomt, uten SECTION-rammen. */
+  dxfKroppTomt(app, res, lagpre = '') {
     const d = this.tomtpunkter(app, res);
     const ut = [];
     const par = (kode, verdi) => { ut.push(String(kode)); ut.push(String(verdi)); };
-    par(0, 'SECTION'); par(2, 'ENTITIES');
-    const polylinje = (navn, farge, punkt, lukket) => {
+    const polylinje = (lag, farge, punkt, lukket) => {
       if (punkt.length < 2) return;
+      const navn = lagpre + lag;
       par(0, 'POLYLINE'); par(8, navn); par(62, farge); par(66, 1);
       par(70, 8 | (lukket ? 1 : 0));
       for (const q of punkt) {
@@ -618,7 +725,7 @@ ${pvi}
        ikke som HATCH-grense i AutoCAD, uansett lukket-bit. Derfor kommer
        flaten også som LWPOLYLINE på fast kote. */
     if (d.hjorner.length > 2 && Number.isFinite(d.hjorner[0].zFerdig)) {
-      par(0, 'LWPOLYLINE'); par(8, 'FERDIG_NIVAA_2D'); par(62, 3);
+      par(0, 'LWPOLYLINE'); par(8, lagpre + 'FERDIG_NIVAA_2D'); par(62, 3);
       par(90, d.hjorner.length); par(70, 1); par(38, d.hjorner[0].zFerdig.toFixed(4));
       for (const h of d.hjorner) { par(10, h.x.toFixed(4)); par(20, h.y.toFixed(4)); }
     }
@@ -648,12 +755,15 @@ ${pvi}
     }
     for (const h of d.hjorner) {
       if (!Number.isFinite(h.zFerdig)) continue;
-      par(0, 'TEXT'); par(8, 'TEKST'); par(62, 7);
+      par(0, 'TEXT'); par(8, lagpre + 'TEKST'); par(62, 7);
       par(10, h.x.toFixed(4)); par(20, h.y.toFixed(4)); par(30, h.zFerdig.toFixed(4));
       par(40, '1.5'); par(1, `H${h.nr} ${h.zFerdig.toFixed(2)}`);
     }
-    par(0, 'ENDSEC'); par(0, 'EOF');
-    return ut.join('\r\n') + '\r\n';
+    return ut;
+  },
+
+  dxfTomt(app, res) {
+    return this.dxfDokument(this.dxfKroppTomt(app, res));
   },
 
   /**
@@ -667,12 +777,18 @@ ${pvi}
    * innenfor tomta. Rutenettet beregningen allerede har bygd, er regulært, så
    * trianguleringen er to trekanter per rute – ingen Delaunay trengs.
    */
-  landxmlTomt(app, res) {
+  /**
+   * Flatene og linjene en tomt bidrar med, uten dokumentet rundt.
+   *
+   * `pre` settes foran hvert flatenavn i en samlefil. Tre modeller som alle
+   * har en flate som heter «Planum» er tre flater mottakeren ikke kan skille –
+   * og i de fleste maskinstyringer overskriver den siste de andre.
+   */
+  landxmlDelerTomt(app, res, pre = '') {
     const d = this.tomtpunkter(app, res);
     if (!d.rutenett.length) {
       throw new Error('Tomta er ikke regnet ennå – LandXML for tomt krever et ferdig rutenett');
     }
-    const nå = new Date().toISOString();
     const ruteM = Math.max(0.05, (res.rutenett[1] && res.rutenett[0]
       && Math.abs(res.rutenett[1].x - res.rutenett[0].x)) || app.P.mal.rutestorrelse || 1);
 
@@ -714,10 +830,10 @@ ${faces.join('\n')}
     };
 
     const flater = [
-      flate('Planum', 'Jordarbeidsflate med skråninger', d.rutenett, c => c.zPlanum),
-      flate('Ferdig nivå', 'Overflaten det kjøres på, bare innenfor tomta',
+      flate(pre + 'Planum', 'Jordarbeidsflate med skråninger', d.rutenett, c => c.zPlanum),
+      flate(pre + 'Ferdig nivå', 'Overflaten det kjøres på, bare innenfor tomta',
         d.rutenett.filter(c => c.inne), c => c.zFerdig),
-      flate('Terreng', 'Eksisterende terreng i samme utstrekning', d.rutenett, c => c.zT)
+      flate(pre + 'Terreng', 'Eksisterende terreng i samme utstrekning', d.rutenett, c => c.zT)
     ].filter(Boolean);
     if (!flater.length) throw new Error('Ingen flate å skrive – rutenettet mangler koter');
 
@@ -738,27 +854,24 @@ ${seg.join('\n')}
       </CoordGeom>
       </PlanFeature>`);
     };
-    geom('Ferdig flate', d.hjorner, h => h.zFerdig, true);
+    geom(pre + 'Ferdig flate', d.hjorner, h => h.zFerdig, true);
     if (d.erYttergrense) {
       const tp = Tomt.tyngdepunkt(d.flate);
-      geom('Tomtegrense', d.omriss,
+      geom(pre + 'Tomtegrense', d.omriss,
         q => Tomtmasser.nivaaVed(d.nivaa, q.x, q.y, tp) - d.ob, true);
     }
     for (const s of this.fotstrekk(d.fot)) {
-      geom(s.type === 'skjaering' ? 'Skjæringstopp' : 'Fyllingsfot', s.punkt, q => q.z, false);
+      geom(pre + (s.type === 'skjaering' ? 'Skjæringstopp' : 'Fyllingsfot'), s.punkt, q => q.z, false);
     }
+    return { flater, linjer };
+  },
 
-    return `<?xml version="1.0" encoding="UTF-8"?>
-<LandXML xmlns="http://www.landxml.org/schema/LandXML-1.2" version="1.2" date="${nå.slice(0, 10)}" time="${nå.slice(11, 19)}">
-  <Units><Metric linearUnit="meter" areaUnit="squareMeter" volumeUnit="cubicMeter" temperatureUnit="celsius" pressureUnit="milliBars" angularUnit="decimal degrees" directionUnit="decimal degrees"/></Units>
-  <Application name="Massekalk" manufacturer="Hauge Maskin" version="1.0"/>
-  <CoordinateSystem epsgCode="${Geo.epsg(app.sone)}" horizontalDatum="ETRS89" verticalDatum="NN2000"/>
-  <Surfaces name="${this.xml(app.P.navn)}">
+  landxmlTomt(app, res) {
+    const { flater, linjer } = this.landxmlDelerTomt(app, res);
+    return this.landxmlDokument(app, `  <Surfaces name="${this.xml(app.P.navn)}">
 ${flater.join('\n')}
   </Surfaces>
-${linjer.length ? '  <PlanFeatures name="Massekalk">\n' + linjer.join('\n') + '\n  </PlanFeatures>' : ''}
-</LandXML>
-`;
+${linjer.length ? '  <PlanFeatures name="Massekalk">\n' + linjer.join('\n') + '\n  </PlanFeatures>' : ''}`);
   },
 
   tekst(s, bredde) { return String(s).slice(0, bredde).padEnd(bredde); },
