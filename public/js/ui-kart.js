@@ -124,11 +124,20 @@ const Kart = {
     for (const v of KARTLAG.overlegg) {
       let lag;
       if (v.arcgis) {
-        lag = L.tileLayer.arcgisBilde(v.arcgis, { opacity: v.opacity, zIndex: v.zIndex });
+        lag = L.tileLayer.arcgisBilde(v.arcgis, { opacity: v.opacity, zIndex: v.zIndex, maxZoom: 21 });
       } else {
+        /* maxZoom MÅ SETTES.
+           Leaflets standard for et flislag er 18, og kartet går til 21 fordi
+           bakgrunnene ber om det. Fra zoom 19 sluttet Leaflet derfor å be om
+           fliser til overleggene, og eiendomsgrensene forsvant nettopp der man
+           trenger dem mest – når man zoomer helt inn for å legge et hjørne
+           nøyaktig på en grense.
+           En WMS er ikke en flispyramide: den tegner på forespørsel i den
+           målestokken man ber om. Å be om zoom 21 gir altså SKARPERE grenser,
+           ikke oppblåste. */
         lag = L.tileLayer.wms(v.wms, {
           layers: v.lag, format: 'image/png', transparent: true,
-          opacity: v.opacity, zIndex: v.zIndex,
+          opacity: v.opacity, zIndex: v.zIndex, maxZoom: 21,
           attribution: v.attribusjon, crossOrigin: 'anonymous'
         });
       }
@@ -433,6 +442,26 @@ const Kart = {
     if (p('verktoyMaalTom')) p('verktoyMaalTom').onclick = () => this.tomMaal();
     if (p('modusVeg')) p('modusVeg').onclick = () => this.app.settModus('veg');
     if (p('modusTomt')) p('modusTomt').onclick = () => this.app.settModus('tomt');
+    /* Anleggslista. Samme oppførsel som lagvelgeren på kartet: lukker seg ved
+       klikk utenfor og ved Escape, men IKKE når man trykker inne i den – der
+       gir man ofte et navn og legger til noe rett etterpå. */
+    const ak = p('anleggsknapp'), ap = p('anleggspanel');
+    if (ak && ap) {
+      const sett = pa => {
+        ap.classList.toggle('skjult', !pa);
+        ak.setAttribute('aria-expanded', pa ? 'true' : 'false');
+        if (pa) {
+          const r = ak.getBoundingClientRect();
+          ap.style.top = (r.bottom + 5) + 'px';
+          ap.style.left = Math.max(8, Math.min(r.left, window.innerWidth - ap.offsetWidth - 8)) + 'px';
+        }
+      };
+      ak.onclick = e => { e.stopPropagation(); sett(ap.classList.contains('skjult')); };
+      document.addEventListener('click', e => {
+        if (!ap.classList.contains('skjult') && !ap.contains(e.target) && e.target !== ak) sett(false);
+      });
+      document.addEventListener('keydown', e => { if (e.key === 'Escape') sett(false); });
+    }
     if (p('visTomtefarger')) p('visTomtefarger').onchange = () => this.tegnTomtefarger();
     if (p('tp_retning')) p('tp_retning').onchange = e => {
       Tomteprofil.retning = e.target.value;
@@ -1166,9 +1195,58 @@ const Kart = {
     });
   },
 
+  /**
+   * De ANDRE anleggene, tegnet som en dempet bakgrunn.
+   *
+   * Dette er hele grunnen til at flere anlegg i samme prosjekt er verdt noe.
+   * Ligger tomta og vegen i hver sin fil, ser man aldri om snuplassen treffer
+   * vegen, om to tomter overlapper, eller om fyllingsfoten fra den ene havner
+   * inni den andre. Med dem på samme kart ser man det uten å regne.
+   *
+   * DEMPET, OG UTEN HÅNDTAK. De er noe å se, ikke noe å dra i: ett sett
+   * håndtak på skjermen om gangen, ellers vet man ikke hvilket anlegg man
+   * flytter. Et KLIKK på et av dem bytter dit – det er den raske veien mellom
+   * anleggene når de ligger ved siden av hverandre.
+   */
+  tegnAndreAnlegg() {
+    const app = this.app;
+    if (!this.lag.andre) this.lag.andre = L.layerGroup().addTo(this.kart);
+    this.lag.andre.clearLayers();
+    if (!app.P || !Array.isArray(app.P.anlegg) || app.P.anlegg.length < 2) return;
+    for (const a of app.P.anlegg) {
+      if (a.id === app.P.aktivt) continue;
+      const bytt = () => app.byttAnlegg(a.id);
+      const stil = { color: Farger.blekkSvak, weight: 2, opacity: 0.55, dashArray: '7 5' };
+      let midt = null;
+      if (a.type === 'tomt' && a.tomt && a.tomt.punkter && a.tomt.punkter.length > 2) {
+        const p = a.tomt.punkter.map(q => [q.lat, q.lon]);
+        const f = L.polygon(p, Object.assign({ fillColor: Farger.blekkSvak, fillOpacity: 0.06 }, stil))
+          .addTo(this.lag.andre);
+        f.on('click', bytt);
+        f.bindTooltip(a.navn || 'Tomt', { direction: 'center', className: 'anleggsnavnkart' });
+        midt = f.getBounds().getCenter();
+      } else if (a.type === 'veg' && a.ip && a.ip.length > 1) {
+        const p = a.ip.map(q => [q.lat, q.lon]);
+        const f = L.polyline(p, stil).addTo(this.lag.andre);
+        f.on('click', bytt);
+        f.bindTooltip(a.navn || 'Veg', { direction: 'center', className: 'anleggsnavnkart' });
+        midt = f.getBounds().getCenter();
+      }
+      /* Et anlegg uten geometri har ingenting å tegne, og skal heller ikke få
+         et navnemerke svevende midt i kartet. */
+      if (midt) {
+        L.marker(midt, { icon: L.divIcon({ className: 'maaltomt', html: '' }), interactive: false })
+          .bindTooltip(this.app.anleggsmerke(a) + ' ' + (a.navn || a.type),
+            { permanent: true, direction: 'center', className: 'anleggsmerkekart' })
+          .addTo(this.lag.andre);
+      }
+    }
+  },
+
   tegn() {
     const app = this.app, P = app.P;
 
+    this.tegnAndreAnlegg();
     this.tegnTomt();
     if (app.erTomt()) {
       // vegens lag skal ikke henge igjen fra forrige anlegg

@@ -278,6 +278,21 @@ const App = {
   },
 
   /** Viser riktig arbeidsbilde for det anlegget som er oppe. */
+  /** Merket foran et anlegg i lista – samme tegn som den gamle bryteren brukte. */
+  anleggsmerke(a) { return a && a.type === 'tomt' ? '⬟' : '▬'; },
+
+  /**
+   * Anleggslista: hvert anlegg i prosjektet, med en vei inn til hvert av dem.
+   *
+   * Modellen har alltid holdt en liste. Bryteren kunne bare si «veg» eller
+   * «tomt», og den hoppet til det FØRSTE anlegget av den typen – så en veg nummer
+   * to, eller en tomt nummer tre, lå i fila uten en eneste vei inn. Man kunne
+   * lage dem, de ble lagret, de ble åpnet igjen, og de kunne ikke nås.
+   *
+   * Hver rad kan byttes til, gis nytt navn og slettes. Navnet er ikke pynt: med
+   * fire anlegg i et prosjekt er «Tomt 2» og «Tomt 3» to like ansikter, mens
+   * «Lager» og «Snuplass» er to steder.
+   */
   visAnleggsvelger() {
     if (!this.P) return;
     const tomt = this.erTomt();
@@ -289,6 +304,100 @@ const App = {
     bytt('verktoyTegn', !tomt);
     bytt('verktoyTomt', tomt);
     if (tomt) { this.tomtTilSkjema(); this.visTomtemasser(); }
+
+    const knapp = document.getElementById('anleggsknapp');
+    const panel = document.getElementById('anleggspanel');
+    if (!knapp || !panel) return;
+    const na = this.anlegg();
+    knapp.textContent = this.anleggsmerke(na) + ' ' + ((na && na.navn) || '?')
+      + (this.P.anlegg.length > 1 ? '  (' + this.P.anlegg.length + ')' : '') + ' ▾';
+    knapp.title = this.P.anlegg.length > 1
+      ? this.P.anlegg.length + ' anlegg i prosjektet – bytt, legg til, gi nytt navn'
+      : 'Anleggene i prosjektet – bytt, legg til, gi nytt navn';
+
+    const esc = s => String(s).replace(/[&<>"]/g, c =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    panel.innerHTML = '<div class="kartlagtittel">Anlegg i prosjektet</div>'
+      + '<div class="listeboks anleggsliste">'
+      + this.P.anlegg.map(a => `<div class="rad${a.id === this.P.aktivt ? ' aktiv' : ''}">`
+        + `<button class="minilenke anleggsnavn" data-bytt="${a.id}" title="Bytt til dette anlegget">`
+        + this.anleggsmerke(a) + ' ' + esc(a.navn || a.type) + '</button>'
+        + `<button data-navn="${a.id}" title="Gi nytt navn">✎</button>`
+        + `<button data-slett="${a.id}" title="Slett dette anlegget">×</button>`
+        + '</div>').join('')
+      + '</div>'
+      + '<div class="kartlagtittel">Legg til</div>'
+      + '<div class="kartknapper">'
+      + '<button class="kartknapp" data-nytt="veg">▬ Ny veg</button>'
+      + '<button class="kartknapp" data-nytt="tomt">⬟ Ny tomt</button>'
+      + '</div>';
+    for (const b of panel.querySelectorAll('[data-bytt]')) {
+      b.onclick = () => { this.byttAnlegg(b.dataset.bytt); this._lukkAnleggspanel(); };
+    }
+    for (const b of panel.querySelectorAll('[data-nytt]')) {
+      b.onclick = () => { this.leggTilAnlegg(b.dataset.nytt); this._lukkAnleggspanel(); };
+    }
+    for (const b of panel.querySelectorAll('[data-navn]')) {
+      b.onclick = () => this.dopAnlegg(b.dataset.navn);
+    }
+    for (const b of panel.querySelectorAll('[data-slett]')) {
+      b.onclick = () => this.slettAnlegg(b.dataset.slett);
+    }
+  },
+
+  _lukkAnleggspanel() {
+    const panel = document.getElementById('anleggspanel');
+    const knapp = document.getElementById('anleggsknapp');
+    if (panel) panel.classList.add('skjult');
+    if (knapp) knapp.setAttribute('aria-expanded', 'false');
+  },
+
+  /** Gir et anlegg nytt navn. «Lager» og «Snuplass» er to steder; «Tomt 2» og «Tomt 3» er ikke det. */
+  dopAnlegg(id) {
+    const a = this.P.anlegg.find(x => x.id === id);
+    if (!a) return;
+    const nytt = window.prompt('Navn på anlegget', a.navn || '');
+    if (nytt == null) return;
+    const rent = String(nytt).trim().slice(0, 40);
+    if (!rent) return;
+    this.merk('nytt anleggsnavn');
+    a.navn = rent;
+    this.visAnleggsvelger();
+    this.tegnAlt();
+    this.status('Anlegget heter nå «' + rent + '»');
+  },
+
+  /**
+   * Sletter et anlegg.
+   *
+   * Det siste kan ikke slettes: et prosjekt uten anlegg har ingen aktiv, og
+   * aksessorene `P.ip` / `P.tomt` ville pekt på undefined – da kaster alt som
+   * tegner, uten et ord om hvorfor.
+   */
+  async slettAnlegg(id) {
+    const a = this.P.anlegg.find(x => x.id === id);
+    if (!a) return;
+    if (this.P.anlegg.length < 2) { this.status('Prosjektet må ha minst ett anlegg'); return; }
+    const harNoe = (a.ip && a.ip.length) || (a.tomt && a.tomt.punkter && a.tomt.punkter.length);
+    if (harNoe && this.bekreft) {
+      const ja = await this.bekreft('Slette «' + (a.navn || a.type) + '»? '
+        + 'Alt som er tegnet på det blir borte – men du kan angre etterpå.', 'Slett');
+      if (!ja) return;
+    }
+    this.merk('slettet anlegg');
+    const i = this.P.anlegg.indexOf(a);
+    this.P.anlegg.splice(i, 1);
+    /* Var det aktive som ble slettet, må noe annet bli aktivt FØR noe tegnes –
+       ellers slår aksessorene opp i et anlegg som ikke finnes. */
+    if (this.P.aktivt === id) {
+      this.P.aktivt = this.P.anlegg[Math.max(0, i - 1)].id;
+      this._terrengnokkel = '';
+      this.resultat = null;
+    }
+    this.visAnleggsvelger();
+    this.tegnAlt();
+    if (this.erTomt()) this.tomtEndret(); else this.planlegg(60);
+    this.status('Slettet «' + (a.navn || a.type) + '»');
   },
 
   /* ---------------- tomtas skjema ---------------- */
@@ -503,6 +612,12 @@ const App = {
   visTomtemasser() {
     const boks = document.getElementById('massesammendrag');
     if (!boks || !this.erTomt()) return;
+    /* TALLENE FOR TOMTA MÅ OGSÅ TELLE MED I PROSJEKTSUMMEN.
+       Her sto ingen ting: topplinja ble bare oppdatert fra vegens beregning, så
+       en tomt kunne være ferdig regnet mens summen fortsatt sa «1 av 2». Målt:
+       prosjektsum() svarte 31 165 m³ mens topplinja sto på 9 340. */
+    this.huskAnleggstall();
+    this.visNokkeltal();
     Tomteprofil.tegn();
     Tomt3d.tegn();
     Kart.tegnTomtefarger();
@@ -863,27 +978,104 @@ const App = {
    * fanebytte for å nå. Det er hele poenget med programmet – det skal ikke
    * ligge bak et klikk.
    */
+  /**
+   * Tar vare på tallene for anlegget som nettopp ble regnet.
+   *
+   * Uten dette finnes bare ETT resultat om gangen, og bytter man anlegg, er de
+   * forrige tallene borte. Med flere anlegg i samme prosjekt er nettopp summen
+   * av dem spørsmålet – hva koster HELE jobben – og den kan ikke regnes av ett
+   * tall om gangen. Feltene er små (to objekter med tall), så det koster
+   * ingenting å la dem ligge på anlegget de hører til.
+   */
+  huskAnleggstall() {
+    const a = this.anlegg();
+    if (!a) return;
+    const r = this.resultat;
+    if (!r || !r.sum) { a._sum = null; a._balanse = null; return; }
+    a._sum = Object.assign({}, r.sum);
+    a._balanse = Object.assign({}, r.balanse || {});
+  },
+
+  /**
+   * Summen for HELE prosjektet – alle anlegg lagt sammen.
+   *
+   * Bare de feltene begge anleggstyper har, og som betyr det samme i begge:
+   * skjæring, fylling, sprengning, og det som må kjøres inn eller bort. En veg
+   * med overskudd og en tomt med underskudd på samme prosjekt er nøyaktig det
+   * man vil se – da kjører man massen tvers over gårdsplassen i stedet for å
+   * betale for både bortkjøring og innkjøring.
+   *
+   * `uregnet` er ikke pynt: et anlegg som ikke er besøkt ennå har ingen tall,
+   * og en sum som stilltiende hopper over det ville vært for lav. Da er det
+   * bedre å si hvor mange som mangler.
+   */
+  prosjektsum() {
+    if (!this.P || !Array.isArray(this.P.anlegg)) return null;
+    const ut = { skjaering: 0, fylling: 0, skjaeringFjell: 0, rensk: 0,
+      manglerTotalt: 0, tilDeponi: 0, antall: 0, uregnet: 0 };
+    for (const a of this.P.anlegg) {
+      const s = (a.id === this.P.aktivt && this.resultat && this.resultat.sum)
+        ? this.resultat.sum : a._sum;
+      const b = (a.id === this.P.aktivt && this.resultat && this.resultat.sum)
+        ? (this.resultat.balanse || {}) : (a._balanse || {});
+      if (!s) { ut.uregnet++; continue; }
+      ut.antall++;
+      ut.skjaering += s.skjaering || 0;
+      ut.fylling += s.fylling || 0;
+      ut.skjaeringFjell += s.skjaeringFjell || 0;
+      ut.rensk += s.rensk || 0;
+      ut.manglerTotalt += b.manglerTotalt || 0;
+      ut.tilDeponi += b.tilDeponi || 0;
+    }
+    return ut;
+  },
+
   visNokkeltal() {
     const e = document.getElementById('nokkeltal');
     if (!e) return;
     const r = this.resultat;
-    if (!r || !r.sum) { e.className = 'nokkeltal tom'; e.innerHTML = ''; return; }
+    const flere = this.P && Array.isArray(this.P.anlegg) && this.P.anlegg.length > 1;
     const t = v => Rapport.tall(v);
-    const b = r.balanse || {};
-    const mangler = b.manglerTotalt > 1;
-    const poster = [
-      ['Skjæring', t(r.sum.skjaering), 'm³', false],
-      ['Fylling', t(r.sum.fylling), 'm³', false],
-      /* Differansen er det eneste tallet som får farge, og bare når det
-         MANGLER masse – da må noe kjøres inn, og det koster. */
-      [mangler ? 'Må inn' : 'Overskudd',
-        t(mangler ? b.manglerTotalt : Math.abs(b.balanse || 0)), 'm³', mangler],
-      ['Sprengning', t(r.sum.skjaeringFjell), 'm³', false]
-    ];
+    if (!flere) {
+      if (!r || !r.sum) { e.className = 'nokkeltal tom'; e.innerHTML = ''; return; }
+      const b = r.balanse || {};
+      const mangler = b.manglerTotalt > 1;
+      this._skrivNokkeltal(e, [
+        ['Skjæring', t(r.sum.skjaering), 'm³', false],
+        ['Fylling', t(r.sum.fylling), 'm³', false],
+        /* Differansen er det eneste tallet som får farge, og bare når det
+           MANGLER masse – da må noe kjøres inn, og det koster. */
+        [mangler ? 'Må inn' : 'Overskudd',
+          t(mangler ? b.manglerTotalt : Math.abs(b.balanse || 0)), 'm³', mangler],
+        ['Sprengning', t(r.sum.skjaeringFjell), 'm³', false]
+      ]);
+      return;
+    }
+    /* MED FLERE ANLEGG ER TOPPLINJA HELE JOBBEN.
+       Sidepanelet viser det man arbeider med; topplinja svarer på det
+       spørsmålet man stiller når man skal gi en pris: hva koster dette
+       prosjektet? Ett anlegg om gangen er da feil tall, uansett hvilket. */
+    const p = this.prosjektsum();
+    if (!p || (!p.antall && !p.uregnet)) { e.className = 'nokkeltal tom'; e.innerHTML = ''; return; }
+    if (!p.antall) { e.className = 'nokkeltal tom'; e.innerHTML = ''; return; }
+    const netto = p.skjaering - p.fylling;
+    const mangler = p.manglerTotalt > 1;
+    this._skrivNokkeltal(e, [
+      ['Skjæring', t(p.skjaering), 'm³', false],
+      ['Fylling', t(p.fylling), 'm³', false],
+      [mangler ? 'Må inn' : 'Overskudd', t(mangler ? p.manglerTotalt : Math.abs(netto)), 'm³', mangler],
+      ['Sprengning', t(p.skjaeringFjell), 'm³', false],
+      ['Hele prosjektet', p.uregnet ? (p.antall + ' av ' + (p.antall + p.uregnet)) : (p.antall + ' anlegg'),
+        '', !!p.uregnet]
+    ]);
+  },
+
+  _skrivNokkeltal(e, poster) {
     e.className = 'nokkeltal';
     e.innerHTML = poster.map(([navn, verdi, enhet, roed]) =>
       `<span class="post"><span class="merke">${escapeHtml(navn)}</span>`
-      + `<span class="verdi${roed ? ' mangler' : ''}">${escapeHtml(verdi)}<small>${enhet}</small></span></span>`
+      + `<span class="verdi${roed ? ' mangler' : ''}">${escapeHtml(verdi)}`
+      + (enhet ? `<small>${enhet}</small>` : '') + '</span></span>'
     ).join('');
   },
 
@@ -1221,6 +1413,7 @@ const App = {
     const tid = performance.now() - t0;
 
     Rapport.visSammendrag(this.resultat);
+    this.huskAnleggstall();
     this.visNokkeltal();
     Kart.tegnResultat(this.resultat);
     Lengdeprofil.tegn();
@@ -1555,7 +1748,8 @@ const App = {
           tekst: 'Skråningene tar hele arealet innenfor grensa. ' + detalj + rad }], areal: 0 };
         this._innerflate = null;
         this.visTomtemasser();
-      this.visNokkeltal();
+        this.huskAnleggstall();
+        this.visNokkeltal();
         this.status('⚠ Ikke plass til skråningene innenfor grensa – prøv mur eller sprengt vegg på de bratteste sidene');
         return this.resultat;
       }

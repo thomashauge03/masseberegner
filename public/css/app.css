@@ -1119,3 +1119,37 @@ html[data-peker="grov"] .nokkeltal .verdi { font-size: 15px; }
 .leaflet-tooltip.maalgrad { color: var(--blekk-svak); font-weight: 600; }
 /* Markøren bærer bare tooltipen; selve ikonet skal ikke ta plass eller klikk. */
 .maaltomt { width: 0 !important; height: 0 !important; pointer-events: none; }
+
+/* ANLEGGSLISTA.
+   Panelet er det samme som «Vis»-menyen i 3D og lagvelgeren på kartet – ett
+   utfoldingsmønster i programmet, ikke tre. Radene er .listeboks .rad, som har
+   navnet til venstre og knappene til høyre fra før; her er det bare to knapper
+   i stedet for én. */
+.anleggspanel { min-width: 250px; }
+.anleggspanel .anleggsliste { max-height: 260px; overflow: auto; }
+.anleggspanel .rad.aktiv { background: var(--flate-2); }
+.anleggspanel .rad.aktiv .anleggsnavn { color: var(--blekk); font-weight: 700; }
+.anleggspanel .anleggsnavn {
+  flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* Slettekrysset skal være rødt, men ikke rope – man treffer det med musa mange
+   ganger mens man leser lista. */
+.anleggspanel .rad [data-slett] { color: var(--blekk-svak); }
+.anleggspanel .rad [data-slett]:hover { color: var(--hm-raud); }
+.anleggspanel .kartknapper { gap: 3px; }
+
+/* NAVNET PÅ DE ANDRE ANLEGGENE, midt i det de hører til.
+   Dempet, uten ramme: de skal kunne leses, ikke konkurrere med det man
+   arbeider med. Ingen pil, for merket sitter oppå og ikke ved siden av. */
+.leaflet-tooltip.anleggsmerkekart {
+  background: rgba(11, 11, 12, .55);
+  border: none;
+  color: rgba(255, 255, 255, .72);
+  font: 600 11px/1.1 var(--skrift);
+  padding: 2px 6px;
+  box-shadow: none;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.leaflet-tooltip.anleggsmerkekart::before { display: none; }
+.leaflet-tooltip.anleggsnavnkart { display: none; }

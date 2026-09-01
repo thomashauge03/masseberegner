@@ -20,9 +20,20 @@
     <span class="hm-skrastrek" aria-hidden="true"></span>
   </div>
   <input id="prosjektnavn" class="navnefelt" value="Nytt prosjekt" spellcheck="false">
+  <!-- ANLEGGENE ER EN LISTE, IKKE EN TO-VEIS BRYTER.
+       Her sto [▬ Veg] [⬟ Tomt]. Datamodellen har hele tiden holdt en LISTE av
+       anlegg – `P.anlegg` – så et prosjekt kunne godt inneholde to tomter og en
+       veg. Men bryteren kunne bare si «veg» eller «tomt», og den hoppet til det
+       FØRSTE anlegget av den typen. Alle de andre var uten en vei inn: de lå i
+       fila, ble lagret og åpnet, og kunne ikke nås.
+       `modusVeg` og `modusTomt` finnes fortsatt som skjulte knapper, fordi det
+       er dem prøvene og hurtigtastene bruker for å bytte anleggstype. -->
   <div class="modusbytte">
-    <button id="modusVeg" class="modusknapp aktiv" title="Arbeid med veglinjen">▬ Veg</button>
-    <button id="modusTomt" class="modusknapp" title="Arbeid med en tomt – eget arbeidsbilde">⬟ Tomt</button>
+    <button id="anleggsknapp" class="modusknapp menyknapp aktiv" aria-expanded="false"
+            aria-controls="anleggspanel" title="Anleggene i prosjektet – bytt, legg til, gi nytt navn">▬ Veg ▾</button>
+    <div id="anleggspanel" class="menypanel anleggspanel skjult"></div>
+    <button id="modusVeg" class="modusknapp skjult" title="Arbeid med veglinjen">▬ Veg</button>
+    <button id="modusTomt" class="modusknapp skjult" title="Arbeid med en tomt">⬟ Tomt</button>
   </div>
   <div class="knapperad">
     <button id="knappNy" class="knapp">Ny</button>
