@@ -1087,6 +1087,67 @@ const Nettlesertest = {
       this.sjekk('  men står der man la det', (App.P.tverrfall || []).length === 1);
 
       /* ================================================================
+         EN VEGBEREGNING TILHØRER VEGEN DEN BLE STARTET FOR.
+
+         «Rett opp» og optimaliseringen er lange, asynkrone rutiner som kaller
+         `beregn()` flere ganger med `await pause()` imellom. Byttet man anlegg
+         i et av de mellomrommene, kom neste `beregn()` likevel – med den gamle
+         vegens linje – og `huskAnleggstall()` skrev tallene på anlegget som var
+         aktivt da. Målt før rettingen: en tomt på 1 013 m² med 923 m³ skjæring
+         sto etterpå med 12 626 m³, hentet fra vegen. Tallet gikk rett inn i
+         prosjektsummen, rapporten og PDF-en.
+
+         Prøven gjør nøyaktig det: regner vegen ferdig, bytter til tomta, og
+         kaller `beregn()` én gang til slik den forsinkede rutinen ville gjort.
+         ================================================================ */
+      {
+        const veg1 = App.P.anlegg.find(x => x.type === 'veg');
+        const tomt1 = App.P.anlegg.find(x => x.type === 'tomt');
+        App.byttAnlegg(veg1.id);
+        await this.vent(300);
+
+        /* Vakten i `beregn()`: en vegberegning som kommer for sent skal ikke
+           skrive tallene sine noe sted. */
+        const vegTall = App.resultat && App.resultat.sum ? App.resultat.sum.skjaering : null;
+        const vegLinje = App.linje, vegProfil = App.vprofil;
+        App.byttAnlegg(tomt1.id);
+        await this.vent(400);
+        const sumFoer = tomt1._sum ? tomt1._sum.skjaering : null;
+        /* Etternøleren hadde både linja, profilen og høydene til vegen med seg –
+           det er nettopp derfor den kom seg forbi vaktene i første linje. */
+        App.linje = vegLinje; App.vprofil = vegProfil;
+        const tomtVip = tomt1.vip;
+        tomt1.vip = veg1.vip.slice();
+        App.beregn();
+        tomt1.vip = tomtVip;
+        const sumEtter = tomt1._sum ? tomt1._sum.skjaering : null;
+        this.sjekk('en vegberegning som blir ferdig etter et anleggsbytte '
+          + 'skriver ikke tallene sine på tomta',
+        sumEtter === sumFoer, 'før ' + sumFoer + ', etter ' + sumEtter
+          + ' (vegen har ' + (vegTall == null ? '–' : Math.round(vegTall)) + ')');
+
+        /* Vakten i `_jobbpause()`: en lang rutine skal slutte å skrive i det
+           hele tatt. `P.vip` er en aksessor til det AKTIVE anlegget, så
+           «rett opp» skrev vegens høydeprofil rett inn i tomta – og den ble
+           lagret i prosjektfila. Målt før rettingen: 0 punkt ble til 21. */
+        App.byttAnlegg(veg1.id);
+        await this.vent(300);
+        const nyTomt = App.nyttAnlegg('tomt', '__vipprove');
+        App.P.anlegg.push(nyTomt);
+        const jobb = App.rettOpp();          // med vilje ikke ventet på
+        await this.vent(30);
+        App.byttAnlegg(nyTomt.id);
+        await jobb;
+        await this.vent(300);
+        this.sjekk('«rett opp» skriver ikke vegens høyder inn i tomta '
+          + 'man byttet til underveis',
+        nyTomt.vip.length === 0, nyTomt.vip.length + ' punkt havnet der');
+        App.P.anlegg.splice(App.P.anlegg.indexOf(nyTomt), 1);
+        App.byttAnlegg(veg1.id);
+        await this.vent(250);
+      }
+
+      /* ================================================================
          SAMLEEKSPORT: alle anleggene i én fil.
 
          Det som må stemme er ikke at filen blir skrevet – det gjør den

@@ -1,6 +1,12 @@
 'use strict';
 /** Massekalk – binder sammen kart, profiler og beregning. */
 
+/* Signalet en lang jobb kaster med når anlegget er byttet under den.
+   Et eget objekt, ikke en Error: det er ikke en feil at brukeren gikk videre,
+   og en Error i konsollen hadde sett ut som om noe gikk i stykker. Se
+   `App._jobbpause()`. */
+const AVBRUTT = { avbrutt: true };
+
 const App = {
   P: null,
   sone: 32,
@@ -1205,6 +1211,19 @@ const App = {
    * tall om gangen. Feltene er små (to objekter med tall), så det koster
    * ingenting å la dem ligge på anlegget de hører til.
    */
+  /**
+   * Stempler resultatet med hvilket anlegg det ble regnet for.
+   *
+   * Ikke tellbart: `resultat` går ikke i prosjektfila, men det går gjennom
+   * eksportene, og et felt som dukker opp i en GeoJSON fordi det ble lagt på
+   * for en helt annen grunn er den slags overraskelse ingen leter etter.
+   */
+  merkResultat() {
+    if (!this.resultat || !this.P) return;
+    Object.defineProperty(this.resultat, '_anlegg',
+      { value: this.P.aktivt, writable: true, enumerable: false, configurable: true });
+  },
+
   huskAnleggstall() {
     const a = this.anlegg();
     if (!a) return;
@@ -1222,6 +1241,14 @@ const App = {
     const sett = (navn, verdi) =>
       Object.defineProperty(a, navn, { value: verdi, writable: true, enumerable: false, configurable: true });
     if (!r || !r.sum) { sett('_sum', null); sett('_balanse', null); return; }
+    /* ET RESULTAT HØRER TIL ANLEGGET DET BLE REGNET FOR.
+       Vaktene i `oppdater()` og `beregnTomt()` stopper den kjente veien inn –
+       et anleggsbytte midt i en terrengnedlasting. Dette er bakstopperen for
+       alle de andre: kommer det hit et resultat som ble regnet for et annet
+       anlegg, skrives det ikke. Å hoppe over lagringen koster at summen sier
+       «uregnet» til neste beregning; å skrive den koster at et anlegg står med
+       et fremmed tall som ser helt rimelig ut. */
+    if (r._anlegg && r._anlegg !== a.id) return;
     sett('_sum', Object.assign({}, r.sum));
     sett('_balanse', Object.assign({}, r.balanse || {}));
     sett('_forutsetning', this.forutsetningsnokkel());
@@ -1480,6 +1507,8 @@ const App = {
       return { x: u.x, y: u.y, r: p.r || 0 };
     });
     this.linje = new Linjeforing(ip);
+    /* Linja tilhører anlegget den ble bygd for. Se vakten i `beregn()`. */
+    this._linjeAnlegg = this.P.aktivt;
     return this.linje;
   },
 
@@ -1615,7 +1644,19 @@ const App = {
       this.visLinjetabell();
       return;
     }
+    /* EN BEREGNING SOM ER UNDERVEIS TILHØRER ANLEGGET DEN BLE STARTET FOR.
+       `lastTerreng` er et nettkall som kan ta sekunder. Byttet man anlegg mens
+       det pågikk, kom vegberegningen tilbake etterpå og gikk rett gjennom –
+       med vegens linje og vegens profil – og `huskAnleggstall()` stemplet
+       tallene på det anlegget som var aktivt DA, altså tomta.
+       Målt: en tomt på 1 013 m² sto med 12 626 m³ skjæring og 23 551 m³
+       fylling. Tallene så helt rimelige ut, de gikk inn i prosjektsummen, i
+       rapporten og i PDF-en, og ingenting på skjermen røpet hvor de kom fra.
+       Et bytte gjør denne beregningen foreldet, og en foreldet beregning skal
+       kastes – ikke skrives et sted. */
+    const anleggFoer = this.P.aktivt;
     await this.lastTerreng();
+    if (this.P.aktivt !== anleggFoer) return;
     this.hentTerrengProfil();
     if (this.P.vip.length < 2) this.lagProfilforslag();
     else this.justerProfilTilLengde();
@@ -1651,6 +1692,19 @@ const App = {
 
   beregn() {
     if (!this.linje || !this.terreng || this.P.vip.length < 2) return;
+    /* EN VEGBEREGNING TILHØRER VEGEN DEN BLE STARTET FOR.
+       «Rett opp» og optimaliseringen er lange, asynkrone rutiner: de kaller
+       `beregn()` flere ganger, med `await pause()` imellom så skjermen får
+       tegne seg. Byttet man anlegg i et av de mellomrommene, kom neste
+       `beregn()` likevel – med den GAMLE vegens linje og profil – og
+       `huskAnleggstall()` skrev tallene på anlegget som var aktivt da.
+       Målt: en tomt på 1 013 m² med 923 m³ skjæring sto etterpå med 12 626 m³,
+       hentet fra vegen. Tallet gikk rett inn i prosjektsummen, rapporten og
+       PDF-en, og ingenting på skjermen røpet hvor det kom fra.
+       `this.linje` vet hvem den er bygd for, og det er det eneste spørsmålet
+       som må stilles – da er hver eneste inngang dekket, også de som skrives
+       senere. */
+    if (this._linjeAnlegg && this._linjeAnlegg !== this.P.aktivt) return;
     this.vprofil = new Vertikalprofil(this.P.vip);
     this.fjellmodell = this.fjellmodellIUtm();
     const t0 = performance.now();
@@ -1661,6 +1715,7 @@ const App = {
       profilAvstand: this.P.profilAvstand, bakkefaktor: this.bakkefaktor()
     });
     this.resultat.mal.profilAvstand = this.P.profilAvstand;
+    this.merkResultat();
     /* USIKKERHETEN VENTER TIL SKJERMEN ER TEGNET.
        Den kjørte hele beregningen TRE ganger til – én med fjellet der det står,
        én en halvmeter høyere og én en halvmeter dypere – midt i den omregningen
@@ -1964,6 +2019,10 @@ const App = {
       this.terreng = new Terreng(this.sone, res);
     }
     const nokkel = p.map(q => q.x.toFixed(1) + ',' + q.y.toFixed(1)).join('|') + '#' + marg;
+    /* Samme grunn som i `oppdater()`: nedlastingen under er et nettkall, og
+       byttet man anlegg mens den pågikk, ville denne tomta blitt regnet ferdig
+       og stemplet på et helt annet anlegg. */
+    const anleggFoer = this.P.aktivt;
     if (nokkel !== this._terrengnokkel) {
       const varSynlig = !document.getElementById('framdrift').classList.contains('skjult');
       this.framdrift(true, 'Henter terrengdata fra Kartverket…', 0);
@@ -1971,6 +2030,7 @@ const App = {
         await this.terreng.lastOmraade(p, marg, (f, tot) =>
           this.framdrift(true, `Henter terrengdata fra Kartverket… ${f}/${tot}`, tot ? f / tot : 1));
       } finally { if (!varSynlig) this.framdrift(false); }
+      if (this.P.aktivt !== anleggFoer) return null;
       this._terrengnokkel = nokkel;
       if (this.terreng.mangler.size) {
         this.status(`⚠ Fikk ikke ${this.terreng.mangler.size} terrengfliser – deler av tomta mangler data`);
@@ -2010,6 +2070,7 @@ const App = {
           + 'Eller legg nivået nærmere terrenget.';
         this.resultat = { sum: {}, merknader: [{ type: 'tomt',
           tekst: 'Skråningene tar hele arealet innenfor grensa. ' + detalj + rad }], areal: 0 };
+        this.merkResultat();
         this._innerflate = null;
         this.visTomtemasser();
         this.huskAnleggstall();
@@ -2051,6 +2112,7 @@ const App = {
       } finally { this._utvidetRunde = false; }
     }
     this.resultat.balanse = this.tomtebalanse(this.resultat.sum);
+    this.merkResultat();
     /* Sider der skraningen ikke far plass innenfor grensa.
        Her ble hele beregningen nektet med «ingen flate igjen». Na vises det som
        gar, og det sies HVILKEN side som er problemet og hvor mange meter som
@@ -2309,7 +2371,47 @@ const App = {
      veie like mye enten sveipet eller portvakten vurderer det. */
   BRUDDPRIS_SPRENG: 150,
 
+  /**
+   * En pause som også passer på at jobben fortsatt gjelder.
+   *
+   * «Rett opp» og optimaliseringen er lange rutiner med `await pause()` mellom
+   * hvert steg, så skjermen får tegne seg. `P.vip`, `P.ip` og `P.mal` er
+   * AKSESSORER til det aktive anlegget – de peker et annet sted i det øyeblikket
+   * man bytter. Byttet man i et av de mellomrommene, skrev rutinen resten av
+   * arbeidet sitt inn i det NYE anlegget.
+   *
+   * Målt: en veg med 21 høydepunkter ble rettet opp mens brukeren la til en
+   * tomt. Tomta sto etterpå med vegens 21 høydepunkter i sin egen `vip` – og
+   * de ble lagret i prosjektfila. En tomt bruker ikke `vip`, så ingenting så
+   * galt ut; dataene lå der bare og ventet på å bli lest av noe.
+   *
+   * Rutinene skriver den lokalt over den globale `pause`, og da er hvert
+   * eneste eksisterende `await pause()` blitt et sjekkpunkt uten at en linje
+   * inne i logikken er rørt.
+   */
+  _jobbpause() {
+    const id = this.P.aktivt;
+    const app = this;
+    return async function () {
+      await pause();
+      if (app.P.aktivt !== id) throw AVBRUTT;
+    };
+  },
+
   async rettOpp(modus) {
+    try {
+      return await this._rettOpp(modus);
+    } catch (e) {
+      if (e !== AVBRUTT) throw e;
+      this.status('Rettingen ble avbrutt – du byttet anlegg mens den pågikk');
+      this.framdrift(false);
+      this._planretting = null;
+      return null;
+    }
+  },
+
+  async _rettOpp(modus) {
+    const pause = this._jobbpause();
     this.merk(modus === 'inngrep' ? 'minst inngrep'
       : modus === 'sprengning' ? 'unngå sprengning' : 'rett opp');
     /* PLANET RYDDES FØRST – VEGEN SKAL VÆRE LOVLIG, IKKE BLI DET NÅR NOEN
@@ -3480,6 +3582,20 @@ const App = {
   },
 
   async optimaliser(stille, modus) {
+    /* Kalles både fra knappen og fra `rettOpp`. Den ytre har alt sin vakt, men
+       et kast må uansett ha et sted å lande når knappen er inngangen. */
+    try {
+      return await this._optimaliser(stille, modus);
+    } catch (e) {
+      if (e !== AVBRUTT) throw e;
+      this.status('Optimaliseringen ble avbrutt – du byttet anlegg mens den pågikk');
+      this.framdrift(false);
+      return null;
+    }
+  },
+
+  async _optimaliser(stille, modus) {
+    const pause = this._jobbpause();
     if (!this.terreng || !this.linje) return;
     // «Rett opp» kaller hit selv og har alt tatt sitt merke - ikke to for en handling
     if (!stille) this.merk(modus === 'inngrep' ? 'minst inngrep'
@@ -3900,13 +4016,29 @@ const App = {
        uten en eneste profil, er verre enn ingen knapp. Og «Linjeføring og
        profil (LandXML)» leverer flater for en tomt, ikke en linjeføring. */
     const tekst = (id, s) => { const e = document.getElementById(id); if (e) e.textContent = s; };
-    tekst('knappEksportKof', tomt ? 'Hjørner og utslag (KOF)' : 'Stikningsdata (KOF)');
-    tekst('knappEksportLandxml', tomt ? 'Flater og utslag (LandXML)' : 'Linjeføring og profil (LandXML)');
-    tekst('knappEksportSosi', tomt ? 'Tomteflate (SOSI)' : 'Kartdata (SOSI)');
-    tekst('knappEksportDxf', tomt ? 'Tegning av tomta (DXF)' : 'Tegning (DXF)');
-    tekst('knappEksportStikning', tomt ? 'Stikningspunkt (CSV)' : 'Stikningsdata (CSV)');
-    tekst('knappEksportMasser', tomt ? 'Massesammendrag (CSV)' : 'Masseoppsett per profil (CSV)');
-    tekst('knappEksportGeojson', tomt ? 'Tomt, grense og utslag (GeoJSON)' : 'Linje og fotavtrykk (GeoJSON)');
+    /* GJELDER EKSPORTEN HELE PROSJEKTET, KAN IKKE KNAPPEN HETE «TOMTEFLATE».
+       Filen inneholder da både veger og tomter, og «Tegning av tomta (DXF)»
+       på en fil med to veger i er en beskrivelse som er direkte gal – man tror
+       vegene mangler. Med flere anlegg beskriver knappen FORMATET, som er det
+       eneste alle anleggene har til felles. */
+    const alle = this.alleAnlegg();
+    const navn = (vegtekst, tomtetekst, alletekst) =>
+      alle ? alletekst : (tomt ? tomtetekst : vegtekst);
+    tekst('knappEksportKof', navn('Stikningsdata (KOF)', 'Hjørner og utslag (KOF)',
+      'Alle anlegg (KOF)'));
+    tekst('knappEksportLandxml', navn('Linjeføring og profil (LandXML)', 'Flater og utslag (LandXML)',
+      'Alle modeller (LandXML)'));
+    tekst('knappEksportSosi', navn('Kartdata (SOSI)', 'Tomteflate (SOSI)',
+      'Alle anlegg (SOSI)'));
+    tekst('knappEksportDxf', navn('Tegning (DXF)', 'Tegning av tomta (DXF)',
+      'Alle anlegg (DXF)'));
+    tekst('knappEksportStikning', navn('Stikningsdata (CSV)', 'Stikningspunkt (CSV)',
+      'Stikningsdata, alle (CSV)'));
+    tekst('knappEksportMasser', navn('Masseoppsett per profil (CSV)', 'Massesammendrag (CSV)',
+      'Masseoppsett, alle (CSV)'));
+    tekst('knappEksportGeojson', navn('Linje og fotavtrykk (GeoJSON)', 'Tomt, grense og utslag (GeoJSON)',
+      'Alle anlegg (GeoJSON)'));
+    tekst('knappEksportRutenett', alle ? 'Rutenett, alle tomter (CSV)' : 'Rutenett per celle (CSV)');
     /* Rutenettet finnes bare for en tomt. Gjelder eksporten HELE prosjektet, er
        spørsmålet om det finnes en tomt i det – ikke om man tilfeldigvis står i
        en. Uten dette var knappen borte så lenge man sto i vegen, og de to
