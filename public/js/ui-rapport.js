@@ -5,6 +5,36 @@ const Rapport = {
   app: null,
   init(app) { this.app = app; return this; },
 
+  /**
+   * Sprengningen slik den som skal sprenge spør om den.
+   *
+   * Kubikk alene er ikke et anbudsgrunnlag. Han spør: hvor langt er strekket,
+   * hvor bredt blir bruddet, hvor dypt må jeg ned, og hvor mange steder må jeg
+   * flytte riggen til? Fem tusen kubikk samlet på hundre meter er én rigging;
+   * de samme fem tusen fordelt på tolv flekker langs to kilometer er tolv
+   * riggingner og en helt annen pris.
+   *
+   * Radene vises bare når det FINNES fjell å ta. På en veg i ren løsmasse er
+   * fire tomme rader verre enn ingen: de ser ut som noe man har glemt å fylle
+   * ut.
+   */
+  sprengningsrader(res) {
+    const sp = res && res.sprengning;
+    if (!sp || !(sp.lopemeter > 0)) return '';
+    const t = (v, d = 0) => this.tall(v, d);
+    const rad = (navn, verdi, tittel) =>
+      `<div class="sumrad" title="${tittel}"><span>&nbsp;&nbsp;&nbsp;&nbsp;${navn}</span>`
+      + `<span class="verdi">${verdi}</span></div>`;
+    return rad('løpemeter', t(sp.lopemeter, 0) + ' m',
+      'Hvor langt av strekket det i det hele tatt er fjell å ta ut – summen av delstrekkene, ikke hele veglengden')
+      + rad('areal', t(sp.areal, 0) + ' m²',
+        'Fotavtrykket av sprengningen: bredden av fjellskjæringen målt i hvert snitt, ganget med lengden')
+      + rad('bredest', t(sp.storsteBredde, 1) + ' m',
+        'Den bredeste fjellskjæringen på hele strekket')
+      + rad('delstrekk', sp.antallStrekk + (sp.antallStrekk === 1 ? ' sted' : ' steder'),
+        'Hvor mange atskilte steder det må sprenges – hver av dem er en rigging');
+  },
+
   tall(v, des = 0) {
     if (!isFinite(v)) return '–';
     return v.toLocaleString('nb-NO', { minimumFractionDigits: des, maximumFractionDigits: des });
@@ -61,6 +91,7 @@ const Rapport = {
           <span>&nbsp;&nbsp;– løsmasse</span><span class="verdi">${t(s.skjaeringLosmasse)} m³</span></div>
         <div class="sumrad" title="Den delen som ligger under fjelloverflaten og må sprenges. Avhenger helt av hvor dypt dere har satt fjellet.">
           <span class="merke-fjell">&nbsp;&nbsp;– fjell (sprengning)</span><span class="verdi merke-fjell">${t(s.skjaeringFjell)} m³</span></div>
+${this.sprengningsrader(res)}
         <div class="strek"></div>
         <div class="sumrad stor" title="Hulrommet mellom terrenget og veien der veien ligger høyere enn bakken – det som må fylles opp for å bære veien. Måles opp til planum, så bærelaget kommer i tillegg.">
           <span class="merke-fylling">Fylling</span><span class="verdi merke-fylling">${t(s.fylling)} m³</span></div>
@@ -524,6 +555,10 @@ const Rapport = {
 <tr><td>Rensk / avdekking (${m.renskDybde} m + ${m.renskUtenfor} m utenfor)</td><td>${t(s.rensk)} m³</td></tr>
 <tr><td>Skjæring i løsmasse</td><td>${t(s.skjaeringLosmasse)} p.f.m³</td></tr>
 <tr><td>Skjæring i fjell (sprengning)</td><td>${t(s.skjaeringFjell)} p.f.m³</td></tr>
+${res.sprengning && res.sprengning.lopemeter > 0 ? `<tr><td>&nbsp;&nbsp;– løpemeter sprengning</td><td>${t(res.sprengning.lopemeter)} m</td></tr>
+<tr><td>&nbsp;&nbsp;– areal sprengning</td><td>${t(res.sprengning.areal)} m²</td></tr>
+<tr><td>&nbsp;&nbsp;– bredeste fjellskjæring</td><td>${t(res.sprengning.storsteBredde, 1)} m</td></tr>
+<tr><td>&nbsp;&nbsp;– antall steder å rigge</td><td>${res.sprengning.antallStrekk}</td></tr>` : ''}
 <tr class="sum"><td>Skjæring totalt</td><td>${t(s.skjaering)} p.f.m³</td></tr>
 <tr><td>Fylling (geometrisk volum)</td><td>${t(s.fylling)} m³</td></tr>
 <tr><td>Bærelag ${m.baerelagTykkelse} m × ${m.vegbredde} m</td><td>${t(s.baerelag)} p.a.m³</td></tr>

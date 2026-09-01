@@ -354,6 +354,18 @@ const Pdfrapport = {
         [`Rensk / avdekking (${t(m.renskDybde, 2)} m)`, t(s.rensk) + ' m³'],
         ['Skjæring i løsmasse', t(s.skjaeringLosmasse) + ' p.f.m³'],
         ['Skjæring i fjell (sprengning)', t(s.skjaeringFjell) + ' p.f.m³'],
+        /* SPRENGNINGEN SLIK DEN SOM SKAL SPRENGE SPØR OM DEN.
+           Kubikk alene er ikke et anbudsgrunnlag: fem tusen kubikk samlet på
+           hundre meter er én rigging, de samme fem tusen fordelt på tolv
+           flekker er tolv riggingner og en helt annen pris. Radene kommer bare
+           når det finnes fjell å ta – tomme rader på en veg i ren løsmasse ser
+           ut som noe man har glemt å fylle ut. */
+        ...(res.sprengning && res.sprengning.lopemeter > 0 ? [
+          ['  – løpemeter', t(res.sprengning.lopemeter) + ' m'],
+          ['  – areal', t(res.sprengning.areal) + ' m²'],
+          ['  – bredeste skjæring', t(res.sprengning.storsteBredde, 1) + ' m'],
+          ['  – steder å rigge', String(res.sprengning.antallStrekk)]
+        ] : []),
         ['Skjæring totalt', t(s.skjaering) + ' p.f.m³', true],
         ['Fylling (geometrisk volum)', t(s.fylling) + ' m³'],
         [`Bærelag ${t(m.baerelagTykkelse, 2)} m x ${t(m.vegbredde, 2)} m`, t(s.baerelag) + ' p.a.m³'],

@@ -515,6 +515,13 @@ function beregnTverrprofil(o) {
   let arealSkjaering = 0, arealFylling = 0, arealSkjaeringFjell = 0;
   let vSkjaering = 0, vFylling = 0, vSkjaeringFjell = 0; // kurvevektet
   let maksSkjaering = 0, maksFylling = 0;
+  /* BREDDEN OG DYBDEN AV SELVE SPRENGNINGEN.
+     Den som skal sprenge priser ikke på kubikk alene: han spør hvor bredt
+     bruddet blir og hvor dypt han må ned. Begge deler faller ut av den samme
+     integrasjonen som volumet – `dFjell` er dybden i hvert punkt og `dtI`
+     bredden av steget – så det koster to addisjoner å ta dem vare på i stedet
+     for å regne dem tilbake av et areal etterpå. */
+  let breddeFjell = 0, maksFjelldybde = 0;
   /* Tegningsgeometrien er langt tyngre enn tallene, og pa lange veier trengs
      den ikke: skjermen viser ett snitt om gangen. Da bygges den ikke i det
      hele tatt - a slippe den etterpa hjelper ikke, for da er toppen alt nadd. */
@@ -599,15 +606,22 @@ function beregnTverrprofil(o) {
         if (forrige.dFjell > 0) {
           const del = u * dtI, D = forrige.dFjell;
           arealSkjaeringFjell += 0.5 * D * del;
+          breddeFjell += del;
+          if (D > maksFjelldybde) maksFjelldybde = D;
           vSkjaeringFjell += D * (2 * forrige.w + wMidt) / 6 * del;
         } else {
           const del = (1 - u) * dtI, D = naa.dFjell;
           arealSkjaeringFjell += 0.5 * D * del;
+          breddeFjell += del;
+          if (D > maksFjelldybde) maksFjelldybde = D;
           vSkjaeringFjell += D * (wMidt + 2 * naa.w) / 6 * del;
         }
       } else {
         arealSkjaeringFjell += (forrige.dFjell + naa.dFjell) / 2 * dtI;
         vSkjaeringFjell += (forrige.dFjell * forrige.w + naa.dFjell * naa.w) / 2 * dtI;
+        breddeFjell += dtI;
+        if (forrige.dFjell > maksFjelldybde) maksFjelldybde = forrige.dFjell;
+        if (naa.dFjell > maksFjelldybde) maksFjelldybde = naa.dFjell;
       }
     }
     forrige = naa;
@@ -681,6 +695,9 @@ function beregnTverrprofil(o) {
     utvidelse,
     halvbredde: hb,
     fjelldybde,
+    // bredden og dybden av selve sprengningen i dette snittet
+    fjellbredde: breddeFjell,
+    fjellSkjaeringsdybde: maksFjelldybde,
     areal: {
       skjaering: arealSkjaering,
       skjaeringFjell: arealSkjaeringFjell,
@@ -995,6 +1012,51 @@ function beregnMasser(o) {
     intervaller.push({ fra: a.s, til: b.s, lengde: L, volum: v });
   }
 
+  /* SPRENGNINGEN SOM LØPEMETER OG AREAL, IKKE BARE KUBIKK.
+     Den som skal sprenge priser sjelden på kubikk alene. Han spør: hvor langt
+     er strekket, hvor bredt er det, og hvor mange steder må jeg rigge? Fem
+     tusen kubikk samlet på hundre meter er én rigging; de samme fem tusen
+     fordelt på tolv flekker langs to kilometer er tolv riggingner og en helt
+     annen pris.
+     Tre tall, alle regnet av det som alt er regnet:
+       · løpemeter – summen av de strekkene der det i det hele tatt er fjell å ta
+       · areal – fotavtrykket av sprengningen, altså bredden på fjellskjæringen
+         ganger lengden, målt på bakken
+       · antall strekk – hvor mange steder han må flytte riggen til
+
+     GRENSEN ER IKKE NULL. Et profil med en kubikkdesimeter fjell er ikke et
+     sprengningssted; det er en stein i skråningen. `terskel` er satt til en
+     tiendedels kvadratmeter tverrsnitt – under det finnes det ikke en salve. */
+  const TERSKEL = 0.1;
+  const sprengning = { lopemeter: 0, areal: 0, strekk: [], antallStrekk: 0, storsteBredde: 0 };
+  let paagaaende = null;
+  for (let i = 0; i < profiler.length - 1; i++) {
+    const a = profiler[i], b = profiler[i + 1];
+    const L = (b.s - a.s) * bf;                 // bakkelengde, som resten av rapporten
+    const aA = a.areal.skjaeringFjell, aB = b.areal.skjaeringFjell;
+    if (aA <= TERSKEL && aB <= TERSKEL) {
+      if (paagaaende) { sprengning.strekk.push(paagaaende); paagaaende = null; }
+      continue;
+    }
+    sprengning.lopemeter += L;
+    /* Bredden er MÅLT i snittet, ikke regnet tilbake av et areal: summen av de
+       stegene der det faktisk er fjell over planum. Et areal delt på en dybde
+       ville gitt et gjennomsnitt som er sant for en rektangulær skjæring og
+       galt for alle andre. */
+    const bA = a.fjellbredde || 0, bB = b.fjellbredde || 0;
+    sprengning.areal += (bA + bB) / 2 * L;
+    sprengning.storsteBredde = Math.max(sprengning.storsteBredde, bA, bB);
+    if (!paagaaende) paagaaende = { fra: a.s, til: a.s, lengde: 0, volum: 0, storsteDybde: 0 };
+    paagaaende.til = b.s;
+    paagaaende.lengde += L;
+    paagaaende.volum += (a.vektet.skjaeringFjell + b.vektet.skjaeringFjell) / 2 * (b.s - a.s) * volumFaktor;
+    paagaaende.storsteDybde = Math.max(paagaaende.storsteDybde,
+      a.fjellSkjaeringsdybde || 0, b.fjellSkjaeringsdybde || 0);
+  }
+  if (paagaaende) sprengning.strekk.push(paagaaende);
+  sprengning.antallStrekk = sprengning.strekk.length;
+  sprengning.volum = sum.skjaeringFjell;
+
   /* --- Massebalanse -------------------------------------------------
      Fyllingen kan bygges av bade sprengstein og brukbar løsmasse, mens
      bærelaget ma vaere sprengstein. Derfor brukes løsmassen først i
@@ -1305,7 +1367,7 @@ function beregnMasser(o) {
   });
 
   return {
-    stasjoner, profiler, intervaller, sum, bruckner,
+    stasjoner, profiler, intervaller, sum, bruckner, sprengning,
     merknader: merknaderUt, brudd,
     antallAvkortet, geometriFor,
     mal, faktorer,
