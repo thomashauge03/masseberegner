@@ -378,6 +378,16 @@ ${this.sprengningsrader(res)}
          pekte, så deler av tomta falt utenfor. Rapporten er ikke skjermen. */
       Tomt3d.modus = 'oversikt';
       Tomt3d.fokus = null;
+      /* OG ALDRI NABOANLEGGENE.
+         «Alle anlegg» er en skjermbryter: den tegner naboene som ferdige
+         flater UTEN skråninger og UTEN masser, for å svare på hvor ting ligger
+         i forhold til hverandre. I en rapport som går til kunden ville de stått
+         i samme bilde som beregnede masser, uten noe som skiller dem – en
+         flate som ser regnet ut og ikke er det. Dessuten rammer innrammingen
+         da inn naboene også, og tomta blir en flekk midt i et grått felt,
+         stikk i strid med `kontekst`-innstillingen nedenfor. */
+      Tomt3d.lag = Object.assign({}, Tomt3d.lag, { andre: false });
+      Tomt3d._andreNokkel = null; Tomt3d._andreNa = null;
       Tomt3d.senter = null; Tomt3d.panX = 0; Tomt3d.panY = 0;
       Tomt3d._skalaSatt = false;
       Tomt3d._gitterFor = null;
@@ -428,6 +438,10 @@ ${this.sprengningsrader(res)}
            PDF man laget, uten at noe rørte seg mens man så på. */
         _fitSkala: foer.fitSkala, _tilpassetFor: foer.tilpassetFor,
         _skalaSatt: foer.skalaSatt, _gitterFor: null, _bilde: null, lag: foer.lag,
+        /* Bakgrunnsgitrene ble bygd for rapportens kamera og må bygges på nytt
+           for skjermens. `lag` legges tilbake over – står bryteren på, kommer
+           naboanleggene tilbake ved neste opptegning. */
+        _andreNokkel: null, _andreNa: null,
         kontekst: foer.kontekst
       });
       // knappene eier ikke tilstanden, så de må få vite at den er lagt tilbake

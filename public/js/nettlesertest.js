@@ -1148,6 +1148,233 @@ const Nettlesertest = {
       }
 
       /* ================================================================
+         ALLE ANLEGGENE I SAMME 3D-BILDE
+
+         Bryteren tegner naboanleggene som ferdige flater, bygd av lagret data
+         alene. Det som må stemme er ikke at det kommer noe blått på skjermen,
+         men at scenen er RIKTIG: at kameraet dekker det som er lagt til, at
+         museoppslaget ikke svarer med tall fra et anlegg som ikke er regnet,
+         at et anlegg som ikke kan tegnes blir sagt fra om, og at ingenting av
+         dette lekker inn i en rapport som går til kunden.
+         ================================================================ */
+      {
+        const veg1 = App.P.anlegg.filter(x => x.type === 'veg')[0];
+        const tomt1 = App.P.anlegg.find(x => x.type === 'tomt');
+        App.byttAnlegg(veg1.id);
+        await this.vent(300);
+        const foerOmfang = Veg3d.lag.andre;
+        Veg3d.aktiv = true;
+        try {
+          Tegner3d.settVisAndre(false);
+          const av = Veg3d._bakgrunnsgitre();
+          this.sjekk('3D: av som forvalg – ingen naboanlegg i scenen',
+            av.length === 0, av.length + ' gitre');
+
+          Tegner3d.settVisAndre(true);
+          this.sjekk('  bryteren slår inn i BEGGE visningene, ikke bare den man står i',
+            Veg3d.lag.andre === true && Tomt3d.lag.andre === true,
+            'veg ' + Veg3d.lag.andre + ', tomt ' + Tomt3d.lag.andre);
+
+          const paa = Veg3d._bakgrunnsgitre();
+          const andre = App.P.anlegg.filter(a => a.id !== App.P.aktivt);
+          this.sjekk('  hvert av de andre anleggene er enten tegnet eller meldt utelatt',
+            paa.length + (paa.utelatt || []).length === andre.length,
+            paa.length + ' tegnet + ' + (paa.utelatt || []).length + ' meldt mot '
+            + andre.length + ' andre anlegg');
+          this.sjekk('  det aktive anlegget er ALDRI med i bakgrunnen',
+            !paa.some(g => g.id === App.P.aktivt));
+
+          /* AVSTANDEN MÅ DEKKE HELE SCENEN.
+             `w = dist + dk`, og for et punkt D meter foran dreiepunktet er
+             `dk ≈ -D`. Er D større enn `dist`, blir w negativ og punktet
+             klippet bort. Med `dist` regnet av det AKTIVE gitteret alene
+             forsvinner et naboanlegg som ligger lenger unna enn naboen er
+             stor – og det forsvinner stille. */
+
+          /* ET ANLEGG SOM IKKE KAN TEGNES SKAL DET SIES FRA OM.
+             De to vanligste tilstandene til et halvferdig anlegg er nettopp
+             de to som ikke lar seg tegne. */
+          const nyVeg = App.nyttAnlegg('veg', '__uten_profil');
+          nyVeg.ip = [{ lat: lat0 + dLat(700), lon: lon0 + dLon(10), r: 0 },
+            { lat: lat0 + dLat(760), lon: lon0 + dLon(40), r: 0 }];
+          App.P.anlegg.push(nyVeg);
+          Veg3d._andreNokkel = null;
+          const medUferdig = Veg3d._bakgrunnsgitre();
+          this.sjekk('  en veg uten høydeprofil forsvinner ikke stille',
+            (medUferdig.utelatt || []).some(s => s.indexOf('__uten_profil') === 0),
+            JSON.stringify(medUferdig.utelatt || []));
+          this.sjekk('    og de andre tegnes fortsatt',
+            medUferdig.length === paa.length, medUferdig.length + ' mot ' + paa.length);
+          App.P.anlegg.splice(App.P.anlegg.indexOf(nyVeg), 1);
+
+          /* ER OMRISSET YTTERGRENSA, ER DET TEGNEDE POLYGONET IKKE TOMTA.
+             Den ferdige flaten ligger innenfor, rykket inn med hele
+             skråningsbredden – og innrykket krever terreng som ikke er lastet
+             for et anlegg man ikke arbeider med. Å fylle ytterkanten på ferdig
+             kote ville tegnet en plattform som er for stor. */
+          if (tomt1 && tomt1.tomt) {
+            const foerO = tomt1.tomt.omrissBetyr;
+            tomt1.tomt.omrissBetyr = 'yttergrense';
+            Veg3d._andreNokkel = null;
+            const yg = Veg3d._bakgrunnsgitre();
+            this.sjekk('  en yttergrense-tomt tegnes ikke som om omrisset var flaten',
+              !yg.some(g => g.id === tomt1.id)
+              && (yg.utelatt || []).some(s => s.indexOf('yttergrense') > 0),
+              JSON.stringify(yg.utelatt || []));
+            tomt1.tomt.omrissBetyr = foerO;
+            Veg3d._andreNokkel = null;
+          }
+
+          /* INNRAMMINGEN MÅ ALDRI KOLLAPSE.
+             Et punkt bak øyet gir `px = cx + F·rx/w` i milliardklassen med
+             snudd fortegn. Ett slikt punkt forgifter randboksen, `skala` går
+             mot null, og modellen blir en prikk – låst av `_skalaSatt`. */
+          const gg = Veg3d._gitter(1);
+          if (gg) {
+            const t = Veg3d._tilpassSkala(800, 600, gg, Veg3d._bakgrunnsgitre());
+            this.sjekk('  innrammingen gir en brukbar skala med naboanlegg i scenen',
+              Number.isFinite(t.skala) && t.skala > 1e-4 && t.skala < 1e6,
+              'skala ' + t.skala);
+            this.sjekk('    og en forskyvning som er et tall',
+              Number.isFinite(t.panX) && Number.isFinite(t.panY),
+              t.panX + ', ' + t.panY);
+          }
+
+          /* «ALLE ANLEGG» ER EN SKJERMBRYTER OG SKAL ALDRI FØLGE MED I RAPPORTEN.
+             Naboanleggene tegnes som ferdige flater UTEN skråninger og UTEN
+             masser – de svarer på hvor ting ligger, ikke på hva de koster. I en
+             rapport som går til kunden ville de stått i samme bilde som
+             beregnede masser, uten noe som skiller dem: en flate som ser regnet
+             ut og ikke er det.
+
+             PRØVEN MÅ STÅ HER, IKKE I TOMTEGRUPPA. Første utgave lå der, og der
+             finnes det bare ETT anlegg – `_bakgrunnsgitre` gir da tom liste
+             uansett, og prøven passerte med vakten fjernet. En prøve som ikke
+             kan feile er ikke en prøve. */
+          if (tomt1 && tomt1.tomt && Number.isFinite(tomt1.tomt.nivaa.kote)) {
+            App.byttAnlegg(tomt1.id);
+            await this.vent(400);
+            await App.beregnTomt();
+            await this.vent(200);
+            Tomt3d.aktiv = true;
+            Tegner3d.settVisAndre(true);
+            const bakgrunn = Tomt3d._bakgrunnsgitre();
+            const blaa = async url => {
+              if (!url) return null;
+              const im = new Image();
+              await new Promise(ok => { im.onload = ok; im.onerror = ok; im.src = url; });
+              if (!im.width) return null;
+              const c2 = document.createElement('canvas');
+              c2.width = im.width; c2.height = im.height;
+              const k2 = c2.getContext('2d');
+              k2.drawImage(im, 0, 0);
+              const d2 = k2.getImageData(0, 0, c2.width, c2.height).data;
+              let b2 = 0, n2 = 0;
+              for (let i = 0; i < d2.length; i += 4 * 5) {
+                n2++;
+                const r = d2[i], g2 = d2[i + 1], bb = d2[i + 2];
+                if (bb > r + 18 && bb > g2 + 8 && bb > 60) b2++;
+              }
+              return b2 / n2;
+            };
+            this.sjekk('  det FINNES naboanlegg å lekke – ellers prøver den ingenting',
+              bakgrunn.length > 0, bakgrunn.length + ' gitre');
+
+            /* KAMERAAVSTANDEN MÅ DEKKE HELE SCENEN — prøvd HERFRA.
+               `w = dist + dk`, og `dist` er 1,6 ganger scenens diagonal. Er den
+               regnet av det AKTIVE anlegget alene, er den for kort så snart
+               naboen er større enn en selv: en liten tomt med en lang veg ved
+               siden av er nettopp det tilfellet, og det er det vanligste.
+               Nodene bak nærplanet klippes bort, og vegen forsvinner stille.
+
+               Prøven må stå her og ikke i vegen: fra vegen er tomtene små og
+               nære, og da holder den korte avstanden også med feilen inne.
+               Første utgave sto der, og passerte med vakten fjernet. */
+            /* BETINGELSEN MÅ KONSTRUERES, ELLERS PRØVER DEN INGENTING.
+               Prøvescenen har naboene tett på, og da holder den korte
+               avstanden også med feilen inne – prøven passerte i to omganger
+               med vakten fjernet. Her legges det derfor inn en tomt langt
+               unna, slik en snuplass i den andre enden av en skogsbilveg
+               ville ligget. Under er det målt at scenen faktisk KREVER den
+               lange avstanden, før det måles at kameraet gir den. */
+            const fjern = App.nyttAnlegg('tomt', '__langt_unna');
+            fjern.tomt.punkter = [[900, 900], [960, 900], [960, 960], [900, 960]]
+              .map(([x, y]) => ({ lat: lat0 + dLat(y), lon: lon0 + dLon(x) }));
+            fjern.tomt.nivaa = { modus: 'flat', kote: 145, fall: 0, fallretning: 0, punkt: null };
+            App.P.anlegg.push(fjern);
+            Tomt3d._andreNokkel = null;
+            const medFjern = Tomt3d._bakgrunnsgitre();
+            const gT = Tomt3d._gitter(1);
+            if (gT && medFjern.length) {
+              const kort = Math.max(60, (gT.diagonal || 0) * 1.6);
+              let lengst = 0;
+              for (const bg of medFjern) {
+                for (let kk = 0; kk < bg.nb * bg.nh; kk++) {
+                  if (!bg.finnes[kk]) continue;
+                  lengst = Math.max(lengst,
+                    Math.hypot(bg.wx[kk] - gT.midtX, bg.wy[kk] - gT.midtY));
+                }
+              }
+              this.sjekk('  scenen krever virkelig en lengre kameraavstand enn '
+                + 'anlegget selv – ellers måler prøven under ingenting',
+              lengst > kort, 'fjerneste node ' + Math.round(lengst)
+                + ' m unna, egen avstand ville vært ' + Math.round(kort) + ' m');
+
+              /* DREININGEN MÅ PRØVES RUNDT.
+                 `dk = -(ry·cos p + z·sin p)`, og `ry` skifter fortegn med
+                 blikkretningen: et naboanlegg som ligger BAK dreiepunktet får
+                 w større enn avstanden, mens det samme anlegget foran får w
+                 mindre. Med bare én yaw traff prøven den snille siden og
+                 passerte i to omganger med feilen inne. Invarianten gjelder
+                 uansett hvor man har dreid seg, og da må den prøves slik. */
+              Tomt3d._sceneDiagonal = Tomt3d._scenediagonal(gT, medFjern);
+              const foerYaw = Tomt3d.yaw, foerPitch = Tomt3d.pitch;
+              let bak = 0, alle = 0, verst = Infinity, verstYaw = null;
+              for (const yaw of [0, 45, 90, 135, 180, 225, 270, 315]) {
+                Tomt3d.yaw = yaw;
+                const kam = Tomt3d._kamera(900, 700, gT, 1, 0, 0);
+                const naerT = kam.naer || 1e-6;
+                for (const bg of medFjern) {
+                  for (let kk = 0; kk < bg.nb * bg.nh; kk++) {
+                    if (!bg.finnes[kk]) continue;
+                    alle++;
+                    const q = kam.punkt(bg.wx[kk], bg.wy[kk], bg.z[kk]);
+                    if (!(q.w > naerT)) bak++;
+                    if (q.w < verst) { verst = q.w; verstYaw = yaw; }
+                  }
+                }
+              }
+              Tomt3d.yaw = foerYaw; Tomt3d.pitch = foerPitch;
+              this.sjekk('  kameraet rekker ut til hele scenen – ingen node i et '
+                + 'naboanlegg havner bak øyet, uansett dreining',
+              alle > 0 && bak === 0,
+              bak + ' av ' + alle + ' noder bak nærplanet, minste dybde '
+                + (Number.isFinite(verst) ? verst.toFixed(0) : '–') + ' m ved yaw ' + verstYaw);
+            }
+            App.P.anlegg.splice(App.P.anlegg.indexOf(fjern), 1);
+            Tomt3d._andreNokkel = null;
+            if (App.resultat && App.resultat.rutenett && App.resultat.rutenett.length) {
+              const teg = Rapport.lagTomtetegninger(App.resultat);
+              const pst = [await blaa(teg.plan), await blaa(teg.perspektiv)]
+                .filter(v => v != null);
+              this.sjekk('  rapportbildene har ingen naboanlegg i seg, selv med bryteren på',
+                pst.length > 0 && pst.every(v => v < 0.002),
+                pst.map(v => (v * 100).toFixed(2) + ' %').join(', '));
+              this.sjekk('    og bryteren står fortsatt på etterpå – rapporten låner, den tar ikke',
+                Tomt3d.lag.andre === true);
+            }
+            Tomt3d.aktiv = false;
+            App.byttAnlegg(veg1.id);
+            await this.vent(300);
+          }
+        } finally {
+          Tegner3d.settVisAndre(foerOmfang);
+          Veg3d._andreNokkel = null;
+          Tomt3d._andreNokkel = null;
+        }
+      }
+
+      /* ================================================================
          SAMLEEKSPORT: alle anleggene i én fil.
 
          Det som må stemme er ikke at filen blir skrevet – det gjør den
@@ -1974,6 +2201,7 @@ const Nettlesertest = {
         this.sjekk('tomterapporten har et bilde av tomta ovenfra', !!teg.plan);
         this.sjekk('og ett sett fra siden', !!teg.perspektiv);
         this.sjekk('og snittet', !!teg.snitt);
+
 
         /* SNITTET MALER INGEN BUNN SELV.
            På skjermen kommer bakgrunnen fra CSS-en på lerretet, og `tegn()`

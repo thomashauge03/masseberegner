@@ -240,7 +240,15 @@ const Tegner3d = {
     const fo = this.fokus;
     const s = fo || this.senter || { x: g.midtX, y: g.midtY };
     const z0 = fo ? fo.z : (g.lav + g.hoy) / 2;
-    const dist = Math.max(60, g.diagonal * 1.6);
+    /* AVSTANDEN MÅ DEKKE HELE SCENEN, IKKE BARE DET MAN ARBEIDER MED.
+       `w = dist + dk`, og for et punkt D meter foran dreiepunktet er
+       `dk ≈ -D`. Er D større enn `dist`, blir w negativ og punktet klippet
+       bort av nærplanet. Med bare det aktive gitteret i regnestykket
+       forsvinner et bakgrunnsanlegg som ligger lenger unna enn sin egen nabo
+       er stor: står man i en tomt på 60 m og vegen ved siden av er 700 m,
+       ville det meste av vegen aldri blitt tegnet. */
+    const dia = Math.max(g.diagonal || 0, this._sceneDiagonal || 0);
+    const dist = Math.max(60, dia * 1.6);
     const cx = b / 2 + (panX || 0), cy = h / 2 + (panY || 0);
     const ov = this.overdriv;
     /* F er brennvidden i rasterpiksler. `px = cx + F·rx/w` er algebraisk
@@ -250,6 +258,17 @@ const Tegner3d = {
     const F = dist * skala;
     return {
       dist, skala, F, cx, cy,
+      /* ET EKTE NÆRPLAN OGSÅ OVENFRA.
+         Uten `naer` faller `_raster` tilbake på 1e-6, og en trekant som
+         krysser øyeplanet klippes MOT det tallet: `F·rx/1e-6` sender hjørnet
+         en million skjermbredder ut, og firkanten smøres over halve bildet –
+         inn i det delte dybdebufferet, så den skjuler det som ligger bak.
+         Det kunne ikke skje så lenge bildet bare inneholdt det aktive
+         anlegget, for `dist` er 1,6 ganger dets egen diagonal og w ble aldri
+         liten. Med naboanlegg i samme scene er avstanden ikke lenger bundet
+         til det man ser på. En prosent av avstanden ligger langt under
+         modellens egne w-verdier og forkaster bare det degenererte. */
+      naer: dist * 0.01,
       /**
        * @returns {{px,py,rx,sy,w}} px/py i rasterpiksler.
        *   rx/sy/w er kamerarommet, og de trengs der ute: nærplanklippingen må
@@ -313,26 +332,61 @@ const Tegner3d = {
    * Hjørnene alene duger heller ikke: med perspektiv og rotasjon kan
    * ytterpunktet ligge midt på en kant. Derfor prøves kanten rundt.
    */
-  _tilpassSkala(b, h, g) {
+  /**
+   * @param {Array} [andre] bakgrunnsanlegg som også skal få plass i bildet.
+   *   Uten dem rammes bare det man arbeider med inn, og nabotomta ligger
+   *   utenfor kanten til man zoomer ut selv.
+   */
+  _tilpassSkala(b, h, g, andre) {
     /* På bakken finnes ingen innramming: kameraet har en posisjon, og skala og
        forskyvning brukes ikke i det hele tatt. Uten dette ville tilpasningen
        regnet en meningsløs skala av et perspektivbilde og skrevet den inn. */
     if (this.modus === 'bakken') return { skala: 1, panX: 0, panY: 0 };
     const k = this._kamera(b, h, g, 1, 0, 0);
     let minX = Infinity, maksX = -Infinity, minY = Infinity, maksY = -Infinity;
-    const legg = (i, j) => {
-      if (i < 0 || j < 0 || i >= g.nb || j >= g.nh) return;
-      for (const z of [g.lav, g.hoy]) {
-        const q = k.punkt(g.wx[j * g.nb + i], g.wy[j * g.nb + i], z);
-        const rx = q.px - b / 2, ry = q.py - h / 2;      // skala er 1 her
-        minX = Math.min(minX, rx); maksX = Math.max(maksX, rx);
-        minY = Math.min(minY, ry); maksY = Math.max(maksY, ry);
-      }
+    /* ET PUNKT BAK ØYET HAR INGEN PLASS PÅ SKJERMEN, OG BOKSEN SKAL IKKE TRO
+       DET HAR DET.
+       `px = cx + F·rx/w` med negativ w gir et tall i milliardklassen med
+       snudd fortegn. Ett slikt punkt forgifter hele randboksen: bredden blir
+       enorm, `skala` går mot null, og modellen kollapser til en prikk – og
+       `_skalaSatt` låser den tilstanden til noe nullstiller den. Med
+       avstanden regnet av unionen skal dette ikke kunne skje, men den vakten
+       koster tre sammenligninger og fanger det som likevel gjør det: stor
+       høydeoverdrivning på et anlegg som ligger mye høyere enn det aktive. */
+    const naerK = k.naer || 1e-6;
+    const legg = q => {
+      if (!(q.w > naerK)) return;
+      const rx = q.px - b / 2, ry = q.py - h / 2;      // skala er 1 her
+      minX = Math.min(minX, rx); maksX = Math.max(maksX, rx);
+      minY = Math.min(minY, ry); maksY = Math.max(maksY, ry);
     };
-    const steg = Math.max(1, Math.floor(Math.max(g.nb, g.nh) / 24));
-    for (let i = 0; i < g.nb; i += steg) { legg(i, 0); legg(i, g.nh - 1); }
-    for (let j = 0; j < g.nh; j += steg) { legg(0, j); legg(g.nb - 1, j); }
-    legg(g.nb - 1, g.nh - 1);
+    /* Randen av ETT gitter. Hjørnene alene duger ikke – med perspektiv og
+       rotasjon kan ytterpunktet ligge midt på en kant. */
+    const rand = gg => {
+      const ta = (i, j) => {
+        if (i < 0 || j < 0 || i >= gg.nb || j >= gg.nh) return;
+        const kk = j * gg.nb + i;
+        if (gg.finnes && !gg.finnes[kk]) return;
+        for (const z of [gg.lav, gg.hoy]) legg(k.punkt(gg.wx[kk], gg.wy[kk], z));
+      };
+      const steg = Math.max(1, Math.floor(Math.max(gg.nb, gg.nh) / 24));
+      for (let i = 0; i < gg.nb; i += steg) { ta(i, 0); ta(i, gg.nh - 1); }
+      for (let j = 0; j < gg.nh; j += steg) { ta(0, j); ta(gg.nb - 1, j); }
+      ta(gg.nb - 1, gg.nh - 1);
+    };
+    rand(g);
+    /* Bakgrunnsgitrene har hull – en tomteflate fyller ikke sitt eget
+       rektangel – så randen av rutenettet er ikke randen av flaten. Her leses
+       ytterpunktene av de nodene som FINNES i stedet. */
+    for (const bg of (andre || [])) {
+      if (!bg || !bg.finnes) continue;
+      const n2 = bg.nb * bg.nh;
+      const hopp = Math.max(1, Math.floor(n2 / 400));
+      for (let kk = 0; kk < n2; kk += hopp) {
+        if (!bg.finnes[kk]) continue;
+        legg(k.punkt(bg.wx[kk], bg.wy[kk], bg.z[kk]));
+      }
+    }
     if (!Number.isFinite(minX)) return { skala: 1, panX: 0, panY: 0 };
     const br = Math.max(1e-6, maksX - minX), ho = Math.max(1e-6, maksY - minY);
     const skala = Math.min((b * 0.84) / br, (h * 0.84) / ho);
@@ -350,6 +404,354 @@ const Tegner3d = {
     };
   },
 
+
+  /* ================================================================
+     DE ANDRE ANLEGGENE I SAMME BILDE
+
+     Et prosjekt med to tomter og en veg er tre ting som skal bygges på samme
+     plass. Spørsmålet man har foran seg – treffer snuplassen vegen? ligger
+     lagerplassen høyt nok? – kan ikke besvares av en modell som viser ett
+     anlegg om gangen, uansett hvor god den er.
+
+     DE ANDRE TEGNES AV LAGRET DATA ALENE.
+     Ingen terrengnedlasting, ingen masseberegning. Et bakgrunnsanlegg er den
+     FERDIGE flaten: vegbanen slik linjeføringen og høydeprofilen sier, eller
+     tomteflaten slik omrisset og koten sier. Alt sammen står i prosjektfila.
+     Alternativet – å regne hvert anlegg ferdig for å tegne det – ville tatt
+     sekunder per anlegg og krevd terreng for hele prosjektet. Da hadde
+     bryteren vært ubrukelig, og en bryter man ikke orker å trykke på er ingen
+     bryter.
+
+     PRISEN, SAGT HØYT: en bakgrunnsflate har ingen skråninger og ingen
+     masser. Den viser hvor anlegget ligger og hvilken høyde det får – ikke
+     hvor langt inngrepet rekker. Derfor tegnes den dempet: den skal leses som
+     en henvisning, ikke som et regnestykke.
+     ================================================================ */
+
+  /**
+   * Gitre for alle anleggene som IKKE er oppe nå.
+   *
+   * Bufres på geometrien til hvert anlegg. Uten bufring bygges de om for hvert
+   * eneste bilde, og i bakkemodus er det seksti ganger i sekundet.
+   */
+  _bakgrunnsgitre() {
+    if (!this.lag || !this.lag.andre) return [];
+    const app = this.app;
+    if (!app || !app.P || !Array.isArray(app.P.anlegg) || app.P.anlegg.length < 2) return [];
+    /* SONEN MÅ ALT VÆRE SATT.
+       `App.tomtIUtm(t)` setter `this.sone` dovent fra FØRSTE punkt i tomta den
+       får inn dersom den ikke er satt fra før (app.js). Bygger vi et
+       bakgrunnsanlegg før den er satt, pinnes hele prosjektets UTM-sone av et
+       anlegg brukeren ikke ser på – og alt annet projiseres deretter. */
+    if (!app.sone) return [];
+    const nokkel = app.P.aktivt + '#' + app.sone + '#'
+      + app.P.anlegg.map(a => this._anleggsnokkel(a)).join('|');
+    if (this._andreNokkel === nokkel && this._andreBuffer) return this._andreBuffer;
+    const ut = [];
+    const utelatt = [];
+    for (const a of app.P.anlegg) {
+      if (a.id === app.P.aktivt) continue;
+      let g = null, grunn = null;
+      try {
+        g = a.type === 'tomt' ? this._bakgrunnTomt(a) : this._bakgrunnVeg(a);
+        if (!g) grunn = 'ingen geometri å tegne';
+      } catch (e) {
+        grunn = e.message;
+      }
+      if (g) ut.push(g);
+      /* ET ANLEGG SOM IKKE KAN TEGNES SKAL DET SIES FRA OM.
+         Uten dette ser et prosjekt med tre anlegg ut som et prosjekt med to,
+         og det er ingenting på skjermen som skiller «finnes ikke» fra
+         «mangler en kote». */
+      else utelatt.push((a.navn || a.type) + ' – ' + grunn);
+    }
+    ut.utelatt = utelatt;
+    /* ENDRET SETTET, MÅ BILDET RAMMES INN PÅ NYTT.
+       Innrammingen dekker unionen av alt som tegnes. Sletter man naboen som
+       lå åtte hundre meter unna, blir bildet ellers stående innrammet for en
+       scene som ikke finnes lenger: det aktive anlegget blir en flekk, med
+       dødt felt der naboen var. Samme feil motsatt vei når et anlegg kommer
+       til. Denne kalles fra `tegn()` FØR innrammingsprøven, så det slår inn i
+       det samme bildet. */
+    if (this._andreNokkel != null) this._skalaSatt = false;
+    this._andreNokkel = nokkel; this._andreBuffer = ut;
+    return ut;
+  },
+
+  /**
+   * Utstrekningen av ALT som skal tegnes, ikke bare det aktive anlegget.
+   *
+   * Brukes av `_kamera` til å sette avstanden til dreiepunktet. Boksen regnes
+   * av de virkelige ytterpunktene, ikke av senter pluss diagonal: to anlegg som
+   * ligger side om side har hver sin lille diagonal, men til sammen en stor.
+   */
+  _scenediagonal(g, andre) {
+    if (!andre || !andre.length) return g.diagonal || 0;
+    let minX = g.midtX - (g.diagonal || 0) / 2, maksX = g.midtX + (g.diagonal || 0) / 2;
+    let minY = g.midtY - (g.diagonal || 0) / 2, maksY = g.midtY + (g.diagonal || 0) / 2;
+    let lav = g.lav, hoy = g.hoy;
+    for (const bg of andre) {
+      if (!bg) continue;
+      const r = (bg.diagonal || 0) / 2;
+      minX = Math.min(minX, bg.midtX - r); maksX = Math.max(maksX, bg.midtX + r);
+      minY = Math.min(minY, bg.midtY - r); maksY = Math.max(maksY, bg.midtY + r);
+      lav = Math.min(lav, bg.lav); hoy = Math.max(hoy, bg.hoy);
+    }
+    /* HØYDEN TELLER MED, GANGET MED OVERDRIVNINGEN.
+       Kameraet regner `z = (wz − z0) · overdriv`, og den z-en går inn i
+       dybden med `sin(pitch)`. Et naboanlegg som ligger seksti meter høyere
+       blir hundre og åtti med tredobbel overdrivning – mer enn nok til å
+       skyve punktet bak øyet på en scene som er smal i planet. Uten dette
+       leddet var avstanden riktig for kartet og gal for terrenget. */
+    const dz = Math.max(0, (hoy - lav)) * (this.overdriv || 1);
+    return Math.hypot(maksX - minX, maksY - minY) + dz;
+  },
+
+  /** Bufernøkkel: alt ved anlegget som endrer hvordan det ser ut i bakgrunnen. */
+  _anleggsnokkel(a) {
+    if (!a) return '';
+    if (a.type === 'tomt') {
+      const t = a.tomt || {};
+      const n = t.nivaa || {};
+      /* `punkt` MÅ med. I sluk-modus er hele flaten en kjegle rundt det
+         punktet, og flytter man det uten at nøkkelen endrer seg, blir den
+         gamle kjeglen stående til noe helt annet tilfeldigvis endrer nøkkelen
+         – uten et ord om at bildet er foreldet. Det samme gjelder
+         `omrissBetyr`: den avgjør om anlegget kan tegnes i det hele tatt. */
+      const pk = n.punkt ? n.punkt.lat + ',' + n.punkt.lon : '';
+      return a.id + ':t:' + (t.punkter || []).length + ':'
+        + (t.punkter || []).map(p => p.lat.toFixed(6) + ',' + p.lon.toFixed(6)).join(';')
+        + ':' + n.modus + ':' + n.kote + ':' + n.fall + ':' + n.fallretning
+        + ':' + pk + ':' + t.omrissBetyr + ':' + (a.navn || '');
+    }
+    /* `k` er kurvelengden i knekkpunktet og former lengdeprofilen. Uten den i
+       nøkkelen står bakgrunnsvegen på gamle høyder etter en kurveendring. */
+    return a.id + ':v:' + (a.ip || []).map(p => p.lat.toFixed(6) + ',' + p.lon.toFixed(6) + ',' + p.r).join(';')
+      + ':' + (a.vip || []).map(v => v.s.toFixed(2) + ',' + v.z.toFixed(3) + ',' + (v.k || '')).join(';')
+      + ':' + ((a.mal && a.mal.vegbredde) || '') + ',' + ((a.mal && a.mal.tverrfall) || '')
+      + ':' + (a.navn || '');
+  },
+
+  /**
+   * Vegbanen til et annet anlegg, som et smalt gitter langs linjeføringen.
+   *
+   * Fem kolonner, ikke tre: med tre er flaten to trekanter på tvers, og lyset
+   * – som regnes av kryssproduktet mellom nabokantene – får bare ett steg å
+   * lese helningen av. Fem gir en flate man ser formen på.
+   *
+   * Tverrfallet tas rett fra malen, ikke fra `tverrfallVed`. Overstyringer per
+   * stasjon og dosering i kurver hører til det anlegget man ARBEIDER med; her
+   * er spørsmålet hvor vegen ligger, og en centimeter fall til eller fra
+   * endrer ikke svaret.
+   */
+  _bakgrunnVeg(a) {
+    const app = this.app;
+    const ip = (a.ip || []).filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lon));
+    if (ip.length < 2) throw new Error('ingen senterlinje tegnet ennå');
+    const linje = new Linjeforing(ip.map(p => {
+      const u = Geo.tilUtm(p.lat, p.lon, app.sone);
+      return { x: u.x, y: u.y, r: p.r || 0 };
+    }));
+    if (!linje.elementer || !linje.elementer.length || !(linje.lengde > 1)) {
+      throw new Error('senterlinja er for kort til å tegne');
+    }
+    const vip = (a.vip || []).filter(v => Number.isFinite(v.s) && Number.isFinite(v.z));
+    /* En nytegnet veg har tom `vip` til den er regnet én gang – og det skjer
+       bare mens den er det aktive anlegget. Meldingen må si nettopp det, ikke
+       bare at noe mangler. */
+    if (vip.length < 2) throw new Error('ingen høydeprofil – åpne anlegget én gang så det regnes');
+    const vp = new Vertikalprofil(vip);
+    const mal = a.mal || {};
+    const hb = Math.max(0.5, (mal.vegbredde || 4) / 2);
+    const fall = Number.isFinite(mal.tverrfall) ? mal.tverrfall : 0.05;
+
+    /* Steget følger lengden, ikke et fast tall: en veg på to kilometer skal
+       ikke koste fem hundre rader i bakgrunnen. Taket på 400 rader er målt mot
+       det samme budsjettet som hovedmodellen tegnes etter. */
+    const steg = Math.max(2, Math.ceil(linje.lengde / 400));
+    const nh = Math.max(2, Math.floor(linje.lengde / steg) + 1);
+    const nb = 5;
+    const n = nb * nh;
+    /* Float64 for wx/wy. Nordkoordinaten er rundt 6 460 000, og der ligger
+       nabotallene i float32 en halv meter fra hverandre – bredere enn halve
+       vegen. Samme grunn som i hovedgitteret. */
+    const wx = new Float64Array(n), wy = new Float64Array(n);
+    const z = new Float32Array(n);
+    const finnes = new Uint8Array(n);
+    let lav = Infinity, hoy = -Infinity;
+    let minX = Infinity, maksX = -Infinity, minY = Infinity, maksY = -Infinity;
+    for (let j = 0; j < nh; j++) {
+      const s = Math.min(linje.lengde, j * steg);
+      const zs = vp.hoyde(s);
+      if (!Number.isFinite(zs)) continue;
+      for (let i = 0; i < nb; i++) {
+        const k = j * nb + i;
+        const t = -hb + 2 * hb * (i / (nb - 1));
+        const p = linje.punktMedAvvik(s, t);
+        if (!p || !Number.isFinite(p.x)) continue;
+        wx[k] = p.x; wy[k] = p.y;
+        // taktverrfall: begge kanter ligger lavere enn senterlinja
+        z[k] = zs - Math.abs(t) * fall;
+        finnes[k] = 1;
+        if (z[k] < lav) lav = z[k];
+        if (z[k] > hoy) hoy = z[k];
+        if (p.x < minX) minX = p.x; if (p.x > maksX) maksX = p.x;
+        if (p.y < minY) minY = p.y; if (p.y > maksY) maksY = p.y;
+      }
+    }
+    if (!Number.isFinite(lav)) return null;
+    /* MERKET SKAL STÅ PÅ VEGEN, IKKE I MIDTEN AV BOKSEN RUNDT DEN.
+       Midtpunktet i randboksen ligger utenfor en veg som svinger – på en
+       L-formet trasé ligger det ikke i nærheten av asfalten, og navnet havner
+       da svevende over noe helt annet. Midtstasjonen ligger alltid på vegen. */
+    const sM = linje.lengde / 2;
+    const pM = linje.punktVed(sM);
+    const zM = vp.hoyde(sM);
+    return {
+      nb, nh, wx, wy, z, finnes, lav, hoy,
+      midtX: (minX + maksX) / 2, midtY: (minY + maksY) / 2,
+      merke: (pM && Number.isFinite(pM.x) && Number.isFinite(zM))
+        ? { x: pM.x, y: pM.y, z: zM } : null,
+      diagonal: Math.hypot(maksX - minX, maksY - minY),
+      navn: a.navn || 'Veg', type: 'veg', id: a.id
+    };
+  },
+
+  /**
+   * Den ferdige flaten til en annen tomt, som et rutenett over omrisset.
+   *
+   * `finnes` settes bare der noden ligger INNENFOR omrisset. Uten den ville
+   * flaten blitt et rektangel, og et rektangel som ikke er tomta er verre enn
+   * ingen tomt – man tror grensa går der.
+   */
+  _bakgrunnTomt(a) {
+    const app = this.app;
+    const t = a.tomt;
+    if (!t || !t.punkter || t.punkter.length < 3) throw new Error('ingen tomt tegnet ennå');
+    const niv = t.nivaa || {};
+    if (!Number.isFinite(niv.kote)) throw new Error('ingen ferdig kote satt');
+    /* ER OMRISSET YTTERGRENSA, ER DET IKKE TOMTA.
+       Da er det tegnede polygonet inngrepsgrensa, og den ferdige flaten ligger
+       INNENFOR – rykket inn så skråningsfoten lander nøyaktig i grensa.
+       Innrykket regnes av `Tomtmasser.innerflate`, som krever terreng, og
+       terrenget for et anlegg man ikke arbeider med er ikke lastet ned.
+       Å fylle hele ytterkanten på ferdig kote ville tegnet en plattform som er
+       for stor med hele skråningsutlegget – titalls meter i bratt terreng – og
+       svaret på «treffer snuplassen vegen?» ville blitt feil.
+       Kartet nekter på nøyaktig samme grunnlag: se `Kart.tegnTomtefarger`. */
+    if (t.omrissBetyr === 'yttergrense') {
+      throw new Error('omrisset er yttergrense – den ferdige flaten krever '
+        + 'terreng, og det lastes bare for anlegget du arbeider med');
+    }
+    const p = app.tomtIUtm(t);
+    if (p.length < 3) return null;
+    const nivUtm = app.tomtenivaaIUtm(t);
+    const tp = Tomt.tyngdepunkt(p);
+    let minX = Infinity, maksX = -Infinity, minY = Infinity, maksY = -Infinity;
+    for (const q of p) {
+      if (q.x < minX) minX = q.x; if (q.x > maksX) maksX = q.x;
+      if (q.y < minY) minY = q.y; if (q.y > maksY) maksY = q.y;
+    }
+    const utstrekning = Math.max(maksX - minX, maksY - minY);
+    if (!(utstrekning > 0.5)) return null;
+    /* Ruta velges av utstrekningen, med tak på 120×120 noder. En tomt i
+       bakgrunnen skal leses som en flate, ikke måles i. */
+    const rute = Math.max(0.5, utstrekning / 120);
+    const nb = Math.max(2, Math.round((maksX - minX) / rute) + 1);
+    const nh = Math.max(2, Math.round((maksY - minY) / rute) + 1);
+    const n = nb * nh;
+    if (n > 2e5) return null;
+    const wx = new Float64Array(n), wy = new Float64Array(n);
+    const z = new Float32Array(n);
+    const finnes = new Uint8Array(n);
+    let lav = Infinity, hoy = -Infinity;
+    for (let j = 0; j < nh; j++) {
+      for (let i = 0; i < nb; i++) {
+        const k = j * nb + i;
+        const x = minX + i * rute, y = minY + j * rute;
+        wx[k] = x; wy[k] = y;
+        if (!Tomt.innenfor(p, x, y)) continue;
+        const zz = Tomtmasser.nivaaVed(nivUtm, x, y, tp);
+        if (!Number.isFinite(zz)) continue;
+        z[k] = zz; finnes[k] = 1;
+        if (zz < lav) lav = zz;
+        if (zz > hoy) hoy = zz;
+      }
+    }
+    if (!Number.isFinite(lav)) return null;
+    /* Tyngdepunktet ligger utenfor et konkavt omriss. Da faller merket tilbake
+       på en node som FINNES – et punkt som beviselig er på flaten. */
+    let merke = null;
+    if (Tomt.innenfor(p, tp.x, tp.y)) {
+      const zM = Tomtmasser.nivaaVed(nivUtm, tp.x, tp.y, tp);
+      if (Number.isFinite(zM)) merke = { x: tp.x, y: tp.y, z: zM };
+    }
+    if (!merke) {
+      for (let k = 0; k < n; k++) {
+        if (finnes[k]) { merke = { x: wx[k], y: wy[k], z: z[k] }; break; }
+      }
+    }
+    return {
+      nb, nh, wx, wy, z, finnes, lav, hoy, rute, merke,
+      midtX: (minX + maksX) / 2, midtY: (minY + maksY) / 2,
+      diagonal: Math.hypot(maksX - minX, maksY - minY),
+      navn: a.navn || 'Tomt', type: 'tomt', id: a.id
+    };
+  },
+
+  /**
+   * Maler bakgrunnsanleggene inn i det samme bildet og det samme dybdebufferet.
+   *
+   * FØR hovedlagene, av to grunner. Dybdebufferet avgjør hva som vinner der de
+   * overlapper, så rekkefølgen betyr ingenting for de ugjennomsiktige lagene –
+   * men de GJENNOMSIKTIGE blander mot `_piksler` slik det står NÅ, og et
+   * halvgjennomsiktig lag som blander mot bakgrunnsfargen der en nabotomt
+   * ligger, ville malt tomta bort.
+   *
+   * `id`-bufferet får null. Det er museoppslaget: peker det på en celle i et
+   * bakgrunnsgitter, ville avlesningen svart med tall fra et anlegg man ikke
+   * arbeider med – og de tallene finnes ikke, for flaten er ikke regnet.
+   */
+  _tegnBakgrunn(gitre, rb, rh, kam) {
+    if (!gitre || !gitre.length) return;
+    const rgb = Farger.annetAnleggRgb;
+    for (const bg of gitre) {
+      const farge = (k00, k10, k01, k11, zz) => {
+        const ly = this._lys(bg, k00, k10, k01, zz, kam);
+        const r = Math.min(255, rgb[0] * ly), g2 = Math.min(255, rgb[1] * ly);
+        const b2 = Math.min(255, rgb[2] * ly);
+        return (255 << 24) | (b2 << 16) | (g2 << 8) | r;
+      };
+      this._raster(bg, bg.z, farge, this._piksler, this._dyp, null, rb, rh, kam, null);
+    }
+  },
+
+  /**
+   * Slår «de andre anleggene» av og på i BEGGE visningene på én gang.
+   *
+   * Lagbryterne ellers hører til sin egen visning – slår man av terrenget på
+   * vegen, skal det stå på i tomta. Denne er ikke et lag i modellen, den er et
+   * spørsmål om hva SCENEN skal inneholde, og det svaret følger deg når du
+   * bytter mellom vegen og tomta. Sto den per visning, måtte man slå den på to
+   * ganger for å få den samme utsikten.
+   */
+  settVisAndre(pa) {
+    for (const vis of [typeof Veg3d !== 'undefined' ? Veg3d : null,
+      typeof Tomt3d !== 'undefined' ? Tomt3d : null]) {
+      if (!vis || !vis.lag) continue;
+      vis.lag.andre = !!pa;
+      vis._andreNokkel = null;
+      vis._skalaSatt = false;                 // innrammingen dekker nå noe annet
+    }
+    for (const id of ['v3_andre', 't3_andre']) {
+      const e = document.getElementById(id);
+      if (e) { e.classList.toggle('aktiv', !!pa); e.setAttribute('aria-pressed', pa ? 'true' : 'false'); }
+    }
+    for (const vis of [typeof Veg3d !== 'undefined' ? Veg3d : null,
+      typeof Tomt3d !== 'undefined' ? Tomt3d : null]) {
+      if (vis && vis.aktiv) vis.tegn();
+    }
+  },
 
   /**
    * Én flate inn i et pikselbuffer, med dybdeprøve.
@@ -621,6 +1023,12 @@ const Tegner3d = {
          det ingenting å ramme inn. */
       if (this.modus !== 'bakken') { this.nullstill(); return; }
     }
+    /* Bakgrunnsanleggene bygges FØR innrammingen, ikke etter: `_tilpassSkala`
+       skal ramme inn alt som kommer til å stå i bildet. Gjør den det ikke,
+       ligger nabotomta utenfor kanten helt til man zoomer ut selv – og da ser
+       bryteren ut som om den ikke virker. */
+    this._andreNa = this._bakgrunnsgitre();
+    this._sceneDiagonal = this._scenediagonal(g, this._andreNa);
     if (!this.senter) this.senter = { x: g.midtX, y: g.midtY };
     /* Tilpasningen må gjøres om igjen når lerretet skifter størrelse. Uten
        dette blir skalaen stående fra den gangen panelet var lite: slår man på
@@ -632,7 +1040,7 @@ const Tegner3d = {
        hver eneste dragning regnet tilpasningen om igjen til ingen nytte. */
     const kj = b + '×' + h;
     if (!this._skalaSatt || this._tilpassetFor !== kj) {
-      const t = this._tilpassSkala(rb, rh, g);
+      const t = this._tilpassSkala(rb, rh, g, this._andreNa);
       const nyFit = t.skala / (dpr * kvalitet);
       const forhold = (this._skalaSatt && this._fitSkala > 1e-9) ? this.skala / this._fitSkala : 1;
       this.skala = nyFit * forhold;
@@ -713,6 +1121,8 @@ const Tegner3d = {
         }
       }];
     this._kamNa = kam;
+    /* De andre anleggene først – se `_tegnBakgrunn`. */
+    this._tegnBakgrunn(this._andreNa, rb, rh, kam);
     for (const lag of lagene) {
       if (!lag) continue;
       if (!(lag.blanding > 0)) {
@@ -850,6 +1260,92 @@ const Tegner3d = {
   },
 
 
+  /**
+   * Navnet på hvert bakgrunnsanlegg, satt der anlegget står.
+   *
+   * EN BLÅ FLATE UTEN NAVN ER ET SPØRSMÅL, IKKE ET SVAR.
+   * Man ser at det ligger noe der, men ikke hva – og med to tomter i
+   * bakgrunnen er det umulig å vite hvilken som er hvilken. Merket er hele
+   * grunnen til at de andre anleggene er verdt å tegne.
+   *
+   * Punktet må ligge FORAN øyet. Bak det speiler `px = cx + F·rx/w` merket
+   * over til motsatt side av skjermen, og navnet på tomta bak ryggen dukker
+   * opp midt i utsikten framover.
+   *
+   * MERKET STÅR OVER FLATEN, IKKE PÅ DEN.
+   * Først sto det i tyngdepunktet. Målt: en tomt på 52 × 38 m projiserte til
+   * 89 × 45 piksler, og navneboksen dekket 40 av de 89 – man så merket og
+   * ikke flaten det pekte på. Nå står det over det høyeste punktet med en
+   * strek ned til midten, slik en etikett i en tegning gjør.
+   */
+  _merkBakgrunn(k, kam, b, h) {
+    const gitre = this._andreNa;
+    if (!gitre) return;
+    /* ET ANLEGG SOM IKKE KAN TEGNES SKAL DET SIES FRA OM – OG DET SKAL SIES
+       HVA MAN GJØR MED DET.
+       De to vanligste avvisningene er de to normale tilstandene til et
+       halvferdig anlegg: en nytegnet veg har ingen høydeprofil før den er
+       regnet én gang, og en nytegnet tomt har ingen kote. «Tegn veg nummer to,
+       gå tilbake til veg én for å sammenligne» er nettopp det man gjør med
+       denne bryteren først – og da ville bakgrunnen stått tom uten et ord. */
+    if (gitre.utelatt && gitre.utelatt.length) {
+      k.font = '11px system-ui, sans-serif';
+      k.textAlign = 'left';
+      k.textBaseline = 'alphabetic';
+      const linjer = ['Ikke tegnet i bakgrunnen:'].concat(gitre.utelatt.map(s => '  ' + s));
+      /* 30 px opp fra kanten, ikke 10. Nederste linje havnet ellers under
+         avlesningsstripa som ligger langs bunnen av panelet – meldingen sto
+         der, men bare overskriften var å se, og en overskrift uten innhold er
+         verre enn ingen melding. */
+      const bunn = h - 30;
+      const topp = bunn - (linjer.length - 1) * 13;
+      let bredest = 0;
+      for (const s of linjer) bredest = Math.max(bredest, k.measureText(s).width);
+      k.fillStyle = Farger.flate;
+      k.globalAlpha = 0.75;
+      k.fillRect(6, topp - 13, bredest + 10, linjer.length * 13 + 6);
+      k.globalAlpha = 1;
+      k.fillStyle = Farger.blekkSvak;
+      linjer.forEach((s, i) => k.fillText(s, 10, topp + i * 13));
+    }
+    if (!gitre.length) return;
+    const naer = kam.naer || 1e-6;
+    k.font = '600 11px system-ui, sans-serif';
+    k.textAlign = 'center';
+    k.textBaseline = 'middle';
+    /* Merkene løftes fra hverandre når to anlegg projiserer til nesten samme
+       punkt: to navn oppå hverandre er ett uleselig navn. */
+    const satt = [];
+    for (const bg of gitre) {
+      const m = bg.merke || { x: bg.midtX, y: bg.midtY, z: bg.hoy };
+      const q = kam.punkt(m.x, m.y, m.z);
+      if (!(q.w > naer)) continue;
+      const x = q.px * b / this._sisteRb;
+      const yFlate = q.py * h / this._sisteRh;
+      let y = yFlate - 16;
+      for (let runde = 0; runde < 8; runde++) {
+        if (!satt.some(s => Math.abs(s.x - x) < 70 && Math.abs(s.y - y) < 17)) break;
+        y -= 17;
+      }
+      if (!(x > -40 && x < b + 40 && y > -20 && y < h + 20)) continue;
+      satt.push({ x, y });
+      const tekst = bg.navn;
+      const br = k.measureText(tekst).width + 10;
+      k.strokeStyle = Farger.annetAnlegg;
+      k.lineWidth = 1;
+      k.beginPath(); k.moveTo(x, y + 8); k.lineTo(x, yFlate); k.stroke();
+      k.fillStyle = Farger.flate;
+      k.globalAlpha = 0.8;
+      k.fillRect(x - br / 2, y - 8, br, 16);
+      k.globalAlpha = 1;
+      k.lineWidth = 1.2;
+      k.strokeRect(x - br / 2, y - 8, br, 16);
+      k.fillStyle = Farger.annetAnlegg;
+      k.fillText(tekst, x, y + 1);
+    }
+    k.textBaseline = 'alphabetic';
+  },
+
   /** Har visningen noe å bygge et gitter av? Overskrives av hver visning. */
   _harData(res) { return !!(res && res.rutenett && res.rutenett.length); },
 
@@ -881,6 +1377,7 @@ const Tegner3d = {
       return { x: q.px * b / this._sisteRb, y: q.py * h / this._sisteRh };
     };
     this._strekOppsett(kam, b, h);
+    this._merkBakgrunn(k, kam, b, h);
 
     /* Strekene og tallene som hører til NETTOPP denne visningen – tomtegrense
        og skråningsfot for tomta, vegkanter og stasjonsmerker for vegen.
@@ -1525,11 +2022,30 @@ const Tegner3d = {
   _dybdeUnder(pos, c) {
     const t = this._slaOpp(pos, c);
     const g = this._sisteGitter, kam = this._sisteKam;
-    if (!t || t.k < 0 || !g || !kam) return 30;
-    const tab = this._flateHoyde(g);
-    const h = tab ? tab[t.k] : ((g.harGrav && g.harGrav[t.k]) ? g.zP[t.k] : g.zT[t.k]);
-    const q = kam.punkt(g.wx[t.k], g.wy[t.k], h);
-    return Number.isFinite(q.w) && q.w > 1 ? q.w : 30;
+    if (t && t.k >= 0 && g && kam) {
+      const tab = this._flateHoyde(g);
+      const h = tab ? tab[t.k] : ((g.harGrav && g.harGrav[t.k]) ? g.zP[t.k] : g.zT[t.k]);
+      const q = kam.punkt(g.wx[t.k], g.wy[t.k], h);
+      if (Number.isFinite(q.w) && q.w > 1) return q.w;
+    }
+    /* OPPSLAGET FINNER BARE DET AKTIVE ANLEGGET – DYBDEBUFFERET FINNER ALT.
+       `_slaOpp` leser id-bufferet, og bakgrunnsanleggene skriver aldri i det
+       (med vilje: avlesningen skal ikke svare med tall fra et anlegg som ikke
+       er regnet). Men de skriver i DYBDEbufferet, og det er den eneste
+       opplysningen «dra for å gå» trenger. Uten dette falt farten tilbake på
+       tretti meter over hver eneste bakgrunnspiksel: tok man tak i naboanlegget
+       åtte hundre meter unna for å flytte seg dit, sto musa nesten stille. */
+    const dyp = this._dyp, rb = this._sisteRb, rh = this._sisteRh;
+    if (dyp && rb && rh && dyp.length === rb * rh && c && c.clientWidth) {
+      // samme omregning som `_slaOpp`: pos er lerretsrelativ, ikke klientrelativ
+      const ix = Math.round(pos.x * rb / c.clientWidth);
+      const iy = Math.round(pos.y * rh / c.clientHeight);
+      if (ix >= 0 && iy >= 0 && ix < rb && iy < rh) {
+        const d = dyp[iy * rb + ix];
+        if (Number.isFinite(d) && d > 1) return d;
+      }
+    }
+    return 30;
   },
 
   /**
@@ -1652,12 +2168,16 @@ const Tegner3d = {
    * samme tilpasningen som brukes i tegningen, og den som gir størst skala
    * vinner. Ingen gjetning på formen: det er målt.
    */
-  _besteYaw(kandidater, b, h, g) {
+  _besteYaw(kandidater, b, h, g, andre) {
     const foer = this.yaw;
     let best = foer, beste = -Infinity;
     for (const v of kandidater) {
       this.yaw = v;
-      const t = this._tilpassSkala(b, h, g);
+      /* Bakgrunnsanleggene MÅ være med her når de vises: dreiningen som gjør
+         vegen alene størst er ikke den samme som gjør vegen OG de to tomtene
+         ved siden av størst. Uten dem ville «hjem» valgt en vinkel der halve
+         scenen ligger utenfor kanten. */
+      const t = this._tilpassSkala(b, h, g, andre);
       if (t.skala > beste) { beste = t.skala; best = v; }
     }
     this.yaw = foer;

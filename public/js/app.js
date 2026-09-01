@@ -324,6 +324,24 @@ const App = {
        for et helt annet sted pa kartet. */
     this._terrengnokkel = '';
     this.resultat = null;
+    /* 3D-KAMERAET PEKER PÅ DET FORRIGE ANLEGGET.
+       Dreiepunktet, zoomen og øyeposisjonen ble satt for anlegget man kom fra.
+       Uten dette sto de igjen: ovenfra fikk man et tomt bilde man måtte trykke
+       ↺ på, og på bakken pekte gåposisjonen inn i et anlegg som ikke er der
+       lenger, så `_bakkePos` ga null og kameraet falt stille tilbake til
+       oversikten med skala 1.
+       Med «Alle anlegg» på er det verre enn tomt: det forrige anlegget tegnes
+       fortsatt, i blått, nøyaktig der kameraet peker – mens det nye ligger
+       utenfor kanten. Man ser da et helt troverdig bilde av feil anlegg. */
+    for (const vis of [typeof Veg3d !== 'undefined' ? Veg3d : null,
+      typeof Tomt3d !== 'undefined' ? Tomt3d : null]) {
+      if (!vis) continue;
+      if (vis.modus === 'bakken') vis.settModus('oversikt', true);
+      vis.senter = null; vis.fokus = null;
+      vis.panX = 0; vis.panY = 0;
+      vis._skalaSatt = false;
+      vis._andreNokkel = null;              // bakgrunnen er et annet sett nå
+    }
     if (this.erTomt()) Kart.settModus(this.P.tomt.punkter.length ? 'rediger' : 'tegnTomt');
     else Kart.settModus('rediger');
     this.visAnleggsvelger();
@@ -5653,6 +5671,13 @@ const App = {
         e.classList.toggle('aktiv', Veg3d.lag[felt]);
         Veg3d.tegn();
       };
+    }
+    /* «Alle anlegg» går gjennom Tegner3d, ikke gjennom lagsløyfa over: den
+       skal slå inn i BEGGE visningene og oppdatere begge knappene, så
+       utsikten er den samme når man bytter mellom vegen og tomta. */
+    for (const boks of ['v3_andre', 't3_andre']) {
+      const e = id2(boks);
+      if (e) e.onclick = () => Tegner3d.settVisAndre(!(Veg3d.lag && Veg3d.lag.andre));
     }
     if (id2('v3_overdriv')) id2('v3_overdriv').onchange = e => {
       Veg3d.overdriv = parseFloat(e.target.value) || 1;

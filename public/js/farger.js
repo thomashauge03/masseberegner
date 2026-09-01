@@ -65,6 +65,10 @@ const Farger = {
   get terrengFlateRgb() { return this.rgb('data-terrengflate'); },
   get fjellRgb() { return this.rgb('data-fjell'); },
   get flateRgb() { return this.rgb('flate'); },
+  /* De andre anleggene i 3D-scenen. Egen farge, ikke en tone av terrenget:
+     en bakgrunnsflate som ligner terreng blir lest som terreng. */
+  get annetAnleggRgb() { return this.rgb('data-annet'); },
+  get annetAnlegg() { return this.hent('data-annet'); },
 
   get terreng() { return this.hent('data-terreng'); },
   get rensk() { return this.hent('data-rensk'); },

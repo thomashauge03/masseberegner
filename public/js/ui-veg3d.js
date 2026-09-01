@@ -44,7 +44,11 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
      fortsatt som valg for den som vil se på ett parti, men det er ikke det man
      møter. */
   vindu: 0,            // meter til hver side av snittet; 0 = hele vegen
-  lag: { terreng: true, grav: true, vegbane: true, fjell: false, rutenett: false, grenser: true },
+  /* `andre` er de øvrige anleggene i prosjektet. Den står AV som forvalg: med
+     ett anlegg finnes den ikke, og med flere er det ens eget arbeid man ser på
+     til man ber om noe annet. */
+  lag: { terreng: true, grav: true, vegbane: true, fjell: false, rutenett: false,
+    grenser: true, andre: false },
 
   /* Kolonneskjemaet. Likt i hver rad, så en kolonne alltid betyr det samme:
      foten er kolonne 0 og SISTE, vegkantene 27 og 35, senterlinja 31. Da blir
@@ -742,7 +746,12 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
       const c = this.lerret;
       if (c && c.clientWidth > 20) {
         const dpr = Math.min(2, window.devicePixelRatio || 1);
-        this.yaw = this._besteYaw([grunn, grunn + 90], c.clientWidth * dpr, c.clientHeight * dpr, g);
+        /* Bakgrunnsanleggene må bygges FØR dreiningen velges – de er en del av
+           det som skal få plass. Se `_besteYaw`. */
+        const andre = this._bakgrunnsgitre();
+        this._sceneDiagonal = this._scenediagonal(g, andre);
+        this.yaw = this._besteYaw([grunn, grunn + 90],
+          c.clientWidth * dpr, c.clientHeight * dpr, g, andre);
       } else {
         this.yaw = grunn + 90;
       }
