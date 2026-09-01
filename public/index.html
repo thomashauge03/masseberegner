@@ -112,6 +112,17 @@
         <label class="avkryss skjult" id="visTomtefargerBoks"><input type="checkbox" id="visTomtefarger" checked> Skjæring/fylling</label>
       </div>
       <button class="utvidknapp kartutvid" data-utvid="kart" title="Stor visning (skjuler de andre)">⤢</button>
+      <!-- FØRSTEVALGET: hva skal lages? Boksen ligger OPPÅ kartet, ikke i en
+           dialog – valget handler om hva som skal tegnes DER, og en dialog midt
+           på skjermen ville skjult stedet man nettopp fant fram til. -->
+      <div id="velganlegg" class="velganlegg skjult">
+        <div class="velgtittel">Hva skal du regne på?</div>
+        <div class="velgknapper">
+          <button class="knapp primaer" data-velg="veg">▬ Veg</button>
+          <button class="knapp primaer" data-velg="tomt">⬟ Tomt</button>
+        </div>
+        <div class="velgnotis">Du kan legge til flere av begge slag etterpå.</div>
+      </div>
       <div id="kartinfo" class="kartinfo"></div>
     </div>
   </section>
@@ -127,6 +138,13 @@
         <button id="knappForeslaProfil" class="verktoyknapp">Foreslå profil</button>
         <button id="knappBalanser" class="verktoyknapp" title="Flytt profilen opp/ned slik at skjæring og fylling går i balanse">Massebalanse</button>
         <button id="knappOptimaliser" class="verktoyknapp" title="Finjuster hvert knekkpunkt for minst mulig masseflytting">Optimaliser</button>
+        <!-- SPRENGNING ER DEN DYRESTE POSTEN, OG DEN MED LENGST VENTETID.
+             Knappen svarer paa et annet spoersmaal enn Optimaliser: ikke "hva er
+             billigst", men "hva blir denne vegen hvis vi nekter aa ta fram
+             boreriggen". Fjellet veier tjue ganger mer, og loesmassen mindre -
+             staar valget mellom aa legge seg over fjellet med fylling eller aa
+             grave seg ned gjennom loesmassen, skal den grave. -->
+        <button id="knappUtenSprengning" class="verktoyknapp" title="Finn den profilen som slipper mest mulig sprengning – graver heller i løsmasse og fyller mer">💥⃠ Unngå sprengning</button>
         <label class="minitall" title="Avstand mellom knekkpunktene i høydeprofilen som foreslås">VIP <input type="number" id="vipAvstand" value="40" min="10" max="200" step="5"></label>
         <label class="minitall" title="K-verdi: hvor slake vertikalkurvene blir">K <input type="number" id="kVerdi" value="1" min="0" max="20" step="0.5"></label>
         <span class="hjelpetekst">Dra i knekkpunktene · dobbeltklikk for å legge til/fjerne</span>
@@ -273,6 +291,7 @@
           <input type="number" id="tm_kote" step="0.05" title="Høyden på det ferdige nivået"></label>
         <button id="tm_foreslaKote" class="verktoyknapp" title="Foreslå en kote ut fra terrenget">Foreslå</button>
         <button id="tm_balanser" class="verktoyknapp" title="Finn koten der skjæring og fylling går opp mot hverandre">Massebalanse</button>
+        <button id="tm_utenSprengning" class="verktoyknapp" title="Finn koten som slipper mest mulig sprengning – graver heller i løsmasse og fyller mer">💥⃠ Unngå sprengning</button>
         <span id="snittverktoy" class="verktoygruppe">
           <select id="tp_retning" class="minivalg" title="Hvor snittet legges">
             <option value="fall">Snitt langs fallet</option>

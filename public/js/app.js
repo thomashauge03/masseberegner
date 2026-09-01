@@ -95,6 +95,14 @@ const App = {
       navn: 'Nytt prosjekt',
       versjon: 2,
       aktivt: 'a1',
+      /* INGENTING ER VALGT ENNÅ.
+         Et nytt prosjekt startet som en VEG, uten at noen hadde sagt det. Skulle
+         man lage en tomt, måtte man først oppdage at man sto i feil bilde. Det
+         første anlegget finnes fortsatt – aksessorene `P.ip` og `P.tomt` må
+         peke på noe – men flagget sier at typen ikke er bestemt, og da spør
+         programmet i stedet for å gjette. Flagget forsvinner i det øyeblikket
+         man velger, tegner, eller åpner en fil. */
+      ubestemt: true,
       anlegg: [this.nyttAnlegg('veg', 'Veg', 'a1')],
       standardRadius: 30,
       faktorer: Object.assign({}, StandardFaktorer),
@@ -280,6 +288,7 @@ const App = {
     if (this.erTomt()) Kart.settModus(this.P.tomt.punkter.length ? 'rediger' : 'tegnTomt');
     else Kart.settModus('rediger');
     this.visAnleggsvelger();
+    this.visAnleggsvalg();
     this.malTilSkjema();
     this.tegnAlt();
     if (this.erTomt()) this.tomtEndret();
@@ -318,6 +327,50 @@ const App = {
   },
 
   /** Viser riktig arbeidsbilde for det anlegget som er oppe. */
+  /**
+   * «Hva skal du lage?» – spørsmålet et nytt prosjekt stiller i stedet for å
+   * gjette.
+   *
+   * Boksen ligger oppå kartet, ikke i en dialog: valget handler om hva som skal
+   * tegnes DER, og en dialog midt på skjermen ville skjult stedet man nettopp
+   * fant fram til. Den forsvinner ved første valg og kommer aldri igjen for det
+   * prosjektet.
+   */
+  visAnleggsvalg() {
+    const boks = document.getElementById('velganlegg');
+    if (!boks) return;
+    const spor = !!(this.P && this.P.ubestemt);
+    boks.classList.toggle('skjult', !spor);
+    if (!spor || boks._koblet) return;
+    boks._koblet = true;
+    for (const k of boks.querySelectorAll('[data-velg]')) {
+      k.onclick = () => this.velgAnleggstype(k.dataset.velg);
+    }
+  },
+
+  /** Førstevalget: gjør det ene anlegget prosjektet har til det man ba om. */
+  velgAnleggstype(type) {
+    if (!this.P || !this.P.ubestemt) return;
+    delete this.P.ubestemt;
+    const a = this.anlegg();
+    if (a && a.type !== type) {
+      /* Anlegget er tomt – ingenting er tegnet ennå – så det byttes ut i stedet
+         for å konverteres. En konvertering ville måttet flytte felt som ikke
+         finnes, og etterlatt en tomt med en vegmal. */
+      const nytt = this.nyttAnlegg(type, type === 'tomt' ? 'Tomt' : 'Veg', a.id);
+      this.P.anlegg[this.P.anlegg.indexOf(a)] = nytt;
+      this.P.aktivt = nytt.id;
+    }
+    this.visAnleggsvalg();
+    this.visAnleggsvelger();
+    this.malTilSkjema();
+    Kart.settModus(type === 'tomt' ? 'tegnTomt' : 'tegn');
+    this.tegnAlt();
+    this.status(type === 'tomt'
+      ? 'Klikk rundt tomta i kartet. Dobbeltklikk for å lukke den.'
+      : 'Klikk i kartet for å legge inn knekkpunkt. Dobbeltklikk for å avslutte.');
+  },
+
   /** Merket foran et anlegg i lista – samme tegn som den gamle bryteren brukte. */
   anleggsmerke(a) { return a && a.type === 'tomt' ? '⬟' : '▬'; },
 
@@ -579,6 +632,87 @@ const App = {
    * nivaet, blir det mindre skjæring og mer fylling, alltid - sa halvering
    * treffer. Det er det samme grepet «Massebalanse» gjør pa vegen.
    */
+  /**
+   * Koten som gir minst sprengning.
+   *
+   * På en veg er svaret en hel profil; på en tomt er det ETT tall – den ferdige
+   * koten – og da finnes svaret ved å prøve. Fjellvolumet er ikke en pen
+   * funksjon av koten: den faller mens man hever seg opp av fjellet, og flater
+   * ut når man er over det. Halvering ville forutsatt at den krysser null én
+   * gang. Et grovt sveip og en finpuss rundt beste treff forutsetter ingenting,
+   * og førti prøver på en tomt tar under et sekund.
+   *
+   * DET ER IKKE BARE FJELLET SOM TELLER. Hever man tomta høyt nok, slipper man
+   * alt fjell – og får en fylling som må kjøres inn. Derfor prises innkjørt
+   * masse med, lavt nok til at fjellet fortsatt bestemmer, høyt nok til at
+   * svaret ikke blir en tomt som svever ti meter over bakken.
+   */
+  async sprengfriTomt() {
+    if (!this.erTomt()) return;
+    const t = this.P.tomt;
+    if (!t.punkter.length) { this.status('Tegn tomta først'); return; }
+    const start = t.nivaa.kote != null ? t.nivaa.kote : this.foreslaKote();
+    if (start == null) { this.status('Sett en kote først'); return; }
+    this.merk('unngå sprengning på tomta');
+    this.framdrift(true, 'Leter etter koten som slipper sprengning…', 0.1);
+    await pause();
+    const gammel = t.nivaa.kote;
+    const kost = kote => {
+      t.nivaa.kote = kote;
+      let punkter = this.tomtIUtm(t);
+      if (t.omrissBetyr === 'yttergrense') {
+        const inn = Tomtmasser.innerflate({
+          tomt: { punkter, kanter: t.kanter, nivaa: this.tomtenivaaIUtm(t) },
+          mal: this.P.mal, terreng: this.terreng, fjell: this.fjellmodellIUtm()
+        });
+        if (!inn.punkter) return Infinity;      // ingen plass til skråningene
+        punkter = inn.punkter;
+      }
+      const r = Tomtmasser.beregnTomtemasser({
+        tomt: { punkter, kanter: t.kanter, nivaa: this.tomtenivaaIUtm(t) },
+        mal: this.P.mal, terreng: this.terreng, fjell: this.fjellmodellIUtm(),
+        grense: t.omrissBetyr === 'yttergrense' ? this.tomtIUtm(t) : null,
+        rutestorrelse: Math.max(1, this.P.mal.rutestorrelse), bakkefaktor: this.bakkefaktor()
+      });
+      const s = r.sum || {}, b = r.balanse || {};
+      /* Nøyaktig de samme vektene som vegen bruker – se kostnad() i
+         optimaliser. Å unngå sprengning skal bety det samme på en tomt som på
+         en veg; to sett vekter for det samme ordet er to forskjellige knapper
+         med samme navn.
+         Særlig `manglerTotalt`: uten den vekten hevet tomta seg til den slapp
+         alt fjell og trengte 32 504 m³ innkjørt masse mot 8 524 – målt, og en
+         handel ingen ville gjort. */
+      return (s.skjaeringFjell || 0) * 60
+        + (s.skjaeringLosmasse || 0) * 0.6
+        + (s.fylling || 0) * 0.8
+        + (b.manglerTotalt || 0) * 8;
+    };
+    let beste = start, besteK = Infinity;
+    // grovt sveip på en halvmeter over tjue meter, så finpuss på fem centimeter
+    for (let d = -10; d <= 10; d += 0.5) {
+      const k = kost(start + d);
+      if (k < besteK) { besteK = k; beste = start + d; }
+      if (Math.round((d + 10) * 2) % 8 === 0) {
+        this.framdrift(true, 'Leter etter koten som slipper sprengning…', 0.1 + 0.6 * (d + 10) / 20);
+        await pause();
+      }
+    }
+    for (let d = -0.5; d <= 0.5; d += 0.05) {
+      const k = kost(beste + d);
+      if (k < besteK) { besteK = k; beste = beste + d; }
+    }
+    t.nivaa.kote = +beste.toFixed(2);
+    this.framdrift(false);
+    this.tomtTilSkjema();
+    await this.beregnTomt();
+    const s = this.resultat && this.resultat.sum;
+    if (!s) { this.status('Fant ingen kote som lot seg regne'); t.nivaa.kote = gammel; return; }
+    const fjell = s.skjaeringFjell || 0;
+    this.status(fjell < 1
+      ? `Kote ${t.nivaa.kote.toFixed(2)} slipper sprengning helt`
+      : `Kote ${t.nivaa.kote.toFixed(2)} gir minst sprengning – ${Rapport.tall(fjell)} m³ står igjen`);
+  },
+
   async balanserTomt() {
     if (!this.erTomt()) return;
     const t = this.P.tomt;
@@ -1009,9 +1143,11 @@ const App = {
     PdfUI.init(this);
     this.koblingerUI();
     this.visAnleggsvelger();
+    this.visAnleggsvalg();
     this.malTilSkjema();
     this.tegnAlt();
-    this.status('Klar. Velg «Tegn senterlinje» og klikk i kartet.');
+    this.status(this.P && this.P.ubestemt ? 'Klar. Velg om du skal regne på en veg eller en tomt.'
+      : 'Klar. Velg «Tegn senterlinje» og klikk i kartet.');
     try {
       const liste = await Lager.saFrø();
       if (liste.length) this.status(`Klar. ${liste.length} lagrede prosjekt – trykk «Åpne».`);
@@ -2135,8 +2271,14 @@ const App = {
    * som bryter kravene med 8 % ville den brukt kreftene pa a klatre ut av
    * bruddene i stedet for a finne noe billigere.
    */
+  /* Hva et nytt brudd må kjøpe av fjell for at det skal være verdt det. Samme
+     tall som BRUDDPRIS lenger nede, og det er ikke tilfeldig: et brudd skal
+     veie like mye enten sveipet eller portvakten vurderer det. */
+  BRUDDPRIS_SPRENG: 150,
+
   async rettOpp(modus) {
-    this.merk(modus === 'inngrep' ? 'minst inngrep' : 'rett opp');
+    this.merk(modus === 'inngrep' ? 'minst inngrep'
+      : modus === 'sprengning' ? 'unngå sprengning' : 'rett opp');
     /* PLANET RYDDES FØRST – VEGEN SKAL VÆRE LOVLIG, IKKE BLI DET NÅR NOEN
        HUSKER Å TRYKKE PÅ EN KNAPP.
        Bare det som IKKE flytter vegen gjøres her: radier som ber om mer plass
@@ -2197,7 +2339,8 @@ const App = {
       tilDeponi: this.resultat.balanse.tilDeponi
     };
 
-    this.framdrift(true, modus === 'inngrep' ? 'Legger veien tettest mulig på terrenget…' : 'Retter profilen…', 0.15);
+    this.framdrift(true, modus === 'inngrep' ? 'Legger veien tettest mulig på terrenget…'
+      : modus === 'sprengning' ? 'Leter etter en veg som slipper sprengning…' : 'Retter profilen…', 0.15);
     let laasteIVeien = 0;
     try {
       await pause();
@@ -2339,6 +2482,58 @@ const App = {
         await pause();
       }
       this.beregn();
+      /* Å KOMME OPP AV FJELLET ER ET NIVÅSPØRSMÅL, IKKE ET KNEKKPUNKTSPØRSMÅL.
+         Optimaliseringen under er et lokalt søk: den flytter ett knekkpunkt om
+         gangen og beholder det som ble billigere. Å heve HELE profilen fire
+         meter er en samordnet bevegelse den aldri finner, fordi hvert enkelt
+         skritt gjør fyllingen verre før noe blir bedre.
+         Målt på en trasé med 2 384 m³ fjell: et sveip over høyden fant at fire
+         meter opp tar fjellet til 113 m³, mens knappen uten sveipet leverte
+         «profilen du hadde var allerede best».
+         Sveipet er tolv grove beregninger – under et halvt sekund – og det
+         gjøres bare når man har bedt om å slippe sprengning. */
+      if (modus === 'sprengning') {
+        this.framdrift(true, 'Prøver å legge vegen over fjellet…', 0.45);
+        await pause();
+        const start = this.P.vip.map(v => Object.assign({}, v));
+        const laast = start.some(v => v.laast);
+        const kostVed = d => {
+          const liste = start.map(v => Object.assign({}, v, { z: v.laast ? v.z : v.z + d }));
+          try {
+            const r = this.beregnRaskt(liste);
+            const s = r.sum, b = r.balanse;
+            let n = 0;
+            for (const m of (r.brudd || r.merknader)) if (this.BRUDDTYPER[m.type] === 'profil') n++;
+            // nøyaktig samme vekter som selve søket – se kostnad() i optimaliser
+            return { k: s.skjaeringFjell * 60 + s.skjaeringLosmasse * 0.6
+              + (b.manglerTotalt || 0) * 8
+              + Math.abs(b.balanse) * 1.2 + s.rensk * 2 + s.fylling * 0.8, n, fjell: s.skjaeringFjell };
+          } catch (e) { return { k: Infinity, n: Infinity, fjell: Infinity }; }
+        };
+        /* Er alle høyder låst, er det ingen profil å flytte – da er sveipet
+           bortkastet arbeid og et løfte man ikke kan holde. */
+        if (!laast || !start.every(v => v.laast)) {
+          const naa = kostVed(0);
+          let beste = 0, besteK = naa.k;
+          for (let d = -6; d <= 10; d += 1) {
+            if (d === 0) continue;
+            const m = kostVed(d);
+            /* Samme kurs som portvakten til slutt: et nytt brudd må kjøpe minst
+               BRUDDPRIS kubikk fjell. Ellers ville sveipet levert et resultat
+               portvakten uansett kaster, og knappen hadde brukt tiden sin på
+               ingenting. */
+            if (m.n > naa.n && (naa.fjell - m.fjell) / (m.n - naa.n) < this.BRUDDPRIS_SPRENG) continue;
+            if (m.k < besteK) { besteK = m.k; beste = d; }
+          }
+          if (beste !== 0) {
+            for (const v of this.P.vip) if (!v.laast) v.z += beste;
+            this.vprofil = new Vertikalprofil(this.P.vip);
+            rettEnGang();                 // stigning og krav skal fortsatt holde
+            this.vprofil = new Vertikalprofil(this.P.vip);
+            this.beregn();
+          }
+        }
+      }
       this.framdrift(true, 'Finjusterer for minst mulig masse…', 0.5);
       await pause();
       await this.iFramdriftVindu(0.5, 0.95, () => this.optimaliser(true, modus));
@@ -2386,12 +2581,40 @@ const App = {
          det er billig, og ikke der det er dyrt. */
       const BRUDDPRIS = 150;
       const etterAlt = this.tellBrudd();
+      /* PORTVAKTEN MÅ MÅLE DET SAMME SOM KNAPPEN LETTE ETTER.
+         Her sto ÉN vekt – fjell ganger tre – uansett hvilken knapp som ble
+         trykt. «Unngå sprengning» kunne altså finne en profil helt uten fjell,
+         og bli rullet tilbake av en portvakt som syntes den kostet for mye i
+         løsmasse. Målt: fjellet sto på 8 586 m³ både før og etter, og
+         statuslinja sa «fant ingen bedre profil» – knappen gjorde ingenting,
+         hver eneste gang.
+         Vektene er de samme som i selve søket, ellers leter man etter én ting
+         og godkjenner en annen. */
+      const vektFjell = modus === 'sprengning' ? 60 : 3;
+      const vektLos = modus === 'sprengning' ? 0.6 : 1;
       const bedreFor = (() => {
         if (!bruddFor || !etterAlt) return false;
+        /* HVA ET NYTT BRUDD MÅ KJØPE.
+           Med fjellet vektet tjue ganger går regnestykket opp for nesten hva
+           som helst, og målt på en ekte trasé kjøpte knappen 929 m³ mindre
+           sprengning for 24 NYE stigningsbrudd – 39 kubikk per brudd. Det er
+           ikke å unngå sprengning, det er å bli ulovlig.
+           Et absolutt forbud mot nye brudd var like galt: målt på en annen
+           trasé kunne 2 271 m³ fjell spares for 6 nye brudd – 379 kubikk per
+           brudd – og da satt man igjen med en knapp som aldri gjorde noe på
+           nøyaktig de vegene den var laget for.
+           Regelen er derfor en KURS: et nytt brudd må kjøpe minst like mye fjell
+           som et brudd er verdt ellers i programmet. Begge de målte tilfellene
+           faller på riktig side av den. */
+        if (modus === 'sprengning' && etterAlt.profil > bruddFor.profil) {
+          const spart = volumFor.fjell - this.resultat.sum.skjaeringFjell;
+          const nye = etterAlt.profil - bruddFor.profil;
+          if (spart / nye < BRUDDPRIS) return true;
+        }
         const s = this.resultat.sum, b = this.resultat.balanse;
-        const na = s.skjaeringFjell * 3 + s.skjaeringLosmasse
+        const na = s.skjaeringFjell * vektFjell + s.skjaeringLosmasse * vektLos
           + b.manglerTotalt * 1.5 + b.tilDeponi + etterAlt.profil * BRUDDPRIS;
-        const før = volumFor.fjell * 3 + (volumFor.skjaering - volumFor.fjell)
+        const før = volumFor.fjell * vektFjell + (volumFor.skjaering - volumFor.fjell) * vektLos
           + volumFor.maaInn * 1.5 + volumFor.tilDeponi + bruddFor.profil * BRUDDPRIS;
         /* Behold det man hadde hvis det nye ikke er minst en prosent bedre.
            Uten denne terskelen drev tallene av garde nar man trykket flere
@@ -2500,7 +2723,8 @@ const App = {
     if (bruddEtter && bruddEtter.per.data) {
       deler.push(`${bruddEtter.per.data} profiler mangler terrengdata`);
     }
-    const tittel = modus === 'inngrep' ? 'Minst inngrep' : 'Rettet opp';
+    const tittel = modus === 'inngrep' ? 'Minst inngrep'
+      : modus === 'sprengning' ? 'Unngå sprengning' : 'Rettet opp';
     const alt = bruddFor.totalt > 0 && igjen === 0 ? `alle ${bruddFor.totalt} brudd er borte` : null;
     if (alt) deler.unshift(alt);
     this.status(deler.length ? tittel + ': ' + deler.join(' · ') : 'Fant ingenting å rette.');
@@ -3225,7 +3449,8 @@ const App = {
   async optimaliser(stille, modus) {
     if (!this.terreng || !this.linje) return;
     // «Rett opp» kaller hit selv og har alt tatt sitt merke - ikke to for en handling
-    if (!stille) this.merk(modus === 'inngrep' ? 'minst inngrep' : 'optimaliser');
+    if (!stille) this.merk(modus === 'inngrep' ? 'minst inngrep'
+      : modus === 'sprengning' ? 'unngå sprengning' : 'optimaliser');
     /* PLANET RYDDES FØRST – VEGEN SKAL VÆRE LOVLIG, IKKE BLI DET NÅR NOEN
        HUSKER Å TRYKKE PÅ EN KNAPP.
        Bare det som IKKE flytter vegen gjøres her: radier som ber om mer plass
@@ -3244,6 +3469,7 @@ const App = {
 
     const mal = this.P.mal;
     const inngrep = modus === 'inngrep';
+    const sprengfri = modus === 'sprengning';
     const kostnad = (liste, linje) => {
       const r = this.beregnRaskt(liste, linje);
       const s = r.sum, b = r.balanse;
@@ -3258,15 +3484,47 @@ const App = {
          blir flyttet likt, og vekter fotavtrykket og avstanden til terrenget
          tungt. Da blir det ikke gravd eller fylt mer enn nødvendig, selv om
          regnestykket kunne blitt billigere av a gjøre mer. */
+      /* UNNGÅ SPRENGNING er den tredje målestokken, og den er ikke «billigst»
+         med en høyere vekt på fjell. Den er et annet spørsmål:
+         «hva blir denne vegen hvis vi nekter å ta fram boreriggen?»
+
+         Fjellet veier tjue ganger mer enn i det billigste regnestykket. Det er
+         ikke en pris, det er en rangering: alt annet – å grave dypere i
+         løsmasse, å fylle mer, å kjøre inn – skal velges før en kubikk fjell.
+         Løsmassen veier samtidig MINDRE enn ellers (0,6 mot 1). Det er «grave
+         vegen under» i tall: står valget mellom å legge seg over fjellet med
+         fylling eller å grave seg ned gjennom løsmassen ved siden av, skal den
+         grave.
+
+         Ikke en absolutt regel. Et forbud mot å røre fjell gir ingen veg i det
+         hele tatt i terreng der fjellet ligger i dagen – den ville enten
+         klatret over med en umulig stigning eller bygget en fylling ingen
+         skulle betalt for. Med en vekt lar den heller ti kubikk fjell stå igjen
+         der alternativet er tusen kubikk innkjørt masse, og merknadene forteller
+         hvor mye som ble igjen. */
       let k = inngrep
         ? (s.skjaering + s.fylling) * 1
         + s.rensk * 6
         + Math.abs(b.balanse) * 0.3
-        : s.skjaeringFjell * 3
-        + s.skjaeringLosmasse * 1
-        + Math.abs(b.balanse) * 1.6
-        + s.rensk * 2
-        + s.fylling * 0.5;
+        : sprengfri
+          ? s.skjaeringFjell * 60
+          + s.skjaeringLosmasse * 0.6
+          /* INNKJØRT MASSE MÅ KOSTE NOE. Uten dette leddet fant knappen gjerne
+             en veg som slapp 3 462 m³ sprengning ved å kjøre inn 16 624 m³ –
+             målt, og en handel ingen ville gjort: sprengningen er dyr, men
+             fem ganger så mye innkjørt masse er dyrere. Vekten er satt så
+             fjellet fortsatt bestemmer (60 mot 8), men slik at den heller
+             graver seg ned gjennom løsmassen enn å bygge seg opp på kjøpt
+             stein når begge deler er mulig. */
+          + (b.manglerTotalt || 0) * 8
+          + Math.abs(b.balanse) * 1.2
+          + s.rensk * 2
+          + s.fylling * 0.8
+          : s.skjaeringFjell * 3
+          + s.skjaeringLosmasse * 1
+          + Math.abs(b.balanse) * 1.6
+          + s.rensk * 2
+          + s.fylling * 0.5;
 
       /* Følg terrenget. Dette er arealet mellom veglinjen og bakken i
          lengdeprofilen - jo mindre, jo tettere ligger veien pa terrenget.
@@ -3284,7 +3542,11 @@ const App = {
           const dB = Math.abs(vpKost.hoyde(tp.s[i]) - tp.z[i]);
           avvik += (dA + dB) / 2 * (tp.s[i] - tp.s[i - hopp]);
         }
-        k += avvik * (inngrep ? 120 : 30);
+        /* «Følg terrenget»-leddet veier lite når man unngår sprengning: det
+           som teller er å komme UNDER fjellet, og den vegen ligger nødvendigvis
+           lenger fra bakken enn en som følger den. Med full vekt her ville de to
+           leddene dratt mot hverandre, og fjellet vunnet bare halvveis. */
+        k += avvik * (inngrep ? 120 : sprengfri ? 10 : 30);
       }
 
       /* Kravene fra veiklassen og grensene for hva som lar seg bygge legges
@@ -4773,6 +5035,8 @@ const App = {
     id('knappGjorLovlig').onclick = () => this.gjorLovlig();
     id('knappBalanser').onclick = () => this.balanser();
     id('knappOptimaliser').onclick = () => this.optimaliser();
+    if (id('knappUtenSprengning')) id('knappUtenSprengning').onclick = () => this.rettOpp('sprengning');
+    if (id('tm_utenSprengning')) id('tm_utenSprengning').onclick = () => this.sprengfriTomt();
     /* K settes pa knekkpunktene som far bestemme seg selv - ikke pa de laste.
        En last høyde har K=0 nettopp fordi veglinjen skal ga nøyaktig gjennom
        den, slik det ogsa star i teksten over høydetabellen. Med K=2 pa et last

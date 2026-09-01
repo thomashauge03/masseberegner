@@ -783,6 +783,9 @@ const Kart = {
          Vil man sette inn et punkt pa et strekk som alt er tegnet, klikker
          man pa selve linjen i Rediger. Det er en egen handling, og den skal
          ikke skje ved et uhell. */
+      /* Tegner man, har man valgt. Flagget skal ikke bli hengende og be om et
+         valg man alt har tatt med hånda. */
+      if (this.app.P.ubestemt) this.app.velgAnleggstype('veg');
       this.app.merk('nytt knekkpunkt');
       P.ip.push({ lat: e.latlng.lat, lon: e.latlng.lng, r: P.standardRadius || 0 });
       this.app.linjeEndret();

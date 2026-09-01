@@ -1153,3 +1153,23 @@ html[data-peker="grov"] .nokkeltal .verdi { font-size: 15px; }
 }
 .leaflet-tooltip.anleggsmerkekart::before { display: none; }
 .leaflet-tooltip.anleggsnavnkart { display: none; }
+
+/* FØRSTEVALGET.
+   Midt på kartet, men ikke som en dialog: den blokkerer ikke, den spør. Samme
+   flate og kant som resten av boksene på kartet, så den ser ut som en del av
+   programmet og ikke som en feilmelding. */
+.velganlegg {
+  position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%);
+  z-index: 700; text-align: center;
+  background: var(--flate-opp); border: 2px solid var(--kant-sterk);
+  padding: 18px 22px; box-shadow: 5px 5px 0 0 rgba(0,0,0,.45);
+}
+.velganlegg.skjult { display: none; }
+.velgtittel {
+  font-family: var(--skrift-tittel); font-size: 15px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .05em; color: var(--blekk);
+  margin-bottom: 12px;
+}
+.velgknapper { display: flex; gap: 8px; justify-content: center; }
+.velgknapper .knapp { min-width: 104px; font-size: 14px; padding: 9px 14px; }
+.velgnotis { margin-top: 10px; font-size: 11.5px; color: var(--blekk-svak); }
