@@ -36,6 +36,17 @@ const App = {
    */
   merk(hva) {
     if (!this.P) return;
+    /* PROGRAMMETS EGNE RUNDER GJENNOM ANLEGGENE ER IKKE NOE Å ANGRE.
+       Samleeksporten og «full detalj» hopper til hvert anlegg og tilbake igjen.
+       Hvert hopp går gjennom `byttAnlegg`, som merker – og `P.aktivt` er med i
+       strengen, så hvert hopp ble en ny post. Med tre naboanlegg er det fire
+       poster, og linje under tømmer «Gjør om» helt. Etterpå måtte man trykke
+       Angre fire ganger for å komme til det man SELV gjorde sist, og de fire
+       første angret bare hvilket anlegg som var oppe. Med grensen på 60 skyves
+       ekte redigeringer ut av bunnen i tillegg.
+       Brukeren står i det anlegget han sto i da runden er ferdig; det er ikke
+       en endring, og skal ikke se ut som en. */
+    if (this._ikkeMerk) return;
     const tekst = JSON.stringify(this.P);
     if (tekst === this.historikk._sist) return;     // ingenting har endret seg
     this.historikk._sist = tekst;

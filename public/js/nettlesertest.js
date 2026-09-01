@@ -1384,7 +1384,8 @@ const Nettlesertest = {
                   for (let kk = 0; kk < bg.nb * bg.nh; kk++) {
                     if (!bg.finnes[kk]) continue;
                     alle++;
-                    const q = kam.punkt(bg.wx[kk], bg.wy[kk], bg.z[kk]);
+                    const hz = Tomt3d._bakgrunnHoyde(bg);
+                    const q = kam.punkt(bg.wx[kk], bg.wy[kk], hz[kk]);
                     if (!(q.w > naerT)) bak++;
                     if (q.w < verst) { verst = q.w; verstYaw = yaw; }
                   }
@@ -1413,11 +1414,141 @@ const Nettlesertest = {
             App.byttAnlegg(veg1.id);
             await this.vent(300);
           }
+          /* ================================================================
+             FULL DETALJ: naboanlegget regnet ut, ikke skissert.
+
+             Skissen svarer på «hvor ligger de»; den fulle svarer på «hva skjer
+             der». Det som må stemme er at den fulle faktisk BLIR brukt når den
+             finnes, at den overlever byttet den ble bygd under, og at
+             byggingen ikke koster brukeren noe han ikke ba om – hverken
+             kameraet han står i eller angrehistorikken sin.
+             ================================================================ */
+          {
+            const tomtA = App.P.anlegg.find(x => x.type === 'tomt'
+              && x.tomt && x.tomt.nivaa && Number.isFinite(x.tomt.nivaa.kote));
+            if (tomtA) {
+              App.tomHistorikk();
+              const angreFoer = App.historikk.bakover.length;
+              const aktivFoer = App.P.aktivt;
+              /* KAMERAPRØVEN MÅ STÅ PÅ BAKKEN.
+                 `byttAnlegg` rører ikke yaw, og bytter bare modus når man ER i
+                 bakkemodus – så en prøve tatt fra oversikten passerer også med
+                 gjenopprettingen fjernet. Den som vil se naboene i full detalj
+                 står ofte nede i modellen, og det er nettopp han som ble kastet
+                 opp i oversikten uten dreiepunktet sitt. */
+              Veg3d.settModus('bakken', true);
+              await this.vent(200);
+              const kamFoer = { modus: Veg3d.modus, senter: Veg3d.senter,
+                kamYaw: Veg3d.kamYaw, panX: Veg3d.panX };
+              Veg3d.panX = 37;                       // noe byttAnlegg ville nullet
+              await Tegner3d.byggFulleAnlegg();
+              await this.vent(300);
+
+              this.sjekk('  full detalj kommer tilbake til anlegget man sto i',
+                App.P.aktivt === aktivFoer, App.anlegg().navn);
+              /* Programmets egen runde er ikke noe å angre. Uten vakten i
+                 App.merk ble hvert hopp en post, og «Gjør om» ble tømt. */
+              this.sjekk('  og legger ingenting i angrehistorikken',
+                App.historikk.bakover.length === angreFoer,
+                angreFoer + ' → ' + App.historikk.bakover.length);
+              this.sjekk('  og lar kameraet stå der det sto – også på bakken',
+                Veg3d.modus === kamFoer.modus && Veg3d.panX === 37,
+                Veg3d.modus + ' (var ' + kamFoer.modus + ') · panX ' + Veg3d.panX);
+              Veg3d.settModus('oversikt', true);
+              Veg3d.panX = kamFoer.panX;
+              await this.vent(150);
+
+              Veg3d._andreNokkel = null;
+              const medFull = Veg3d._bakgrunnsgitre();
+              const fulle = medFull.filter(x => x.full);
+              this.sjekk('  det finnes fullt regnede naboanlegg i scenen',
+                fulle.length > 0, fulle.length + ' av ' + medFull.length);
+
+              if (fulle.length) {
+                const f = fulle[0];
+                /* Et fullt gitter har INGEN `z` – det har zT, zP og zEtter.
+                   Innrammingen leste `bg.z[kk]` og kastet på undefined, midt i
+                   byggingen, så knappen så ut til å ødelegge noe. Kastet kom
+                   før `_skalaSatt = true`, så hver senere opptegning kastet òg:
+                   3D-bildet var dødt til sida ble lastet om. */
+                this.sjekk('    og de har ingen egen z – innrammingen må tåle det',
+                  f.z === undefined && !!f.zT, 'z=' + typeof f.z + ' zT=' + typeof f.zT);
+                const gA = Veg3d._gitter(1);
+                let kastet = null;
+                try {
+                  const t = Veg3d._tilpassSkala(800, 600, gA, medFull);
+                  if (!Number.isFinite(t.skala) || !(t.skala > 0)) kastet = 'skala ' + t.skala;
+                } catch (e) { kastet = e.message; }
+                this.sjekk('    innrammingen tåler et fullt gitter', kastet === null,
+                  kastet || 'ok');
+
+                /* FØR/ETTER GJELDER ALLE. Naboen må bytte flate den òg – ellers
+                   står to ulike svar i samme bilde uten at noe sier at de er
+                   ulike. */
+                const eier = f.eier;
+                const vF = eier.visning;
+                eier.visning = 'foer'; const tF = eier._flateHoyde(f);
+                eier.visning = 'etter'; const tE = eier._flateHoyde(f);
+                eier.visning = vF;
+                let ulike = 0, talte = 0;
+                for (let k2 = 0; k2 < f.nb * f.nh; k2++) {
+                  if (!f.finnes[k2]) continue;
+                  talte++;
+                  if (Math.abs(tF[k2] - tE[k2]) > 0.05) ulike++;
+                }
+                this.sjekk('    og «før» og «etter» gir naboen to ULIKE flater',
+                  talte > 0 && ulike > talte * 0.1, ulike + ' av ' + talte + ' noder');
+
+                /* ÉN FARGESKALA FOR HELE BILDET. Er den per anlegg, betyr samme
+                   rødtone to ulike dybder i samme bilde. */
+                const felles = Veg3d._felleskala(gA, medFull);
+                this.sjekk('    fargeskalaen dekker det dypeste i HELE scenen',
+                  felles >= gA.maksAvvik - 1e-9 && felles >= f.maksAvvik - 1e-9,
+                  'felles ' + (felles || 0).toFixed(2) + ', eget ' + gA.maksAvvik.toFixed(2)
+                  + ', nabo ' + (f.maksAvvik || 0).toFixed(2));
+
+                /* BUFERNØKKELEN MÅ DEKKE DET DEN FULLE AVHENGER AV.
+                   En skisse avhenger av geometri og kote. En full avhenger av
+                   hele malen òg – endrer man skråningshelningen på naboen, er
+                   det bufra gitteret feil, mens lista fortsatt sier ● . */
+                const anl = App.P.anlegg.find(x => x.id === f.id);
+                if (anl && anl.mal) {
+                  const n1 = Tegner3d._fullnokkel.call(Veg3d, anl);
+                  const gml = anl.mal.skjaeringLosmasse;
+                  anl.mal.skjaeringLosmasse = (gml || 1) + 0.37;
+                  const n2 = Tegner3d._fullnokkel.call(Veg3d, anl);
+                  anl.mal.skjaeringLosmasse = gml;
+                  this.sjekk('    og nøkkelen merker en endret skråningshelning',
+                    n1 !== n2);
+                }
+              }
+
+              /* VELGE BORT ER IKKE DET SAMME SOM «LOT SEG IKKE TEGNE». */
+              const bort = medFull[0];
+              if (bort) {
+                Tegner3d.settAnleggAv(bort.id, true);
+                Veg3d._andreNokkel = null;
+                const utan = Veg3d._bakgrunnsgitre();
+                this.sjekk('  et anlegg man har valgt bort forsvinner fra scenen',
+                  !utan.some(x => x.id === bort.id), utan.map(x => x.navn).join(', '));
+                this.sjekk('    og meldes IKKE som «ikke tegnet» – det var jo et valg',
+                  !(utan.utelatt || []).some(s => s.indexOf(bort.navn) === 0),
+                  JSON.stringify(utan.utelatt || []));
+                Tegner3d.settAnleggAv(bort.id, false);
+                Veg3d._andreNokkel = null;
+                const attende = Veg3d._bakgrunnsgitre();
+                this.sjekk('    og kommer tilbake når man velger det inn igjen',
+                  attende.some(x => x.id === bort.id));
+              }
+            }
+          }
         } finally {
           Tegner3d.settVisAndre(foerOmfang);
           Veg3d.aktiv = foerVegAktiv; Tomt3d.aktiv = foerTomtAktiv;
           Veg3d._andreNokkel = null;
           Tomt3d._andreNokkel = null;
+          Tegner3d._fulle = null;
+          Tegner3d._andreAv = null;
           Tegner3d.visAndreknapp();
         }
       }

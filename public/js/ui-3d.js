@@ -380,11 +380,13 @@ const Tegner3d = {
        ytterpunktene av de nodene som FINNES i stedet. */
     for (const bg of (andre || [])) {
       if (!bg || !bg.finnes) continue;
+      const hz = this._bakgrunnHoyde(bg);
+      if (!hz) continue;
       const n2 = bg.nb * bg.nh;
       const hopp = Math.max(1, Math.floor(n2 / 400));
       for (let kk = 0; kk < n2; kk += hopp) {
         if (!bg.finnes[kk]) continue;
-        legg(k.punkt(bg.wx[kk], bg.wy[kk], bg.z[kk]));
+        legg(k.punkt(bg.wx[kk], bg.wy[kk], hz[kk]));
       }
     }
     if (!Number.isFinite(minX)) return { skala: 1, panX: 0, panY: 0 };
@@ -413,20 +415,272 @@ const Tegner3d = {
      lagerplassen høyt nok? – kan ikke besvares av en modell som viser ett
      anlegg om gangen, uansett hvor god den er.
 
-     DE ANDRE TEGNES AV LAGRET DATA ALENE.
-     Ingen terrengnedlasting, ingen masseberegning. Et bakgrunnsanlegg er den
-     FERDIGE flaten: vegbanen slik linjeføringen og høydeprofilen sier, eller
-     tomteflaten slik omrisset og koten sier. Alt sammen står i prosjektfila.
-     Alternativet – å regne hvert anlegg ferdig for å tegne det – ville tatt
-     sekunder per anlegg og krevd terreng for hele prosjektet. Da hadde
-     bryteren vært ubrukelig, og en bryter man ikke orker å trykke på er ingen
-     bryter.
+     TO DETALJNIVÅER, OG DET ENE ER IKKE GRATIS.
 
-     PRISEN, SAGT HØYT: en bakgrunnsflate har ingen skråninger og ingen
-     masser. Den viser hvor anlegget ligger og hvilken høyde det får – ikke
-     hvor langt inngrepet rekker. Derfor tegnes den dempet: den skal leses som
-     en henvisning, ikke som et regnestykke.
+     SKISSE er bygd av lagret data alene: vegbanen slik linjeføringen og
+     høydeprofilen sier, tomteflaten slik omrisset og koten sier. Ingen
+     terrengnedlasting, ingen masseberegning – den er der på et halvsekund.
+     Prisen, sagt høyt: den har ingen skråninger og ingen masser. Den viser
+     hvor anlegget ligger og hvilken høyde det får, ikke hvor langt inngrepet
+     rekker. Derfor tegnes den i én dempet farge – den skal leses som en
+     henvisning, ikke som et regnestykke.
+
+     FULL er det samme gitteret som anlegget får når det er oppe: terreng,
+     skjæring og fylling i massefargene, skråninger der de faktisk lander,
+     fjell. Den koster at programmet må innom hvert anlegg og regne det ut –
+     terrenget må lastes ned, massene må marsjeres – og det tar sekunder. Den
+     bygges derfor på bestilling, med framdrift, og huskes til geometrien
+     endrer seg.
+
+     Skissen er ikke en dårligere utgave av den fulle; den er svaret på et
+     annet spørsmål. «Hvor ligger de i forhold til hverandre» trenger ikke
+     masser, og skal ikke vente på dem.
      ================================================================ */
+
+  /**
+   * Bygger FULLE gitre for naboanleggene – de samme som anleggene får selv.
+   *
+   * Det finnes ingen vei utenom å bytte til hvert anlegg: `_gitter()` leser
+   * `app.resultat` og `app.linje`, og de hører til det aktive. Gitteret som
+   * kommer ut er derimot selvstendig – rene tabeller med verdenskoordinater og
+   * høyder – så det overlever byttet og kan tegnes lenge etterpå.
+   *
+   * Begge `_lagliste(g, pal)` er rene funksjoner av gitteret og lagbryterne;
+   * ingen av dem leser `app.resultat`. Det er hele grunnen til at dette lar
+   * seg gjøre uten å røre tegneveien.
+   */
+  async byggFulleAnlegg() {
+    /* Kalles på PROTOTYPEN – fra knappen i menyen – og der finnes ingen `app`.
+       Den bor på Veg3d og Tomt3d, ikke på Tegner3d. Samme fallback som
+       `visAndreknapp` bruker; uten den gjorde knappen ingenting, stille. */
+    const app = this.app || (typeof App !== 'undefined' ? App : null);
+    if (!app || !app.P || !Array.isArray(app.P.anlegg) || app.P.anlegg.length < 2) return;
+    if (Tegner3d._byggerFulle) return;
+    Tegner3d._byggerFulle = true;
+    const foer = app.P.aktivt;
+    const fulle = Tegner3d._fulle || (Tegner3d._fulle = new Map());
+    /* Autolagring midt i en runde ville lagret prosjektet med et annet aktivt
+       anlegg enn brukeren står i. Samme grep som samleeksporten. */
+    app.autolagringPause = (app.autolagringPause || 0) + 1;
+    const utelatt = [];
+    /* KAMERAET SKAL STÅ DER DET STO.
+       `byttAnlegg` river ned senter, fokus, zoom og bakkeposisjon for begge
+       visningene – med god grunn, for et bytte er et bytte. Men dette er ikke
+       et bytte; det er programmet som løper en runde og kommer tilbake. Uten
+       dette ble den som sto NEDE I MODELLEN og trykte «Full detalj» kastet opp
+       i oversikten, uten dreiepunktet han nettopp klikket ut. Og det er
+       nøyaktig han som vil se naboene. */
+    const kamera = [Veg3d, Tomt3d].map(v => ({
+      v, modus: v.modus, ferd: v.ferd, senter: v.senter, fokus: v.fokus,
+      panX: v.panX, panY: v.panY, skala: v.skala, yaw: v.yaw, pitch: v.pitch,
+      kamS: v.kamS, kamT: v.kamT, kamX: v.kamX, kamY: v.kamY, kamZ: v.kamZ,
+      kamH: v.kamH, kamYaw: v.kamYaw, kamPitch: v.kamPitch,
+      fitSkala: v._fitSkala, panFast: v._panFast, tilpassetFor: v._tilpassetFor,
+      kamSatt: v._kamSatt
+    }));
+    /* Programmets egen runde er ikke noe å angre – se App.merk. */
+    app._ikkeMerk = true;
+    try {
+      /* ET ANLEGG SOM ÅPENBART IKKE KAN REGNES SKAL IKKE PRØVES.
+         `ventPaaResultat` poller til fristen løper ut, og framdriftsboksen
+         dekker hele skjermen og sluker klikk. En veg uten høydeprofil får
+         `oppdater()` til å sette resultat = null og gå ut – da satt man og
+         ventet ut hele fristen, med tre slike anlegg tre ganger etter
+         hverandre, foran en skjerm som ikke tok imot noe. Skissen vet allerede
+         hva som mangler; det er den samme kunnskapen. */
+      const kanRegnes = a => a.type === 'tomt'
+        ? !!(a.tomt && (a.tomt.punkter || []).length > 2
+          && a.tomt.nivaa && Number.isFinite(a.tomt.nivaa.kote))
+        : ((a.ip || []).length > 1 && (a.vip || []).length > 1);
+      const liste = [];
+      for (const a of app.P.anlegg) {
+        if (a.id === foer || this.anleggAv(a.id)) continue;
+        if (kanRegnes(a)) liste.push(a);
+        else {
+          utelatt.push((a.navn || a.type) + ' – '
+            + (a.type === 'tomt' ? 'ingen ferdig kote satt' : 'ingen høydeprofil ennå'));
+        }
+      }
+      let i = 0;
+      for (const a of liste) {
+        i++;
+        app.framdrift(true, 'Regner ut ' + (a.navn || a.type) + ' … ' + i + '/' + liste.length,
+          i / (liste.length + 1));
+        const nokkel = this._fullnokkel(a);
+        const har = fulle.get(a.id);
+        if (har && har.nokkel === nokkel) continue;
+        const eier = a.type === 'tomt' ? Tomt3d : Veg3d;
+        /* Vindu og kontekst former VEGENS gitter (`_gitter()` tar ingen
+           parameter i det hele tatt). Sto vinduet på, ville naboen blitt et
+           tohundremeters utsnitt midt på en veg på to kilometer – uten at noe
+           sa hvorfor resten manglet. */
+        const foerVindu = eier.vindu;
+        if (eier.vindu) eier.vindu = 0;
+        try {
+          app.byttAnlegg(a.id);
+          /* 20 sekunder, ikke 60. Terrenget for ett anlegg er nede på
+             sekunder; tar det lenger, er noe galt, og da er en melding bedre
+             enn et minutt til bak en overlay som sluker klikk. */
+          await Rapport.ventPaaResultat(20000, a.id);
+          const g = eier._gitter(a.type === 'tomt' ? 2 : 1);
+          eier._gitterFor = null;
+          if (!g) throw new Error('ingen modell å bygge');
+          fulle.set(a.id, { g, eier, nokkel, navn: a.navn || a.type, type: a.type, id: a.id });
+        } catch (e) {
+          fulle.delete(a.id);
+          utelatt.push((a.navn || a.type) + ' – ' + e.message);
+        } finally {
+          eier.vindu = foerVindu;
+          eier._gitterFor = null;
+        }
+      }
+    } finally {
+      app.autolagringPause--;
+      if (app.P.aktivt !== foer) {
+        app.byttAnlegg(foer);
+        try { await Rapport.ventPaaResultat(20000, foer); } catch (e) { /* status sier fra */ }
+      }
+      app._ikkeMerk = false;
+      for (const s of kamera) {
+        const v = s.v;
+        v.modus = s.modus; v.ferd = s.ferd; v.senter = s.senter; v.fokus = s.fokus;
+        v.panX = s.panX; v.panY = s.panY; v.skala = s.skala;
+        v.yaw = s.yaw; v.pitch = s.pitch;
+        v.kamS = s.kamS; v.kamT = s.kamT; v.kamX = s.kamX; v.kamY = s.kamY;
+        v.kamZ = s.kamZ; v.kamH = s.kamH; v.kamYaw = s.kamYaw; v.kamPitch = s.kamPitch;
+        v._fitSkala = s.fitSkala; v._panFast = s.panFast; v._tilpassetFor = s.tilpassetFor;
+        v._kamSatt = s.kamSatt;
+      }
+      app.framdrift(false);
+      Tegner3d._byggerFulle = false;
+    }
+    Tegner3d._fulleUtelatt = utelatt;
+    for (const vis of [typeof Veg3d !== 'undefined' ? Veg3d : null,
+      typeof Tomt3d !== 'undefined' ? Tomt3d : null]) {
+      if (!vis) continue;
+      vis._andreNokkel = null;
+      vis._skalaSatt = false;
+      if (vis.aktiv) vis.tegn();
+    }
+    app.status(utelatt.length
+      ? 'Full detalj på ' + (Tegner3d._fulle.size) + ' anlegg · ikke med: ' + utelatt.join('; ')
+      : 'Full detalj på ' + Tegner3d._fulle.size + ' naboanlegg');
+  },
+
+  /**
+   * Høydene til et bakgrunnsanlegg, uansett hvilket av de to slagene det er.
+   *
+   * En SKISSE har én tabell, `z` – den ferdige flaten og ingenting annet. Et
+   * FULLT gitter har ingen `z` i det hele tatt; det har zT, zP, zVeg/zFerdig
+   * og zEtter, og hvilken av dem som er «flaten man ser» avgjøres av visningen.
+   * Uten dette leste innrammingen `bg.z[kk]` på et fullt gitter og kastet på
+   * undefined – midt i byggingen, så knappen så ut til å ødelegge noe.
+   */
+  _bakgrunnHoyde(bg) {
+    if (bg.z) return bg.z;
+    return this._flateHoyde(bg) || bg.zP || bg.zT;
+  },
+
+  /**
+   * Bufernøkkel for et FULLT gitter – strengere enn skissens.
+   *
+   * En skisse er den ferdige flaten, og avhenger bare av geometrien og koten.
+   * Et fullt gitter bærer skråninger, masser og fjell, og avhenger dermed også
+   * av HELE malen (skjæringshelning, fyllingshelning, grøft, søkebredde,
+   * rutestørrelse), av fjellmodellen og av faktorene – og de to siste ligger på
+   * PROSJEKTET, felles for alle anleggene.
+   *
+   * Uten dette ble det bufrede gitteret stående uendret når man endret
+   * skråningshelningen på naboen eller satte en ny fjellsondering, mens lista
+   * fortsatt sa ● «fullt regnet». Et gammelt bilde som utgir seg for å være
+   * ferskt er verre enn skissen – skissen ser i det minste ut som en skisse.
+   */
+  _fullnokkel(a) {
+    const app = this.app || (typeof App !== 'undefined' ? App : null);
+    const P = app && app.P;
+    const eier = a.type === 'tomt' ? Tomt3d : Veg3d;
+    return this._anleggsnokkel(a)
+      + '#mal:' + JSON.stringify(a.mal || {})
+      + '#fjell:' + JSON.stringify((P && P.fjell) || {})
+      + '#fakt:' + JSON.stringify((P && P.faktorer) || {})
+      + '#bakke:' + ((P && P.bakkekorreksjon) ? 1 : 0)
+      + '#prof:' + ((P && P.profilAvstand) || '')
+      + '#ktx:' + (eier ? eier.kontekst : '');
+  },
+
+  /** Er dette anlegget valgt bort fra bakgrunnen? */
+  anleggAv(id) {
+    return !!(Tegner3d._andreAv && Tegner3d._andreAv.has(id));
+  },
+
+  /**
+   * Lista over naboanlegg i «Vis»-menyen: hvilke som er med, og hvor detaljert.
+   *
+   * Merket foran hvert navn sier hva man ser: ● er fullt regnet, ○ er skisse.
+   * Uten det skillet er en dempet flate og en flate med masser to bilder man
+   * ikke kan skille – og de svarer på helt ulike spørsmål.
+   */
+  visAndreliste() {
+    const app = this.app || (typeof App !== 'undefined' ? App : null);
+    const anlegg = (app && app.P && Array.isArray(app.P.anlegg)) ? app.P.anlegg : [];
+    const andre = anlegg.filter(a => a.id !== app.P.aktivt);
+    const fulle = Tegner3d._fulle;
+    for (const id of ['v3_andreliste', 't3_andreliste']) {
+      const boks = document.getElementById(id);
+      if (!boks) continue;
+      boks.classList.toggle('skjult', andre.length === 0);
+      if (!andre.length) { boks.innerHTML = ''; continue; }
+      const rader = andre.map(a => {
+        const av = Tegner3d.anleggAv(a.id);
+        const f = fulle && fulle.get(a.id);
+        const full = !!(f && f.nokkel === this._fullnokkel(a));
+        const merke = av ? '·' : (full ? '●' : '○');
+        return '<button type="button" class="verktoyknapp anleggsrad' + (av ? '' : ' aktiv')
+          + '" data-anlegg="' + a.id + '" title="'
+          + (av ? 'Slå på i 3D-bildet' : 'Ta bort fra 3D-bildet')
+          + (full ? ' · fullt regnet' : ' · skisse uten masser') + '">'
+          + merke + ' ' + escapeHtml(a.navn || a.type) + '</button>';
+      }).join('');
+      const alleFulle = andre.every(a => {
+        const f = fulle && fulle.get(a.id);
+        return Tegner3d.anleggAv(a.id) || (f && f.nokkel === this._fullnokkel(a));
+      });
+      boks.innerHTML = '<span class="andrehode">Naboanlegg</span>' + rader
+        + '<button type="button" class="verktoyknapp andrefull" data-full="1" title="'
+        + 'Regn ut naboanleggene så de tegnes med terreng, masser og skråninger – '
+        + 'akkurat som anlegget du står i. Tar noen sekunder per anlegg.">'
+        + (alleFulle ? '● Full detalj på alle' : '○→● Full detalj') + '</button>';
+      for (const b of boks.querySelectorAll('[data-anlegg]')) {
+        b.onclick = () => this.settAnleggAv(b.dataset.anlegg, !Tegner3d.anleggAv(b.dataset.anlegg));
+      }
+      const kn = boks.querySelector('[data-full]');
+      if (kn) kn.onclick = () => this.byggFulleAnlegg();
+    }
+  },
+
+  /**
+   * Slår ett enkelt naboanlegg av eller på.
+   *
+   * «Alle anlegg» er ett spørsmål; «ikke den der» er et annet. Med tre anlegg
+   * på samme plass er det ofte ETT av dem man vil se sammen med sitt eget, og
+   * en bryter som bare kan alt eller ingenting tvinger fram et bilde man ikke
+   * spurte om.
+   */
+  settAnleggAv(id, av) {
+    if (!Tegner3d._andreAv) Tegner3d._andreAv = new Set();
+    if (av) Tegner3d._andreAv.add(id); else Tegner3d._andreAv.delete(id);
+    for (const vis of [typeof Veg3d !== 'undefined' ? Veg3d : null,
+      typeof Tomt3d !== 'undefined' ? Tomt3d : null]) {
+      if (!vis) continue;
+      vis._andreNokkel = null;
+      vis._skalaSatt = false;
+    }
+    this.visAndreliste();
+    for (const vis of [typeof Veg3d !== 'undefined' ? Veg3d : null,
+      typeof Tomt3d !== 'undefined' ? Tomt3d : null]) {
+      if (vis && vis.aktiv) vis.tegn();
+    }
+  },
 
   /**
    * Gitre for alle anleggene som IKKE er oppe nå.
@@ -444,13 +698,31 @@ const Tegner3d = {
        bakgrunnsanlegg før den er satt, pinnes hele prosjektets UTM-sone av et
        anlegg brukeren ikke ser på – og alt annet projiseres deretter. */
     if (!app.sone) return [];
+    const fulle = Tegner3d._fulle;
     const nokkel = app.P.aktivt + '#' + app.sone + '#'
-      + app.P.anlegg.map(a => this._anleggsnokkel(a)).join('|');
+      + app.P.anlegg.map(a => this._anleggsnokkel(a)).join('|')
+      + '#av:' + [...(Tegner3d._andreAv || [])].sort().join(',')
+      + '#full:' + (fulle ? [...fulle.keys()].sort().join(',') : '');
     if (this._andreNokkel === nokkel && this._andreBuffer) return this._andreBuffer;
     const ut = [];
     const utelatt = [];
     for (const a of app.P.anlegg) {
       if (a.id === app.P.aktivt) continue;
+      /* Valgt bort er ikke det samme som «lot seg ikke tegne», og skal derfor
+         heller ikke meldes som det. Det var brukerens eget valg. */
+      if (this.anleggAv(a.id)) continue;
+      /* ER DET ET FULLT GITTER, ER DET DET SOM SKAL BRUKES.
+         Det er bygd av den samme koden som anlegget får når det er oppe, og
+         bærer terreng, masser og skråninger. Skissen er reserven. */
+      const full = fulle && fulle.get(a.id);
+      if (full && full.nokkel === this._fullnokkel(a)) {
+        const g = full.g;
+        g.navn = full.navn; g.type = full.type; g.id = full.id;
+        g.eier = full.eier; g.full = true;
+        if (!g.merke) g.merke = { x: g.midtX, y: g.midtY, z: g.hoy };
+        ut.push(g);
+        continue;
+      }
       let g = null, grunn = null;
       try {
         g = a.type === 'tomt' ? this._bakgrunnTomt(a) : this._bakgrunnVeg(a);
@@ -712,10 +984,31 @@ const Tegner3d = {
    * bakgrunnsgitter, ville avlesningen svart med tall fra et anlegg man ikke
    * arbeider med – og de tallene finnes ikke, for flaten er ikke regnet.
    */
-  _tegnBakgrunn(gitre, rb, rh, kam) {
+  /**
+   * Én fargeskala for HELE bildet, ikke én per anlegg.
+   *
+   * Fargen på en celle er `sqrt(|d| / g.maksAvvik)`, og `maksAvvik` regnes per
+   * anlegg. Står tre anlegg i samme bilde, betyr da den samme rødtonen tre
+   * ulike dybder – en to meters skjæring på naboen ser like dyp ut som en fem
+   * meters på din egen. Det er nøyaktig den slags to tall som heter det samme
+   * og betyr noe forskjellig som resten av programmet nekter å vise.
+   *
+   * Prisen er sagt: slår man på naboene, kan ens eget anlegg bli blekere fordi
+   * naboen graver dypere. Det er riktig – det er da den blekere fargen betyr.
+   */
+  _felleskala(g, gitre) {
+    let maks = g ? (g.maksAvvik || 0) : 0;
+    for (const bg of (gitre || [])) {
+      if (bg && bg.full && bg.maksAvvik > maks) maks = bg.maksAvvik;
+    }
+    return maks > 0 ? maks : null;
+  },
+
+  _tegnBakgrunn(gitre, rb, rh, kam, pal) {
     if (!gitre || !gitre.length) return;
     const rgb = Farger.annetAnleggRgb;
     for (const bg of gitre) {
+      if (bg.full && bg.eier) { this._tegnFulltAnlegg(bg, rb, rh, kam, pal); continue; }
       const farge = (k00, k10, k01, k11, zz) => {
         const ly = this._lys(bg, k00, k10, k01, zz, kam);
         const r = Math.min(255, rgb[0] * ly), g2 = Math.min(255, rgb[1] * ly);
@@ -723,6 +1016,91 @@ const Tegner3d = {
         return (255 << 24) | (b2 << 16) | (g2 << 8) | r;
       };
       this._raster(bg, bg.z, farge, this._piksler, this._dyp, null, rb, rh, kam, null);
+    }
+  },
+
+  /**
+   * Et naboanlegg med full detalj: samme lag, samme farger som det får selv.
+   *
+   * BILDET ER ETT, OG DA MÅ VISNINGEN VÆRE DET.
+   * `_flateHoyde` og `_lagliste` leser `this.visning`, `this.lag` og
+   * `this.fyldig` på EIEREN – Veg3d for et veganlegg, Tomt3d for en tomt. Står
+   * man i tomta og slår om til «Etter», ville nabovegen blitt stående i
+   * arbeidsbildet med massefarger: to ulike svar i samme bilde, uten noe som
+   * sier at de er ulike. Derfor låner eieren det aktive bildets innstillinger
+   * mens han tegner, og får sine egne tilbake straks etterpå.
+   *
+   * Lagbryterne som betyr det samme begge steder – terreng, grav, fjell,
+   * rutenett, fyldig – lånes med. `vegbane` og `overbygning` gjør det ikke:
+   * de finnes bare hos den ene, og en tomt har ingen vegbane å slå av.
+   */
+  _tegnFulltAnlegg(bg, rb, rh, kam, pal) {
+    const eier = bg.eier;
+    const g = bg;
+    const foer = {
+      visning: eier.visning, fyldig: eier.fyldig, kamNa: eier._kamNa,
+      lag: eier.lag
+    };
+    eier.visning = this.visning;
+    eier.fyldig = this.fyldig;
+    eier._kamNa = kam;
+    eier.lag = Object.assign({}, eier.lag);
+    for (const felt of ['terreng', 'grav', 'fjell', 'rutenett']) {
+      if (felt in this.lag) eier.lag[felt] = this.lag[felt];
+    }
+    try {
+      const lagene = this.visning === 'vanlig'
+        ? eier._lagliste(g, pal)
+        : [{
+          hoyde: eier._flateHoyde(g), blanding: 0,
+          farge: (k00, k10, k01, k11, z) => {
+            const c = Farger.terrengFlateRgb;
+            const ly = eier._lys(g, k00, k10, k01, z, kam);
+            const r = Math.min(255, c[0] * ly), gg = Math.min(255, c[1] * ly);
+            const bl = Math.min(255, c[2] * ly);
+            return (255 << 24) | (bl << 16) | (gg << 8) | r;
+          }
+        }];
+      for (const lag of lagene) {
+        if (!lag || !lag.hoyde) continue;
+        if (!(lag.blanding > 0)) {
+          /* `id` er alltid null for et naboanlegg: museavlesningen skal svare
+             om det man ARBEIDER med, ikke om noe man bare ser. */
+          this._raster(g, lag.hoyde, lag.farge, this._piksler, this._dyp, null,
+            rb, rh, kam, lag.krev);
+          continue;
+        }
+        this._lag2.fill(0);
+        this._dyp2.fill(Infinity);
+        this._raster(g, lag.hoyde, lag.farge, this._lag2, this._dyp2, null, rb, rh, kam, lag.krev);
+        const styrke = lag.blanding, n = rb * rh;
+        const p = this._piksler, d1 = this._dyp, d2 = this._dyp2, l2 = this._lag2;
+        for (let i = 0; i < n; i++) {
+          if (!l2[i]) continue;
+          if (d2[i] > d1[i]) continue;
+          const s = l2[i], u = p[i];
+          const r = ((s & 255) * styrke + (u & 255) * (1 - styrke)) | 0;
+          const gg = (((s >> 8) & 255) * styrke + ((u >> 8) & 255) * (1 - styrke)) | 0;
+          const bl = (((s >> 16) & 255) * styrke + ((u >> 16) & 255) * (1 - styrke)) | 0;
+          p[i] = (255 << 24) | (bl << 16) | (gg << 8) | r;
+          /* ET GJENNOMSIKTIG LAG PÅ ET NABOANLEGG MÅ LIKEVEL SETTE DYBDE.
+             I arbeidsbildet gjør det ikke det, og det er riktig der: terrenget
+             ligger halvgjennomsiktig oppå ens EGEN graveflate, og skal ikke
+             skygge for den.
+             Mellom to anlegg er det motsatt. I hele kontekstringen rundt en
+             nabo – tretti meter ut fra vegens fot, førti rundt en tomt – er
+             terrenget det ENESTE laget, og det er gjennomsiktig. Uten denne
+             linja sto `_dyp` på uendelig der, og det aktive anleggets flater
+             besto dybdeprøven og ble malt rett over en nabo som ligger tre
+             hundre meter nærmere kameraet. */
+          if (d2[i] < d1[i]) d1[i] = d2[i];
+        }
+      }
+    } finally {
+      eier.visning = foer.visning;
+      eier.fyldig = foer.fyldig;
+      eier._kamNa = foer.kamNa;
+      eier.lag = foer.lag;
     }
   },
 
@@ -775,6 +1153,7 @@ const Tegner3d = {
       e.setAttribute('aria-pressed', paa ? 'true' : 'false');
       e.textContent = paa ? '⬟▬ Alle anlegg' : '⬟▬ Alle anlegg (' + Math.max(0, antall - 1) + ')';
     }
+    this.visAndreliste();
   },
 
   /**
@@ -1053,6 +1432,17 @@ const Tegner3d = {
        bryteren ut som om den ikke virker. */
     this._andreNa = this._bakgrunnsgitre();
     this._sceneDiagonal = this._scenediagonal(g, this._andreNa);
+    /* Én fargeskala for hele bildet – se `_felleskala`. Settes på gitrene mens
+       de tegnes og legges tilbake etterpå, så et gitter som senere blir det
+       aktive ikke bærer med seg naboens skala. */
+    const felles = this._felleskala(g, this._andreNa);
+    const skalaFoer = [];
+    if (felles) {
+      for (const gg of [g].concat(this._andreNa.filter(x => x.full))) {
+        skalaFoer.push([gg, gg.maksAvvik]);
+        gg.maksAvvik = felles;
+      }
+    }
     if (!this.senter) this.senter = { x: g.midtX, y: g.midtY };
     /* Tilpasningen må gjøres om igjen når lerretet skifter størrelse. Uten
        dette blir skalaen stående fra den gangen panelet var lite: slår man på
@@ -1146,7 +1536,7 @@ const Tegner3d = {
       }];
     this._kamNa = kam;
     /* De andre anleggene først – se `_tegnBakgrunn`. */
-    this._tegnBakgrunn(this._andreNa, rb, rh, kam);
+    this._tegnBakgrunn(this._andreNa, rb, rh, kam, pal);
     for (const lag of lagene) {
       if (!lag) continue;
       if (!(lag.blanding > 0)) {
@@ -1174,6 +1564,8 @@ const Tegner3d = {
       }
     }
 
+    // felles fargeskala legges tilbake – se `_felleskala`
+    for (const [gg, m] of skalaFoer) gg.maksAvvik = m;
     g2.putImageData(this._bilde, 0, 0);
     this._sisteGitter = g;
     this._sisteKam = kam;

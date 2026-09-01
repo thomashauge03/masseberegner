@@ -431,6 +431,20 @@ body {
 /* «Alle anlegg» står i 3D-verktøylinja, ikke i menyen bak «Vis ▾». Fargen er
    den samme blåfargen naboanleggene tegnes i, så knappen og det den slår på
    hører synlig sammen. */
+/* Lista over naboanlegg i «Vis»-menyen: én rad per anlegg, og knappen som
+   regner dem ut for fullt. Egen rad, ikke på linje med lagbryterne – det er
+   ikke lag, det er hvilke MODELLER som er med i bildet. */
+.andreliste { display: flex; flex-wrap: wrap; gap: 2px; align-items: center; }
+.andreliste.skjult { display: none; }
+.andrehode {
+  width: 100%; color: var(--blekk-svak); font-size: 10px; margin-top: 4px;
+  font-family: var(--skrift-tittel); text-transform: uppercase; letter-spacing: .05em;
+}
+.anleggsrad { font-size: 11px; padding: 2px 6px; }
+.anleggsrad.aktiv { background: var(--data-annet); border-color: var(--data-annet); color: #fff; }
+.andrefull { font-size: 11px; padding: 2px 6px; border-color: var(--data-annet); color: var(--data-annet); }
+.andrefull:hover { background: var(--data-annet); color: #fff; }
+
 .andreknapp { flex: none; border-color: var(--data-annet); color: var(--data-annet); }
 .andreknapp:hover { background: var(--data-annet); border-color: var(--data-annet); color: #fff; }
 .andreknapp.aktiv { background: var(--data-annet); border-color: var(--data-annet); color: #fff; }

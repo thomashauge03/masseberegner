@@ -1396,12 +1396,27 @@ ${merknader ? `<h2>Merknader</h2><table><thead><tr><th>Type</th><th>Merknad</th>
      som viser framdrift.
      ================================================================ */
 
-  /** Venter til det aktive anlegget har et ferdig resultat, eller til det tar for lang tid. */
-  ventPaaResultat(frist = 45000) {
+  /**
+   * Venter til det aktive anlegget har et ferdig resultat, eller til det tar
+   * for lang tid.
+   *
+   * @param {number} [frist] hvor lenge det er verdt å vente, i millisekunder
+   * @param {string} [ventetId] hvilket anlegg resultatet SKAL gjelde.
+   *   Uten den svarte den på at `app.resultat` var sant, uansett hvem det
+   *   tilhørte. To runder gjennom anleggene som overlapper – en samleeksport
+   *   og et «full detalj» – kunne da gi den ene et resultat som hørte til den
+   *   andres anlegg, og modellen ble skrevet under feil navn. Det er den samme
+   *   stille feilen vakten i `App.beregn()` finnes for å hindre, bare på
+   *   leserens side.
+   */
+  ventPaaResultat(frist = 45000, ventetId) {
     const app = this.app;
     const start = Date.now();
     return new Promise((los, avvis) => {
       const sjekk = () => {
+        if (ventetId != null && app.P && app.P.aktivt !== ventetId) {
+          return avvis(new Error('anlegget ble byttet mens beregningen gikk'));
+        }
         if (app.resultat) return los(app.resultat);
         if (Date.now() - start > frist) {
           return avvis(new Error('beregningen ble ikke ferdig på '
@@ -1437,7 +1452,7 @@ ${merknader ? `<h2>Merknader</h2><table><thead><tr><th>Type</th><th>Merknad</th>
         this.eksportsvar(`Henter ${i + 1} av ${anlegg.length}: ${a.navn || a.type} …`);
         try {
           if (P.aktivt !== a.id) app.byttAnlegg(a.id);
-          const res = await this.ventPaaResultat();
+          const res = await this.ventPaaResultat(45000, a.id);
           const kan = this.kanEksportere();
           if (!kan.ok) throw new Error(kan.grunn);
           const bit = await hent(app, res, a, tatt.length);

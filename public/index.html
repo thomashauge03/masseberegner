@@ -217,6 +217,9 @@
             <button id="v3_grenser" class="verktoyknapp aktiv" title="Skråningsfot, vegkant og senterlinje">Grenser</button>
             <button id="v3_fyldig" class="verktoyknapp" title="Mal massen helt – terrenget står igjen bare der det ikke røres">Fyldig</button>
           </span>
+          <!-- Hvilke naboanlegg som er med, og hvor detaljert. Fylles av
+               Tegner3d.visAndreliste og står tom med bare ett anlegg. -->
+          <span id="v3_andreliste" class="andreliste skjult"></span>
           <!-- FØR, MASSER OG ETTER ER TRE BILDER, IKKE TRE BRYTERE.
                Sto de som løse av/på-knapper, kunne «Før» og «Etter» stå trykket
                inn samtidig – og det er ikke et bilde. Her er de gjensidig
@@ -336,6 +339,7 @@
             <button id="t3_fyldig" class="verktoyknapp" title="Mal massen helt – terrenget står igjen bare der det ikke røres">Fyldig</button>
             <button id="t3_grenser" class="verktoyknapp aktiv" title="Tomtegrense og skråningsfot">Grenser</button>
           </span>
+          <span id="t3_andreliste" class="andreliste skjult"></span>
           <span class="synvalg" role="radiogroup" aria-label="Hva modellen viser">
             <button id="t3_foer" class="verktoyknapp" aria-pressed="false"
                     title="Terrenget slik det ligger i dag, uten inngrepet. Hold mellomrom for å kikke.">Før</button>
