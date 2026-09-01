@@ -369,6 +369,13 @@ const Kart = {
     this.lag.vegkant = L.layerGroup().addTo(kart);
     this.lag.stasjoner = L.layerGroup().addTo(kart);
     this.lag.markorPos = L.layerGroup().addTo(kart);
+    /* MÅLESTREKENE.
+       Et eget lag, over alt annet: de er en skisse man sikter med, ikke en del
+       av prosjektet. De regnes ikke inn i noe, de lagres ikke, og de forsvinner
+       når man tømmer dem. Nettopp derfor er de nyttige – man kan strekke en
+       strek tvers over kartet for å se hvor langt det er til bekken uten å
+       røre en eneste linje som betyr noe. */
+    this.lag.maal = L.layerGroup().addTo(kart);
 
     this.byggKartvalg();
     this.koblLagvelger();
@@ -409,6 +416,7 @@ const Kart = {
       this._klikkVent = null;
       if (this.modus === 'tegn') this.settModus('rediger');
       else if (this.modus === 'tegnTomt') this.avsluttTomt();
+      else if (this.modus === 'maal') this._avsluttMaal();
     });
 
     this.koblingerUI();
@@ -421,6 +429,8 @@ const Kart = {
     if (p('verktoyTomt')) p('verktoyTomt').onclick = () => this.settModus('tegnTomt');
     p('verktoyFlytt').onclick = () => this.settModus('rediger');
     p('verktoySondering').onclick = () => this.settModus('sondering');
+    if (p('verktoyMaal')) p('verktoyMaal').onclick = () => this.settModus('maal');
+    if (p('verktoyMaalTom')) p('verktoyMaalTom').onclick = () => this.tomMaal();
     if (p('modusVeg')) p('modusVeg').onclick = () => this.app.settModus('veg');
     if (p('modusTomt')) p('modusTomt').onclick = () => this.app.settModus('tomt');
     if (p('visTomtefarger')) p('visTomtefarger').onchange = () => this.tegnTomtefarger();
@@ -504,7 +514,8 @@ const Kart = {
   settModus(m) {
     this.modus = m;
     for (const [id, navn] of [['verktoyTegn', 'tegn'], ['verktoyFlytt', 'rediger'],
-      ['verktoySondering', 'sondering'], ['verktoyTomt', 'tegnTomt']]) {
+      ['verktoySondering', 'sondering'], ['verktoyTomt', 'tegnTomt'],
+      ['verktoyMaal', 'maal']]) {
       const el = document.getElementById(id);
       if (el) el.classList.toggle('aktiv', navn === m);
     }
@@ -515,6 +526,128 @@ const Kart = {
     if (m === 'settSluk') {
       this.app.status('Klikk der sluket skal stå – flaten kommer til å falle mot det punktet.');
     }
+    if (m === 'maal') {
+      this.app.status('Klikk for å måle. Hvert strekk får lengden sin, og summen står til slutt. '
+        + 'Dobbeltklikk eller Esc avslutter streken.');
+    } else if (this._maalNa && this._maalNa.length) {
+      // bytter man verktøy midt i en strek, blir den stående som den er
+      this._avsluttMaal();
+    }
+  },
+
+  /* ---------------- måling ---------------- */
+
+  /**
+   * Frihåndsstreker med mål, tegnet oppå kartet.
+   *
+   * Dette er ikke prosjektering – det er å sikte. Skal vegen treffe mellom to
+   * hus, skal fyllingsfoten holde seg innenfor et jorde, eller er det langt nok
+   * fra bekken til at man slipper å søke? Alt det er spørsmål man svarer på ved
+   * å strekke en strek og lese et tall, og uten et slikt verktøy blir svaret
+   * enten en gjetning eller en linje man tegner og angrer.
+   *
+   * LENGDEN REGNES I UTM, ikke med Leaflets geodetiske avstand. Det er den samme
+   * regningen som resten av programmet bruker, så et mål her og en stasjon der
+   * er det samme tallet. To målestokker på samme kart er verre enn ingen.
+   */
+  _maalLengde(a, b) {
+    const sone = this.app.sone || Geo.sone(a.lng);
+    const p1 = Geo.tilUtm(a.lat, a.lng, sone);
+    const p2 = Geo.tilUtm(b.lat, b.lng, sone);
+    return Math.hypot(p2.x - p1.x, p2.y - p1.y);
+  },
+
+  /** Kompassretningen fra a til b, i grader fra nord. */
+  _maalRetning(a, b) {
+    const sone = this.app.sone || Geo.sone(a.lng);
+    const p1 = Geo.tilUtm(a.lat, a.lng, sone);
+    const p2 = Geo.tilUtm(b.lat, b.lng, sone);
+    const g = Math.atan2(p2.x - p1.x, p2.y - p1.y) * 180 / Math.PI;
+    return (g + 360) % 360;
+  },
+
+  _maalKlikk(latlng) {
+    if (!this._maalNa) this._maalNa = [];
+    this._maalNa.push(latlng);
+    this._tegnMaal();
+  },
+
+  /**
+   * Tegner streken som er under arbeid, og alle de ferdige.
+   *
+   * Etikettene er L.marker med et tomt ikon og en permanent tooltip. Det er
+   * Leaflets egen måte å feste tekst til et sted på – en divIcon ville fulgt
+   * med i zoom som et bilde, mens tooltipen holder skriftstørrelsen.
+   */
+  _tegnMaal() {
+    this.lag.maal.clearLayers();
+    const strekene = (this._maalFerdige || []).concat(
+      this._maalNa && this._maalNa.length ? [this._maalNa] : []);
+    for (const punkt of strekene) {
+      if (punkt.length < 1) continue;
+      const paagaar = punkt === this._maalNa;
+      L.polyline(punkt, {
+        color: '#ffffff', weight: 5, opacity: 0.5, interactive: false
+      }).addTo(this.lag.maal);
+      L.polyline(punkt, {
+        color: Farger.skjaering, weight: 2, opacity: 1,
+        dashArray: paagaar ? '6 4' : null, interactive: false
+      }).addTo(this.lag.maal);
+      for (const q of punkt) {
+        L.circleMarker(q, {
+          radius: 3, color: Farger.skjaering, fillColor: '#ffffff',
+          fillOpacity: 1, weight: 1.5, interactive: false
+        }).addTo(this.lag.maal);
+      }
+      /* HVERT STREKK FÅR SITT EGET TALL, ikke bare summen.
+         Sikter man mellom to hus, er det avstanden til HVERT av dem man vil
+         vite; en total sier bare hvor langt man har dratt musa. */
+      let sum = 0;
+      for (let i = 1; i < punkt.length; i++) {
+        const d = this._maalLengde(punkt[i - 1], punkt[i]);
+        sum += d;
+        const midt = L.latLng((punkt[i - 1].lat + punkt[i].lat) / 2,
+          (punkt[i - 1].lng + punkt[i].lng) / 2);
+        L.marker(midt, { icon: L.divIcon({ className: 'maaltomt', html: '' }), interactive: false })
+          .bindTooltip(Rapport.tall(d, d < 100 ? 1 : 0) + ' m', {
+            permanent: true, direction: 'center', className: 'maaletikett'
+          }).addTo(this.lag.maal);
+      }
+      if (punkt.length > 2) {
+        L.marker(punkt[punkt.length - 1], {
+          icon: L.divIcon({ className: 'maaltomt', html: '' }), interactive: false
+        }).bindTooltip('sum ' + Rapport.tall(sum, 0) + ' m', {
+          permanent: true, direction: 'right', offset: [8, 0], className: 'maaletikett maalsum'
+        }).addTo(this.lag.maal);
+      }
+      /* Retningen på det siste strekket mens man tegner: det er den man sikter
+         etter når man skal legge en veg parallelt med noe. */
+      if (paagaar && punkt.length > 1) {
+        const a = punkt[punkt.length - 2], b = punkt[punkt.length - 1];
+        L.marker(b, { icon: L.divIcon({ className: 'maaltomt', html: '' }), interactive: false })
+          .bindTooltip(Rapport.tall(this._maalRetning(a, b), 0) + '°', {
+            permanent: true, direction: 'bottom', offset: [0, 6], className: 'maaletikett maalgrad'
+          }).addTo(this.lag.maal);
+      }
+    }
+  },
+
+  /** Legger streken som er under arbeid til side, og starter en ny. */
+  _avsluttMaal() {
+    if (this._maalNa && this._maalNa.length > 1) {
+      if (!this._maalFerdige) this._maalFerdige = [];
+      this._maalFerdige.push(this._maalNa);
+    }
+    this._maalNa = [];
+    this._tegnMaal();
+  },
+
+  /** Tømmer alle målestreker. */
+  tomMaal() {
+    this._maalFerdige = [];
+    this._maalNa = [];
+    this._tegnMaal();
+    this.app.status('Målestrekene er borte');
   },
 
   /**
@@ -633,6 +766,8 @@ const Kart = {
       this.app.merk('nytt tomtehjørne');
       P.tomt.punkter.push({ lat: e.latlng.lat, lon: e.latlng.lng });
       this.app.tomtEndret();
+    } else if (this.modus === 'maal') {
+      this._maalKlikk(e.latlng);
     } else if (this.modus === 'settSluk') {
       /* Sluket er ferdig regnet i tre filer – i beregningen, i HTML-rapporten
          og i PDF-en – men ingenting skrev noen gang punktet. `nivaa.punkt` sto

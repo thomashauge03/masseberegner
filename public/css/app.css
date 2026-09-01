@@ -1098,3 +1098,24 @@ html[data-peker="grov"] .navnefelt { min-height: 44px; }
 @media (max-width: 1150px) { .nokkeltal .post:nth-child(n+3) { display: none; } }
 @media (max-width: 820px) { .nokkeltal { display: none; } }
 html[data-peker="grov"] .nokkeltal .verdi { font-size: 15px; }
+
+/* MÅLESTREKENE PÅ KARTET.
+   Tallet skal kunne leses over både et mørkt flyfoto og et lyst topokart, og
+   det skal ikke se ut som en del av prosjektet. Derfor rød skrift på en mørk
+   plate – samme røde som skjæringsfargen, så øyet vet at dette er en måling og
+   ikke en linje som er tegnet inn. */
+.leaflet-tooltip.maaletikett {
+  background: rgba(11, 11, 12, .82);
+  border: 1px solid var(--hm-raud);
+  color: #fff;
+  font: 700 11px/1.1 var(--skrift);
+  padding: 2px 5px;
+  box-shadow: none;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.leaflet-tooltip.maaletikett::before { display: none; }   /* ingen pil */
+.leaflet-tooltip.maalsum { border-color: #fff; }
+.leaflet-tooltip.maalgrad { color: var(--blekk-svak); font-weight: 600; }
+/* Markøren bærer bare tooltipen; selve ikonet skal ikke ta plass eller klikk. */
+.maaltomt { width: 0 !important; height: 0 !important; pointer-events: none; }

@@ -4932,6 +4932,12 @@ const App = {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
       // Enter lukker tomta man holder pa a tegne - samme som dobbeltklikk
       if (e.key === 'Enter' && Kart.modus === 'tegnTomt') { e.preventDefault(); Kart.avsluttTomt(); return; }
+      /* Esc midt i en målestrek avslutter STREKEN, ikke verktøyet – man måler
+         gjerne tre ting etter hverandre, og å måtte finne knappen igjen mellom
+         hver er nok til at man lar være. Andre Esc går ut av verktøyet. */
+      if (e.key === 'Escape' && Kart.modus === 'maal' && Kart._maalNa && Kart._maalNa.length) {
+        e.preventDefault(); Kart._avsluttMaal(); return;
+      }
       if (e.key === 'Escape') { Kart.settModus('rediger'); if (this._nullstillVisning) this._nullstillVisning(); }
       if (e.key === 'ArrowRight') Tverrprofil.flytt(1);
       if (e.key === 'ArrowLeft') Tverrprofil.flytt(-1);
