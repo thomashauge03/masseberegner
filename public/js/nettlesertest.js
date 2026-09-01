@@ -87,6 +87,7 @@ const Nettlesertest = {
       await this.pdfavlesning();
       await this.rapport();
       await this.paneler();
+      await this.flereAnlegg();
       await this.grensesnittbredder();
       await this.panelhoder();
       await this.tomt();
@@ -938,6 +939,180 @@ const Nettlesertest = {
       .map(e => e.textContent.trim());
     this.sjekk('hintene skriver desimaltall med komma, som feltene ved siden av',
       punktum.length === 0, punktum.slice(0, 4).join(' | '));
+  },
+
+  /**
+   * FLERE ANLEGG I SAMME PROSJEKT.
+   *
+   * Modellen har alltid holdt en liste – men bryteren kunne bare si «veg» eller
+   * «tomt», og den hoppet til det FØRSTE anlegget av den typen. Et anlegg
+   * nummer to lå i fila uten en eneste vei inn: man kunne lage det, det ble
+   * lagret, det ble åpnet igjen, og det kunne ikke nås.
+   *
+   * Prøven måler de fire tingene som gjør flere anlegg brukbare i det hele
+   * tatt: at hvert av dem kan nås, at de andre er å SE, at de ikke stjeler
+   * klikkene fra det man arbeider med, og at tallene i topplinja er summen av
+   * dem og ikke ett av dem.
+   */
+  async flereAnlegg() {
+    const foer = JSON.stringify(App.P);
+    const gz = Terreng.prototype.z, gd = Terreng.prototype.dekning, gl = Terreng.prototype.lastOmraade;
+    /* SLETTING SPØR FØRST, og spørsmålet er en dialog som venter på et klikk.
+       I en prøve kommer det klikket aldri, og hele suiten ble stående. Her
+       svares det ja med én gang; at dialogen finnes og virker er en annen sak,
+       og den er prøvd der dialogen selv prøves. */
+    const gammelBekreft = App.bekreft;
+    App.bekreft = () => Promise.resolve(true);
+    try {
+      App.P = App.nyttProsjekt();
+      App.P.navn = '__test_flere';
+      const lat0 = 58.2958, lon0 = 7.2098;
+      const dLat = m => m / 111320, dLon = m => m / (111320 * Math.cos(lat0 * Math.PI / 180));
+      const s0 = Geo.tilUtm(lat0, lon0, App.sone);
+      Terreng.prototype.lastOmraade = async function () { };
+      Terreng.prototype.dekning = () => 1;
+      Terreng.prototype.z = function (x, y) { return 100 + (x - s0.x) * 0.05; };
+      App._terrengnokkel = null;
+
+      /* Ett veganlegg, som prosjektet starter med. */
+      App.P.ip = [{ lat: lat0, lon: lon0, r: 0 }, { lat: lat0 + dLat(300), lon: lon0 + dLon(90), r: 0 }];
+      App.byggLinje();
+      await App.beregn();
+      await this.vent(150);
+      this.sjekk('prosjektet starter med ett anlegg', App.P.anlegg.length === 1,
+        App.P.anlegg.length + '');
+
+      /* HVERT ANLEGG MÅ KUNNE NÅS. */
+      App.leggTilAnlegg('tomt');
+      await this.vent(200);
+      App.P.tomt.punkter = [[0, 500], [50, 500], [50, 560], [0, 560]]
+        .map(([x, y]) => ({ lat: lat0 + dLat(y), lon: lon0 + dLon(x) }));
+      App.leggTilAnlegg('veg');
+      await this.vent(200);
+      // veg nummer to må ha geometri, ellers har den ingenting å tegne som bakgrunn
+      App.P.ip = [{ lat: lat0 + dLat(60), lon: lon0 + dLon(220), r: 0 },
+        { lat: lat0 + dLat(320), lon: lon0 + dLon(300), r: 0 }];
+      App.byggLinje();
+      this.sjekk('flere anlegg kan legges til', App.P.anlegg.length === 3,
+        App.P.anlegg.map(a => a.type).join(','));
+
+      const knapp = document.getElementById('anleggsknapp');
+      const panel = document.getElementById('anleggspanel');
+      this.sjekk('det finnes en knapp som viser hvilket anlegg man er i', !!knapp);
+      this.sjekk('og et panel med anleggene i', !!panel);
+      if (knapp && panel) {
+        this.sjekk('knappen navngir det aktive anlegget',
+          knapp.textContent.indexOf(App.anlegg().navn) >= 0, knapp.textContent.trim());
+        const rader = panel.querySelectorAll('[data-bytt]');
+        this.sjekk('hvert anlegg har sin egen rad – ingen er uten vei inn',
+          rader.length === App.P.anlegg.length, rader.length + ' rader mot ' + App.P.anlegg.length + ' anlegg');
+        /* Det som var umulig før: å komme til anlegg nummer to av samme type. */
+        const vegene = App.P.anlegg.filter(a => a.type === 'veg');
+        this.sjekk('  og det finnes to veger å skille mellom', vegene.length === 2);
+        if (vegene.length === 2) {
+          App.byttAnlegg(vegene[1].id);
+          await this.vent(250);
+          this.sjekk('man kommer til veg NUMMER TO – det gikk ikke før',
+            App.P.aktivt === vegene[1].id, App.anlegg().navn);
+        }
+      }
+
+      /* NAVN: «Tomt 2» og «Tomt 3» er to like ansikter. */
+      const tomta = App.P.anlegg.find(a => a.type === 'tomt');
+      App.merk('prøve');
+      tomta.navn = 'Lagerplass';
+      App.visAnleggsvelger();
+      this.sjekk('anlegg kan hete noe annet enn typen sin',
+        panel && panel.textContent.indexOf('Lagerplass') >= 0);
+
+      /* DE ANDRE SKAL VÆRE Å SE – det er hele grunnen til at de er samlet. */
+      App.byttAnlegg(App.P.anlegg[0].id);
+      await this.vent(400);
+      let former = 0, merker = 0;
+      if (Kart.lag.andre) Kart.lag.andre.eachLayer(l => {
+        if (l instanceof L.Path) former++; else merker++;
+      });
+      this.sjekk('de andre anleggene tegnes på kartet', former >= 2,
+        former + ' former, ' + merker + ' navnemerker');
+      this.sjekk('  og de bærer navnet sitt', merker >= 2, merker + '');
+
+      /* OG DE SKAL IKKE STJELE KLIKKENE.
+         Bakgrunnen lå i vanlig overlayPane og ble lagt sist i SVG-en på nytt
+         ved hver opptegning. Da lå en dempet bakgrunnstomt ØVERST: et klikk på
+         den aktive senterlinja traff tomteflaten, og «sett inn knekkpunkt» var
+         dødt overalt der bakgrunnen dekket. */
+      const rute = Kart.kart.getPane('andreAnlegg');
+      this.sjekk('bakgrunnen har sin egen rute i kartet', !!rute);
+      if (rute) {
+        const bak = parseInt(rute.style.zIndex, 10);
+        const over = parseInt(getComputedStyle(Kart.kart.getPane('overlayPane')).zIndex, 10) || 400;
+        this.sjekk('  og den ligger UNDER det man arbeider med', bak < over,
+          'bakgrunn ' + bak + ' mot arbeid ' + over);
+      }
+
+      /* TALLENE I TOPPLINJA ER HELE JOBBEN. */
+      const sum = App.prosjektsum();
+      this.sjekk('prosjektsummen finnes', !!sum);
+      if (sum) {
+        let egne = 0;
+        for (const a of App.P.anlegg) if (a._sum) egne += a._sum.skjaering || 0;
+        this.naer('summen er anleggene lagt sammen, ikke ett av dem',
+          sum.skjaering, egne, Math.max(1, egne * 0.001));
+        this.sjekk('  og den sier hvor mange som er regnet',
+          sum.antall + sum.uregnet + sum.gamle === App.P.anlegg.length,
+          sum.antall + ' regnet, ' + sum.uregnet + ' uregnet, ' + sum.gamle + ' gamle');
+      }
+
+      /* TVERRFALLET HØRER TIL VEGEN, IKKE TIL PROSJEKTET.
+         Lista er nøklet på stasjon. Lå den på prosjektet, delte to veger den,
+         og et tverrfall i profil 120 på den ene slo inn i profil 120 på den
+         andre – et helt annet sted i terrenget. */
+      const v1 = App.P.anlegg.filter(a => a.type === 'veg')[0];
+      const v2 = App.P.anlegg.filter(a => a.type === 'veg')[1];
+      App.byttAnlegg(v1.id);
+      await this.vent(200);
+      App.P.tverrfall = [{ s: 120, venstre: 0.05, hoyre: 0.05 }];
+      App.byttAnlegg(v2.id);
+      await this.vent(200);
+      this.sjekk('tverrfall lagt inn på én veg gjelder ikke den andre',
+        (App.P.tverrfall || []).length === 0, (App.P.tverrfall || []).length + ' oppføringer');
+      App.byttAnlegg(v1.id);
+      await this.vent(200);
+      this.sjekk('  men står der man la det', (App.P.tverrfall || []).length === 1);
+
+      /* TO ANLEGG MED SAMME ID ER ETT ANLEGG SOM IKKE FINNES. */
+      App.P.anlegg[1].id = App.P.anlegg[0].id;
+      App.klargjorProsjekt(App.P);
+      const ider = new Set(App.P.anlegg.map(a => a.id));
+      this.sjekk('like id-er skilles ved åpning – ellers er ett anlegg uoppnåelig',
+        ider.size === App.P.anlegg.length, ider.size + ' av ' + App.P.anlegg.length);
+
+      /* SLETTING: det siste kan ikke slettes, og skjemaet skal ikke henge igjen. */
+      const antallFoer = App.P.anlegg.length;
+      await App.slettAnlegg(App.P.anlegg[App.P.anlegg.length - 1].id);
+      await this.vent(300);
+      this.sjekk('et anlegg kan slettes', App.P.anlegg.length === antallFoer - 1,
+        App.P.anlegg.length + '');
+      while (App.P.anlegg.length > 1) {
+        await App.slettAnlegg(App.P.anlegg[App.P.anlegg.length - 1].id);
+        await this.vent(120);
+      }
+      await App.slettAnlegg(App.P.anlegg[0].id);
+      await this.vent(150);
+      this.sjekk('men det siste kan ikke – et prosjekt uten anlegg har ingen aktiv',
+        App.P.anlegg.length === 1);
+    } catch (e) {
+      this.sjekk('flere-anlegg-prøven kom seg gjennom', false,
+        e.message + ' — ' + (e.stack || '').split('\n')[1]);
+    } finally {
+      Terreng.prototype.z = gz; Terreng.prototype.dekning = gd; Terreng.prototype.lastOmraade = gl;
+      App.bekreft = gammelBekreft;
+      App.P = JSON.parse(foer);
+      App.klargjorProsjekt(App.P);
+      App.resultat = null;
+      App._terrengnokkel = null;
+      App.visAnleggsvelger();
+    }
   },
 
   async panelhoder() {

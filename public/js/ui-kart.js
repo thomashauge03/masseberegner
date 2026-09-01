@@ -1208,28 +1208,89 @@ const Kart = {
    * flytter. Et KLIKK på et av dem bytter dit – det er den raske veien mellom
    * anleggene når de ligger ved siden av hverandre.
    */
+  /**
+   * Senterlinja til et anlegg som ikke er det aktive, med kurvene.
+   *
+   * `App.byggLinje()` bygger fra `P.ip`, altså aksessoren som peker på det
+   * AKTIVE anlegget – den kan ikke brukes her uten å bytte anlegg først, og et
+   * bytte for å tegne en bakgrunn ville regnet om hele prosjektet. Linjeføringen
+   * tar imot punktene direkte, så det er nok å mate den.
+   */
+  anleggslinje(a) {
+    const app = this.app;
+    if (!a.ip || a.ip.length < 2) return [];
+    const sone = app.sone || Geo.sone(a.ip[0].lon);
+    const ip = a.ip.map(p => {
+      const u = Geo.tilUtm(p.lat, p.lon, sone);
+      return { x: u.x, y: u.y, r: p.r || 0 };
+    });
+    let linje;
+    try { linje = new Linjeforing(ip); } catch (e) { linje = null; }
+    if (!linje || !(linje.lengde > 0)) return a.ip.map(q => [q.lat, q.lon]);
+    const ut = [];
+    // samme steg som den aktive linja bruker: tett nok til at kurvene er kurver
+    const steg = Math.max(2, linje.lengde / 400);
+    for (let s = 0; s <= linje.lengde; s += steg) {
+      const p = linje.punktVed(s);
+      if (!p || !Number.isFinite(p.x)) continue;
+      const ll = Geo.fraUtm(p.x, p.y, sone);
+      ut.push([ll.lat, ll.lon]);
+    }
+    const sl = linje.punktVed(linje.lengde);
+    if (sl && Number.isFinite(sl.x)) {
+      const ll = Geo.fraUtm(sl.x, sl.y, sone);
+      ut.push([ll.lat, ll.lon]);
+    }
+    return ut.length > 1 ? ut : a.ip.map(q => [q.lat, q.lon]);
+  },
+
   tegnAndreAnlegg() {
     const app = this.app;
+    /* EGEN RUTE, UNDER ALT DET AKTIVE.
+       Her lå bakgrunnen i vanlig overlayPane. Den opprettes ved første tegn(),
+       altså ETTER alle de aktive lagene, og `clearLayers()` + ny `addTo` legger
+       banene sist i SVG-gruppa på nytt hver eneste gang. Da lå en dempet
+       bakgrunnstomt ØVERST: et klikk rett på den aktive senterlinja traff
+       tomteflaten i stedet, og «sett inn knekkpunkt» var dødt overalt der en
+       bakgrunnstomt dekket. Et eget lag med lavere z-indeks kan ikke havne
+       oppå, uansett hvilken rekkefølge det tegnes i. */
+    if (!this.kart.getPane('andreAnlegg')) {
+      const rute = this.kart.createPane('andreAnlegg');
+      rute.style.zIndex = 390;                 // overlayPane er 400
+    }
     if (!this.lag.andre) this.lag.andre = L.layerGroup().addTo(this.kart);
     this.lag.andre.clearLayers();
     if (!app.P || !Array.isArray(app.P.anlegg) || app.P.anlegg.length < 2) return;
     for (const a of app.P.anlegg) {
       if (a.id === app.P.aktivt) continue;
-      const bytt = () => app.byttAnlegg(a.id);
-      const stil = { color: Farger.blekkSvak, weight: 2, opacity: 0.55, dashArray: '7 5' };
+      /* KLIKKET BYTTER BARE I REDIGER, OG DET STOPPER HER.
+         Uten vakten kunne man ikke sette et fjellpunkt, tegne en veg eller måle
+         noe sted der et bakgrunnsanlegg dekket: klikket byttet anlegg og kastet
+         deg ut i Rediger i stedet. Samme oppskrift som klikket på den aktive
+         senterlinja bruker – den sto ferdig åtte hundre linjer lenger opp. */
+      const bytt = e => {
+        if (this.modus !== 'rediger') return;
+        L.DomEvent.stop(e);
+        app.byttAnlegg(a.id);
+      };
+      const stil = { pane: 'andreAnlegg', color: Farger.blekkSvak, weight: 2, opacity: 0.55, dashArray: '7 5' };
       let midt = null;
       if (a.type === 'tomt' && a.tomt && a.tomt.punkter && a.tomt.punkter.length > 2) {
         const p = a.tomt.punkter.map(q => [q.lat, q.lon]);
         const f = L.polygon(p, Object.assign({ fillColor: Farger.blekkSvak, fillOpacity: 0.06 }, stil))
           .addTo(this.lag.andre);
         f.on('click', bytt);
-        f.bindTooltip(a.navn || 'Tomt', { direction: 'center', className: 'anleggsnavnkart' });
         midt = f.getBounds().getCenter();
       } else if (a.type === 'veg' && a.ip && a.ip.length > 1) {
-        const p = a.ip.map(q => [q.lat, q.lon]);
+        /* SENTERLINJA, IKKE KNEKKPUNKTLINJA.
+           Her sto de rå ip-punktene bundet sammen med rette streker. Den aktive
+           vegen tegnes derimot fra Linjeføringen, med kurvene. Med
+           standardradius 30 m ligger knekkpunktlinja opptil tolv meter fra der
+           vegen faktisk går i hver sving – og «treffer snuplassen vegen?» er
+           nøyaktig det spørsmålet bakgrunnen finnes for å svare på. */
+        const p = this.anleggslinje(a);
         const f = L.polyline(p, stil).addTo(this.lag.andre);
         f.on('click', bytt);
-        f.bindTooltip(a.navn || 'Veg', { direction: 'center', className: 'anleggsnavnkart' });
         midt = f.getBounds().getCenter();
       }
       /* Et anlegg uten geometri har ingenting å tegne, og skal heller ikke få

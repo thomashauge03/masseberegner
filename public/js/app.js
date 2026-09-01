@@ -143,6 +143,8 @@ const App = {
       a.vip = [];
       a.mal = Object.assign({}, StandardMal);
     }
+    // tverrfallet er nøklet på stasjon og hører derfor til dette anlegget
+    a.tverrfall = [];
     return a;
   },
 
@@ -174,7 +176,18 @@ const App = {
        sammen som Object.assign(nyttProsjekt(), fila), og da har resultatet
        alltid et anlegg - det tomme fra nyttProsjekt(). En gammel fil ville
        da fatt innholdet sitt kastet, uten et eneste tegn pa at noe var galt. */
-    const eier = k => Object.prototype.hasOwnProperty.call(P, k);
+    /* EN AKSESSOR ER IKKE EN GAMMEL FIL.
+       Her sto `hasOwnProperty`, og den er SANN også for aksessorene denne
+       funksjonen selv legger på nedenfor. Kjørte man klargjøringen to ganger på
+       samme objekt – og det gjør en prøve, en import eller hva som helst som
+       vil forsikre seg – så den sine egne `mal`, `ip` og `vip`, konkluderte med
+       «gammel fil», og bygde hele anleggslista om til ETT veganlegg. Tre anlegg
+       ble til ett, uten et eneste tegn på at noe var galt.
+       Kjennetegnet på den gamle forma er en VERDI på prosjektet, ikke et navn. */
+    const eier = k => {
+      const d = Object.getOwnPropertyDescriptor(P, k);
+      return !!d && 'value' in d;
+    };
     const gammelForm = eier('mal') || eier('ip') || eier('vip');
     if (gammelForm || !Array.isArray(P.anlegg) || !P.anlegg.length) {
       P.anlegg = [{
@@ -206,10 +219,37 @@ const App = {
         a.vip = a.vip || [];
       }
     }
+    /* TO ANLEGG MED SAMME ID ER ETT ANLEGG SOM IKKE FINNES.
+       Alt slår opp med `find(a => a.id === P.aktivt)`, som gir det FØRSTE. Får
+       to samme id – ved en håndredigert fil, en sammenslåing eller en framtidig
+       «kopier anlegg» – blir det andre permanent uoppnåelig, og slettingen tar
+       feil anlegg. Ett gjennomløp ved åpning koster ingenting og gjør at
+       tilstanden ikke kan oppstå. */
+    const sett = new Set();
+    for (const a of P.anlegg) {
+      if (!a.id || sett.has(a.id)) {
+        a.id = 'a' + Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36);
+      }
+      sett.add(a.id);
+    }
     if (!P.anlegg.some(a => a.id === P.aktivt)) P.aktivt = P.anlegg[0].id;
 
+    /* TVERRFALLET HØRER TIL VEGEN, IKKE TIL PROSJEKTET.
+       Lista er nøklet på STASJON langs en senterlinje – {s, ...}. Lå den på
+       prosjektet, delte to veger den: et tverrfall lagt inn i profil 120 på
+       Veg 1 slo også inn i profil 120 på Veg 2, som er et helt annet sted i
+       terrenget. Med ett anlegg fantes ikke problemet, og derfor sto det slik.
+       Gamle filer har lista på prosjektet; den flyttes til det første
+       veganlegget, der den kom fra. */
+    for (const a of P.anlegg) if (!Array.isArray(a.tverrfall)) a.tverrfall = [];
+    if (Array.isArray(P.tverrfall) && P.tverrfall.length) {
+      const foerste = P.anlegg.find(a => a.type === 'veg') || P.anlegg[0];
+      if (!foerste.tverrfall.length) foerste.tverrfall = P.tverrfall;
+    }
+    delete P.tverrfall;
+
     const aktivt = () => P.anlegg.find(a => a.id === P.aktivt) || P.anlegg[0];
-    for (const felt of ['ip', 'vip', 'mal', 'tomt']) {
+    for (const felt of ['ip', 'vip', 'mal', 'tomt', 'tverrfall']) {
       delete P[felt];                       // fjern verdien fra den gamle forma
       Object.defineProperty(P, felt, {
         configurable: true,
@@ -393,6 +433,13 @@ const App = {
       this.P.aktivt = this.P.anlegg[Math.max(0, i - 1)].id;
       this._terrengnokkel = '';
       this.resultat = null;
+      /* SAMME OPPRYDDING SOM ET BYTTE.
+         Her sto bare `aktivt`. Skjemaet med malen sto da igjen med det SLETTEDE
+         anleggets verdier, og første endring i et hvilket som helst malfelt
+         skrev hele det gamle skjemaet inn i det nye anleggets mal – en tomt
+         kunne arve vegens skråninger uten at noe sa fra. */
+      this.malTilSkjema();
+      Kart.settModus(this.erTomt() && !this.P.tomt.punkter.length ? 'tegnTomt' : 'rediger');
     }
     this.visAnleggsvelger();
     this.tegnAlt();
@@ -887,7 +934,9 @@ const App = {
    */
   moderniserProsjekt(P) {
     this.moderniserMal(P.mal);
-    if (!Array.isArray(P.tverrfall)) P.tverrfall = [];
+    /* Tverrfallslista er flyttet til anlegget – se klargjorProsjekt. Her sto en
+       linje som opprettet den på prosjektet igjen, og siden aksessoren har
+       samme navn, skrev den rett inn i det aktive anlegget ved hver åpning. */
     return P;
   },
 
@@ -991,9 +1040,37 @@ const App = {
     const a = this.anlegg();
     if (!a) return;
     const r = this.resultat;
-    if (!r || !r.sum) { a._sum = null; a._balanse = null; return; }
-    a._sum = Object.assign({}, r.sum);
-    a._balanse = Object.assign({}, r.balanse || {});
+    /* IKKE TELLBARE FELT.
+       `_sum` og `_balanse` er en mellomlagring, ikke prosjektdata. Var de
+       vanlige felt, ville de havnet i prosjektfila og i hvert eneste
+       angre-øyeblikksbilde – en fil som vokser med tall som uansett regnes på
+       nytt ved åpning, og en angrehistorikk der to tilstander er «forskjellige»
+       fordi et bufret tall endret seg.
+       `forutsetning` er stempelet: hvilke prosjektinnstillinger tallene ble
+       regnet under. Endrer man en faktor eller fjellmodellen, regnes bare det
+       AKTIVE anlegget om – de andre beholder tallene sine, og summen ville
+       blandet nye og gamle forutsetninger uten å si fra. */
+    const sett = (navn, verdi) =>
+      Object.defineProperty(a, navn, { value: verdi, writable: true, enumerable: false, configurable: true });
+    if (!r || !r.sum) { sett('_sum', null); sett('_balanse', null); return; }
+    sett('_sum', Object.assign({}, r.sum));
+    sett('_balanse', Object.assign({}, r.balanse || {}));
+    sett('_forutsetning', this.forutsetningsnokkel());
+  },
+
+  /**
+   * Stempel på hva som var felles for prosjektet da tallene ble regnet.
+   *
+   * Faktorene, fjellmodellen og bakkekorreksjonen ligger på PROSJEKTET, men en
+   * endring der regner bare om det anlegget som er oppe. Uten et stempel ville
+   * summen stille blandet et nyregnet anlegg med to som fortsatt sto på gamle
+   * faktorer – og ingen ting på skjermen ville røpet det.
+   */
+  forutsetningsnokkel() {
+    const f = this.P.faktorer || {};
+    const fj = this.P.fjell || {};
+    return JSON.stringify([f, fj.standarddybde, (fj.punkter || []).length,
+      (fj.strekninger || []).length, !!this.P.bakkekorreksjon]);
   },
 
   /**
@@ -1011,21 +1088,34 @@ const App = {
    */
   prosjektsum() {
     if (!this.P || !Array.isArray(this.P.anlegg)) return null;
-    const ut = { skjaering: 0, fylling: 0, skjaeringFjell: 0, rensk: 0,
-      manglerTotalt: 0, tilDeponi: 0, antall: 0, uregnet: 0 };
+    const naa = this.forutsetningsnokkel();
+    const ut = { skjaering: 0, fylling: 0, skjaeringFjell: 0,
+      manglerTotalt: 0, tilDeponi: 0, balanse: 0, antall: 0, uregnet: 0, gamle: 0 };
     for (const a of this.P.anlegg) {
-      const s = (a.id === this.P.aktivt && this.resultat && this.resultat.sum)
-        ? this.resultat.sum : a._sum;
-      const b = (a.id === this.P.aktivt && this.resultat && this.resultat.sum)
-        ? (this.resultat.balanse || {}) : (a._balanse || {});
+      const erAktivt = a.id === this.P.aktivt && this.resultat && this.resultat.sum;
+      const s = erAktivt ? this.resultat.sum : a._sum;
+      const b = erAktivt ? (this.resultat.balanse || {}) : (a._balanse || {});
       if (!s) { ut.uregnet++; continue; }
+      /* Regnet under andre forutsetninger enn de som gjelder nå? Da teller det
+         ikke med – en for lav sum er verre enn en sum som sier at den mangler
+         noe, for den ser like ferdig ut som en riktig. */
+      if (!erAktivt && a._forutsetning !== naa) { ut.gamle++; continue; }
       ut.antall++;
       ut.skjaering += s.skjaering || 0;
       ut.fylling += s.fylling || 0;
       ut.skjaeringFjell += s.skjaeringFjell || 0;
-      ut.rensk += s.rensk || 0;
       ut.manglerTotalt += b.manglerTotalt || 0;
       ut.tilDeponi += b.tilDeponi || 0;
+      /* `balanse` er den FAKTORVEKTEDE differansen, og den er det samme tallet
+         for veg og tomt. `skjaering - fylling` er det ikke: to kubikk fjell
+         svulmer til tre i fyllingen, og et rått mellomlegg ville sagt at det
+         går opp når det ikke gjør det.
+         `rensk` og `manglerTotalt` summeres IKKE videre til skjermen: tomta
+         deler avdekkingen i matjord og rensk der vegen har én post, og tomtas
+         `manglerTotalt` inkluderer overbygningen som må kjøpes mens vegens ikke
+         gjør det. Å legge sammen to tall som heter det samme og betyr noe
+         forskjellig er den slags sum som ser riktig ut. */
+      ut.balanse += (b.balanse || 0);
     }
     return ut;
   },
@@ -1056,17 +1146,22 @@ const App = {
        spørsmålet man stiller når man skal gi en pris: hva koster dette
        prosjektet? Ett anlegg om gangen er da feil tall, uansett hvilket. */
     const p = this.prosjektsum();
-    if (!p || (!p.antall && !p.uregnet)) { e.className = 'nokkeltal tom'; e.innerHTML = ''; return; }
-    if (!p.antall) { e.className = 'nokkeltal tom'; e.innerHTML = ''; return; }
-    const netto = p.skjaering - p.fylling;
+    if (!p || !p.antall) { e.className = 'nokkeltal tom'; e.innerHTML = ''; return; }
+    /* «OVERSKUDD» MÅ BETY DET SAMME MED ETT OG MED FLERE ANLEGG.
+       Her sto `skjaering - fylling` – et rått mellomlegg – mens ett anlegg viste
+       den faktorvektede massebalansen. To kubikk fjell svulmer til tre i
+       fyllingen, så de to tallene er ikke i nærheten av hverandre, og å legge
+       til et tomt anlegg endret plutselig det som sto der uten at noe i
+       prosjektet var endret. Nå er det samme regnestykke, lagt sammen. */
     const mangler = p.manglerTotalt > 1;
+    const utenfor = p.uregnet + p.gamle;
     this._skrivNokkeltal(e, [
       ['Skjæring', t(p.skjaering), 'm³', false],
       ['Fylling', t(p.fylling), 'm³', false],
-      [mangler ? 'Må inn' : 'Overskudd', t(mangler ? p.manglerTotalt : Math.abs(netto)), 'm³', mangler],
+      [mangler ? 'Må inn' : 'Overskudd', t(mangler ? p.manglerTotalt : Math.abs(p.balanse)), 'm³', mangler],
       ['Sprengning', t(p.skjaeringFjell), 'm³', false],
-      ['Hele prosjektet', p.uregnet ? (p.antall + ' av ' + (p.antall + p.uregnet)) : (p.antall + ' anlegg'),
-        '', !!p.uregnet]
+      ['Hele prosjektet', utenfor ? (p.antall + ' av ' + (p.antall + utenfor)) : (p.antall + ' anlegg'),
+        '', !!utenfor]
     ]);
   },
 
