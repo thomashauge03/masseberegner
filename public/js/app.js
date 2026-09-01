@@ -4019,25 +4019,29 @@ const App = {
     /* GJELDER EKSPORTEN HELE PROSJEKTET, KAN IKKE KNAPPEN HETE «TOMTEFLATE».
        Filen inneholder da både veger og tomter, og «Tegning av tomta (DXF)»
        på en fil med to veger i er en beskrivelse som er direkte gal – man tror
-       vegene mangler. Med flere anlegg beskriver knappen FORMATET, som er det
-       eneste alle anleggene har til felles. */
+       vegene mangler.
+       Men «Alle anlegg» kan heller ikke stå alene: da begynte fire av åtte
+       knapper med de samme to ordene og skilte seg bare på formatet i
+       parentes. Det man leter etter i en knapperad er HVA man får, ikke
+       hvilket format det tilfeldigvis kommer i. Innholdsordet står derfor
+       først, og «alle» henger på som det tillegget det er. */
     const alle = this.alleAnlegg();
     const navn = (vegtekst, tomtetekst, alletekst) =>
       alle ? alletekst : (tomt ? tomtetekst : vegtekst);
     tekst('knappEksportKof', navn('Stikningsdata (KOF)', 'Hjørner og utslag (KOF)',
-      'Alle anlegg (KOF)'));
+      'Stikningsdata, alle (KOF)'));
     tekst('knappEksportLandxml', navn('Linjeføring og profil (LandXML)', 'Flater og utslag (LandXML)',
-      'Alle modeller (LandXML)'));
+      'Linjer og flater, alle (LandXML)'));
     tekst('knappEksportSosi', navn('Kartdata (SOSI)', 'Tomteflate (SOSI)',
-      'Alle anlegg (SOSI)'));
+      'Kartdata, alle (SOSI)'));
     tekst('knappEksportDxf', navn('Tegning (DXF)', 'Tegning av tomta (DXF)',
-      'Alle anlegg (DXF)'));
+      'Tegning, alle (DXF)'));
     tekst('knappEksportStikning', navn('Stikningsdata (CSV)', 'Stikningspunkt (CSV)',
       'Stikningsdata, alle (CSV)'));
     tekst('knappEksportMasser', navn('Masseoppsett per profil (CSV)', 'Massesammendrag (CSV)',
       'Masseoppsett, alle (CSV)'));
     tekst('knappEksportGeojson', navn('Linje og fotavtrykk (GeoJSON)', 'Tomt, grense og utslag (GeoJSON)',
-      'Alle anlegg (GeoJSON)'));
+      'Kartobjekter, alle (GeoJSON)'));
     tekst('knappEksportRutenett', alle ? 'Rutenett, alle tomter (CSV)' : 'Rutenett per celle (CSV)');
     /* Rutenettet finnes bare for en tomt. Gjelder eksporten HELE prosjektet, er
        spørsmålet om det finnes en tomt i det – ikke om man tilfeldigvis står i
