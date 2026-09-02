@@ -16,6 +16,7 @@ const { Vertikalprofil, foreslaProfil, lesHoydetabell, rettVertikalgeometri, ret
 const M = require(path.join(__dirname, '..', 'public', 'js', 'masser.js'));
 const VK = require(path.join(__dirname, '..', 'public', 'js', 'veiklasser.js'));
 const H = require(path.join(__dirname, '..', 'lib', 'hoydedata.js'));
+const { Terreng, FLIS_M } = require(path.join(__dirname, '..', 'public', 'js', 'terreng.js'));
 
 let feil = 0, ok = 0;
 function sjekk(navn, faktisk, ventet, toleranse) {
@@ -115,6 +116,108 @@ console.log('\n3. Lengdeprofil');
   const vp3 = new Vertikalprofil(bratt);
   paastand('umulig terreng gir fortsatt gyldige tall',
     bratt.every(v => isFinite(v.z)) && vp3.maksStigning(5) > 0.2);
+
+  /* VEGEN SKAL VÆRE DEN SAMME UANSETT HVILKEN ENDE MAN STASJONERER FRA.
+     Innkortingen av vertikalkurver som ellers ville overlappe var grådig:
+     hver VIP ble målt mot naboens ALLEREDE reduserte lengde bakover, men mot
+     naboens FULLE ønskede lengde forover – fordi løkka går oppover. Den
+     fremste av to som konkurrerer om det samme strekket tok da alt.
+     Målt på fire VIP-er med tjue prosents stigningsbrudd: ÉN kurve på 199,8 m,
+     og knekkpunktet imellom helt uavrundet. Speilvender man den samme vegen,
+     ble høyden 4,995 m forskjellig på det samme punktet i terrenget. På et
+     kupert profil på 600 m: 0,680 m.
+
+     Dette er en invariant, ikke en toleranse: samme veg, samme svar. */
+  {
+    const spegl = (V, L) => V.map(v => ({ s: L - v.s, z: v.z, k: v.k })).reverse();
+    const avvik = (V, L) => {
+      const a = new Vertikalprofil(V), b = new Vertikalprofil(spegl(V, L));
+      let v = 0;
+      for (let s = 0; s <= L; s += 0.5) v = Math.max(v, Math.abs(a.hoyde(s) - b.hoyde(L - s)));
+      return { v, kurver: a.kurver.length, speglaKurver: b.kurver.length };
+    };
+    const konstruert = avvik([{ s: 0, z: 0, k: 10 }, { s: 100, z: 10, k: 10 },
+      { s: 200, z: 0, k: 10 }, { s: 300, z: 10, k: 10 }], 300);
+    sjekk('speilvendt veg gir nøyaktig samme profil', konstruert.v, 0, 1e-9);
+    /* Og begge de konkurrerende knekkpunktene skal FÅ en kurve – den grådige
+       utgaven ga bare én, og lot et tjue prosents brudd stå uavrundet. */
+    paastand('  og begge de konkurrerende knekkpunktene får sin kurve',
+      konstruert.kurver === 2 && konstruert.speglaKurver === 2);
+
+    /* Og over mange profil, så prøven ikke hviler på ett heldig tilfelle. */
+    let verst = 0, verstNavn = '';
+    for (let n = 0; n < 200; n++) {
+      const m = 4 + (n % 9), dl = 20 + (n % 40), V = [];
+      let z = 100;
+      for (let i = 0; i < m; i++) {
+        z += ((n * 7 + i * 13) % 21 - 10) * 0.4;
+        V.push({ s: i * dl, z, k: 2 + ((n + i) % 18) });
+      }
+      const d = avvik(V, (m - 1) * dl);
+      if (d.v > verst) { verst = d.v; verstNavn = m + ' vip, avstand ' + dl + ' m'; }
+    }
+    sjekk('    og det holder over to hundre ulike profil'
+      + (verstNavn ? ' (verst: ' + verstNavn + ')' : ''), verst, 0, 1e-9);
+  }
+
+  /* KORRIDORLASTEREN MÅ BE OM HVER FLIS DEN SLÅR OPP I.
+     Korridoren ble prøvd i punkt seksten meter fra hverandre på tvers, mens en
+     flis er 256 meter. Klipper korridoren et flishjørne i en kile smalere enn
+     seksten meter, faller flisen mellom to prøvepunkt og blir aldri bestilt –
+     men den blir slått opp i. Målt: én flis slått opp i 237 ganger uten å være
+     blant de sytten bestilte, med hullet midt inne i tverrsnittet. Utslaget
+     var falske merknader om at «terrengmodellen har hull i dette tverrsnittet»
+     på data Kartverket faktisk har.
+
+     Invarianten er absolutt og lar seg prøve uten nett: ingen flis skal slås
+     opp i uten å være bestilt. Med den gamle punktprøvingen slår det til på
+     fire av fire hundre tilfeldige traséer. */
+  {
+    const lagT = () => {
+      const t = Object.create(Terreng.prototype);
+      t.P = FLIS_M; t.res = 1; t.fliser = new Map();
+      t.bestilt = new Set(); t.slaattOpp = new Set();
+      t._lastFliser = async (trengs) => { for (const k of trengs) t.bestilt.add(k); };
+      t._celle = function (gi, gj) {
+        const tx = Math.floor(gi / this.P);
+        const ty = Math.ceil(-gj / this.P) - 1;
+        this.slaattOpp.add(this.nøkkel(tx, ty));
+        return NaN;                      // vi maler bare hvilke fliser som trengs
+      };
+      return t;
+    };
+    const slump = n => { const x = Math.sin(n * 12.9898) * 43758.5453; return x - Math.floor(x); };
+    let uventa = 0, traff = 0, provde = 0, verstN = null;
+    for (let n = 0; n < 200; n++) {
+      const ip = [];
+      const m = 2 + Math.floor(slump(n) * 3);
+      let x = 200000 + slump(n + 1) * 600000, y = 6500000 + slump(n + 2) * 900000;
+      for (let i = 0; i <= m; i++) {
+        x += (slump(n * 10 + i) - 0.5) * 2000;
+        y += (slump(n * 10 + i + 5) - 0.5) * 2000;
+        ip.push({ x, y, r: i > 0 && i < m ? 50 + slump(n + i) * 300 : 0 });
+      }
+      let linje;
+      try { linje = new Linjeforing(ip); } catch (e) { continue; }
+      if (!(linje.lengde > 50)) continue;
+      const hb = 20 + slump(n + 7) * 50;
+      const t = lagT();
+      t.lastKorridor(linje, hb, null);   // _lastFliser er synkron her
+      provde++;
+      for (let s = 0; s <= linje.lengde; s += 1) {
+        const p = linje.punktVed(s);
+        const nx = Math.sin(p.retning), ny = -Math.cos(p.retning);
+        for (let tt = -hb; tt <= hb; tt += 0.5) t.z(p.x + nx * tt, p.y + ny * tt);
+      }
+      let mangla = 0;
+      for (const k of t.slaattOpp) if (!t.bestilt.has(k)) mangla++;
+      if (mangla) { traff++; if (mangla > uventa) { uventa = mangla; verstN = n; } }
+    }
+    paastand('korridoren prøvde noe i det hele tatt', provde > 100);
+    sjekk('ingen flis slås opp i uten å være bestilt'
+      + (verstN != null ? ' (verst trasé ' + verstN + ')' : ''),
+    traff, 0, 0);
+  }
 }
 
 /* ------------------------------------------------------------------ */

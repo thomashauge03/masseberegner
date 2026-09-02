@@ -42,17 +42,58 @@ class Vertikalprofil {
       const A = Math.abs(this.stigninger[i] - this.stigninger[i - 1]) * 100; // stigningsbrudd i prosent
       L[i] = V[i].k * A;
     }
-    // Kort inn kurver som ellers ville overlappe hverandre eller endepunktene
-    for (let runde = 0; runde < 12; runde++) {
+    /* INNKORTINGEN MÅ VÆRE SYMMETRISK, ELLERS AVHENGER VEGEN AV HVILKEN ENDE
+       MAN STASJONERER FRA.
+       Her sto en grådig klemming: hver VIP ble målt mot naboens ALLEREDE
+       reduserte lengde bakover, men mot naboens FULLE ønskede lengde forover –
+       fordi løkka går oppover. Den fremste av to som konkurrerer om det samme
+       strekket tok da alt, og den bakerste ble stående uten kurve.
+       Målt på fire VIP-er med tjue prosents stigningsbrudd: ÉN kurve på
+       199,8 m, og knekkpunktet imellom helt uavrundet. Speilvender man den
+       samme vegen – stasjonerer fra andre enden – blir høyden 4,995 m
+       forskjellig på det samme punktet i terrenget. Det er ikke et
+       avrundingsavvik, det er to ulike veger.
+       Nå skaleres begge naboene ned med SAMME faktor når de ikke får plass,
+       akkurat som `Linjeforing` gjør for horisontalgeometrien. Da er svaret
+       det samme uansett hvilken vei man teller. */
+    /* ALLE FAKTORENE REGNES FØRST OG BRUKES SAMTIDIG.
+       Skalerer man paret (i, i+1) og deretter (i+1, i+2), har det første paret
+       alt endret utgangspunktet for det andre – og da henger svaret fortsatt
+       på hvilken vei løkka går. Målt på et kupert profil på 600 m: 0,285 m
+       forskjell mellom vegen og speilvendingen, ned fra 0,680, men ikke null.
+       Med faktorene regnet av tilstanden ved rundens START, og lagt på
+       etterpå, er de to retningene nøyaktig like – målt over to hundre
+       tilfeldige profil. */
+    for (let runde = 0; runde < 40; runde++) {
+      const F = new Array(V.length).fill(1);
+      const krev = (i, tak) => {
+        if (!(L[i] > tak) || !(L[i] > 1e-12)) return;
+        F[i] = Math.min(F[i], tak / L[i]);
+      };
+      /* Endene er ensidige: den første kurven kan bare strekke seg bakover til
+         profilets start, den siste bare framover til slutten. */
+      if (V.length > 2) {
+        krev(1, 2 * (V[1].s - V[0].s) * 0.999);
+        const n = V.length - 2;
+        krev(n, 2 * (V[n + 1].s - V[n].s) * 0.999);
+      }
+      // to naboer som ikke får plass deler nedskaleringen likt
+      for (let i = 1; i < V.length - 2; i++) {
+        const strekk = (V[i + 1].s - V[i].s) * 0.999;
+        const sum = L[i] / 2 + L[i + 1] / 2;
+        if (sum > strekk && sum > 1e-12) {
+          const skala = strekk / sum;
+          F[i] = Math.min(F[i], skala);
+          F[i + 1] = Math.min(F[i + 1], skala);
+        }
+      }
       let endret = false;
       for (let i = 1; i < V.length - 1; i++) {
-        const forrigeGrense = (i === 1) ? (V[1].s - V[0].s) : (V[i].s - V[i - 1].s) - L[i - 1] / 2;
-        const nesteGrense = (i === V.length - 2) ? (V[i + 1].s - V[i].s) : (V[i + 1].s - V[i].s) - L[i + 1] / 2;
-        const maks = 2 * Math.max(0, Math.min(forrigeGrense, nesteGrense)) * 0.999;
-        if (L[i] > maks) { L[i] = maks; endret = true; }
+        if (F[i] < 1 - 1e-12) { L[i] *= F[i]; endret = true; }
       }
       if (!endret) break;
     }
+    for (let i = 1; i < V.length - 1; i++) if (!(L[i] > 0)) L[i] = 0;
     for (let i = 1; i < V.length - 1; i++) {
       if (L[i] <= 1e-9) continue;
       const g1 = this.stigninger[i - 1], g2 = this.stigninger[i];

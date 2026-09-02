@@ -111,20 +111,42 @@ class Terreng {
     const trengs = new Set();
     const marg = 2;
     const stegS = Math.min(16, Math.max(2, linje.lengde / 400));
-    const stegT = 16;
-    for (let s = 0; s <= linje.lengde + 1e-9; s = Math.min(s + stegS, linje.lengde + 1e-9)) {
+    /* ET REKTANGELSVEIP, IKKE PUNKTPRØVER PÅ TVERS.
+       Her sto `stegT = 16`: korridoren ble prøvd i punkt seksten meter fra
+       hverandre på tvers, mens en flis er 256 meter. Klipper korridoren et
+       flishjørne i en kile smalere enn seksten meter, faller flisen mellom to
+       prøvepunkt og blir aldri bestilt – men den blir slått opp i.
+       Målt på en veg i sone 33: `892_28571` ble slått opp i 237 ganger uten å
+       være blant de sytten bestilte, og hullet lå midt inne i tverrsnittet.
+       Utslaget var fem falske merknader om at «terrengmodellen har hull i dette
+       tverrsnittet» – på data Kartverket faktisk har – og rensken i de
+       profilene falt fra 5,671 til 0,000 m²/lm.
+       Her tas i stedet ALLE flisene i randboksen til de fire hjørnene av
+       korridoren for hver delstrekning. Det er eksakt for et rett strekk, og
+       en delstrekning er høyst seksten meter, så buen på en kurve er
+       forsvinnende mot en flis på 256. */
+    const kant = (pt, tt) => ({
+      x: pt.x + Math.sin(pt.retning) * tt,
+      y: pt.y - Math.cos(pt.retning) * tt
+    });
+    let forrigeKant = null;
+    for (let s = 0; ; s = Math.min(s + stegS, linje.lengde)) {
       const p = linje.punktVed(Math.min(s, linje.lengde));
-      const nx = Math.sin(p.retning), ny = -Math.cos(p.retning);
-      for (let t = -halvbredde - marg; t <= halvbredde + marg + 1e-9; t += stegT) {
-        const tt = Math.min(t, halvbredde + marg);
-        const x = p.x + nx * tt, y = p.y + ny * tt;
-        trengs.add(this.nøkkel(Math.floor(x / FLIS_M), Math.floor(y / FLIS_M)));
+      const na = [kant(p, -halvbredde - marg), kant(p, halvbredde + marg)];
+      const hjorner = forrigeKant ? forrigeKant.concat(na) : na;
+      let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+      for (const q of hjorner) {
+        if (q.x < x0) x0 = q.x;
+        if (q.x > x1) x1 = q.x;
+        if (q.y < y0) y0 = q.y;
+        if (q.y > y1) y1 = q.y;
       }
-      // sikre at ytterkantene alltid er med
-      for (const tt of [-halvbredde - marg, halvbredde + marg]) {
-        const x = p.x + nx * tt, y = p.y + ny * tt;
-        trengs.add(this.nøkkel(Math.floor(x / FLIS_M), Math.floor(y / FLIS_M)));
+      for (let ty = Math.floor(y0 / FLIS_M); ty <= Math.floor(y1 / FLIS_M); ty++) {
+        for (let tx = Math.floor(x0 / FLIS_M); tx <= Math.floor(x1 / FLIS_M); tx++) {
+          trengs.add(this.nøkkel(tx, ty));
+        }
       }
+      forrigeKant = na;
       if (s >= linje.lengde) break;
     }
 

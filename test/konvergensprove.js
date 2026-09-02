@@ -56,10 +56,21 @@ console.log('\nFUNN 5  Liten tomt forsvinner uten merknad');
    console.log(`  2 x 2 m tomt, rute ${rute} m: areal ${r.areal.toFixed(2)} m2, overbygning ${(r.sum.slitelag+r.sum.baerelag+r.sum.forsterkningslag).toFixed(2)} m3, ${r.merknader.length} merknader`);
  }}
 
-console.log('\nFUNN 6  "N ruter ma dypsprenges" skalerer med rutenettet');
+console.log('\nFUNN 6  Dypsprengningsmerknaden - RETTET, staar her som vakthold');
+/* Merknaden talte RUTER, og et rutetall betyr ingenting uten a vite hvor fine
+   rutene er: samme tomt meldte 48, 1340 og 20336 "ruter" ved 5, 1 og 0,25 m.
+   Na oppgis arealet i m², og det star stille. Kontrollen blir staende her for
+   a fange det om noen skulle telle ruter igjen. */
 {const mal=gm({minAvstandTilBerg:0.75});
+ const tall=[];
  for (const rute of [5,1,0.25]) {
    const r=kjor(rekt(40,30),99.5,rute,mal,{z:()=>100},new M.Fjellmodell({standarddybde:1.0}));
    const m=r.merknader.find(m=>m.type==='berg');
-   console.log(`  rute ${rute} m: ${m?m.tekst.split(' ')[0]+' ruter':'ingen'}`);
- }}
+   const t=m?Number((/([\d\s ]+) m²/.exec(m.tekst)||[])[1]?.replace(/[\s ]/g,'')):NaN;
+   tall.push(t);
+   console.log(`  rute ${rute} m: ${m?m.tekst.split(' m²')[0]+' m²':'ingen merknad'}`);
+ }
+ const gyldige=tall.filter(Number.isFinite);
+ const spenn=gyldige.length?Math.max(...gyldige)-Math.min(...gyldige):NaN;
+ console.log(`  -> spenn ${Number.isFinite(spenn)?spenn.toFixed(1)+' m²':'-'}`
+   + (spenn===0?'  (staar stille, som det skal)':'  ADVARSEL: flytter seg med rutenettet'));}
