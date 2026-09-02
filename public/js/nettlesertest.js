@@ -1521,6 +1521,253 @@ const Nettlesertest = {
                   this.sjekk('    og nøkkelen merker en endret skråningshelning',
                     n1 !== n2);
                 }
+
+                /* ================================================================
+                   SKJERMBOKSEN: raskere, og NØYAKTIG det samme bildet.
+
+                   Et gjennomsiktig lag tømte og blandet over hele lerretet, én
+                   gang per lag. Boksen skal kutte det arbeidet – men en boks som
+                   er for liten lar piksler stå igjen fra forrige lag, og det er
+                   akkurat den slags feil som ser ut som «litt rart i kanten» og
+                   aldri blir funnet. Derfor prøves grensen selv, ikke bare at
+                   det gikk fortere.
+                   ================================================================ */
+                {
+                  const kamB = Veg3d._kamera(900, 700, gA, 1, 0, 0);
+                  const naerB = kamB.naer || 1e-6;
+                  let utafor = 0, prov = 0, bokser = 0, dekning = 0;
+                  for (const bg of [gA, f]) {
+                    const hz = Veg3d._bakgrunnHoyde(bg) || bg.zT || bg.z;
+                    if (!hz) continue;
+                    const b = Tegner3d._skjermboks(bg, hz, kamB, 900, 700);
+                    bokser++;
+                    dekning += (b.x1 - b.x0 + 1) * (b.y1 - b.y0 + 1) / (900 * 700);
+                    for (let kk = 0; kk < bg.nb * bg.nh; kk++) {
+                      if (!bg.finnes[kk] || !Number.isFinite(hz[kk])) continue;
+                      const q = kamB.punkt(bg.wx[kk], bg.wy[kk], hz[kk]);
+                      if (!(q.w > naerB)) continue;
+                      if (q.px < -1 || q.px > 901 || q.py < -1 || q.py > 701) continue;
+                      prov++;
+                      const x = Math.max(0, Math.min(899, q.px));
+                      const y = Math.max(0, Math.min(699, q.py));
+                      if (x < b.x0 - 1 || x > b.x1 + 1 || y < b.y0 - 1 || y > b.y1 + 1) utafor++;
+                    }
+                  }
+                  this.sjekk('  skjermboksen rommer hver eneste node i gitteret',
+                    prov > 0 && utafor === 0,
+                    utafor + ' av ' + prov + ' noder utenfor boksen');
+
+                  /* DEN AVGJØRENDE PRØVEN: bildet skal være det SAMME.
+                     En optimalisering som endrer én piksel er ikke en
+                     optimalisering, den er en feil man ikke har oppdaget
+                     ennå. Her tegnes scenen to ganger – én gang med boksen og
+                     én gang med boksen slått av, altså nøyaktig slik koden var
+                     før – og de to bildene sammenlignes byte for byte. */
+                  {
+                    const c9 = Veg3d.lerret;
+                    if (c9 && c9.offsetParent !== null && c9.width > 20) {
+                      const kk9 = c9.getContext('2d');
+                      const orgB = Tegner3d._skjermboks;
+                      let ulikt = -1, tot = 0;
+                      try {
+                        Veg3d.tegn();
+                        const a9 = kk9.getImageData(0, 0, c9.width, c9.height).data;
+                        Tegner3d._skjermboks = (g9, h9, kam9, rb9, rh9) =>
+                          ({ x0: 0, y0: 0, x1: rb9 - 1, y1: rh9 - 1 });
+                        Veg3d.tegn();
+                        const d9 = kk9.getImageData(0, 0, c9.width, c9.height).data;
+                        ulikt = 0; tot = a9.length / 4;
+                        for (let i = 0; i < a9.length; i += 4) {
+                          if (a9[i] !== d9[i] || a9[i + 1] !== d9[i + 1]
+                            || a9[i + 2] !== d9[i + 2]) ulikt++;
+                        }
+                      } finally { Tegner3d._skjermboks = orgB; Veg3d.tegn(); }
+                      this.sjekk('    og gir NØYAKTIG samme bilde som uten den',
+                        ulikt === 0, ulikt + ' av ' + tot + ' piksler ulike');
+                    }
+                  }
+                  this.sjekk('    og den er MINDRE enn lerretet – ellers sparer den ingenting',
+                    bokser > 0 && dekning / bokser < 0.95,
+                    ((dekning / Math.max(1, bokser)) * 100).toFixed(0) + ' % av lerretet i snitt');
+
+                  /* Tømmingen skal treffe boksen og bare boksen. Går den for
+                     langt, sletter den et lag som alt er blandet inn. */
+                  /* Skrapebufferne bor på VISNINGEN, ikke på Tegner3d – `this`
+                     inne i `tegn()` er Veg3d eller Tomt3d – og de finnes
+                     først etter at panelet har tegnet en gang. Prøven kaller
+                     derfor `_toemBoks` med sitt EGET par buffer: det er den
+                     samme koden, og den avhenger ikke av hvilket panel som
+                     tilfeldigvis står åpent. Sto det `Tegner3d._lag2` her,
+                     var de undefined, og hele prøven hoppet stille over. */
+                  const rbT = 40, rhT = 30;
+                  const l2 = new Uint32Array(rbT * rhT);
+                  const d2 = new Float32Array(rbT * rhT);
+                  const merke = 0xdeadbeef | 0;
+                  for (let i = 0; i < rbT * rhT; i++) { l2[i] = merke; d2[i] = -7; }
+                  const boksT = { x0: 5, y0: 4, x1: 12, y1: 9 };
+                  Tegner3d._toemBoks.call({ _lag2: l2, _dyp2: d2 }, boksT, rbT);
+                  let inneFeil = 0, utaFeil = 0;
+                  for (let y = 0; y < rhT; y++) {
+                    for (let x = 0; x < rbT; x++) {
+                      const i = y * rbT + x;
+                      const inne = x >= boksT.x0 && x <= boksT.x1
+                        && y >= boksT.y0 && y <= boksT.y1;
+                      if (inne) { if (l2[i] !== 0 || d2[i] !== Infinity) inneFeil++; }
+                      else if (l2[i] !== (merke >>> 0) || d2[i] !== -7) utaFeil++;
+                    }
+                  }
+                  this.sjekk('  tømmingen nullstiller hele boksen',
+                    inneFeil === 0, inneFeil + ' av 48 piksler igjen');
+                  this.sjekk('    og rører ikke én piksel utenfor den',
+                    utaFeil === 0, utaFeil + ' piksler slettet for mye');
+                }
+
+                /* ================================================================
+                   DEMPINGEN: naboen skal sees, ikke forveksles.
+
+                   Det er metningen som dempes, ikke lysstyrken – se `_dempet`.
+                   De tre tingene som MÅ holde, er de tre som gikk galt da den
+                   blandet mot bakgrunnsfargen i stedet: en gråtone må komme
+                   urørt gjennom (ellers får det felles terrenget en søm),
+                   lysstyrken må stå (ellers ser man fargen men ikke formen),
+                   og kuløren må stå (ellers er en dempet skjæring ikke lenger
+                   en skjæring).
+                   ================================================================ */
+                {
+                  const kanal = v => [v & 255, (v >> 8) & 255, (v >> 16) & 255, (v >>> 24) & 255];
+                  const lag = v => (255 << 24) | (v[2] << 16) | (v[1] << 8) | v[0];
+                  const gjennom = p => kanal(Tegner3d._dempet(() => lag(p))(0, 0, 0, 0, 0));
+
+                  /* EN GRÅTONE SKAL KOMME UENDRET GJENNOM. Terrenget er felles
+                     og delt mellom anleggene bare av hvem som rakk å tegne det;
+                     rørte dempingen den, sto det et fargesprang tvers over ei
+                     linje som ikke finnes i landskapet. */
+                  let graaFeil = 0;
+                  for (const v of [0, 40, 78, 142, 200, 255]) {
+                    const q = gjennom([v, v, v]);
+                    if (q[0] !== v || q[1] !== v || q[2] !== v) graaFeil++;
+                  }
+                  this.sjekk('  dempingen rører ikke en gråtone – terrenget får ingen søm',
+                    graaFeil === 0, graaFeil + ' av 6 gråtoner endret');
+
+                  /* LYSSTYRKEN SKAL STÅ. `_lys` holder med vilje 0,55–1,00
+                     fordi et videre spenn gjør at man ser fargen, men ikke
+                     formen. Dempingen må ikke spise av det spennet. */
+                  let verstLys = 0;
+                  for (const p of [[255, 40, 30], [60, 140, 60], [180, 180, 60], [30, 90, 200]]) {
+                    const q = gjennom(p);
+                    const l1 = 0.299 * p[0] + 0.587 * p[1] + 0.114 * p[2];
+                    const l2 = 0.299 * q[0] + 0.587 * q[1] + 0.114 * q[2];
+                    verstLys = Math.max(verstLys, Math.abs(l1 - l2));
+                  }
+                  this.sjekk('    og den beholder lysstyrken – formen er like tydelig',
+                    verstLys < 1.5, 'verst ' + verstLys.toFixed(2) + ' av 255');
+
+                  const ut = gjennom([255, 40, 30]);
+                  this.sjekk('    kuløren står – rødt er fortsatt rødt',
+                    ut[0] > ut[1] && ut[0] > ut[2], ut.join(', '));
+                  this.sjekk('    men svakere – ellers ser man ingen forskjell',
+                    ut[0] - Math.min(ut[1], ut[2]) < 255 - 30 - 20,
+                    'spenn ' + (ut[0] - Math.min(ut[1], ut[2])) + ' (var 225)');
+
+                  let overflod = 0, gjennomsiktig = 0;
+                  for (const p of [[255, 255, 255], [0, 0, 0], [255, 0, 0], [0, 255, 0],
+                    [0, 0, 255], [128, 200, 17]]) {
+                    const q = gjennom(p);
+                    for (let c = 0; c < 3; c++) if (q[c] < 0 || q[c] > 255) overflod++;
+                    if (q[3] !== 255) gjennomsiktig++;
+                  }
+                  this.sjekk('    ingen kanal renner over 0–255',
+                    overflod === 0, overflod + ' avvik');
+                  this.sjekk('    og alfakanalen står på 255 – svak, ikke gjennomsiktig',
+                    gjennomsiktig === 0);
+                  /* «Tegn ingenting» må komme uendret gjennom. Dempet man 0 til
+                     en gråtone, fikk hver node uten flate en firkant. */
+                  this.sjekk('    og «ingen farge» blir fortsatt ingen farge',
+                    Tegner3d._dempet(() => 0)(0, 0, 0, 0, 0) === 0);
+                }
+
+                /* NABOEN SKAL IKKE VÆRE GROVERE ENN HAN VILLE VÆRT SELV.
+                   Et veggitter har ingen `rute` – det er en korridor med
+                   kolonner på tvers – så prøven gjelder tomter, og målet er
+                   anleggets EGEN rutestørrelse. Sto naboen på det dobbelte,
+                   ble cellene hans trappetrinn langs hver skråningskant mens
+                   ens eget lå glatt ved siden av, og to oppløsninger i samme
+                   bilde leses ikke som «den ene er grovere», men som at noe er
+                   galt med den ene. */
+                if (f.type === 'tomt' && Number.isFinite(f.rute)) {
+                  const anlF = App.P.anlegg.find(x => x.id === f.id);
+                  const egen = Math.max(0.05, (anlF && anlF.mal && anlF.mal.rutestorrelse) || 1);
+                  this.sjekk('  naboanlegget regnes like fint som det ville gjort selv',
+                    f.rute <= egen + 1e-9,
+                    'nabo ' + f.rute + ' m, egen rutestørrelse ' + egen + ' m');
+                }
+
+                /* ================================================================
+                   DEKNINGSMASKEN: mellomlagret, men ikke fastlåst.
+
+                   Masken deler den felles bakken mellom anleggene, og
+                   dekningen VOKSER mens scenen tegnes – hvert anlegg får bare
+                   det de foregående ikke tok. Lagret man `dekning`-objektet
+                   selv, ville det stått fullt utvokst ved neste bilde, og det
+                   første naboanlegget hadde ikke tegnet terreng i det hele
+                   tatt. Derfor: regn to ganger og krev nøyaktig samme svar.
+                   ================================================================ */
+                {
+                  Tegner3d._maskeBuffer = null;
+                  const m1 = Tegner3d._terrengmasker(gA, medFull);
+                  const bufra = Tegner3d._terrengmasker(gA, medFull);
+                  Tegner3d._maskeBuffer = null;
+                  const m2 = Tegner3d._terrengmasker(gA, medFull);
+
+                  this.sjekk('  dekningsmasken deler bakken mellom anleggene',
+                    m1.size > 0, m1.size + ' masker');
+                  this.sjekk('    og den mellomlagres – samme svar uten å regne om',
+                    bufra === m1);
+
+                  let ulike = 0, noder = 0, dekt = 0, iAktiv = 0;
+                  /* Ligger naboen langt unna, er det RIKTIG at masken ikke tar
+                     noe – de deler ingen bakke. Prøven må derfor bare gjelde
+                     de nodene som faktisk ligger inne i det aktive gitterets
+                     omriss; det er der de to ellers ville tegnet hver sin
+                     flate i samme høyde. */
+                  let aX0 = Infinity, aX1 = -Infinity, aY0 = Infinity, aY1 = -Infinity;
+                  for (let i = 0; i < gA.nb * gA.nh; i++) {
+                    if (!gA.finnes[i]) continue;
+                    if (gA.wx[i] < aX0) aX0 = gA.wx[i];
+                    if (gA.wx[i] > aX1) aX1 = gA.wx[i];
+                    if (gA.wy[i] < aY0) aY0 = gA.wy[i];
+                    if (gA.wy[i] > aY1) aY1 = gA.wy[i];
+                  }
+                  for (const [bg, a1] of m1) {
+                    const b1 = m2.get(bg);
+                    if (!b1 || b1.length !== a1.length) { ulike += 1e6; continue; }
+                    for (let i = 0; i < a1.length; i++) {
+                      noder++;
+                      if (a1[i] !== b1[i]) ulike++;
+                      if (!bg.finnes[i]) continue;
+                      const inne = bg.wx[i] >= aX0 && bg.wx[i] <= aX1
+                        && bg.wy[i] >= aY0 && bg.wy[i] <= aY1;
+                      if (inne) { iAktiv++; if (!a1[i]) dekt++; }
+                    }
+                  }
+                  this.sjekk('    og en ny runde gir NØYAKTIG samme deling',
+                    noder > 0 && ulike === 0, ulike + ' av ' + noder + ' noder ulike');
+                  /* Tar masken ingenting der de FAKTISK deler bakke, gjør den
+                     ingen nytte: da tegner to anlegg den samme bakken, og
+                     kamuflasjemønsteret er tilbake. */
+                  this.sjekk('    og den tar bakken fra naboen der de deler den',
+                    iAktiv === 0 || dekt > 0,
+                    dekt + ' av ' + iAktiv + ' noder inne i det aktive omrisset');
+
+                  /* Bytter gitteret, må masken bygges på nytt. Uten det ville
+                     man sett forrige anleggs deling tegnet over sitt eget. */
+                  const falskt = Object.assign({}, gA);
+                  const m3 = Tegner3d._terrengmasker(falskt, medFull);
+                  this.sjekk('    men et nytt gitter gir en ny maske',
+                    m3 !== m1);
+                  Tegner3d._maskeBuffer = null;
+                }
               }
 
               /* ================================================================

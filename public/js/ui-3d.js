@@ -553,7 +553,7 @@ const Tegner3d = {
              sekunder; tar det lenger, er noe galt, og da er en melding bedre
              enn et minutt til bak en overlay som sluker klikk. */
           await Rapport.ventPaaResultat(20000, a.id);
-          const g = eier._gitter(a.type === 'tomt' ? 2 : 1);
+          const g = eier._gitter(a.type === 'tomt' ? Tegner3d.NABOSTEG : 1);
           eier._gitterFor = null;
           if (!g) throw new Error('ingen modell å bygge');
           fulle.set(a.id, { g, eier, nokkel, runde, navn: a.navn || a.type, type: a.type, id: a.id });
@@ -563,7 +563,7 @@ const Tegner3d = {
              at tomta ligger der, mens vegen fortsatt gravde fra lia som lå
              der før – og den samme kubikken ville blitt talt to ganger. */
           if (!app._ferdigflater) app._ferdigflater = new Map();
-          const flate = app.ferdigflateAv(g, a.type === 'tomt' ? 1 : 1);
+          const flate = app.ferdigflateAv(g, 1);
           if (flate) app._ferdigflater.set(a.id, flate);
           else app._ferdigflater.delete(a.id);
         } catch (e) {
@@ -1038,6 +1038,165 @@ const Tegner3d = {
     return maks > 0 ? maks : null;
   },
 
+  /**
+   * Samme farge, lavere stemme.
+   *
+   * Naboanleggene skal leses som kontekst, ikke som noe man arbeider med.
+   *
+   * DET ER METNINGEN SOM DEMPES, IKKE LYSSTYRKEN. Første utgave blandet
+   * naboens farge mot bakgrunnsfargen, og det gikk galt på tre måter, alle
+   * målt:
+   *
+   *  – Terrenget er ÉN sammenhengende bakke, delt mellom anleggene bare av
+   *    hvem som rakk å tegne den først (se `_dekningsprove`). Dempet man den
+   *    som «naboens», gikk den samme bakken fra 142 til 83 tvers over ei linje
+   *    som ikke betyr noe i landskapet. Det var nøyaktig den sømmen masken ble
+   *    laget for å fjerne, tilbake som et fargesprang.
+   *  – I bakkemodus males bakgrunnen om: himmel over horisonten, fjern bakke
+   *    under. Under horisonten – der naboene ligger – står bakgrunnen på ca.
+   *    (106,106,113), mens `flateRgb` er (11,11,12). Naboen ble altså MØRKERE
+   *    enn det han skulle forsvinne inn i, og stakk mer fram, ikke mindre.
+   *  – Lyset holdes med vilje i 0,55–1,00 (se `_lys`), fordi et videre spenn
+   *    gjør at man ser fargen men ikke formen. Å gange hele bildet med 0,55
+   *    presset naboens lys/skygge ned i 0,25 – under det som trengs for å se
+   *    en skråning i det hele tatt.
+   *
+   * Med metning i stedet: gråtoner står helt urørt, så terrenget har ingen søm
+   * og formen er nøyaktig like tydelig som før. Det er bare KULØREN som
+   * svekkes – naboens skjæring er rødlig der din er rød – og det er akkurat
+   * den forskjellen øyet trenger for å se hvilket anlegg som er ens eget.
+   *
+   * 0,40 er målt fram: ved 0,65 kunne man fortsatt ta feil, ved 0,20 var
+   * naboens skjæring ikke lenger til å skille fra fylling.
+   */
+  METNING: 0.40,
+
+  /**
+   * Hvor grovt et NABOANLEGG av typen tomt regnes ut i bakgrunnen.
+   *
+   * Multipliseres med anleggets egen rutestørrelse. En veg står alltid på 1 –
+   * den er en korridor, og gitteret er lite uansett. En tomt er et areal, og
+   * med kontekstringen rundt blir den fort tre ganger så stor som vegen.
+   *
+   * Sto på 2, og det SÅ man: med 3,2 piksler per meter ble naboens celler
+   * trappetrinn på seks og en halv piksel langs hver skråningskant, mens ens
+   * eget anlegg ved siden av var glatt. To ulike oppløsninger i samme bilde
+   * leses ikke som «den ene er grovere», men som «noe er galt med den ene».
+   *
+   * Prisen var 20,0 → 35,8 ms per bilde da den ble satt ned, og det var for
+   * dyrt. Den er betalt inn igjen andre steder: dekningsmasken bygges ikke
+   * lenger for hvert bilde (`_terrengmasker`), og de gjennomsiktige lagene
+   * blander bare der de kan treffe (`_skjermboks`). Målt etter begge:
+   * 26,7 ms med 60 000 nabonoder, mot 43,6 ms før noe av dette.
+   */
+  NABOSTEG: 1,
+
+  /**
+   * Hvor fint dekningsmasken deler den felles bakken mellom anleggene.
+   *
+   * DETTE ER «DE RARE RUTENE». Masken avgjør hvem av anleggene som tegner
+   * hvilken del av terrenget, og oppslaget er nærmeste rute – så kanten mellom
+   * to anleggs terreng blir kvantisert til rutestørrelsen. Sto på 2 m, og med
+   * sju piksler per meter ble det fjorten piksler høye trappetrinn langs hver
+   * eneste skråningsfot: et sagtannmønster som ikke finnes i landskapet, og
+   * som er det første man ser på bildet.
+   *
+   * Prisen er kvadratisk i oppløsningen, og var derfor uoverkommelig så lenge
+   * masken ble bygd for hvert bilde: målt på brukerens prosjekt kostet et
+   * bilde 33,5 ms ved 2 m og 47,4 ms ved 0,25 m. Etter at den ble mellomlagret
+   * – se `_terrengmasker` – er tallet 26,7 til 27,5 ms for HELE spennet fra
+   * 2 m til 0,25 m. Oppløsningen er da et rent spørsmål om hvor fin kanten
+   * skal være, og 0,5 m er under én piksel på vanlig avstand.
+   */
+  DEKNINGSRUTE: 0.5,
+
+  _dempet(farge) {
+    const k = this.METNING;
+    return (k00, k10, k01, k11, z) => {
+      const f = farge(k00, k10, k01, k11, z);
+      /* 0 betyr «tegn ingenting» i `_raster`, ikke «svart». Det må komme
+         uendret gjennom, ellers får hver node uten flate en firkant. */
+      if (f === 0) return 0;
+      const r = f & 255, g = (f >> 8) & 255, b = (f >> 16) & 255;
+      // samme vekting som øyet bruker, så gråtonen holder lysstyrken
+      const gr = 0.299 * r + 0.587 * g + 0.114 * b;
+      const r2 = (gr + (r - gr) * k + 0.5) | 0;
+      const g2 = (gr + (g - gr) * k + 0.5) | 0;
+      const b2 = (gr + (b - gr) * k + 0.5) | 0;
+      return (255 << 24) | (b2 << 16) | (g2 << 8) | r2;
+    };
+  },
+
+  /**
+   * Den delen av skjermen et gitter i det hele tatt kan treffe.
+   *
+   * ET GJENNOMSIKTIG LAG KOSTET FEM FULLSKJERMSLØYFER, UANSETT HVOR LITE DET VAR.
+   * `_lag2.fill(0)`, `_dyp2.fill(Infinity)` og blandingsløkka går alle over hele
+   * lerretet – 914 634 piksler her – og de kjøres én gang PER gjennomsiktig lag.
+   * Med tre anlegg i bildet ble det 2,7 millioner elementoperasjoner som ikke
+   * gjorde noe: målt 17,9 ms av 43,6, altså mer enn en tredel av tiden, brukt
+   * utenfor selve tegningen.
+   *
+   * Boksen regnes av de åtte hjørnene i gitterets omsluttende volum. Den er et
+   * OVERSLAG – den dekker alt laget kan treffe, og litt til – og det er den
+   * riktige feilretningen: for stor boks koster litt tid, for liten ville latt
+   * piksler stå igjen fra forrige lag.
+   */
+  _skjermboks(g, hoyde, kam, rb, rh, krev) {
+    const heile = { x0: 0, y0: 0, x1: rb - 1, y1: rh - 1 };
+    if (!g || !g.wx || !g.finnes) return heile;
+    let minX = Infinity, maksX = -Infinity, minY = Infinity, maksY = -Infinity;
+    let lav = Infinity, hoy = -Infinity;
+    const n = g.nb * g.nh;
+    for (let k = 0; k < n; k++) {
+      if (!g.finnes[k]) continue;
+      /* HØYDESPENNET MÅ TAS DER LAGET FAKTISK FINNES.
+         `zFerdig` er allokert til null og fylles bare inne i masken – utenfor,
+         i hele kontekstringen, står den på 0. Leste man spennet over alle
+         nodene, ble det 0–140 i stedet for 139–141 på en tomt på kote 140, og
+         med tredobbel overdrivning 420 meter høy boks. Da havnet z=0-hjørnene
+         bak nærplanet, boksen ble hele skjermen, og nettopp overbygningen –
+         det ene laget som ER gjennomsiktig – fikk ingen innsparing. */
+      if (krev && !krev[k]) continue;
+      if (g.wx[k] < minX) minX = g.wx[k];
+      if (g.wx[k] > maksX) maksX = g.wx[k];
+      if (g.wy[k] < minY) minY = g.wy[k];
+      if (g.wy[k] > maksY) maksY = g.wy[k];
+      const z = hoyde[k];
+      if (Number.isFinite(z)) { if (z < lav) lav = z; if (z > hoy) hoy = z; }
+    }
+    if (!Number.isFinite(minX) || !Number.isFinite(lav)) return heile;
+    const naer = kam.naer || 1e-6;
+    let px0 = Infinity, px1 = -Infinity, py0 = Infinity, py1 = -Infinity;
+    for (const x of [minX, maksX]) {
+      for (const y of [minY, maksY]) {
+        for (const z of [lav, hoy]) {
+          const q = kam.punkt(x, y, z);
+          /* Krysser volumet øyeplanet, er projeksjonen ikke lenger begrenset av
+             hjørnene, og et overslag er ikke lenger et overslag. */
+          if (!(q.w > naer)) return heile;
+          if (q.px < px0) px0 = q.px;
+          if (q.px > px1) px1 = q.px;
+          if (q.py < py0) py0 = q.py;
+          if (q.py > py1) py1 = q.py;
+        }
+      }
+    }
+    const x0 = Math.max(0, Math.floor(px0) - 1), x1 = Math.min(rb - 1, Math.ceil(px1) + 1);
+    const y0 = Math.max(0, Math.floor(py0) - 1), y1 = Math.min(rh - 1, Math.ceil(py1) + 1);
+    if (x0 > x1 || y0 > y1) return { x0: 0, y0: 0, x1: -1, y1: -1 };   // utenfor bildet
+    return { x0, y0, x1, y1 };
+  },
+
+  /** Nullstiller de to skrapebufferne, men bare i den delen som skal brukes. */
+  _toemBoks(boks, rb) {
+    for (let y = boks.y0; y <= boks.y1; y++) {
+      const a = y * rb + boks.x0, b = y * rb + boks.x1 + 1;
+      this._lag2.fill(0, a, b);
+      this._dyp2.fill(Infinity, a, b);
+    }
+  },
+
   /** To masker samtidig – begge må være sanne. */
   _ogsaa(a, b) {
     const ut = new Uint8Array(Math.min(a.length, b.length));
@@ -1056,10 +1215,9 @@ const Tegner3d = {
    * oppslaget ett regnestykke for begge formene. Rutenettet henges på gitteret
    * og følger det, så det bygges bare når gitteret gjør det.
    */
-  _dekningsprove(alle) {
-    const g = this._sisteGitter;
+  _dekningsprove(g, alle) {
     if (!g || !g.wx || !g.finnes) return null;
-    const rute = 2;
+    const rute = Tegner3d.DEKNINGSRUTE;
     /* RUTENETTET MÅ DEKKE HELE SCENEN, IKKE BARE DET AKTIVE ANLEGGET.
        Første utgave rammet bare det aktive inn, og da fanget den ikke det
        naboene gjør mot HVERANDRE. Står man i en smal veg mellom to tomter,
@@ -1163,16 +1321,58 @@ const Tegner3d = {
     };
   },
 
-  _tegnBakgrunn(gitre, rb, rh, kam, pal) {
+  /**
+   * Hvilken del av bakken hvert naboanlegg skal tegne.
+   *
+   * MASKEN HAR INGENTING MED KAMERAET Å GJØRE, og ble likevel bygd på nytt for
+   * hvert eneste bilde – hele rutenettet malt opp, og deretter ett oppslag per
+   * node i hvert nabogitter, seksti tusen ganger i sekundet mens man dro i
+   * modellen. Den avhenger bare av gitrene, og de skifter når man regner om,
+   * ikke når man dreier.
+   *
+   * Rekkefølgen er en del av svaret: dekningen VOKSER mens scenen bygges, så
+   * hvert anlegg får bare bakken de foregående ikke tok. Derfor kan ikke det
+   * ferdige `dekning`-objektet mellomlagres – det ville stått fullt utvokst
+   * ved neste bilde, og da hadde det første naboanlegget ikke tegnet terreng
+   * i det hele tatt. Det som lagres, er den ferdige masken per gitter.
+   */
+  _terrengmasker(g, gitre) {
+    const b = this._maskeBuffer;
+    if (b && b.g === g && b.gitre.length === gitre.length
+      && b.gitre.every((x, i) => x === gitre[i])) return b.masker;
+    const dekning = this._dekningsprove(g, gitre);
+    const masker = new Map();
+    for (const bg of gitre) {
+      if (!(bg.full && bg.eier)) continue;
+      if (dekning && bg.wx) {
+        const n2 = bg.nb * bg.nh;
+        const krev = new Uint8Array(n2);
+        for (let k = 0; k < n2; k++) {
+          if (!bg.finnes[k]) continue;
+          krev[k] = dekning.prov(bg.wx[k], bg.wy[k]) ? 0 : 1;
+        }
+        masker.set(bg, krev);
+      }
+      if (dekning) dekning.leggTil(bg);
+    }
+    this._maskeBuffer = { g, gitre: gitre.slice(), masker };
+    return masker;
+  },
+
+  /* `g` er det AKTIVE gitteret, ikke `_sisteGitter`. Her sto den forrige
+     rundens gitter, og masken ble derfor bygd mot bakken slik den lå FØR
+     byttet: ett bilde med feil deling hver gang man skiftet anlegg, og på
+     første bilde ingen deling i det hele tatt. */
+  _tegnBakgrunn(g, gitre, rb, rh, kam, pal) {
     if (!gitre || !gitre.length) return;
     const rgb = Farger.annetAnleggRgb;
     /* Dekningen bygges én gang for hele scenen og VOKSER mens den tegnes: hvert
-       anlegg legger sin egen bakke til, så det neste ikke tegner den om igjen. */
-    this._dekning = this._dekningsprove(gitre);
+       anlegg legger sin egen bakke til, så det neste ikke tegner den om igjen.
+       Se `_terrengmasker` – regnestykket henger på gitrene, ikke på bildet. */
+    const masker = this._terrengmasker(g, gitre);
     for (const bg of gitre) {
       if (bg.full && bg.eier) {
-        this._tegnFulltAnlegg(bg, rb, rh, kam, pal);
-        if (this._dekning) this._dekning.leggTil(bg);
+        this._tegnFulltAnlegg(bg, rb, rh, kam, pal, masker.get(bg) || null);
         continue;
       }
       const farge = (k00, k10, k01, k11, zz) => {
@@ -1200,7 +1400,7 @@ const Tegner3d = {
    * rutenett, fyldig – lånes med. `vegbane` og `overbygning` gjør det ikke:
    * de finnes bare hos den ene, og en tomt har ingen vegbane å slå av.
    */
-  _tegnFulltAnlegg(bg, rb, rh, kam, pal) {
+  _tegnFulltAnlegg(bg, rb, rh, kam, pal, krevTerreng) {
     const eier = bg.eier;
     const g = bg;
     const foer = {
@@ -1224,20 +1424,10 @@ const Tegner3d = {
        Men det holder ikke å slå naboens terreng AV: da henger arbeidet hans i
        lufta der det aktive anlegget ikke rekker. Naboen tegner derfor terreng
        bare UTENFOR det som alt er dekt – én sammenhengende bakke, uten at noe
-       sted får to. */
-    const dekt = this._dekning ? this._dekning.prov : null;
-    let krevTerreng = null;
-    if (dekt && bg.wx) {
-      const n2 = bg.nb * bg.nh;
-      krevTerreng = new Uint8Array(n2);
-      for (let k = 0; k < n2; k++) {
-        if (!bg.finnes[k]) continue;
-        krevTerreng[k] = dekt(bg.wx[k], bg.wy[k]) ? 0 : 1;
-      }
-    }
-    this._krevTerreng = krevTerreng;
+       sted får to. Masken kommer ferdig inn – se `_terrengmasker`. */
+    this._krevTerreng = krevTerreng || null;
     try {
-      const lagene = this.visning === 'vanlig'
+      const lagene0 = this.visning === 'vanlig'
         ? eier._lagliste(g, pal)
         : [{
           hoyde: eier._flateHoyde(g), blanding: 0,
@@ -1249,14 +1439,27 @@ const Tegner3d = {
             return (255 << 24) | (bl << 16) | (gg << 8) | r;
           }
         }];
-      for (const lag of lagene) {
-        if (!lag || !lag.hoyde) continue;
+      for (const lag0 of lagene0) {
+        if (!lag0 || !lag0.hoyde) continue;
         /* Terrenglaget kjennes på at det ikke har noe eget krav og ligger på
            `zT`; det er det ene laget som må begrenses til det udekte. */
-        let krev = lag.krev;
-        if (this._krevTerreng && lag.hoyde === g.zT) {
-          krev = lag.krev ? this._ogsaa(lag.krev, this._krevTerreng) : this._krevTerreng;
+        const erTerreng = lag0.hoyde === g.zT;
+        let krev = lag0.krev;
+        if (this._krevTerreng && erTerreng) {
+          krev = lag0.krev ? this._ogsaa(lag0.krev, this._krevTerreng) : this._krevTerreng;
         }
+        /* NABOEN SKAL SES, IKKE FORVEKSLES MED DITT EGET.
+           Med full detalj ser alle anleggene like ut, og da mister man hvilket
+           av dem man faktisk arbeider med – tre like røde flater ved siden av
+           hverandre, uten noe som sier hvilken som er din. Naboens ARBEID
+           dempes derfor: samme kulør, samme form, svakere metning. Se
+           `_dempet`.
+           TERRENGET ER UNNTATT, og det er ikke en detalj: bakken er felles og
+           delt mellom anleggene bare av hvem som rakk å tegne den. Dempet man
+           den halvparten naboen tegnet, sto det et fargesprang tvers over ei
+           linje som ikke finnes i landskapet. */
+        const lag = erTerreng || !lag0.farge ? lag0
+          : Object.assign({}, lag0, { farge: this._dempet(lag0.farge) });
         if (!(lag.blanding > 0)) {
           /* `id` er alltid null for et naboanlegg: museavlesningen skal svare
              om det man ARBEIDER med, ikke om noe man bare ser. */
@@ -1264,12 +1467,15 @@ const Tegner3d = {
             rb, rh, kam, krev);
           continue;
         }
-        this._lag2.fill(0);
-        this._dyp2.fill(Infinity);
+        const boks = this._skjermboks(g, lag.hoyde, kam, rb, rh, krev);
+        if (boks.x1 < boks.x0) continue;                 // helt utenfor bildet
+        this._toemBoks(boks, rb);
         this._raster(g, lag.hoyde, lag.farge, this._lag2, this._dyp2, null, rb, rh, kam, krev);
-        const styrke = lag.blanding, n = rb * rh;
+        const styrke = lag.blanding;
         const p = this._piksler, d1 = this._dyp, d2 = this._dyp2, l2 = this._lag2;
-        for (let i = 0; i < n; i++) {
+        for (let y = boks.y0; y <= boks.y1; y++) {
+          for (let x = boks.x0; x <= boks.x1; x++) {
+            const i = y * rb + x;
           if (!l2[i]) continue;
           if (d2[i] > d1[i]) continue;
           const s = l2[i], u = p[i];
@@ -1287,7 +1493,8 @@ const Tegner3d = {
              linja sto `_dyp` på uendelig der, og det aktive anleggets flater
              besto dybdeprøven og ble malt rett over en nabo som ligger tre
              hundre meter nærmere kameraet. */
-          if (d2[i] < d1[i]) d1[i] = d2[i];
+            if (d2[i] < d1[i]) d1[i] = d2[i];
+          }
         }
       }
     } finally {
@@ -1730,7 +1937,7 @@ const Tegner3d = {
       }];
     this._kamNa = kam;
     /* De andre anleggene først – se `_tegnBakgrunn`. */
-    this._tegnBakgrunn(this._andreNa, rb, rh, kam, pal);
+    this._tegnBakgrunn(g, this._andreNa, rb, rh, kam, pal);
     for (const lag of lagene) {
       if (!lag) continue;
       if (!(lag.blanding > 0)) {
@@ -1742,19 +1949,27 @@ const Tegner3d = {
       /* Hvert gjennomsiktige lag får SITT EGET dybdebuffer. Slår man i stedet
          av dybdeskrivingen, blander to firkanter av samme lag seg der de
          overlapper, og flaten får flekker. */
-      this._lag2.fill(0);
-      this._dyp2.fill(Infinity);
+      /* ... men bare der laget FAKTISK kan havne. `_skjermboks` projiserer de
+         åtte hjørnene av gitterets boks; utenfor den er både tømmingen og
+         blandingen bortkastet arbeid. På et vanlig bilde er det tre firedeler
+         av skjermen, ganger ett gjennomløp per gjennomsiktig lag. */
+      const boks = this._skjermboks(g, lag.hoyde, kam, rb, rh, lag.krev);
+      if (boks.x1 < boks.x0) continue;                 // helt utenfor bildet
+      this._toemBoks(boks, rb);
       this._raster(g, lag.hoyde, lag.farge, this._lag2, this._dyp2, null, rb, rh, kam, lag.krev);
       const styrke = lag.blanding;
       const p = this._piksler, d1 = this._dyp, d2 = this._dyp2, l2 = this._lag2;
-      for (let i = 0; i < n; i++) {
-        if (!l2[i]) continue;
-        if (d2[i] > d1[i]) continue;                 // ligger bak det ugjennomsiktige
-        const s = l2[i], u = p[i];
-        const r = ((s & 255) * styrke + (u & 255) * (1 - styrke)) | 0;
-        const gg = (((s >> 8) & 255) * styrke + ((u >> 8) & 255) * (1 - styrke)) | 0;
-        const bl = (((s >> 16) & 255) * styrke + ((u >> 16) & 255) * (1 - styrke)) | 0;
-        p[i] = (255 << 24) | (bl << 16) | (gg << 8) | r;
+      for (let y = boks.y0; y <= boks.y1; y++) {
+        for (let x = boks.x0; x <= boks.x1; x++) {
+          const i = y * rb + x;
+          if (!l2[i]) continue;
+          if (d2[i] > d1[i]) continue;               // ligger bak det ugjennomsiktige
+          const s = l2[i], u = p[i];
+          const r = ((s & 255) * styrke + (u & 255) * (1 - styrke)) | 0;
+          const gg = (((s >> 8) & 255) * styrke + ((u >> 8) & 255) * (1 - styrke)) | 0;
+          const bl = (((s >> 16) & 255) * styrke + ((u >> 16) & 255) * (1 - styrke)) | 0;
+          p[i] = (255 << 24) | (bl << 16) | (gg << 8) | r;
+        }
       }
     }
 
