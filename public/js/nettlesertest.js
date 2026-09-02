@@ -1625,50 +1625,66 @@ const Nettlesertest = {
                 /* ================================================================
                    DEMPINGEN: naboen skal sees, ikke forveksles.
 
-                   Det er metningen som dempes, ikke lysstyrken – se `_dempet`.
-                   De tre tingene som MÅ holde, er de tre som gikk galt da den
-                   blandet mot bakgrunnsfargen i stedet: en gråtone må komme
-                   urørt gjennom (ellers får det felles terrenget en søm),
-                   lysstyrken må stå (ellers ser man fargen men ikke formen),
-                   og kuløren må stå (ellers er en dempet skjæring ikke lenger
-                   en skjæring).
+                   Metningen svekkes og lyset senkes med en FAKTOR – se
+                   `_dempet`. Kravene er de som ble brutt av de to tidligere
+                   utgavene: hver eneste flate programmet faktisk tegner må bli
+                   synlig annerledes (metning alene gjorde ingenting på
+                   vegbanen og bærelaget, som er grå fra før), og forholdet
+                   mellom lys og skygge må stå urørt (et ledd som TREKKER FRA
+                   klemte spennet 0,55–1,00 ned og tok bort formen).
                    ================================================================ */
                 {
                   const kanal = v => [v & 255, (v >> 8) & 255, (v >> 16) & 255, (v >>> 24) & 255];
                   const lag = v => (255 << 24) | (v[2] << 16) | (v[1] << 8) | v[0];
                   const gjennom = p => kanal(Tegner3d._dempet(() => lag(p))(0, 0, 0, 0, 0));
 
-                  /* EN GRÅTONE SKAL KOMME UENDRET GJENNOM. Terrenget er felles
-                     og delt mellom anleggene bare av hvem som rakk å tegne det;
-                     rørte dempingen den, sto det et fargesprang tvers over ei
-                     linje som ikke finnes i landskapet. */
-                  let graaFeil = 0;
-                  for (const v of [0, 40, 78, 142, 200, 255]) {
-                    const q = gjennom([v, v, v]);
-                    if (q[0] !== v || q[1] !== v || q[2] !== v) graaFeil++;
+                  /* HVER FLATE MÅ BLI SYNLIG ANNERLEDES. Dette er hele
+                     hensikten, og det er nettopp her metning alene sviktet:
+                     `--data-slitelag` og `--data-baerelag` har metning 0,10 og
+                     0,06, og endret seg med fire nivåer av 255 – altså ikke i
+                     det hele tatt. Og det er de to som er selve leveransen. */
+                  const flater = ['data-skjaering-flate', 'data-fylling-flate',
+                    'data-fjell', 'data-slitelag', 'data-baerelag'];
+                  let svakest = 999, svakestNavn = '';
+                  for (const navn of flater) {
+                    const p = Farger.rgb(navn);
+                    if (!p) continue;
+                    const q = gjennom([p[0], p[1], p[2]]);
+                    let d = 0;
+                    for (let c = 0; c < 3; c++) d = Math.max(d, Math.abs(p[c] - q[c]));
+                    if (d < svakest) { svakest = d; svakestNavn = navn; }
                   }
-                  this.sjekk('  dempingen rører ikke en gråtone – terrenget får ingen søm',
-                    graaFeil === 0, graaFeil + ' av 6 gråtoner endret');
+                  this.sjekk('  dempingen endrer HVER flate programmet tegner, synlig',
+                    svakest >= 8, 'svakest ' + svakestNavn + ': ' + svakest + ' av 255');
 
-                  /* LYSSTYRKEN SKAL STÅ. `_lys` holder med vilje 0,55–1,00
-                     fordi et videre spenn gjør at man ser fargen, men ikke
-                     formen. Dempingen må ikke spise av det spennet. */
-                  let verstLys = 0;
-                  for (const p of [[255, 40, 30], [60, 140, 60], [180, 180, 60], [30, 90, 200]]) {
-                    const q = gjennom(p);
-                    const l1 = 0.299 * p[0] + 0.587 * p[1] + 0.114 * p[2];
-                    const l2 = 0.299 * q[0] + 0.587 * q[1] + 0.114 * q[2];
-                    verstLys = Math.max(verstLys, Math.abs(l1 - l2));
+                  /* FORHOLDET MELLOM LYS OG SKYGGE SKAL STÅ. `_lys` holder med
+                     vilje 0,55–1,00 fordi et videre spenn gjør at man ser
+                     fargen, men ikke formen. En faktor rører ikke det
+                     forholdet; et fratrekk klemmer det sammen. */
+                  let verstSpenn = 0;
+                  for (const p of [[255, 40, 30], [60, 140, 60], [160, 163, 170]]) {
+                    const luma = q => 0.299 * q[0] + 0.587 * q[1] + 0.114 * q[2];
+                    const lys = gjennom(p.map(v => Math.min(255, v)));
+                    const skygge = gjennom(p.map(v => Math.min(255, v * 0.55)));
+                    const foerR = luma(p.map(v => v * 0.55)) / luma(p);
+                    const etterR = luma(skygge) / Math.max(1e-9, luma(lys));
+                    verstSpenn = Math.max(verstSpenn, Math.abs(foerR - etterR));
                   }
-                  this.sjekk('    og den beholder lysstyrken – formen er like tydelig',
-                    verstLys < 1.5, 'verst ' + verstLys.toFixed(2) + ' av 255');
+                  this.sjekk('    og forholdet lys/skygge står urørt – formen blir',
+                    verstSpenn < 0.02, 'verst ' + verstSpenn.toFixed(4));
 
                   const ut = gjennom([255, 40, 30]);
                   this.sjekk('    kuløren står – rødt er fortsatt rødt',
                     ut[0] > ut[1] && ut[0] > ut[2], ut.join(', '));
                   this.sjekk('    men svakere – ellers ser man ingen forskjell',
-                    ut[0] - Math.min(ut[1], ut[2]) < 255 - 30 - 20,
+                    ut[0] - Math.min(ut[1], ut[2]) < 225 - 40,
                     'spenn ' + (ut[0] - Math.min(ut[1], ut[2])) + ' (var 225)');
+                  /* En gråtone skal bli grå igjen, ikke få en kulør: en dempet
+                     bakke med et fargestikk leses som et annet materiale. */
+                  const gq = gjennom([142, 142, 142]);
+                  this.sjekk('    og en gråtone er fortsatt grå, bare mørkere',
+                    gq[0] === gq[1] && gq[1] === gq[2] && gq[0] < 142,
+                    gq.slice(0, 3).join(', '));
 
                   let overflod = 0, gjennomsiktig = 0;
                   for (const p of [[255, 255, 255], [0, 0, 0], [255, 0, 0], [0, 255, 0],
@@ -1685,6 +1701,17 @@ const Nettlesertest = {
                      en gråtone, fikk hver node uten flate en firkant. */
                   this.sjekk('    og «ingen farge» blir fortsatt ingen farge',
                     Tegner3d._dempet(() => 0)(0, 0, 0, 0, 0) === 0);
+
+                  /* I «før» og «etter» er modellen ÉN flate: bakke der ingen
+                     har gjort noe, arbeid der noen har. Bakken er felles med
+                     naboen og MÅ stå urørt – ellers er sømmen tilbake. */
+                  const bygd = new Uint8Array([0, 1]);
+                  const raa = lag([200, 60, 50]);
+                  const dd = Tegner3d._dempetDer(() => raa, bygd);
+                  this.sjekk('    i før/etter står den felles bakken helt urørt',
+                    dd(0, 0, 0, 0, 0) === raa, 'urørt der ingen har gravd');
+                  this.sjekk('    mens arbeidet ved siden av dempes',
+                    dd(1, 0, 0, 0, 0) !== raa);
                 }
 
                 /* NABOEN SKAL IKKE VÆRE GROVERE ENN HAN VILLE VÆRT SELV.
@@ -1767,6 +1794,47 @@ const Nettlesertest = {
                   this.sjekk('    men et nytt gitter gir en ny maske',
                     m3 !== m1);
                   Tegner3d._maskeBuffer = null;
+
+                  /* ET STORT ANLEGG SKAL FÅ EN GROVERE MASKE, IKKE INGEN.
+                     Rutenettet spenner over hele scenen og celletallet er
+                     kvadratisk i oppløsningen, så en to kilometers veg sprengte
+                     taket på fire millioner ved 0,5 m. Sto det en `return null`
+                     der, forsvant HELE delingen på nettopp de store anleggene –
+                     hvert naboanlegg tegnet terrenget sitt om igjen, og
+                     ingenting sa fra. */
+                  {
+                    const langt = { nb: 2, nh: 2, wx: new Float64Array([0, 4000, 0, 4000]),
+                      wy: new Float64Array([0, 0, 4000, 4000]),
+                      finnes: new Uint8Array([1, 1, 1, 1]) };
+                    const d = Tegner3d._dekningsprove(langt, []);
+                    this.sjekk('  en scene på fire kilometer får fortsatt en maske',
+                      !!d && typeof d.prov === 'function', d ? 'bygd' : 'INGEN');
+                    if (d) {
+                      this.sjekk('    og den svarer på et punkt inne i scenen',
+                        d.prov(2000, 2000) === false || d.prov(2000, 2000) === true,
+                        'svarer');
+                    }
+                  }
+
+                  /* FELLESSKALAEN MÅ LEGGES TILBAKE SELV OM NOE KASTER.
+                     `maksAvvik` settes på de MELLOMLAGREDE nabogitrene, som
+                     lever videre mellom bildene. Uten `finally` bar de naboens
+                     skala for alltid, og et anlegg som senere ble det aktive
+                     fikk fargeskalaen til noe helt annet. */
+                  {
+                    const foerAvvik = medFull.filter(x => x.full).map(x => [x, x.maksAvvik]);
+                    const org = Tegner3d._tegnBakgrunn;
+                    Tegner3d._tegnBakgrunn = () => { throw new Error('prøvekast'); };
+                    let kastet = false;
+                    try { Veg3d.tegn(); } catch (e) { kastet = true; }
+                    Tegner3d._tegnBakgrunn = org;
+                    const staar = foerAvvik.every(([x, m]) => x.maksAvvik === m);
+                    this.sjekk('  et kast under tegningen lar ikke naboens fargeskala bli stående',
+                      foerAvvik.length === 0 || staar,
+                      (kastet ? 'kastet, ' : 'kastet ikke, ')
+                      + foerAvvik.map(([x, m]) => (x.maksAvvik === m ? 'ok' : 'STÅR IGJEN')).join(', '));
+                    Veg3d.tegn();
+                  }
                 }
               }
 

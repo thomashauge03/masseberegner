@@ -590,7 +590,16 @@ const Tomt3d = Object.assign(Object.create(Tegner3d), {
         ? { hoyde: g.zT, farge: enkel(Farger.terrengFlateRgb), blanding: 0, krev: g.utenGrav }
         : { hoyde: g.zT, farge: enkel(Farger.terrengFlateRgb), blanding: 0.45 });
     }
-    if (this.lag.fjell) ut.push({ hoyde: g.zF, farge: enkel(Farger.fjellRgb), blanding: 0.5 });
+    /* `krev: g.harGrav` – samme som vegen har. Uten den tegnet fjellaget seg
+       over HELE gitteret, også de førti metrene kontekstring rundt tomta. Der
+       er `zF` satt lik terrenget (se gitterbyggingen), så laget malte i
+       praksis dagens bakke i fjellfarge, førti meter ut i noe ingen skal
+       sprenge. Med en nabotomt i bildet ble det verre enn bare feil: to
+       ringer i nøyaktig samme kote sloss om dybden piksel for piksel, og
+       kamuflasjemønsteret dekningsmasken finnes for å fjerne var tilbake. */
+    if (this.lag.fjell) {
+      ut.push({ hoyde: g.zF, krev: g.harGrav, farge: enkel(Farger.fjellRgb), blanding: 0.5 });
+    }
     if (this.lag.overbygning) {
       ut.push({ hoyde: g.zFerdig, blanding: 0.6, krev: g.harFerdig,
         farge: enkel(Farger.rgb('data-baerelag')) });

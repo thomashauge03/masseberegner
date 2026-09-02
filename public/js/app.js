@@ -201,8 +201,8 @@ const App = {
     if (typeof Tegner3d !== 'undefined') {
       Tegner3d._fulle = null;
       Tegner3d._fulleUtelatt = null;
-      if (typeof Veg3d !== 'undefined') Veg3d._andreNokkel = null;
-      if (typeof Tomt3d !== 'undefined') Tomt3d._andreNokkel = null;
+      if (typeof Veg3d !== 'undefined') Veg3d.glemBakgrunn();
+      if (typeof Tomt3d !== 'undefined') Tomt3d.glemBakgrunn();
     }
     /* Er `mal` eller `ip` en egen nøkkel pa prosjektet, er fila fra før
        tomtemodus. I den nye forma finnes de bare som ikke-tellbare aksessorer,
@@ -625,7 +625,7 @@ const App = {
       vis.senter = null; vis.fokus = null;
       vis.panX = 0; vis.panY = 0;
       vis._skalaSatt = false;
-      vis._andreNokkel = null;              // bakgrunnen er et annet sett nå
+      vis.glemBakgrunn();              // bakgrunnen er et annet sett nå
     }
     if (this.erTomt()) Kart.settModus(this.P.tomt.punkter.length ? 'rediger' : 'tegnTomt');
     else Kart.settModus('rediger');

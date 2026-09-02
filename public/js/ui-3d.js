@@ -592,7 +592,7 @@ const Tegner3d = {
     for (const vis of [typeof Veg3d !== 'undefined' ? Veg3d : null,
       typeof Tomt3d !== 'undefined' ? Tomt3d : null]) {
       if (!vis) continue;
-      vis._andreNokkel = null;
+      vis.glemBakgrunn();
       vis._skalaSatt = false;
       if (vis.aktiv) vis.tegn();
     }
@@ -706,7 +706,7 @@ const Tegner3d = {
     for (const vis of [typeof Veg3d !== 'undefined' ? Veg3d : null,
       typeof Tomt3d !== 'undefined' ? Tomt3d : null]) {
       if (!vis) continue;
-      vis._andreNokkel = null;
+      vis.glemBakgrunn();
       vis._skalaSatt = false;
     }
     this.visAndreliste();
@@ -1067,9 +1067,31 @@ const Tegner3d = {
    * den forskjellen øyet trenger for å se hvilket anlegg som er ens eget.
    *
    * 0,40 er målt fram: ved 0,65 kunne man fortsatt ta feil, ved 0,20 var
-   * naboens skjæring ikke lenger til å skille fra fylling.
+   * naboens skjæring ikke lenger til å skille fra fylling. Merk at det er en
+   * KANALfaktor, ikke en metningsfaktor: fordi gråpunktet er luma og ikke
+   * maksimalkanalen, faller den målte metningen med 0,47 til 0,62 alt etter
+   * fargen – fjell 0,51, skjæring 0,62, fylling 0,47.
    */
   METNING: 0.40,
+
+  /**
+   * … men metning alene hjelper ikke på en flate som er grå fra før.
+   *
+   * Målt metning på de fargene programmet faktisk bruker: skjæring 0,86,
+   * fylling 0,68, fjell 0,53 – og så vegbanen på 0,10 og bærelaget på 0,06.
+   * De to siste endret seg med FIRE nivåer av 255 under metningsdempingen,
+   * altså ikke i det hele tatt. Og det er nettopp de to som er selve
+   * leveransen: en nabovegs ferdige vegbane var ikke til å skille fra ens
+   * egen.
+   *
+   * Lysdempingen er MULTIPLIKATIV, og det er hele poenget. Lyset holdes i
+   * 0,55–1,00, og et ledd som TREKKER FRA – slik den første utgaven gjorde da
+   * den blandet mot bakgrunnen – klemmer det spennet sammen og tar bort
+   * formen. En faktor endrer ikke forholdet mellom lys og skygge i det hele
+   * tatt; den senker bare nivået. Naboens skråninger er like lesbare som før,
+   * bare mørkere.
+   */
+  LYSDEMPING: 0.80,
 
   /**
    * Hvor grovt et NABOANLEGG av typen tomt regnes ut i bakgrunnen.
@@ -1111,20 +1133,35 @@ const Tegner3d = {
   DEKNINGSRUTE: 0.5,
 
   _dempet(farge) {
-    const k = this.METNING;
+    const k = this.METNING, ly = this.LYSDEMPING;
     return (k00, k10, k01, k11, z) => {
       const f = farge(k00, k10, k01, k11, z);
       /* 0 betyr «tegn ingenting» i `_raster`, ikke «svart». Det må komme
          uendret gjennom, ellers får hver node uten flate en firkant. */
       if (f === 0) return 0;
       const r = f & 255, g = (f >> 8) & 255, b = (f >> 16) & 255;
-      // samme vekting som øyet bruker, så gråtonen holder lysstyrken
+      // samme vekting som øyet bruker, så gråtonen holder forholdene
       const gr = 0.299 * r + 0.587 * g + 0.114 * b;
-      const r2 = (gr + (r - gr) * k + 0.5) | 0;
-      const g2 = (gr + (g - gr) * k + 0.5) | 0;
-      const b2 = (gr + (b - gr) * k + 0.5) | 0;
+      const r2 = ((gr + (r - gr) * k) * ly + 0.5) | 0;
+      const g2 = ((gr + (g - gr) * k) * ly + 0.5) | 0;
+      const b2 = ((gr + (b - gr) * k) * ly + 0.5) | 0;
       return (255 << 24) | (b2 << 16) | (g2 << 8) | r2;
     };
+  },
+
+  /**
+   * Samme demping, men bare der anlegget faktisk har rørt bakken.
+   *
+   * I «før» og «etter» er hele modellen ÉN flate: terreng der ingen har gjort
+   * noe, arbeid der noen har. De to halvdelene skal behandles ulikt – bakken
+   * er felles med naboen og må stå urørt, arbeidet er hans og skal dempes –
+   * og skillet er kjent per node.
+   */
+  _dempetDer(farge, bygd) {
+    const dempa = this._dempet(farge);
+    return (k00, k10, k01, k11, z) => (bygd[k00]
+      ? dempa(k00, k10, k01, k11, z)
+      : farge(k00, k10, k01, k11, z));
   },
 
   /**
@@ -1217,7 +1254,6 @@ const Tegner3d = {
    */
   _dekningsprove(g, alle) {
     if (!g || !g.wx || !g.finnes) return null;
-    const rute = Tegner3d.DEKNINGSRUTE;
     /* RUTENETTET MÅ DEKKE HELE SCENEN, IKKE BARE DET AKTIVE ANLEGGET.
        Første utgave rammet bare det aktive inn, og da fanget den ikke det
        naboene gjør mot HVERANDRE. Står man i en smal veg mellom to tomter,
@@ -1237,9 +1273,24 @@ const Tegner3d = {
     bok(g);
     for (const bg of (alle || [])) if (bg && bg.wx) bok(bg);
     if (!Number.isFinite(minX)) return null;
-    const nb = Math.max(2, Math.ceil((maksX - minX) / rute) + 1);
-    const nh = Math.max(2, Math.ceil((maksY - minY) / rute) + 1);
-    if (nb * nh > 4e6) return null;
+    /* GROVERE ER UENDELIG MYE BEDRE ENN INGENTING.
+       Rutenettet spenner over HELE scenen, kontekstringene med, og celletallet
+       er kvadratisk i oppløsningen. Med 0,5 m rekker taket på fire millioner
+       bare en scene på tusen ganger tusen meter – og en to kilometers veg med
+       en tomt ved siden av er 2000 × 500. Sto det bare en `return null` her,
+       forsvant HELE delingen på nettopp de store anleggene: hvert naboanlegg
+       tegnet terrenget sitt om igjen, kamuflasjemønsteret var tilbake, og
+       ingenting sa fra. Ruta grovnes derfor i stedet, akkurat nok til å komme
+       under taket. Kanten blir litt mer trappet på et digert anlegg; den
+       finnes i det minste. */
+    const TAK = 4e6;
+    const bredde = Math.max(1, maksX - minX), hogd = Math.max(1, maksY - minY);
+    let rute = Tegner3d.DEKNINGSRUTE;
+    const trengs = (bredde / rute + 2) * (hogd / rute + 2);
+    if (trengs > TAK) rute = Math.sqrt((bredde * hogd) / TAK) * 1.05;
+    const nb = Math.max(2, Math.ceil(bredde / rute) + 1);
+    const nh = Math.max(2, Math.ceil(hogd / rute) + 1);
+    if (nb * nh > TAK) return null;                 // skal ikke kunne skje
     const har = new Uint8Array(nb * nh);
     /* Firkantene males inn, ikke bare hjørnene: med bare hjørnene ville vegen
        fått hull hver femte meter, og naboen hadde tegnet terreng i dem. */
@@ -1336,6 +1387,18 @@ const Tegner3d = {
    * ved neste bilde, og da hadde det første naboanlegget ikke tegnet terreng
    * i det hele tatt. Det som lagres, er den ferdige masken per gitter.
    */
+  /**
+   * Bakgrunnen er et annet sett nå – slipp både gitrene og maskene deres.
+   *
+   * De to hører sammen og må slippes sammen. Maskene nøkles på gitteridentitet
+   * og kan derfor ikke bli FEIL av at de blir liggende – men de holder liv i
+   * hele forrige prosjekts gitre, ett `Uint8Array` per nabo, og det gjør de
+   * nettopp der `klargjorProsjekt` med vilje slipper alt annet. Verst er
+   * «vis andre av»: da leverer `_bakgrunnsgitre` en tom liste, `_tegnBakgrunn`
+   * går ut med en gang, og ingenting overskriver bufferet igjen.
+   */
+  glemBakgrunn() { this._andreNokkel = null; this._maskeBuffer = null; },
+
   _terrengmasker(g, gitre) {
     const b = this._maskeBuffer;
     if (b && b.g === g && b.gitre.length === gitre.length
@@ -1411,7 +1474,11 @@ const Tegner3d = {
     eier.fyldig = this.fyldig;
     eier._kamNa = kam;
     eier.lag = Object.assign({}, eier.lag);
-    for (const felt of ['grav', 'fjell', 'rutenett']) {
+    /* `terreng` sto ikke her, tross det som står over. Slo man da av terrenget
+       på sitt eget anlegg, tegnet naboen det likevel – og siden terrenget er
+       unntatt fra dempingen, sto naboens bakke i FULL styrke mens man selv
+       ikke viste noen. */
+    for (const felt of ['terreng', 'grav', 'fjell', 'rutenett']) {
       if (felt in this.lag) eier.lag[felt] = this.lag[felt];
     }
     /* TERRENGET ER ÉN FLATE, OG SKAL TEGNES ÉN GANG.
@@ -1439,14 +1506,30 @@ const Tegner3d = {
             return (255 << 24) | (bl << 16) | (gg << 8) | r;
           }
         }];
+      /* HVOR ANLEGGET FAKTISK HAR RØRT BAKKEN.
+         Utenfor dette er flaten – uansett visning – dagens terreng, og altså
+         felles med naboen. */
+      const bygd = g.harGrav || g.harVeg || g.harFerdig || null;
       for (const lag0 of lagene0) {
         if (!lag0 || !lag0.hoyde) continue;
-        /* Terrenglaget kjennes på at det ikke har noe eget krav og ligger på
-           `zT`; det er det ene laget som må begrenses til det udekte. */
+        /* Terrenglaget kjennes på at det ligger på `zT`.
+           I «før» og «etter» finnes det ikke noe eget terrenglag: hele
+           laglista er ÉN flate, og den er terreng der anlegget ikke har rørt
+           noe og arbeid der det har. Sto testen bare på `zT`, var hele
+           delingen koblet ut i de to visningene – naboen tegnet ugjennomsiktig
+           over den samme bakken som det aktive anlegget, og kamuflasjen var
+           tilbake. `_flateHoyde` i «før» ER `zT`, så det er «etter» som
+           trengte dette. */
+        const heilflate = this.visning !== 'vanlig';
         const erTerreng = lag0.hoyde === g.zT;
         let krev = lag0.krev;
         if (this._krevTerreng && erTerreng) {
           krev = lag0.krev ? this._ogsaa(lag0.krev, this._krevTerreng) : this._krevTerreng;
+        } else if (this._krevTerreng && heilflate && bygd) {
+          krev = new Uint8Array(bygd.length);
+          for (let k = 0; k < krev.length; k++) {
+            krev[k] = bygd[k] ? 1 : this._krevTerreng[k];
+          }
         }
         /* NABOEN SKAL SES, IKKE FORVEKSLES MED DITT EGET.
            Med full detalj ser alle anleggene like ut, og da mister man hvilket
@@ -1457,9 +1540,18 @@ const Tegner3d = {
            TERRENGET ER UNNTATT, og det er ikke en detalj: bakken er felles og
            delt mellom anleggene bare av hvem som rakk å tegne den. Dempet man
            den halvparten naboen tegnet, sto det et fargesprang tvers over ei
-           linje som ikke finnes i landskapet. */
-        const lag = erTerreng || !lag0.farge ? lag0
-          : Object.assign({}, lag0, { farge: this._dempet(lag0.farge) });
+           linje som ikke finnes i landskapet.
+           I «før» og «etter» er flaten både bakke og arbeid, og da dempes den
+           bare der anlegget har rørt noe – se `_dempetDer`.
+           `krev` legges på kopien òg, ikke bare i den lokale variabelen: to
+           `krev` med ulik verdi i samme funksjon er en felle for den neste
+           som leser koden. */
+        const dempFarge = !lag0.farge ? null
+          : (heilflate && bygd ? this._dempetDer(lag0.farge, bygd)
+            : erTerreng ? null : this._dempet(lag0.farge));
+        const lag = dempFarge
+          ? Object.assign({}, lag0, { farge: dempFarge, krev })
+          : (krev === lag0.krev ? lag0 : Object.assign({}, lag0, { krev }));
         if (!(lag.blanding > 0)) {
           /* `id` er alltid null for et naboanlegg: museavlesningen skal svare
              om det man ARBEIDER med, ikke om noe man bare ser. */
@@ -1519,7 +1611,7 @@ const Tegner3d = {
       typeof Tomt3d !== 'undefined' ? Tomt3d : null]) {
       if (!vis || !vis.lag) continue;
       vis.lag.andre = !!pa;
-      vis._andreNokkel = null;
+      vis.glemBakgrunn();
       vis._skalaSatt = false;                 // innrammingen dekker nå noe annet
     }
     this.visAndreknapp();
@@ -1936,6 +2028,13 @@ const Tegner3d = {
         }
       }];
     this._kamNa = kam;
+    /* FELLESSKALAEN MÅ LEGGES TILBAKE SELV OM NOE KASTER.
+       `maksAvvik` settes på de MELLOMLAGREDE nabogitrene, som lever videre
+       mellom bildene. Kaster noe under tegningen – `_lagliste` på et naboanlegg
+       er den nærmeste kandidaten – ble tilbakelegget nedenfor hoppet over, og
+       da bar de gitrene naboens skala for alltid: et anlegg som senere ble det
+       aktive fikk fargeskalaen til noe helt annet, uten at noe sa hvorfor. */
+    try {
     /* De andre anleggene først – se `_tegnBakgrunn`. */
     this._tegnBakgrunn(g, this._andreNa, rb, rh, kam, pal);
     for (const lag of lagene) {
@@ -1972,9 +2071,10 @@ const Tegner3d = {
         }
       }
     }
-
-    // felles fargeskala legges tilbake – se `_felleskala`
-    for (const [gg, m] of skalaFoer) gg.maksAvvik = m;
+    } finally {
+      // felles fargeskala legges tilbake – se `_felleskala`
+      for (const [gg, m] of skalaFoer) gg.maksAvvik = m;
+    }
     g2.putImageData(this._bilde, 0, 0);
     this._sisteGitter = g;
     this._sisteKam = kam;
