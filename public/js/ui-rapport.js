@@ -1525,7 +1525,8 @@ ${merknader ? `<h2>Merknader</h2><table><thead><tr><th>Type</th><th>Merknad</th>
           + hoppet.map(h => (h.anlegg.navn || h.anlegg.type) + ': ' + h.grunn).join('; '), true);
         return;
       }
-      const sum = app.prosjektsum() || {};
+      // nøyaktig de anleggene som fikk en rad – se App.prosjektsum
+      const sum = app.prosjektsum(tatt.map(x => x.anlegg.id)) || {};
       const dato = new Date().toLocaleDateString('nb-NO',
         { day: '2-digit', month: 'long', year: 'numeric' });
       const rad = b => `<tr><td>${b.kode} · ${escapeHtml(b.navn)}</td><td>${b.type}</td>`

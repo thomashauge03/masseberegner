@@ -476,6 +476,47 @@ console.log('\n4a. Feil som er funnet og rettet');
   ]);
   sjekk('sammenfallende punkt gir fortsatt riktig lengde', dobbelt.lengde, 200, 1e-6);
 
+  /* OG RADIEN SKAL OVERLEVE, UANSETT HVOR I GRUPPA DEN LIGGER.
+     Radien ble skrevet inn i `alle[i - 1]`, altså naboen i den USILTE lista –
+     og den kan selv være slettet i samme runde. Med tre sammenfallende punkt
+     og radien på det siste havnet den i nummer to, som forsvant like etter:
+     null kurver, lengden 241,421 m i stedet for 238,840. Profilene stasjoneres
+     langs linja, så en linje som er 8,6 m for lang på en 716 m veg legger
+     profiler opptil 17 m feil i terrenget – og massene regnes mot feil bakke.
+     Tre sammenfallende punkt er to dobbeltklikk på samme sted i kartet.
+
+     Prøven over brukte bare TO punkt uten radius, og der overlever den. */
+  {
+    const rent = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 100, y: 0, r: 60 },
+      { x: 200, y: 100, r: 0 }]);
+    let verstL = 0, verstR = 0, verstNavn = '';
+    for (const n of [2, 3, 4]) {
+      for (let pos = 0; pos < n; pos++) {
+        const grp = [];
+        for (let k = 0; k < n; k++) grp.push({ x: 100, y: 0, r: k === pos ? 60 : 0 });
+        const L = new Linjeforing([{ x: 0, y: 0, r: 0 }].concat(grp)
+          .concat([{ x: 200, y: 100, r: 0 }]));
+        const dL = Math.abs(L.lengde - rent.lengde);
+        const dR = Math.abs((L.kurver[0] ? L.kurver[0].r : 0) - 60);
+        if (dL > verstL || dR > verstR) verstNavn = n + ' punkt, radius på nr. ' + (pos + 1);
+        verstL = Math.max(verstL, dL);
+        verstR = Math.max(verstR, dR);
+      }
+    }
+    sjekk('radien overlever uansett hvor i duplikatgruppa den ligger'
+      + (verstNavn ? ' (verst: ' + verstNavn + ')' : ''), verstR, 0, 1e-9);
+    sjekk('  og lengden blir den samme som uten duplikatene', verstL, 0, 1e-9);
+    /* Duplikatvarselet skal ikke kunne slå ut et innkortingsvarsel: det ene
+       nummererer i brukerens liste, det andre i den sammenslåtte. */
+    const medDup = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 100, y: 0, r: 0 },
+      { x: 100, y: 0, r: 0 }, { x: 200, y: 100, r: 500 }, { x: 300, y: 100, r: 0 }]);
+    const utenDup = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 100, y: 0, r: 0 },
+      { x: 200, y: 100, r: 500 }, { x: 300, y: 100, r: 0 }]);
+    const tell = L => (L.advarsler || []).filter(a => /kortet inn/.test(a.tekst || '')).length;
+    sjekk('  og et duplikat skjuler ikke at radien ble kortet inn',
+      tell(medDup), tell(utenDup), 0);
+  }
+
   /* Pappus-vekten (1 + t·krumning) blir negativ forbi kurvesenteret. Da ble
      et areal trukket fra i stedet for lagt til, og et fyllingsareal pa 36 m²
      kom ut som −0,3 m². */

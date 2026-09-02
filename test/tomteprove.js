@@ -1264,5 +1264,144 @@ console.log('\n28. En høyde som ikke går, skal si at den ikke går');
 }
 
 /* ------------------------------------------------------------------ */
+console.log('\n29. Arealet er polygonets, ikke antall ruter');
+{
+  /* Arealet ble lagt opp celle for celle: hver celle med sentrum innenfor
+     talte helt, hver med sentrum utenfor talte ikke. En systematisk
+     underteljing som alltid går samme vei, og som IKKE krymper når man finner
+     rutenettet – den avhenger av hvor kanten faller mellom to cellesentre.
+     Panelet ved siden av viste hele tiden det eksakte tallet, så de to sto og
+     motsa hverandre på skjermen.
+
+     Prøvene her brukte 40 × 60 m med hjørne i origo, og den treffer rutenettet
+     nøyaktig: avvik 0,00 %. Derfor må denne bruke BRØKDIMENSJONER. */
+  const areal = pp => {
+    let s2 = 0;
+    for (let i = 0, j = pp.length - 1; i < pp.length; j = i++) {
+      s2 += (pp[j].x + pp[i].x) * (pp[j].y - pp[i].y);
+    }
+    return Math.abs(s2 / 2);
+  };
+  const kjorA = (b, h, rute, sok, ekstra) => {
+    const pp = [{ x: 0, y: 0 }, { x: b, y: 0 }, { x: b, y: h }, { x: 0, y: h }];
+    const mal = Object.assign(grunnmal(), { maksSokebredde: sok || 60 }, ekstra || {});
+    const r = T.beregnTomtemasser({
+      tomt: { punkter: pp, kanter: [], nivaa: { modus: 'flat', kote: 100 } },
+      mal, terreng: { z: () => 100 }, fjell: new M.Fjellmodell({ standarddybde: 100 }),
+      rutestorrelse: rute, bakkefaktor: 1
+    });
+    return { r, fasit: areal(pp) };
+  };
+  let verst = 0, verstNavn = '';
+  for (const [b, h] of [[24.5, 37.5], [10.5, 10.5], [50.5, 40.5], [40, 60], [33.3, 17.7]]) {
+    const { r, fasit } = kjorA(b, h, 1);
+    const avvik = Math.abs(r.areal - fasit) / fasit;
+    if (avvik > verst) { verst = avvik; verstNavn = b + ' × ' + h + ' m'; }
+  }
+  sjekk('arealet er polygonets areal, også med brøkdimensjoner'
+    + (verstNavn ? ' (verst ' + verstNavn + ')' : ''), verst, 0, 0.001);
+
+  /* SØKEBREDDEN ER EN LETEINNSTILLING, IKKE ET SVAR.
+     Rutenettets fase var forankret i `minX - maksUt`, altså i søkebredden – så
+     å skru den ett hakk flyttet hele nettet en brøkdel av en rute, og dermed
+     hvilke celler som havnet hvor. Arealet er nå eksakt og merker det ikke,
+     men SKJÆRINGEN OG FYLLINGEN regnes fortsatt celle for celle, og de merket
+     det: på en tomt som ikke ligger på rutenettet, i skrånende terreng, ga
+     søkebredde 40 og 41 henholdsvis 479,80 og 477,52 m³ skjæring og 305,24 mot
+     308,31 fylling – en prosent, fra en innstilling som bare sier hvor langt
+     det LETES etter skråningsfoten.
+
+     Tomta ligger med vilje på skjeve koordinater og i hellende terreng. Ligger
+     den på rutenettet, eller er marka flat, merker ingen av tallene fasen –
+     og det var nettopp derfor de gamle prøvene ikke fanget den. */
+  {
+    const skjeivt = [{ x: 0.3, y: 0.7 }, { x: 25.3, y: 0.7 },
+      { x: 25.3, y: 35.7 }, { x: 0.3, y: 35.7 }];
+    const kjorS = sok => T.beregnTomtemasser({
+      tomt: { punkter: skjeivt, kanter: [], nivaa: { modus: 'flat', kote: 100 } },
+      mal: Object.assign(grunnmal(), { maksSokebredde: sok }),
+      terreng: { z: (x, y) => 100 + x * 0.08 - y * 0.05 },
+      fjell: new M.Fjellmodell({ standarddybde: 100 }),
+      rutestorrelse: 2, bakkefaktor: 1
+    });
+    const kjoringer = [40, 41, 42, 43].map(kjorS);
+    const spenn = felt => {
+      const v = kjoringer.map(r => r.sum[felt]);
+      return Math.max(...v) - Math.min(...v);
+    };
+    sjekk('søkebredden flytter ikke skjæringen', spenn('skjaering'), 0, 0.01);
+    sjekk('  og heller ikke fyllingen', spenn('fylling'), 0, 0.01);
+    /* Og prøven må faktisk ha noe å måle på – null mot null beviser intet. */
+    paastand('  og tomta har både skjæring og fylling å flytte på',
+      kjoringer[0].sum.skjaering > 100 && kjoringer[0].sum.fylling > 100);
+  }
+
+  /* Og overbygningen – konstant tykkelse over en kjent flate – skal ikke
+     flytte seg når man finner rutenettet. */
+  const bl = [1, 0.5, 0.25].map(rute =>
+    kjorA(24.5, 37.5, rute, 60, { baerelagTykkelse: 0.55 }).r.sum.baerelag);
+  sjekk('bærelaget er det samme uansett rutestørrelse',
+    Math.max(...bl) - Math.min(...bl), 0, 0.01);
+  sjekk('  og det er tykkelsen ganger det eksakte arealet',
+    bl[0], 0.55 * areal([{ x: 0, y: 0 }, { x: 24.5, y: 0 },
+      { x: 24.5, y: 37.5 }, { x: 0, y: 37.5 }]), 0.01);
+}
+
+/* ------------------------------------------------------------------ */
+console.log('\n30. Dypsprengning måles fra ferdig nivå');
+{
+  /* Kontrollen målte `losIgjen − d`, som algebraisk er `zPlanum − zFjell` –
+     avstanden ned til berget fra PLANUM. Men kravet, merknadsteksten og
+     hjelpeteksten sier alle «fra ferdig nivå», og mellom de to ligger hele
+     overbygningen: 0,55 m med standardmalen. Et berg 1,05 m under ferdig nivå,
+     altså godt klar av kravet på 0,75, ble meldt for nært – og merknaden slapp
+     først ved 1,30. Motsatt vei sorterte `iFjell <= 0` bort nettopp de verste
+     rutene: der berget stikker opp I ferdig nivå ble ingenting flagget. */
+  const malB = () => Object.assign({}, Tomt.StandardTomtemal,
+    { maksSokebredde: 60, maksSkjaeringsdybde: 0, maksFyllingshoyde: 0, maksVeggHoyde: 0 });
+  const kjorB = (kote, rute) => T.beregnTomtemasser({
+    tomt: { punkter: [{ x: 0, y: 0 }, { x: 40, y: 0 }, { x: 40, y: 60 }, { x: 0, y: 60 }],
+      kanter: [], nivaa: { modus: 'flat', kote } },
+    mal: malB(), terreng: { z: () => 100 },
+    fjell: new M.Fjellmodell({ standarddybde: 3 }),   // berg på kote 97
+    rutestorrelse: rute, bakkefaktor: 1
+  });
+  const harBerg = r => (r.merknader || []).some(m => m.type === 'berg');
+  const krav = malB().minAvstandTilBerg || 0.75;
+
+  /* Sveip over klaringen. Skillet må ligge nøyaktig på kravet, og det må være
+     entydig – ett enkelttall kan gå gjennom på flaks. */
+  const meldt = [], stille = [];
+  for (let kl = 0; kl <= 2.0; kl += 0.05) {
+    const kote = 97 + kl;
+    (harBerg(kjorB(kote, 1)) ? meldt : stille).push(+kl.toFixed(2));
+  }
+  paastand('berg nærmere enn kravet meldes, lenger unna ikke',
+    meldt.length > 0 && stille.length > 0
+    && Math.max(...meldt) < krav + 1e-6 && Math.min(...stille) > krav - 1e-6);
+  paastand('  og berget som stikker opp i ferdig nivå er med',
+    harBerg(kjorB(97.0, 1)));
+  paastand('  mens en meter klaring ikke meldes',
+    !harBerg(kjorB(98.0, 1)));
+
+  /* Og tallet må være et AREAL. Samme tomt meldte 48, 300, 1340, 5084 og
+     20336 «ruter» ved 5, 2, 1, 0,5 og 0,25 m rutenett – et tall som ikke betyr
+     noe uten å vite hvor fine rutene er. */
+  const tall = rute => {
+    const m = (kjorB(97.5, rute).merknader || []).find(x => x.type === 'berg');
+    if (!m) return NaN;
+    const t2 = /([\d\s ]+) m²/.exec(m.tekst);
+    return t2 ? Number(t2[1].replace(/[\s ]/g, '')) : NaN;
+  };
+  const verdier = [5, 2, 1, 0.5].map(tall);
+  paastand('  og det er oppgitt i m², ikke i antall ruter',
+    verdier.every(v => Number.isFinite(v)));
+  sjekk('  og arealet står stille når rutenettet finnes',
+    Math.max(...verdier) - Math.min(...verdier), 0, 0.01);
+  sjekk('    og det er hele tomta som er for nær',
+    verdier[2], 2400, 1);
+}
+
+/* ------------------------------------------------------------------ */
 console.log(`\n${ok} tester ok, ${feil} feil`);
 process.exit(feil ? 1 : 0);

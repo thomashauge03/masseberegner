@@ -353,6 +353,15 @@ function beregnTomtemasser(o) {
     minY = Math.min(minY, q.y); maksY = Math.max(maksY, q.y);
   }
   minX -= maksUt; maksX += maksUt; minY -= maksUt; maksY += maksUt;
+  /* RUTENETTET SKAL LIGGE FAST I TERRENGET, IKKE FØLGE EN INNSTILLING.
+     Fasen var forankret i `minX - maksUt`, altså i søkebredden – så å skru
+     søkebredden ett hakk flyttet hele rutenettet en brøkdel av en rute, og
+     dermed hvilke celler som havnet innenfor tomta. Målt på en 25 × 35 m tomt
+     med 2 m ruter: søkebredde 40 ga 816,00 m², søkebredde 41 ga 936,00 – et
+     sprang på 14,7 % fra en innstilling som bare skal si hvor langt det LETES.
+     Forankret i absolutte koordinater ligger nettet stille uansett. */
+  minX = Math.floor(minX / ruteM) * ruteM;
+  minY = Math.floor(minY / ruteM) * ruteM;
 
   const cellA = ruteM * ruteM * arealFaktor;
   const matjord = Math.max(0, mal.matjordDybde || 0);
@@ -453,10 +462,26 @@ function beregnTomtemasser(o) {
         s.skjaeringLosmasse += iLos * cellA;
         dypesteSkjaering = Math.max(dypesteSkjaering, d);
         if (iFjell > 0) fjellhoyde.push({ h: iFjell, inne: iTomta });
+        /* MÅLT FRA FERDIG NIVÅ, IKKE FRA PLANUM.
+           Her sto `losIgjen - d`, som algebraisk er `zPlanum − zFjell` – altså
+           avstanden ned til berget fra PLANUM, ikke fra ferdig nivå. Men
+           kravet, merknadsteksten og hjelpeteksten sier alle «fra ferdig
+           nivå», og mellom de to ligger hele overbygningen. Med standardmalen
+           er det 0,55 m: et berg 1,05 m under ferdig nivå – godt klar av
+           kravet på 0,75 – ble likevel meldt for nært, og merknaden slapp
+           først ved 1,30 m. Motsatt vei slapp `iFjell <= 0` ut nettopp de
+           verste rutene: der berget stikker opp I ferdig nivå ble ingenting
+           flagget i det hele tatt.
+           Og tallet er et AREAL, ikke et antall ruter: samme tomt meldte 48,
+           300, 1340, 5084 og 20336 «ruter» ved 5, 2, 1, 0,5 og 0,25 m rutenett
+           – se FUNN 6 i test/konvergensprove.js. */
         /* R761 prosess 22 c): er det mindre enn 0,75 m fra ferdig niva ned til
            fast berg, ma det dypsprenges - berget ligger for nær til at et
            vanlig salveuttak gar. */
-        if (iFjell <= 0 && losIgjen - d < (mal.minAvstandTilBerg || 0)) forNaerBerg++;
+        if (iTomta && (mal.minAvstandTilBerg || 0) > 0) {
+          const fraFerdigTilBerg = (zPlanum + overbygning) - zFjell;
+          if (fraFerdigTilBerg < mal.minAvstandTilBerg) forNaerBerg += cellA;
+        }
       } else if (d < 0) {
         /* Fyllingen males fra den AVSKRAPTE flaten, ikke fra det opprinnelige
            terrenget. Matjorda er tatt bort, sa hullet som skal fylles er
@@ -465,13 +490,8 @@ function beregnTomtemasser(o) {
         hoyesteFylling = Math.max(hoyesteFylling, -d);
       }
 
-      if (iTomta) {
-        s.slitelag += (mal.slitelagTykkelse || 0) * cellA;
-        s.baerelag += (mal.baerelagTykkelse || 0) * cellA;
-        s.forsterkningslag += (mal.forsterkningslag || 0) * cellA;
-        s.frostsikring += (mal.frostsikring || 0) * cellA;
-        s.avrettingslag += (mal.avrettingslag || 0) * cellA;
-      }
+      /* Overbygningslagene legges IKKE opp celle for celle – se blokka etter
+         løkka. De har konstant tykkelse over en flate vi kjenner eksakt. */
       /* Hver celle tas vare pa, ogsa de utenfor tomta. Det er dette bildet
          kartet farger: hvor dypt det skal graves og hvor høyt det skal fylles,
          over hele flaten. Uten skraningscellene stopper fargen brått i
@@ -501,6 +521,40 @@ function beregnTomtemasser(o) {
         kant: iTomta ? -1 : naer.kant });
     }
   }
+
+  /* TOMTAS AREAL ER POLYGONETS AREAL, IKKE ANTALL CELLER GANGER CELLEAREAL.
+     Arealet ble lagt opp celle for celle – hver celle med sentrum innenfor
+     talte helt, hver celle med sentrum utenfor talte ikke. Det er en
+     systematisk underteljing som alltid går samme vei, og som ikke krymper når
+     man finner rutenettet: den avhenger av hvor kanten faller mellom to
+     cellesentre. Målt: 24,5 × 37,5 m ga 888,00 m² mot 918,75 eksakt (−3,35 %),
+     og 10,5 × 10,5 m ga 100,00 mot 110,25 (−9,30 %). Panelet ved siden av
+     viste hele tiden det eksakte tallet fra `Tomt.areal`, så de to sto og
+     motsa hverandre på skjermen.
+     40 × 60 m med hjørne i origo treffer rutenettet nøyaktig og ga null avvik
+     – og det er den tomta prøvene brukte.
+
+     Skjæring og fylling regnes fortsatt celle for celle, og SKAL det: der
+     varierer dybden over flaten, og skråningscellene fanger opp det
+     tomtecellene mister (målt 0,05 % avvik). Det er bare postene med konstant
+     tykkelse over en kjent flate som kan – og skal – regnes eksakt. */
+  /* Regnet her og ikke hentet fra `Tomt.areal`: den bor i en annen fil som
+     ikke er importert hit, og som i node bare finnes som et globalt navn i
+     nettleseren. Skolisseformelen er fem linjer og kan ikke komme i utakt. */
+  let signert = 0;
+  for (let i = 0, j = p.length - 1; i < p.length; j = i++) {
+    signert += (p[j].x + p[i].x) * (p[j].y - p[i].y);
+  }
+  const eksaktAreal = Math.abs(signert / 2) * arealFaktor;
+  if (eksaktAreal > 0) {
+    tom.arealMedSkraning += eksaktAreal - tom.areal;   // ringen utenfor står
+    tom.areal = eksaktAreal;
+  }
+  s.slitelag = (mal.slitelagTykkelse || 0) * tom.areal;
+  s.baerelag = (mal.baerelagTykkelse || 0) * tom.areal;
+  s.forsterkningslag = (mal.forsterkningslag || 0) * tom.areal;
+  s.frostsikring = (mal.frostsikring || 0) * tom.areal;
+  s.avrettingslag = (mal.avrettingslag || 0) * tom.areal;
 
   /* Overberg males pa BERGFLATEN som sprenges, ikke pa grunnflaten.
      Her sto `mal.overberg * cellA / ruteM`, som er m x m² / m = m² - en flate,
@@ -816,8 +870,12 @@ function beregnTomtemasser(o) {
         + 'egen geometri for den er ikke bygget ennå.' });
   }
   if (forNaerBerg > 0) {
+    /* Areal, ikke antall ruter: et rutetall betyr ingenting uten å vite hvor
+       fine rutene er, og samme tomt meldte 48 og 20336 «ruter» ved 5 og 0,25 m
+       rutenett. Kvadratmeter står stille. */
     merknader.push({ type: 'berg',
-      tekst: `${forNaerBerg} ruter har mindre enn ${(mal.minAvstandTilBerg || 0.75)} m fra ferdig `
+      tekst: `${kom(forNaerBerg, 0)} m² av tomta har mindre enn `
+        + `${kom(mal.minAvstandTilBerg || 0.75, 2)} m fra ferdig `
         + 'nivå ned til fast berg – der må det dypsprenges (R761 prosess 22)' });
   }
   /* TEK17 § 8-3: en nivaforskjell pa mer enn 0,5 m mot hardt underlag, eller

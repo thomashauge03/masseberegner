@@ -1660,12 +1660,28 @@ const App = {
    * og en sum som stilltiende hopper over det ville vært for lav. Da er det
    * bedre å si hvor mange som mangler.
    */
-  prosjektsum() {
+  /**
+   * @param {string[]} [bare] Bare disse anleggene. Utelatt = alle.
+   *
+   * SUMMEN MÅ DEKKE NØYAKTIG DE RADENE SOM STÅR OVER DEN.
+   * Rapporten går gjennom anleggene og skriver en rad for hvert som lot seg
+   * regne; de som ikke gjorde det får en linje som sier hvorfor. Sumraden ble
+   * likevel hentet fra `prosjektsum()` uten argument, som teller alt som har
+   * et lagret `_sum` – også de som nettopp ble meldt som ikke regnet, for
+   * tallene deres er ferdig regnet og lagret før vaktene slår inn.
+   * Målt: en veg med 2 000 m³ fylling og en ubyggelig tomt med 61 740 ga
+   * «Sum · 1 anlegg» og 63 740 m³, og en innkjøringspost på 61 740 m³ som ikke
+   * fantes i noen rad. Etiketten og tallet kunne ikke stemme samtidig, og
+   * tallet står på forsiden av PDF-en.
+   */
+  prosjektsum(bare) {
     if (!this.P || !Array.isArray(this.P.anlegg)) return null;
     const naa = this.forutsetningsnokkel();
+    const med = bare ? new Set(bare) : null;
     const ut = { skjaering: 0, fylling: 0, skjaeringFjell: 0,
       manglerTotalt: 0, tilDeponi: 0, balanse: 0, antall: 0, uregnet: 0, gamle: 0 };
     for (const a of this.P.anlegg) {
+      if (med && !med.has(a.id)) continue;
       const erAktivt = a.id === this.P.aktivt && this.resultat && this.resultat.sum;
       const s = erAktivt ? this.resultat.sum : a._sum;
       const b = erAktivt ? (this.resultat.balanse || {}) : (a._balanse || {});

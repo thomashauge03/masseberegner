@@ -149,9 +149,22 @@ const Lager = {
     }
   },
 
+  /**
+   * RESERVEKOPIEN SKAL BORT UANSETT, akkurat som `lagre` gjør på suksessgrenen.
+   *
+   * Her sto `removeItem` bare i `catch`. Blandingstilstanden er den vanligste
+   * som finnes – databasen leser fint, men en skriving slår feil på kvoten, og
+   * prosjektet havner i localStorage; det er nettopp den `lagre` er skrevet
+   * for. Så kaller `slett` `s.delete(navn)` på en nøkkel som ikke finnes i
+   * databasen, og det er en VELLYKKET transaksjon. `catch` kjører aldri,
+   * reservekopien blir liggende, og prosjektet dukker opp i lista igjen etter
+   * «Dette kan ikke angres». Klikker man på raden, står det «Fant ikke
+   * prosjektet» – en spøkelsesrad man ikke blir kvitt uansett hvor mange
+   * ganger man trykker Slett.
+   */
   async slett(navn) {
     try { await this._kjør('readwrite', s => s.delete(navn)); }
-    catch (e) { localStorage.removeItem(this.NOKKEL + navn); }
+    finally { try { localStorage.removeItem(this.NOKKEL + navn); } catch (e) { /* ingen reserve */ } }
   },
 
   /**

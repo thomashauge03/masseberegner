@@ -233,6 +233,36 @@ const Nettlesertest = {
       App.P = JSON.parse(foerP);
     }
 
+    /* ================================================================
+       EN SLETTET RESERVEKOPI SKAL OGSÅ BORT
+
+       `lagre` faller tilbake på localStorage når databasen ikke tar imot – det
+       er den blandingstilstanden den er skrevet for. Men `slett` hadde
+       `removeItem` bare i `catch`, og å slette en nøkkel som ikke finnes i
+       databasen er en VELLYKKET transaksjon. `catch` kjørte aldri,
+       reservekopien ble liggende, og prosjektet dukket opp i lista igjen etter
+       «Dette kan ikke angres». Klikket man på raden, sto det «Fant ikke
+       prosjektet» – en spøkelsesrad man ikke ble kvitt uansett hvor mange
+       ganger man trykket Slett.
+       ================================================================ */
+    {
+      const n3 = navn + '_res';
+      const rad = { navn: n3, endret: new Date().toISOString(),
+        data: { navn: n3, anlegg: [] } };
+      // legg en reservekopi rett i localStorage, slik `lagre` gjør ved full kvote
+      localStorage.setItem(Lager.NOKKEL + n3, JSON.stringify(rad));
+      const foer = (await Lager.liste()).some(p => p.navn === n3);
+      this.sjekk('  en reservekopi i localStorage vises i lista',
+        foer, foer ? 'står der' : 'kom ikke med');
+      await Lager.slett(n3);
+      const etter = (await Lager.liste()).some(p => p.navn === n3);
+      this.sjekk('    og «Slett» blir kvitt den – ingen spøkelsesrad',
+        !etter, etter ? 'STÅR IGJEN i lista' : 'borte');
+      this.sjekk('    og reservekopien er faktisk fjernet',
+        !localStorage.getItem(Lager.NOKKEL + n3));
+      localStorage.removeItem(Lager.NOKKEL + n3);
+    }
+
     await Lager.slett(navn);
     this.sjekk('slettet prosjekt er borte', !(await Lager.hent(navn)));
     this._testnavn = navn;
@@ -1121,6 +1151,37 @@ const Nettlesertest = {
         this.sjekk('  og den sier hvor mange som er regnet',
           sum.antall + sum.uregnet + sum.gamle === App.P.anlegg.length,
           sum.antall + ' regnet, ' + sum.uregnet + ' uregnet, ' + sum.gamle + ' gamle');
+
+        /* SUMMEN MÅ DEKKE NØYAKTIG DE RADENE SOM STÅR OVER DEN.
+           Rapporten skriver en rad per anlegg som lot seg regne, og en linje
+           for hvert som ikke gjorde det. Sumraden ble likevel hentet uten
+           filter, altså over ALT som har et lagret `_sum` – også de som
+           nettopp ble meldt som ikke regnet, for tallene deres er ferdig
+           regnet og lagret før vaktene slår inn. Målt: en veg med 2 000 m³
+           fylling og en ubyggelig tomt med 61 740 ga «Sum · 1 anlegg» og
+           63 740 m³, pluss en innkjøringspost på 61 740 m³ som ikke fantes i
+           noen rad. Etiketten og tallet kunne ikke stemme samtidig, og tallet
+           står på forsiden av PDF-en. */
+        const medSum = App.P.anlegg.filter(a => a._sum);
+        if (medSum.length > 1) {
+          const ett = App.prosjektsum([medSum[0].id]);
+          this.sjekk('  prosjektsummen kan begrenses til bestemte anlegg',
+            !!ett && ett.antall === 1,
+            ett ? ett.antall + ' anlegg i summen' : 'ingen sum');
+          this.naer('    og da er tallet nøyaktig det ene anlegget',
+            ett.skjaering, medSum[0]._sum.skjaering || 0,
+            Math.max(1, (medSum[0]._sum.skjaering || 0) * 0.001));
+          /* Og summen av delene må være summen av helheten – ellers er
+             filteret i seg selv en ny feilkilde. */
+          let deler = 0;
+          for (const a of medSum) {
+            const s2 = App.prosjektsum([a.id]);
+            deler += s2 ? s2.skjaering : 0;
+          }
+          const alle = App.prosjektsum(medSum.map(a => a.id));
+          this.naer('    og delene lagt sammen er det samme som alle på én gang',
+            deler, alle.skjaering, Math.max(1, alle.skjaering * 0.001));
+        }
       }
 
       /* TVERRFALLET HØRER TIL VEGEN, IKKE TIL PROSJEKTET.

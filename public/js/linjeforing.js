@@ -35,14 +35,31 @@ class Linjeforing {
        indeksen, treffer de feil knekkpunkt i det øyeblikket to punkt lå oppå
        hverandre – og det skjer med ett dobbeltklikk i kartet. */
     alle.forEach((p, i) => { p.kilde = i; });
+    /* RADIEN MÅ SKRIVES INN I DET PUNKTET SOM FAKTISK OVERLEVER.
+       Her sto `alle[i - 1]`, altså naboen i den USILTE lista – og den kan selv
+       være slettet i samme runde. Med tre sammenfallende knekkpunkt og radien
+       på det siste ble radien lagt inn i nummer to, som forsvant like etter,
+       og svingen var borte: null kurver, lengden 241,421 m i stedet for
+       238,840. Det er ikke bare et tall: profilene stasjoneres langs linja, så
+       en linje som er 8,6 m for lang på en 716 m veg legger profiler opptil
+       17 m feil i terrenget, og massene regnes mot feil bakke.
+       Tre sammenfallende punkt er ikke en kuriositet – det er to dobbeltklikk
+       på samme sted i kartet. */
+    let beholdt = alle[0];
     this.ip = alle.filter((p, i) => {
       if (i === 0) return true;
-      const f = alle[i - 1];
-      if (Math.hypot(p.x - f.x, p.y - f.y) > 1e-6) return true;
-      // behold den største radien av de to, sa svingen ikke forsvinner
-      if (p.r > f.r) f.r = p.r;
+      if (Math.hypot(p.x - beholdt.x, p.y - beholdt.y) > 1e-6) { beholdt = p; return true; }
+      // behold den største radien i hele gruppa, så svingen ikke forsvinner
+      if (p.r > beholdt.r) beholdt.r = p.r;
+      /* `kilde`, ikke `ip`: dette er brukerens egen nummerering i lista han
+         tegnet. `ip` er indeksen i den SAMMENSLÅTTE lista, og brukes av
+         advarslene i `_bygg`. Sto begge i samme felt, kunne et duplikatvarsel
+         slå ut et innkortingsvarsel i dedupe-testen der nede – og
+         knekkpunktnummeret i teksten pekte på feil punkt. */
       this.advarsler.push({
-        ip: i, tekst: `Knekkpunkt ${i + 1} lå oppå knekkpunkt ${i} og er slått sammen med det.`
+        kilde: p.kilde,
+        tekst: `Knekkpunkt ${p.kilde + 1} lå oppå knekkpunkt ${beholdt.kilde + 1} `
+          + 'og er slått sammen med det.'
       });
       return false;
     });

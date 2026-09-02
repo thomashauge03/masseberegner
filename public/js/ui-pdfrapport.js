@@ -112,11 +112,16 @@ const Pdfrapport = {
         app.framdrift(true, 'Lager PDF … ' + (anl.navn || anl.type),
           0.1 + 0.8 * (i / Math.max(1, app.P.anlegg.length)));
         delt.anleggsnavn = Rapport.anleggskode(i) + ' · ' + (anl.navn || anl.type);
-        /* Sammendragsraden må hentes FØR siden bygges: `_bygg` bytter ikke
-           anlegg, men den er det siste som ser dette resultatet. */
-        rader.push({ navn: anl.navn || anl.type, type: anl.type, sum: res.sum,
-          kode: Rapport.anleggskode(i) });
+        /* Sammendragsraden må HENTES før siden bygges – `_bygg` bytter ikke
+           anlegg, men den er det siste som ser dette resultatet – og LEGGES
+           INN etterpå. Her sto pushen før `_bygg`, og kastet den, kom anlegget
+           både som en rad i sammendraget og som en «ikke regnet»-linje under
+           det. Da talte «SUM · N anlegg» ett anlegg for mye, og summen dekket
+           en rad som rapporten selv sa manglet. */
+        const rad = { navn: anl.navn || anl.type, type: anl.type, sum: res.sum,
+          kode: Rapport.anleggskode(i), id: anl.id };
         await this._bygg(a2, res, delt);
+        rader.push(rad);
         return true;
       });
       if (!tatt.length) {
@@ -193,7 +198,8 @@ const Pdfrapport = {
     }
     y += 4;
     P.linje(this.MARG, y - 8, innmarg, y - 8, { tykkelse: 1.4, farge: this.SVART });
-    const sum = app.prosjektsum() || {};
+    // nøyaktig de radene som står over streken – se App.prosjektsum
+    const sum = app.prosjektsum(rader.map(r => r.id)) || {};
     P.tekst(this.MARG, y, 'SUM · ' + rader.length + ' anlegg',
       { storrelse: this.T4, fet: true, farge: this.SVART });
     P.tekst(kol[1], y, t(sum.skjaering), { storrelse: this.T4, fet: true, juster: 'h', farge: this.SVART });
