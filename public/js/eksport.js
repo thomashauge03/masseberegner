@@ -730,7 +730,18 @@ ${this.landxmlAlignment(app, res, navn)}
       for (const h of d.hjorner) { par(10, h.x.toFixed(4)); par(20, h.y.toFixed(4)); }
     }
     if (d.erYttergrense) {
-      polylinje('TOMTEGRENSE', 7, lukk(d.omriss.map(q => ({ x: q.x, y: q.y, z: 0 }))), true);
+      /* KOTE 0 ER HAVNIVÅ, IKKE «INGEN KOTE».
+         Her sto `z: 0` hardkodet, mens de samme punktene får ekte planumskote
+         i KOF, SOSI og LandXML. Målt på en tomt med ferdig kote 98,00 og
+         0,55 m overbygning: KOF gir 97,450, LandXML 97,4500, DXF ga 0,0000 –
+         i den samme fila der FERDIG_NIVAA ligger på 98,0000. Usynlig i plan,
+         men snapper man mot laget, eller lager en Civil 3D-flate av det, drar
+         geometrien 97 meter ned til havflaten. Nøyaktig det kommentaren over
+         FOTAVTRYKK sier ble rettet der. */
+      const tpG = Tomt.tyngdepunkt(d.flate);
+      polylinje('TOMTEGRENSE', 7, lukk(d.omriss.map(q => ({
+        x: q.x, y: q.y, z: Tomtmasser.nivaaVed(d.nivaa, q.x, q.y, tpG) - d.ob
+      }))), true);
     }
     for (const s of this.fotstrekk(d.fot)) {
       polylinje(s.type === 'skjaering' ? 'SKJAERINGSTOPP' : 'FYLLINGSFOT',
@@ -745,10 +756,26 @@ ${this.landxmlAlignment(app, res, navn)}
       const usikker = d.fot.filter(f => f.type !== 'apen' && f.traff !== true);
       if (usikker.length > 1) polylinje('UTSLAG_USIKKER', 6, usikker, false);
     }
+    /* ÉN POLYLINJE PER MUR, IKKE ALLE MURENE PER MUR.
+       Her sto `this.murpunkter(d)` inne i løkka, filtrert bare på M/B – altså
+       prefikset som skiller mur fra bergvegg, ikke den ene muren fra den
+       andre. Med to murkanter ga det fire polylinjer der hver inneholdt BEGGE
+       murene, og mellom dem et sprang tvers over tomta: målt 42 vertekser og
+       140,00 m per linje der riktig er 21 og 40,00 m. Tegnet murlengde ble
+       560 m mot 160 riktige, og tegningen viste en mur langs en kant som er
+       skråning. Bergveggen hadde samme feil.
+       Punktene regnes derfor én gang, og hver kant plukker sitt eget merke –
+       `M01`, `M02` … – med tellere som går i samme rekkefølge som i
+       `murpunkter`, siden begge løkkene går over `d.kanter` og hopper over de
+       samme kantene. */
+    const alleMur = this.murpunkter(d);
+    let iMur = 0, iBerg = 0;
     for (const k of d.kanter) {
       const type = k.type || 'skraning';
       if (type !== 'mur' && type !== 'fjellvegg') continue;
-      const m = this.murpunkter(d).filter(q => q.navn.startsWith(type === 'mur' ? 'M' : 'B'));
+      const merket = type === 'mur' ? 'M' + String(++iMur).padStart(2, '0')
+        : 'B' + String(++iBerg).padStart(2, '0');
+      const m = alleMur.filter(q => q.navn.startsWith(merket));
       const lag = type === 'mur' ? 'MUR' : 'BERGVEGG';
       polylinje(lag, type === 'mur' ? 5 : 8, m.filter(q => q.navn.endsWith('t')), false);
       polylinje(lag, type === 'mur' ? 5 : 8, m.filter(q => q.navn.endsWith('b')), false);

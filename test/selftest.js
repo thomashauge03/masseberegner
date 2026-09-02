@@ -357,6 +357,49 @@ console.log('\n4. Masseberegning mot handregning');
     paastand('fjellbredden ligger innenfor skjæringen',
       iDagen.fjellbredde > 0 && iDagen.fjellbredde <= (iDagen.fotHoyre - iDagen.fotVenstre) + 1e-6);
 
+    /* «TIL SAMMEN X M³ SKAL UT AV ANLEGGET» MÅ VÆRE ÉN ENHET.
+       Rapporten la sammen `tilDeponi`, som er prosjektert FAST volum, med
+       `overskuddFjell` og `overskuddLos`, som begge alt er ganget opp til
+       FYLLINGSvolum. Målt: 14 499 m³ der det konsekvente tallet er 12 383 –
+       17 % for stort. Den samme kubikkmeteren løsmasse telles som 1,00 hvis
+       den er ubrukbar og 0,95 hvis den er brukbar men blir til overs. Dette er
+       tallet transporten bestilles etter.
+
+       Prøven bruker en ren skjæring uten fylling og uten overbygning. Da er
+       fasiten en lukket form: graver man opp alt og bruker ingenting, skal ALT
+       ut, og summen er rensk + løsmasse + fjell i fast volum. Og fordi
+       ingenting går i fyllingen, kan ikke fyllingsfaktorene røre tallet. */
+    {
+      const malU = Object.assign({}, M.StandardMal,
+        { slitelagTykkelse: 0, baerelagTykkelse: 0 });
+      const linjeU = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 300, y: 0, r: 0 }]);
+      const profilU = new Vertikalprofil([{ s: 0, z: 94, k: 1 }, { s: 300, z: 94, k: 1 }]);
+      const kjorU = fakt => M.beregnMasser({
+        linje: linjeU, profil: profilU, terreng: { z: () => 100 }, mal: malU,
+        fjell: new M.Fjellmodell({ standarddybde: 2, punkter: [] }),
+        profilAvstand: 5, bakkefaktor: 1, integrasjonssteg: 0.05,
+        faktorer: Object.assign({}, M.StandardFaktorer, fakt || {})
+      });
+      const rU = kjorU();
+      const bU = rU.balanse, sU = rU.sum;
+      paastand('  ren skjæring: ingenting går i fylling', sU.fylling < 1);
+      sjekk('alt som graves opp skal ut, i fast volum',
+        bU.utAvAnlegget, sU.rensk + sU.skjaeringLosmasse + sU.skjaeringFjell, 1);
+      /* Og da kan ikke en fyllingsfaktor flytte det – den sier bare hvor mye
+         massen svulmer NÅR den legges ut, og her legges ingenting ut. */
+      const spennU = [1.1, 1.3, 1.6].map(v => kjorU({ fjellIFylling: v }).balanse.utAvAnlegget);
+      sjekk('  og sprengningsfaktoren flytter det ikke',
+        Math.max(...spennU) - Math.min(...spennU), 0, 0.01);
+      const spennL = [0.85, 0.95, 1.05].map(v => kjorU({ losmasseIFylling: v }).balanse.utAvAnlegget);
+      sjekk('    og heller ikke løsmassefaktoren',
+        Math.max(...spennL) - Math.min(...spennL), 0, 0.01);
+      /* Motprøve: det GAMLE, blandede tallet ville flyttet seg med begge. */
+      const blanda = v => { const b2 = kjorU({ fjellIFylling: v }).balanse;
+        return b2.tilDeponi + b2.overskuddLos + b2.overskuddFjell; };
+      paastand('    mens det gamle blandede tallet gjorde det',
+        Math.abs(blanda(1.6) - blanda(1.1)) > 100);
+    }
+
     /* ET HULL I LASERDEKNINGEN SKAL TAS DER DET ER.
        Renskeintegrasjonen sto bak en port på `!manglerData`: ett eneste
        NaN-punkt i profilet – også langt utenfor vegen – hoppet over hele

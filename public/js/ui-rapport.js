@@ -136,7 +136,9 @@ ${this.sprengningsrader(res)}
         ${b.overskuddLos > 1
         ? `<div class="sumrad"><span>Brukbar løsmasse til overs</span><span class="verdi">${t(b.overskuddLos)} m³</span></div>`
         : ''}
-        <div class="sumrad"><small>Til sammen ${t(b.tilDeponi + b.overskuddLos + b.overskuddFjell)} m³ skal ut av anlegget.</small></div>
+        <div class="sumrad"><small>Til sammen ${t(b.utAvAnlegget)} p.f.m³ skal ut av
+          anlegget – prosjektert fast volum, som resten av tabellen. Overskuddet
+          over står i fyllingsvolum, og de to kan ikke legges sammen.</small></div>
       </div>
 
       <div class="sumkort">

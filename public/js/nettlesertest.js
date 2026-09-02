@@ -2821,6 +2821,58 @@ const Nettlesertest = {
       this.sjekk('DXF er et helt par-oppsett',
         dxf.split('\r\n').filter(l => l !== '').length % 2 === 0);
 
+      /* ================================================================
+         DXF-GEOMETRIEN MÅ VÆRE DEN SAMME SOM I DE ANDRE FILENE
+
+         To feil lå her, begge usynlige i plan og begge fatale for den som
+         bruker fila til noe: tomtegrensa sto på kote 0, og med to murkanter
+         fikk hver mur alle murene tegnet inn i seg.
+         ================================================================ */
+      {
+        /* Grensa lå på hardkodet z = 0 mens de samme punktene fikk ekte
+           planumskote i KOF, SOSI og LandXML. Usynlig ovenfra – men snapper
+           man mot laget, eller lager en flate av det, drar geometrien nitti
+           meter ned til havflaten.
+
+           TOMTEGRENSE skrives bare når omrisset ER yttergrensa; fikstureringen
+           over bruker `planum`, og da finnes laget ikke. Prøven må stille om
+           først – ellers leter den etter noe som ikke er der og går grønn på
+           at den ikke fant noe. */
+        const foerBetyr = App.P.tomt.omrissBetyr;
+        App.P.tomt.omrissBetyr = 'yttergrense';
+        App._terrengnokkel = null;
+        await App.beregnTomt();
+        Rapport.eksporter('dxf');   // samme filnavn, saa den blir overskrive
+        const dg = hent('.dxf');
+        const l = dg.split('\r\n');
+        const grense = [];
+        for (let i = 0; i < l.length - 1; i++) {
+          if (l[i].trim() !== '8' || l[i + 1].trim() !== 'TOMTEGRENSE') continue;
+          for (let j = i + 2; j < l.length - 1; j += 2) {
+            if (l[j].trim() === '0' && l[j + 1].trim() === 'SEQEND') break;
+            if (l[j].trim() === '30') grense.push(Number(l[j + 1]));
+          }
+          break;
+        }
+        this.sjekk('DXF: tomtegrensa finnes når omrisset er yttergrensa',
+          grense.length > 2, grense.length + ' vertekser');
+        this.sjekk('  og den har koter, ikke kote 0',
+          grense.length > 0 && grense.every(z => Math.abs(z) > 1),
+          grense.length ? 'z = ' + grense.slice(0, 3).map(z => z.toFixed(3)).join(', ') : '–');
+        /* Og den skal ligge på PLANUM, som LandXML sier – ikke på ferdig nivå
+           og ikke på terrenget. */
+        const ob = (App.P.mal.slitelagTykkelse || 0) + (App.P.mal.baerelagTykkelse || 0)
+          + (App.P.mal.forsterkningslag || 0) + (App.P.mal.avrettingslag || 0)
+          + (App.P.mal.frostsikring || 0);
+        const planum = App.P.tomt.nivaa.kote - ob;
+        this.sjekk('    og ligger på planum, som i LandXML',
+          grense.length > 0 && Math.abs(grense[0] - planum) < 0.01,
+          grense.length ? grense[0].toFixed(3) + ' mot ' + planum.toFixed(3) : '–');
+        App.P.tomt.omrissBetyr = foerBetyr;
+        App._terrengnokkel = null;
+        await App.beregnTomt();
+      }
+
       const geo = JSON.parse(hent('.geojson'));
       this.sjekk('GeoJSON har den ferdige flaten',
         geo.features.some(f => f.properties.type === 'ferdig_flate'));
@@ -2851,6 +2903,57 @@ const Nettlesertest = {
 
       /* En eksport som ikke kan gi riktig innhold skal NEKTE med en synlig
          begrunnelse - aldri en fil som ser ferdig ut. */
+      /* ================================================================
+         TO MURER AV SAMME SLAG
+
+         Fikstureringen over har én `mur` og én `fjellvegg`, og da virker
+         M/B-filteret ved et uhell: det er én av hver. Feilen slår først ut
+         med TO kanter av samme type – og det er da hver mur fikk alle murene
+         tegnet inn i seg, med et sprang tvers over tomta imellom.
+         ================================================================ */
+      {
+        App.P.tomt.kanter = [{ type: 'mur' }, {}, { type: 'mur' }, {}];
+        App._terrengnokkel = null;
+        await App.beregnTomt();
+        Rapport.eksporter('dxf');   // samme filnavn, saa den blir overskrive
+        const d2 = hent('.dxf');
+        const l = d2.split('\r\n');
+        /* Plukk hver POLYLINE på MUR-laget og tell verteksene i den. */
+        const murer = [];
+        for (let i = 0; i < l.length - 1; i++) {
+          if (l[i].trim() !== '0' || l[i + 1].trim() !== 'POLYLINE') continue;
+          let lag = null;
+          for (let j = i; j < l.length - 1 && j < i + 40; j += 2) {
+            if (l[j].trim() === '8') { lag = l[j + 1].trim(); break; }
+          }
+          if (!/MUR$/.test(lag || '')) continue;
+          let n = 0, lengd = 0, forrige = null;
+          for (let j = i + 2; j < l.length - 1; j += 2) {
+            if (l[j].trim() === '0' && l[j + 1].trim() === 'SEQEND') break;
+            if (l[j].trim() === '10') {
+              const x = Number(l[j + 1]), y = Number(l[j + 3]);
+              if (forrige) lengd += Math.hypot(x - forrige[0], y - forrige[1]);
+              forrige = [x, y]; n++;
+            }
+          }
+          murer.push({ n, lengd });
+        }
+        this.sjekk('DXF: to murkanter gir fire polylinjer, ikke fire kopier av begge',
+          murer.length === 4, murer.length + ' polylinjer på MUR-laget');
+        const verst = murer.reduce((m, x) => Math.max(m, x.lengd), 0);
+        /* Kantene er 40 og 40 m lange. En linje som inneholder begge murene
+           måler 140 m, fordi den i tillegg hopper 60 m tvers over tomta. */
+        this.sjekk('  og ingen av dem hopper tvers over tomta',
+          murer.length > 0 && verst < 60,
+          'lengste murlinje ' + verst.toFixed(2) + ' m');
+        const flest = murer.reduce((m, x) => Math.max(m, x.n), 0);
+        this.sjekk('  og ingen av dem har med den andre murens punkter',
+          murer.length > 0 && flest <= 25, 'flest vertekser ' + flest);
+        App.P.tomt.kanter = [{ type: 'mur' }, {}, { type: 'fjellvegg' }, {}];
+        App._terrengnokkel = null;
+        await App.beregnTomt();
+      }
+
       App.resultat = null;
       const foerAntall = Object.keys(filer).length;
       Rapport.eksporter('kof');

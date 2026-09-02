@@ -1123,6 +1123,22 @@ function beregnMasser(o) {
   const overskuddLos = brukbarLos - fyllFraLos;
   const tilDeponi = sum.rensk + losFast * (1 - faktorer.brukbarLosmasse);
 
+  /* «TIL SAMMEN X M³ SKAL UT AV ANLEGGET» MÅ VÆRE ÉN ENHET.
+     Rapporten la sammen `tilDeponi`, som er prosjektert FAST volum, med
+     `overskuddFjell` og `overskuddLos`, som begge alt er ganget opp til
+     FYLLINGSvolum. Målt på en rett veg på 400 m med standardfaktorene:
+     1 945,7 fast + 1 074,1 + 1 453,7 fyllingsvolum ga 4 473 m³ i rapporten.
+     Konsekvent i fast volum er tallet 4 194,5; som løst på lass 5 522,7; som
+     fyllingsvolum 4 376,2. Det som sto der var ingen av de tre.
+     Mest direkte sagt: den samme kubikkmeteren løsmasseskjæring telles som
+     1,00 m³ hvis den er ubrukbar og 0,95 hvis den er brukbar men blir til
+     overs. Og dette er tallet transporten bestilles etter. */
+  const overskuddFjellFast = faktorer.fjellIFylling > 0
+    ? overskuddFjell / faktorer.fjellIFylling : 0;
+  const overskuddLosFast = faktorer.losmasseIFylling > 0
+    ? overskuddLos / faktorer.losmasseIFylling : 0;
+  const utAvAnlegget = tilDeponi + overskuddFjellFast + overskuddLosFast;
+
   const balanse = tilgjengelig - fyllingBehov;   // gammel, enkel balanse
 
   // Massetransportdiagram (Bruckner): kumulativ overskuddsmasse i fyllingsvolum
@@ -1424,6 +1440,7 @@ function beregnMasser(o) {
       fyllFraLos, fyllFraFjell, baerelagFraFjell,
       manglerFylling, manglerBaerelag,
       overskuddFjell, overskuddLos, tilDeponi,
+      overskuddFjellFast, overskuddLosFast, utAvAnlegget,
       manglerTotalt: manglerFylling + manglerBaerelag,
       overskudd: Math.max(0, balanse),
       underskudd: Math.max(0, -balanse)
