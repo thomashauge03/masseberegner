@@ -1056,20 +1056,28 @@ const Tegner3d = {
    * oppslaget ett regnestykke for begge formene. Rutenettet henges på gitteret
    * og følger det, så det bygges bare når gitteret gjør det.
    */
-  _dekningsprove() {
+  _dekningsprove(alle) {
     const g = this._sisteGitter;
     if (!g || !g.wx || !g.finnes) return null;
-    if (g._dekning) return g._dekning.prov;
     const rute = 2;
+    /* RUTENETTET MÅ DEKKE HELE SCENEN, IKKE BARE DET AKTIVE ANLEGGET.
+       Første utgave rammet bare det aktive inn, og da fanget den ikke det
+       naboene gjør mot HVERANDRE. Står man i en smal veg mellom to tomter,
+       er det nettopp de to tomtene som dekker samme bakken – og kamuflasjen
+       sto igjen der, selv om den var borte rundt vegen. */
     let minX = Infinity, maksX = -Infinity, minY = Infinity, maksY = -Infinity;
-    const n = g.nb * g.nh;
-    for (let k = 0; k < n; k++) {
-      if (!g.finnes[k]) continue;
-      if (g.wx[k] < minX) minX = g.wx[k];
-      if (g.wx[k] > maksX) maksX = g.wx[k];
-      if (g.wy[k] < minY) minY = g.wy[k];
-      if (g.wy[k] > maksY) maksY = g.wy[k];
-    }
+    const bok = gg => {
+      const n2 = gg.nb * gg.nh;
+      for (let k = 0; k < n2; k++) {
+        if (!gg.finnes[k]) continue;
+        if (gg.wx[k] < minX) minX = gg.wx[k];
+        if (gg.wx[k] > maksX) maksX = gg.wx[k];
+        if (gg.wy[k] < minY) minY = gg.wy[k];
+        if (gg.wy[k] > maksY) maksY = gg.wy[k];
+      }
+    };
+    bok(g);
+    for (const bg of (alle || [])) if (bg && bg.wx) bok(bg);
     if (!Number.isFinite(minX)) return null;
     const nb = Math.max(2, Math.ceil((maksX - minX) / rute) + 1);
     const nh = Math.max(2, Math.ceil((maksY - minY) / rute) + 1);
@@ -1109,32 +1117,64 @@ const Tegner3d = {
        Uten det ble det en søm: en rute som er DELVIS dekt teller som dekt, så
        naboen hoppet over hele den ruta – og der sto det en to meter bred svart
        stripe mellom de to terrengene. Krympet mask lar naboen tegne to meter
-       inn under det aktive i stedet. Det aktive tegnes etterpå og legger seg
-       oppå, så overlappen er en søm man ikke ser, mens glipa var en man så. */
-    const krympa = new Uint8Array(har.length);
-    for (let j = 0; j < nh; j++) {
-      for (let i = 0; i < nb; i++) {
-        const k = j * nb + i;
-        if (!har[k]) continue;
-        const inne = i > 0 && j > 0 && i < nb - 1 && j < nh - 1
-          && har[k - 1] && har[k + 1] && har[k - nb] && har[k + nb];
-        krympa[k] = inne ? 1 : 0;
+       inn under det som alt er tegnet. Det som kom først ligger der allerede,
+       så overlappen er en søm man ikke ser, mens glipa var en man så. */
+    const krymp = () => {
+      const ut = new Uint8Array(har.length);
+      for (let j = 0; j < nh; j++) {
+        for (let i = 0; i < nb; i++) {
+          const k = j * nb + i;
+          if (!har[k]) continue;
+          ut[k] = (i > 0 && j > 0 && i < nb - 1 && j < nh - 1
+            && har[k - 1] && har[k + 1] && har[k - nb] && har[k + nb]) ? 1 : 0;
+        }
       }
-    }
-    const prov = (x, y) => {
-      const i = Math.round((x - minX) / rute), j = Math.round((y - minY) / rute);
-      if (i < 0 || j < 0 || i >= nb || j >= nh) return false;
-      return !!krympa[j * nb + i];
+      return ut;
     };
-    Object.defineProperty(g, '_dekning', { value: { prov }, enumerable: false, configurable: true });
-    return prov;
+    let krympa = krymp();
+    return {
+      /** Er denne bakken alt tegnet av noe? */
+      prov(x, y) {
+        const i = Math.round((x - minX) / rute), j = Math.round((y - minY) / rute);
+        if (i < 0 || j < 0 || i >= nb || j >= nh) return false;
+        return !!krympa[j * nb + i];
+      },
+      /**
+       * Legger et gitter til i det som er dekt.
+       *
+       * DEKNINGEN MÅ VOKSE MENS SCENEN TEGNES. Første utgave sammenlignet bare
+       * mot det AKTIVE anlegget, og fanget dermed ikke det naboene gjør mot
+       * HVERANDRE. Står man i en smal veg mellom to tomter, er det nettopp de
+       * to tomtene som dekker den samme bakken – og rutemønsteret sto igjen
+       * der, selv om det var borte rundt vegen.
+       */
+      leggTil(gg) {
+        if (!gg || !gg.wx || !gg.finnes) return;
+        for (let j = 0; j < gg.nh - 1; j++) {
+          for (let i = 0; i < gg.nb - 1; i++) {
+            const k00 = j * gg.nb + i, k10 = k00 + 1, k01 = k00 + gg.nb, k11 = k01 + 1;
+            if (!gg.finnes[k00] || !gg.finnes[k10] || !gg.finnes[k01] || !gg.finnes[k11]) continue;
+            fyll(gg.wx[k00], gg.wy[k00], gg.wx[k10], gg.wy[k10], gg.wx[k11], gg.wy[k11]);
+            fyll(gg.wx[k00], gg.wy[k00], gg.wx[k11], gg.wy[k11], gg.wx[k01], gg.wy[k01]);
+          }
+        }
+        krympa = krymp();
+      }
+    };
   },
 
   _tegnBakgrunn(gitre, rb, rh, kam, pal) {
     if (!gitre || !gitre.length) return;
     const rgb = Farger.annetAnleggRgb;
+    /* Dekningen bygges én gang for hele scenen og VOKSER mens den tegnes: hvert
+       anlegg legger sin egen bakke til, så det neste ikke tegner den om igjen. */
+    this._dekning = this._dekningsprove(gitre);
     for (const bg of gitre) {
-      if (bg.full && bg.eier) { this._tegnFulltAnlegg(bg, rb, rh, kam, pal); continue; }
+      if (bg.full && bg.eier) {
+        this._tegnFulltAnlegg(bg, rb, rh, kam, pal);
+        if (this._dekning) this._dekning.leggTil(bg);
+        continue;
+      }
       const farge = (k00, k10, k01, k11, zz) => {
         const ly = this._lys(bg, k00, k10, k01, zz, kam);
         const r = Math.min(255, rgb[0] * ly), g2 = Math.min(255, rgb[1] * ly);
@@ -1185,7 +1225,7 @@ const Tegner3d = {
        lufta der det aktive anlegget ikke rekker. Naboen tegner derfor terreng
        bare UTENFOR det som alt er dekt – én sammenhengende bakke, uten at noe
        sted får to. */
-    const dekt = this._dekningsprove();
+    const dekt = this._dekning ? this._dekning.prov : null;
     let krevTerreng = null;
     if (dekt && bg.wx) {
       const n2 = bg.nb * bg.nh;

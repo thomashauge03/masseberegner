@@ -482,15 +482,30 @@ const App = {
       tekst: 'Regnet mot terrenget slik ' + navn.join(' og ') + ' gjør det ferdig – '
         + 'ikke mot dagens mark. Der de har planert eller fylt, er det den nye '
         + 'flaten det graves fra.' });
-    /* To anlegg som ligger OPPÅ hverandre ser hverandre begge veier, og da er
-       tallene avhengige av hvilken rekkefølge de sist ble regnet i. Det er
-       ikke galt, men det er ikke entydig – og da skal det sies. */
+    /* TO ANLEGG PÅ SAMME BAKKE ER ENTEN ET MØTE ELLER EN BEGRAVELSE.
+       «De dekker den samme bakken» er sant og nesten ubrukelig – det sier ikke
+       om de møtes pent i en kant eller om det ene er borte inne i det andre.
+       Med høydeforskjellen målt blir det ett spørsmål man kan svare på, og det
+       er den forskjellen som avgjør om anlegget lar seg bygge. */
+    const HALV_METER = 0.5;
     for (const o of this.overlappendeAnlegg()) {
-      res.merknader.push({ type: 'naboanlegg',
-        tekst: o.a + ' og ' + o.b + ' dekker den samme bakken (' + o.ruter
-          + ' ruter). Da er det ikke entydig hvem som ligger på hvem, og tallene '
-          + 'kan skifte med rekkefølgen de regnes i. Flytt det ene, eller la det '
-          + 'ene være en del av det andre.' });
+      const dyp = Math.abs(o.verst);
+      if (dyp < HALV_METER) {
+        res.merknader.push({ type: 'naboanlegg',
+          tekst: o.a + ' og ' + o.b + ' møtes på den samme bakken (' + o.ruter
+            + ' ruter, høydeforskjell under en halv meter). Det går opp – men '
+            + 'kontroller at overgangen mellom dem blir slik dere vil ha den.' });
+        continue;
+      }
+      /* Den som ligger UNDERST er den som blir borte. */
+      const under = o.verst < 0 ? o.a : o.b;
+      const over = o.verst < 0 ? o.b : o.a;
+      res.merknader.push({ type: 'ubyggelig',
+        tekst: under + ' ligger ' + dyp.toFixed(1).replace('.', ',') + ' m UNDER ferdig nivå på '
+          + over + ' der de møtes (' + o.ruter + ' ruter). Slik det står nå, blir '
+          + under + ' begravd i ' + over + ' – det lar seg ikke bygge. '
+          + 'Tre veier ut: hev ' + under + ', senk ' + over + ', eller flytt det '
+          + 'ene til side for det andre.' });
     }
   },
 
@@ -526,7 +541,25 @@ const App = {
             const q = this.P.anlegg.find(z => z.id === id);
             return q ? (q.navn || q.type) : id;
           };
-          ut.push({ a: navn(f[i][0]), b: navn(f[j][0]), ruter: felles });
+          /* HVOR MYE, OG HVEM AV DEM ER UNDERST.
+             «De dekker samme bakken» er sant og nesten ubrukelig. Det man
+             trenger å vite er om det ene ligger BEGRAVD i det andre, og med
+             hvor mye – for det er forskjellen mellom to anlegg som møtes i en
+             kant og en veg som forsvinner under en fylling. */
+          let sumD = 0, antD = 0, verst = 0;
+          for (let y = y0; y <= y1; y += 2) {
+            for (let x = x0; x <= x1; x += 2) {
+              const za = a.ved(x, y), zb = b.ved(x, y);
+              if (!Number.isFinite(za) || !Number.isFinite(zb)) continue;
+              const d = za - zb;
+              sumD += d; antD++;
+              if (Math.abs(d) > Math.abs(verst)) verst = d;
+            }
+          }
+          const middel = antD ? sumD / antD : 0;
+          ut.push({ a: navn(f[i][0]), b: navn(f[j][0]), ruter: felles,
+            /* Positivt: A ligger OVER B. Negativt: A er begravd i B. */
+            middel, verst, aId: f[i][0], bId: f[j][0] });
         }
       }
     }

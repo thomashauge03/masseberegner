@@ -1586,6 +1586,46 @@ const Nettlesertest = {
                   this.sjekk('  og det står i merknadene at tallene er regnet mot naboene',
                     m, JSON.stringify((App.resultat.merknader || []).map(q => q.type)));
                 }
+
+                /* TO ANLEGG PÅ SAMME BAKKE ER ENTEN ET MØTE ELLER EN BEGRAVELSE.
+                   «De dekker den samme bakken» sier ikke om de møtes pent i en
+                   kant eller om det ene er borte inne i det andre – og det er
+                   den forskjellen som avgjør om det lar seg bygge. Målt på
+                   brukerens eget prosjekt: vegen lå 8,0 m under ferdig nivå på
+                   nabotomta. En nybegynner skal ikke måtte se det selv. */
+                {
+                  const f = App._ferdigflater;
+                  if (f && f.size > 1) {
+                    /* Konstruer tilfellet: legg en flate rett over en annen,
+                       åtte meter høyere. Da MÅ det meldes som ubyggelig. */
+                    const par = [...f];
+                    const under = par[0][1];
+                    const kopi = {
+                      minX: under.minX, minY: under.minY, rute: under.rute,
+                      nb: under.nb, nh: under.nh, har: under.har, dekt: under.dekt,
+                      maksX: under.maksX, maksY: under.maksY,
+                      z: Float32Array.from(under.z, v => v + 8),
+                      ved: under.ved
+                    };
+                    const gml = new Map(f);
+                    const annen = par.find(q => q[0] !== par[0][0]);
+                    f.set(annen[0], kopi);
+                    const o = App.overlappendeAnlegg();
+                    const dyp = o.length ? Math.abs(o[0].verst) : 0;
+                    this.sjekk('  en flate åtte meter over en annen meldes med '
+                      + 'høydeforskjellen, ikke bare som «samme bakke»',
+                    o.length > 0 && dyp > 7 && dyp < 9, o.length + ' par, verst '
+                      + (o.length ? o[0].verst.toFixed(1) : '–') + ' m');
+                    const res2 = { merknader: [], sum: {} };
+                    App.naboMerknad(res2);
+                    this.sjekk('    og det står som UBYGGELIG, ikke som en opplysning',
+                      res2.merknader.some(q => q.type === 'ubyggelig'),
+                      JSON.stringify(res2.merknader.map(q => q.type)));
+                    this.sjekk('    og merknaden sier hva man gjør med det',
+                      res2.merknader.some(q => /hev |senk |flytt /.test(q.tekst)));
+                    App._ferdigflater = gml;
+                  }
+                }
               }
 
               /* VELGE BORT ER IKKE DET SAMME SOM «LOT SEG IKKE TEGNE». */
