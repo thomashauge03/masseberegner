@@ -522,12 +522,28 @@ const Tegner3d = {
          som alt står ferdig, så det koster ingenting. */
       {
         const eierA = app.erTomt() ? Tomt3d : Veg3d;
-        const gA = eierA._gitter(1);
-        if (gA) {
-          if (!app._ferdigflater) app._ferdigflater = new Map();
-          const fA = app.ferdigflateAv(gA, 1);
-          if (fA) app._ferdigflater.set(foer, fA);
-        }
+        /* VINDUET MÅ AV HER OGSÅ.
+           Løkka nedenfor gjør nettopp dette for hver nabo, og begrunnelsen der
+           gjelder ord for ord her: står tverrsnittsvinduet på ±100 m, ble bare
+           den strekningen registrert som «vegen ferdig bygd» for de andre. En
+           nabotomt tusen meter unna traff da rå mark og regnet mot lia som
+           vegen alt har gravd bort – mens merknaden likevel sa at den var
+           regnet mot vegens ferdige nivå. Og flyttet brukeren skyveknappen og
+           trykte igjen, fikk han et annet tallsett. */
+        const foerVinduA = eierA.vindu;
+        if (eierA.vindu) { eierA.vindu = 0; eierA._gitterFor = null; }
+        try {
+          const gA = eierA._gitter(1);
+          if (gA) {
+            if (!app._ferdigflater) app._ferdigflater = new Map();
+            const aA = app.P.anlegg.find(x => x.id === foer);
+            const fA = app.ferdigflateAv(gA, 1);
+            /* Nøkkelen følger flaten – se App._ryddFerdigflater. Uten den blir
+               en flate liggende som terreng etter at anlegget er endret. */
+            if (fA && aA) { fA.nokkel = this._fullnokkel(aA); app._ferdigflater.set(foer, fA); }
+            else app._ferdigflater.delete(foer);
+          }
+        } finally { eierA.vindu = foerVinduA; eierA._gitterFor = null; }
       }
       const runder = liste.length > 1 ? 2 : 1;
       let i = 0;
@@ -564,7 +580,8 @@ const Tegner3d = {
              der før – og den samme kubikken ville blitt talt to ganger. */
           if (!app._ferdigflater) app._ferdigflater = new Map();
           const flate = app.ferdigflateAv(g, 1);
-          if (flate) app._ferdigflater.set(a.id, flate);
+          // nøkkelen følger flaten – se App._ryddFerdigflater
+          if (flate) { flate.nokkel = nokkel; app._ferdigflater.set(a.id, flate); }
           else app._ferdigflater.delete(a.id);
         } catch (e) {
           fulle.delete(a.id);
@@ -736,7 +753,19 @@ const Tegner3d = {
     const nokkel = app.P.aktivt + '#' + app.sone + '#'
       + app.P.anlegg.map(a => this._anleggsnokkel(a)).join('|')
       + '#av:' + [...(Tegner3d._andreAv || [])].sort().join(',')
-      + '#full:' + (fulle ? [...fulle.keys()].sort().join(',') : '');
+      + '#full:' + (fulle ? [...fulle.keys()].sort().join(',') : '')
+      /* FERSKHETEN HØRER MED I NØKKELEN.
+         `_anleggsnokkel` er ren geometri. Et fullt gitter avhenger av mye mer –
+         malen, fjellet, kontekstringen – og prøves mot `_fullnokkel` lenger
+         nede. Men den prøven kjøres bare når bufferet BOMMER. Endret brukeren
+         fjellets standarddybde, traff nøkkelen her, og det gamle fulle
+         gitteret ble tegnet videre: eget anlegg med nytt fjell, naboen med det
+         gamle, i samme bilde. Samtidig regnet lista over anlegg `_fullnokkel`
+         på nytt og merket naboen ○ «skisse» – merket og bildet sa motsatt ting.
+         Prisen er én `JSON.stringify` per anlegg som faktisk HAR et fullt
+         gitter, ikke per anlegg. */
+      + '#fersk:' + (fulle ? app.P.anlegg.filter(a => fulle.has(a.id))
+        .map(a => this._fullnokkel(a)).join('|') : '');
     if (this._andreNokkel === nokkel && this._andreBuffer) return this._andreBuffer;
     const ut = [];
     const utelatt = [];
@@ -1396,8 +1425,20 @@ const Tegner3d = {
    * nettopp der `klargjorProsjekt` med vilje slipper alt annet. Verst er
    * «vis andre av»: da leverer `_bakgrunnsgitre` en tom liste, `_tegnBakgrunn`
    * går ut med en gang, og ingenting overskriver bufferet igjen.
+   *
+   * `_andreBuffer` og `_andreNa` MÅ med. Å nulle nøkkelen alene gjør at
+   * bufferet aldri blir LEST – men gitrene ligger der like fullt, og de er
+   * store: 46 byte per node, 8,4 MB for en tomt på 1 m ruter. Åpner man et
+   * prosjekt med ett anlegg etter å ha stått i ett med tre, går
+   * `_bakgrunnsgitre` ut med det samme ved hvert bilde og overskriver aldri
+   * bufferet – da blir det forrige prosjektet liggende resten av økta.
    */
-  glemBakgrunn() { this._andreNokkel = null; this._maskeBuffer = null; },
+  glemBakgrunn() {
+    this._andreNokkel = null;
+    this._andreBuffer = null;
+    this._andreNa = null;
+    this._maskeBuffer = null;
+  },
 
   _terrengmasker(g, gitre) {
     const b = this._maskeBuffer;
@@ -1414,7 +1455,30 @@ const Tegner3d = {
           if (!bg.finnes[k]) continue;
           krev[k] = dekning.prov(bg.wx[k], bg.wy[k]) ? 0 : 1;
         }
-        masker.set(bg, krev);
+        /* FIREHJØRNESREGELEN SPISER EN CELLE TIL.
+           Masken er krympet én dekningsrute, altså en halv meter, og det er
+           nok til at overlappen dekker selve sømmen. Men `_raster` tegner en
+           celle bare når ALLE FIRE hjørnene har `krev` – så naboen begynner i
+           praksis en hel NABOCELLE lenger ute enn masken sier. Er naboens
+           kontekstkolonner fem meter, står det da en fire og en halv meter
+           bred stripe langs hele sømmen der verken det aktive anlegget eller
+           naboen tegner bakke: ren bakgrunn tvers gjennom landskapet.
+           Koden kjenner mekanismen fra før – helflaten i `tegn()` dropper
+           `krev` nettopp fordi regelen «lar en celle bred søm stå utegnet» –
+           men masken her la den tilbake uten å ta høyde for det. Én utvidelse
+           i naboens EGET rutenett gir den cella alle fire hjørnene, og
+           overlappen legger seg under noe som alt er tegnet. */
+        const vid = new Uint8Array(n2);
+        for (let j = 0; j < bg.nh; j++) {
+          for (let i = 0; i < bg.nb; i++) {
+            const k = j * bg.nb + i;
+            vid[k] = (krev[k] || (i > 0 && krev[k - 1])
+              || (i < bg.nb - 1 && krev[k + 1])
+              || (j > 0 && krev[k - bg.nb])
+              || (j < bg.nh - 1 && krev[k + bg.nb])) ? 1 : 0;
+          }
+        }
+        masker.set(bg, vid);
       }
       if (dekning) dekning.leggTil(bg);
     }
@@ -1541,14 +1605,22 @@ const Tegner3d = {
            delt mellom anleggene bare av hvem som rakk å tegne den. Dempet man
            den halvparten naboen tegnet, sto det et fargesprang tvers over ei
            linje som ikke finnes i landskapet.
-           I «før» og «etter» er flaten både bakke og arbeid, og da dempes den
-           bare der anlegget har rørt noe – se `_dempetDer`.
+           I «etter» er flaten både bakke og arbeid, og da dempes den bare der
+           anlegget har rørt noe – se `_dempetDer`.
+           REKKEFØLGEN ER IKKE LIKEGYLDIG. `erTerreng` må prøves FØRST, slik
+           `krev`-valget rett over alt gjør. I «før» er `_flateHoyde(g)` nettopp
+           `g.zT` – samme tabell, samme referanse – så begge grenene er sanne
+           samtidig. Sto helflate-grenen først, ble naboens fotavtrykk malt en
+           femtedel mørkere enn den identiske, urørte bakken rundt: 130 mot 104
+           i mørkt tema, en ren skyggekant langs en linje som ikke finnes i
+           landskapet. Og «før» er nettopp bildet der INGEN har gjort noe ennå.
            `krev` legges på kopien òg, ikke bare i den lokale variabelen: to
            `krev` med ulik verdi i samme funksjon er en felle for den neste
            som leser koden. */
         const dempFarge = !lag0.farge ? null
-          : (heilflate && bygd ? this._dempetDer(lag0.farge, bygd)
-            : erTerreng ? null : this._dempet(lag0.farge));
+          : erTerreng ? null
+            : (heilflate && bygd ? this._dempetDer(lag0.farge, bygd)
+              : this._dempet(lag0.farge));
         const lag = dempFarge
           ? Object.assign({}, lag0, { farge: dempFarge, krev })
           : (krev === lag0.krev ? lag0 : Object.assign({}, lag0, { krev }));

@@ -435,11 +435,47 @@ const App = {
    * Finnes ingen ferdige flater, returneres terrenget selv. Da er det ingen
    * ekstra kostnad, og ingen tall endrer seg.
    */
+  /**
+   * En flate som ikke lenger står for anlegget slik det er NÅ, er ikke terreng.
+   *
+   * `_ferdigflater` var nøklet på anleggs-id alene, uten noe som sa hvilken
+   * utgave av anlegget flaten var laget av. Søsterbufferen `Tegner3d._fulle`
+   * bærer en nøkkel og blir prøvd mot den; denne gjorde det ikke. To måter det
+   * gikk galt på, begge med feil TALL som utslag og ingenting som sa fra:
+   *
+   *  – Redigering. Bygg full detalj, hev så profilen på det ene anlegget.
+   *    Vanlig redigering muterer `P.anlegg[…]` og går aldri gjennom setteren
+   *    på `P`, så flaten blir liggende. De andre anleggene fortsetter å grave
+   *    fra det gamle nivået – og merknaden nedenfor bekrefter uttrykkelig at
+   *    de er «regnet mot terrenget slik X gjør det ferdig».
+   *  – Sletting. `slettAnlegg` tar anlegget ut av `P.anlegg`, men flaten sto
+   *    igjen. Anlegget fantes ikke lenger noe sted i bildet, og likevel gravde
+   *    de andre fra planumet dets. `naboMerknad` tidde om det, fordi den slår
+   *    navnet opp i `P.anlegg` og går ut når lista er tom.
+   *
+   * Nøkkelen er `_fullnokkel`, som dekker litt mer enn flaten avhenger av
+   * (`faktorer` endrer ingen høyde). Det er riktig feilretning: da faller
+   * oppslaget tilbake til rå mark fra Kartverket, i stedet for å svare med et
+   * nivå som ikke gjelder lenger.
+   */
+  _ryddFerdigflater() {
+    const f = this._ferdigflater;
+    if (!f || !f.size) return f;
+    const T = (typeof Tegner3d !== 'undefined') ? Tegner3d : null;
+    for (const [id, flate] of [...f]) {
+      const a = this.P.anlegg.find(x => x.id === id);
+      if (!a || !flate || (T && flate.nokkel && flate.nokkel !== T._fullnokkel(a))) {
+        f.delete(id);
+      }
+    }
+    return f;
+  },
+
   prosjektterreng() {
     const grunn = this.terreng;
     if (!grunn) return grunn;
     const flater = [];
-    for (const [id, f] of (this._ferdigflater || new Map())) {
+    for (const [id, f] of (this._ryddFerdigflater() || new Map())) {
       if (id === this.P.aktivt || !f) continue;
       flater.push(f);
     }
@@ -469,7 +505,7 @@ const App = {
    */
   naboMerknad(res) {
     if (!res || !Array.isArray(res.merknader)) return;
-    const f = this._ferdigflater;
+    const f = this._ryddFerdigflater();
     if (!f || !f.size) return;
     const navn = [];
     for (const [id] of f) {
@@ -519,7 +555,7 @@ const App = {
    * skjules.
    */
   overlappendeAnlegg() {
-    const f = [...(this._ferdigflater || new Map())];
+    const f = [...(this._ryddFerdigflater() || new Map())];
     const ut = [];
     for (let i = 0; i < f.length; i++) {
       for (let j = i + 1; j < f.length; j++) {
@@ -822,6 +858,11 @@ const App = {
     this.merk('slettet anlegg');
     const i = this.P.anlegg.indexOf(a);
     this.P.anlegg.splice(i, 1);
+    /* Et slettet anlegg er ikke terreng lenger. `_ryddFerdigflater` fanger det
+       også, men den kjøres først ved neste beregning – og i mellomtiden ville
+       et bilde og en merknad kunne bygge på et anlegg som ikke finnes. */
+    if (this._ferdigflater) this._ferdigflater.delete(id);
+    if (typeof Tegner3d !== 'undefined' && Tegner3d._fulle) Tegner3d._fulle.delete(id);
     /* Var det aktive som ble slettet, må noe annet bli aktivt FØR noe tegnes –
        ellers slår aksessorene opp i et anlegg som ikke finnes. */
     if (this.P.aktivt === id) {

@@ -1563,9 +1563,28 @@ const Nettlesertest = {
                      ennå. Her tegnes scenen to ganger – én gang med boksen og
                      én gang med boksen slått av, altså nøyaktig slik koden var
                      før – og de to bildene sammenlignes byte for byte. */
+                  /* LERRETET MÅ FAKTISK VÆRE SYNLIG.
+                     `<canvas id="veg3d" class="skjult">` gir `display: none`, og
+                     da returnerer `tegn()` med én gang på `offsetParent === null`.
+                     Her sto prøven bak en `if` på nettopp det, uten `else` – så
+                     den hoppet stille over, sto som en linje i lista som aldri
+                     ble kjørt, og ville vært grønn med hele optimaliseringen
+                     revet ut. `Veg3d.aktiv = true` er bare et JS-flagg; det er
+                     `aktiver()` som tar bort klassen. */
                   {
+                    /* Bare klassen, ikke `aktiver()`. `aktiver` bytter hele
+                       arbeidsflaten (`App.stort3d`), skjuler tverrprofilen og
+                       rører modus – og panelene kom ikke tilbake som de var,
+                       slik `panelhoder` sa fra om. Å ta bort `skjult` gir
+                       lerretet 878 × 158 px og rører ingenting annet. */
                     const c9 = Veg3d.lerret;
-                    if (c9 && c9.offsetParent !== null && c9.width > 20) {
+                    const skjult9 = c9 && c9.classList.contains('skjult');
+                    if (skjult9) c9.classList.remove('skjult');
+                    await this.vent(80);
+                    const synlig = !!(c9 && c9.offsetParent !== null && c9.clientWidth > 20);
+                    this.sjekk('    veglerretet er synlig, så prøven under kan kjøre',
+                      synlig, c9 ? (c9.offsetParent === null ? 'skjult' : c9.width + ' px') : 'intet lerret');
+                    if (synlig) {
                       const kk9 = c9.getContext('2d');
                       const orgB = Tegner3d._skjermboks;
                       let ulikt = -1, tot = 0;
@@ -1584,7 +1603,18 @@ const Nettlesertest = {
                       } finally { Tegner3d._skjermboks = orgB; Veg3d.tegn(); }
                       this.sjekk('    og gir NØYAKTIG samme bilde som uten den',
                         ulikt === 0, ulikt + ' av ' + tot + ' piksler ulike');
+                      /* Og bildet må ha noe i seg. Et tomt lerret er også
+                         «nøyaktig likt», og da beviser prøven ingenting. */
+                      const b9 = kk9.getImageData(0, 0, c9.width, c9.height).data;
+                      let malt = 0;
+                      for (let i = 0; i < b9.length; i += 4 * 5) {
+                        if (b9[i] !== b9[0] || b9[i + 1] !== b9[1] || b9[i + 2] !== b9[2]) malt++;
+                      }
+                      this.sjekk('      og bildet er ikke tomt – ellers beviser likheten intet',
+                        malt > 200, malt + ' piksler skiller seg fra bakgrunnen');
                     }
+                    if (skjult9) c9.classList.add('skjult');
+                    await this.vent(60);
                   }
                   this.sjekk('    og den er MINDRE enn lerretet – ellers sparer den ingenting',
                     bokser > 0 && dekning / bokser < 0.95,
@@ -1676,9 +1706,24 @@ const Nettlesertest = {
                   const ut = gjennom([255, 40, 30]);
                   this.sjekk('    kuløren står – rødt er fortsatt rødt',
                     ut[0] > ut[1] && ut[0] > ut[2], ut.join(', '));
+                  /* TERSKELEN MÅ FELLE «DEMPINGA AV».
+                     Her sto 185. Spennet er nøyaktig 225 · LYSDEMPING · METNING
+                     = 180 · METNING, så METNING kunne settes til 1,00 – altså
+                     hele metningsdempingen av – og prøven var fortsatt grønn.
+                     117 er 0,65 av spennet, den grensa `_dempet` selv sier var
+                     for slakk til å skille anleggene. */
+                  const spenn = ut[0] - Math.min(ut[1], ut[2]);
                   this.sjekk('    men svakere – ellers ser man ingen forskjell',
-                    ut[0] - Math.min(ut[1], ut[2]) < 225 - 40,
-                    'spenn ' + (ut[0] - Math.min(ut[1], ut[2])) + ' (var 225)');
+                    spenn < 117, 'spenn ' + spenn + ' av 225, må under 117');
+                  /* Og det må være METNINGEN som gjør det. Uten dette kunne
+                     lysdempingen alene bære prøven, og metningsleddet være
+                     dødt – akkurat det som gjorde at vegbanen og bærelaget
+                     ikke ble dempet i det hele tatt i forrige utgave. */
+                  const bareLys = [255, 40, 30].map(v => Math.round(v * Tegner3d.LYSDEMPING));
+                  const lysSpenn = bareLys[0] - Math.min(bareLys[1], bareLys[2]);
+                  this.sjekk('    og det er METNINGEN som gjør det, ikke bare lyset',
+                    lysSpenn - spenn >= 60,
+                    'metningens bidrag ' + (lysSpenn - spenn) + ' av ' + lysSpenn);
                   /* En gråtone skal bli grå igjen, ikke få en kulør: en dempet
                      bakke med et fargestikk leses som et annet materiale. */
                   const gq = gjennom([142, 142, 142]);
@@ -1702,16 +1747,45 @@ const Nettlesertest = {
                   this.sjekk('    og «ingen farge» blir fortsatt ingen farge',
                     Tegner3d._dempet(() => 0)(0, 0, 0, 0, 0) === 0);
 
-                  /* I «før» og «etter» er modellen ÉN flate: bakke der ingen
-                     har gjort noe, arbeid der noen har. Bakken er felles med
-                     naboen og MÅ stå urørt – ellers er sømmen tilbake. */
+                  /* I «etter» er modellen ÉN flate: bakke der ingen har gjort
+                     noe, arbeid der noen har. Bakken er felles med naboen og
+                     MÅ stå urørt – ellers er sømmen tilbake. */
                   const bygd = new Uint8Array([0, 1]);
                   const raa = lag([200, 60, 50]);
                   const dd = Tegner3d._dempetDer(() => raa, bygd);
-                  this.sjekk('    i før/etter står den felles bakken helt urørt',
+                  this.sjekk('    i etter-visningen står den felles bakken helt urørt',
                     dd(0, 0, 0, 0, 0) === raa, 'urørt der ingen har gravd');
                   this.sjekk('    mens arbeidet ved siden av dempes',
                     dd(1, 0, 0, 0, 0) !== raa);
+                }
+
+                /* ================================================================
+                   I «FØR» HAR INGEN GJORT NOE ENNÅ
+
+                   Hele modellen er dagens terreng, og `_flateHoyde` returnerer
+                   nettopp `g.zT` – samme tabell, samme referanse. Sto
+                   helflate-grenen foran `erTerreng`-grenen, ble naboens
+                   fotavtrykk malt en femtedel mørkere enn den identiske bakken
+                   rundt: en ren skyggekant langs ei linje som ikke finnes i
+                   landskapet, i det ene bildet der ingenting er bygd.
+                   ================================================================ */
+                {
+                  const eier9 = f.eier;
+                  const vFoer = eier9.visning;
+                  eier9.visning = 'foer';
+                  const flate9 = eier9._flateHoyde(f);
+                  eier9.visning = vFoer;
+                  this.sjekk('  i «før» ER helflaten terrenget selv',
+                    flate9 === f.zT, flate9 === f.zT ? 'samme tabell' : 'en annen tabell');
+                  /* Og da må dempingen la den være. Prøven speiler valget i
+                     `_tegnFulltAnlegg`: er flaten `zT`, skal ingen demping på. */
+                  const erTerreng9 = flate9 === f.zT;
+                  const heilflate9 = true;
+                  const bygd9 = f.harGrav || f.harVeg || f.harFerdig || null;
+                  const valgt = !erTerreng9 && heilflate9 && bygd9 ? 'dempetDer'
+                    : erTerreng9 ? 'ingen' : 'dempet';
+                  this.sjekk('    så «før» dempes ikke i det hele tatt',
+                    valgt === 'ingen', 'valgte: ' + valgt);
                 }
 
                 /* NABOEN SKAL IKKE VÆRE GROVERE ENN HAN VILLE VÆRT SELV.
@@ -1795,6 +1869,126 @@ const Nettlesertest = {
                     m3 !== m1);
                   Tegner3d._maskeBuffer = null;
 
+                  /* MASKEN MÅ TA HØYDE FOR FIREHJØRNESREGELEN.
+                     `_raster` tegner en celle bare når alle fire hjørnene har
+                     `krev`. Er masken ikke utvidet med én node, begynner naboen
+                     en hel nabocelle for langt ute, og det står en utegnet
+                     stripe langs hele sømmen – fire og en halv meter der
+                     naboens kontekstkolonner er fem. */
+                  {
+                    /* MÅLET ER DEN TAPTE RANDEN, ikke et forhold.
+                       Første utgave av denne prøven målte «hele celler delt på
+                       noder med krev», og den var 99,4 % både med og uten
+                       utvidelsen – begge tallene vokser sammen, så prøven kunne
+                       ikke feile. Det som faktisk skiller er hvor mange noder
+                       som HAR krev men ikke er hjørne i en eneste tegnbar
+                       celle: det er nøyaktig randen som blir stående utegnet.
+                       Målt på brukerens prosjekt: 3 med utvidelsen, 34 uten. */
+                    /* MÅLET ER TEGNBARE CELLER, ikke noder.
+                       Første forsøk telte «noder med krev som ikke er hjørne i
+                       noen hel celle», og det var null begge veier – en randnode
+                       er hjørne i FIRE celler, og én hel celle lenger ute redder
+                       den. Det som faktisk blir borte er selve cellen over
+                       sømmen, så det er cellene som må telles. */
+                    const tegnbare = m => {
+                      let celler = 0, medKrev = 0;
+                      for (const [bg, mk] of m) {
+                        for (let j = 0; j < bg.nh - 1; j++) {
+                          for (let i = 0; i < bg.nb - 1; i++) {
+                            const k = j * bg.nb + i;
+                            if (!bg.finnes[k] || !bg.finnes[k + 1]
+                              || !bg.finnes[k + bg.nb] || !bg.finnes[k + bg.nb + 1]) continue;
+                            if (mk[k] && mk[k + 1] && mk[k + bg.nb] && mk[k + bg.nb + 1]) celler++;
+                          }
+                        }
+                        for (let k = 0; k < bg.nb * bg.nh; k++) {
+                          if (bg.finnes[k] && mk[k]) medKrev++;
+                        }
+                      }
+                      return { celler, medKrev };
+                    };
+                    /* SØMMEN MÅ KONSTRUERES, ellers prøver vi ingenting.
+                       I dette prøveprosjektet ligger anleggene fra hverandre, så
+                       masken tar ingenting og begge tallene blir null – og en
+                       prøve som sammenligner null med null kan ikke feile. Her
+                       bygges derfor et nabogitter med GROVE celler som dekker
+                       nøyaktig den samme bakken som det aktive: det er da
+                       firehjørnesregelen spiser en hel nabocelle, og det er den
+                       stripa utvidelsen finnes for. */
+                    let nX0 = Infinity, nX1 = -Infinity, nY0 = Infinity, nY1 = -Infinity;
+                    for (let i = 0; i < gA.nb * gA.nh; i++) {
+                      if (!gA.finnes[i]) continue;
+                      if (gA.wx[i] < nX0) nX0 = gA.wx[i];
+                      if (gA.wx[i] > nX1) nX1 = gA.wx[i];
+                      if (gA.wy[i] < nY0) nY0 = gA.wy[i];
+                      if (gA.wy[i] > nY1) nY1 = gA.wy[i];
+                    }
+                    const grov = 5;                      // som en vegs kontekstkolonner
+                    const gnb = Math.max(4, Math.round((nX1 - nX0) / grov) + 6);
+                    const gnh = Math.max(4, Math.round((nY1 - nY0) / grov) + 6);
+                    const nabo = { nb: gnb, nh: gnh, full: true, eier: gA.eier || Veg3d,
+                      wx: new Float64Array(gnb * gnh), wy: new Float64Array(gnb * gnh),
+                      finnes: new Uint8Array(gnb * gnh) };
+                    for (let j = 0; j < gnh; j++) {
+                      for (let i = 0; i < gnb; i++) {
+                        const k = j * gnb + i;
+                        nabo.wx[k] = nX0 - 2 * grov + i * grov;
+                        nabo.wy[k] = nY0 - 2 * grov + j * grov;
+                        nabo.finnes[k] = 1;
+                      }
+                    }
+                    const scene = [nabo];
+                    Tegner3d._maskeBuffer = null;
+                    const med = tegnbare(Tegner3d._terrengmasker(gA, scene));
+                    /* Den gamle oppførselen bygd opp her, så prøven pinner
+                       nøyaktig hva utvidelsen er verdt – ingen magisk terskel. */
+                    Tegner3d._maskeBuffer = null;
+                    const dek = Tegner3d._dekningsprove(gA, scene);
+                    const utan = new Map();
+                    if (dek) {
+                      for (const bg of scene) {
+                        const n2 = bg.nb * bg.nh, krev = new Uint8Array(n2);
+                        for (let k = 0; k < n2; k++) {
+                          if (!bg.finnes[k]) continue;
+                          krev[k] = dek.prov(bg.wx[k], bg.wy[k]) ? 0 : 1;
+                        }
+                        utan.set(bg, krev);
+                        dek.leggTil(bg);
+                      }
+                    }
+                    const u = tegnbare(utan);
+                    this.sjekk('  sømmen har noe å prøve på – naboen er faktisk maskert',
+                      u.medKrev > 0 && u.medKrev < gnb * gnh,
+                      u.medKrev + ' av ' + (gnb * gnh) + ' noder står igjen til naboen');
+                    this.sjekk('    og masken er utvidet, så sømmen ikke blir stående utegnet',
+                      med.celler > u.celler,
+                      med.celler + ' tegnbare celler med utvidelsen, ' + u.celler
+                      + ' uten – differansen er stripa langs sømmen');
+                    Tegner3d._maskeBuffer = null;
+                  }
+
+                  /* BUFERNØKKELEN MÅ MERKE AT NABOEN ER UTDATERT.
+                     Nøkkelen inneholdt bare geometri. Endret man fjelldybden,
+                     traff bufferet, og ferskhetsprøven lenger nede ble aldri
+                     kjørt: eget anlegg med nytt fjell, naboen med det gamle, i
+                     samme bilde – mens lista merket naboen ○ «skisse». */
+                  {
+                    Veg3d.glemBakgrunn();
+                    const foerListe = Veg3d._bakgrunnsgitre();
+                    const foerFulle = foerListe.filter(x => x.full).length;
+                    const gml = App.P.fjell ? App.P.fjell.standarddybde : undefined;
+                    if (App.P.fjell && foerFulle > 0) {
+                      App.P.fjell.standarddybde = (gml || 0.5) + 2.5;
+                      const etterListe = Veg3d._bakgrunnsgitre();   // UTEN glemBakgrunn
+                      const etterFulle = etterListe.filter(x => x.full).length;
+                      App.P.fjell.standarddybde = gml;
+                      Veg3d.glemBakgrunn();
+                      this.sjekk('  et endret fjell gjør nabogitteret utdatert, også i bufferet',
+                        etterFulle < foerFulle,
+                        foerFulle + ' fulle før, ' + etterFulle + ' etter');
+                    }
+                  }
+
                   /* ET STORT ANLEGG SKAL FÅ EN GROVERE MASKE, IKKE INGEN.
                      Rutenettet spenner over hele scenen og celletallet er
                      kvadratisk i oppløsningen, så en to kilometers veg sprengte
@@ -1822,18 +2016,30 @@ const Nettlesertest = {
                      skala for alltid, og et anlegg som senere ble det aktive
                      fikk fargeskalaen til noe helt annet. */
                   {
+                    /* KASTET MÅ FAKTISK HA SKJEDD.
+                       Sto prøven med skjult lerret, returnerte `tegn()` før den
+                       nådde `_tegnBakgrunn`, `kastet` ble usann – og påstanden
+                       var likevel grønn, fordi `kastet` bare gikk inn i
+                       meldingsteksten. Da var prøven grønn også med hele
+                       `try`/`finally` revet ut. Nå er kastet en del av kravet. */
+                    const c8 = Veg3d.lerret;                 // bare klassen – se over
+                    const skjult8 = c8 && c8.classList.contains('skjult');
+                    if (skjult8) c8.classList.remove('skjult');
+                    await this.vent(80);
                     const foerAvvik = medFull.filter(x => x.full).map(x => [x, x.maksAvvik]);
                     const org = Tegner3d._tegnBakgrunn;
                     Tegner3d._tegnBakgrunn = () => { throw new Error('prøvekast'); };
                     let kastet = false;
                     try { Veg3d.tegn(); } catch (e) { kastet = true; }
-                    Tegner3d._tegnBakgrunn = org;
+                    finally { Tegner3d._tegnBakgrunn = org; }
                     const staar = foerAvvik.every(([x, m]) => x.maksAvvik === m);
                     this.sjekk('  et kast under tegningen lar ikke naboens fargeskala bli stående',
-                      foerAvvik.length === 0 || staar,
-                      (kastet ? 'kastet, ' : 'kastet ikke, ')
+                      kastet && foerAvvik.length > 0 && staar,
+                      (kastet ? 'kastet, ' : 'KASTET IKKE, ') + foerAvvik.length + ' gitre: '
                       + foerAvvik.map(([x, m]) => (x.maksAvvik === m ? 'ok' : 'STÅR IGJEN')).join(', '));
                     Veg3d.tegn();
+                    if (skjult8) c8.classList.add('skjult');
+                    await this.vent(60);
                   }
                 }
               }
@@ -1851,6 +2057,128 @@ const Nettlesertest = {
                 const f = App._ferdigflater;
                 this.sjekk('  hvert regnet anlegg gir en ferdig flate til de andre',
                   !!f && f.size > 0, f ? f.size + ' flater' : 'ingen');
+
+                /* ================================================================
+                   EN FLATE SOM IKKE GJELDER LENGER ER IKKE TERRENG
+
+                   Dette er den farligste feilen i hele nabomaskineriet, fordi
+                   utslaget er et TALL og ingenting sier fra. Flatene var nøklet
+                   på anleggs-id alene, uten noe som sa hvilken utgave de var
+                   laget av – så et anlegg man hadde redigert, eller SLETTET,
+                   fortsatte å være bakken de andre gravde fra.
+                   ================================================================ */
+                if (f && f.size > 1) {
+                  const idA = [...f.keys()].find(k => k !== App.P.aktivt);
+                  const anlA = App.P.anlegg.find(x => x.id === idA);
+                  const flA = f.get(idA);
+                  this.sjekk('  hver ferdig flate bærer nøkkelen til anlegget den kom fra',
+                    !!(flA && flA.nokkel), flA ? (flA.nokkel ? 'har nøkkel' : 'INGEN NØKKEL') : '–');
+                  if (anlA && flA && flA.nokkel) {
+                    const midtX = (flA.minX + flA.maksX) / 2, midtY = (flA.minY + flA.maksY) / 2;
+                    const foerZ = App.prosjektterreng().z(midtX, midtY);
+                    const raaZ = App.terreng.z(midtX, midtY);
+                    this.sjekk('    og flaten overstyrer bakken mens den gjelder',
+                      Number.isFinite(foerZ), 'z = ' + (foerZ || 0).toFixed(2));
+
+                    /* Rediger anlegget slik brukeren gjør det: rett på
+                       `P.anlegg[…]`. Det går aldri gjennom P-setteren, så
+                       ingenting annet river bufferet. */
+                    const nokkelFoer = flA.nokkel;
+                    let angre = null;
+                    if (anlA.tomt && anlA.tomt.nivaa && Number.isFinite(anlA.tomt.nivaa.kote)) {
+                      angre = anlA.tomt.nivaa.kote;
+                      anlA.tomt.nivaa.kote = angre + 3.7;
+                    } else if (anlA.mal) {
+                      angre = anlA.mal.skjaeringLosmasse;
+                      anlA.mal.skjaeringLosmasse = (angre || 1) + 0.53;
+                    }
+                    const etterZ = App.prosjektterreng().z(midtX, midtY);
+                    this.sjekk('    men et REDIGERT anlegg slutter å være terreng',
+                      !App._ferdigflater.has(idA)
+                      && (etterZ === raaZ || (!Number.isFinite(etterZ) && !Number.isFinite(raaZ))),
+                      App._ferdigflater.has(idA) ? 'flaten står igjen'
+                        : 'falt tilbake til rå mark');
+                    /* Og merknaden må slutte å påstå det den påsto. */
+                    const res9 = { merknader: [], sum: {} };
+                    App.naboMerknad(res9);
+                    this.sjekk('      og merknaden slutter å si at det er regnet mot det',
+                      !res9.merknader.some(q => q.type === 'naboanlegg'
+                        && q.tekst.indexOf(anlA.navn || anlA.type) >= 0),
+                      JSON.stringify(res9.merknader.map(q => q.type)));
+                    // legg tilbake
+                    if (anlA.tomt && anlA.tomt.nivaa && angre != null) anlA.tomt.nivaa.kote = angre;
+                    else if (anlA.mal && angre != null) anlA.mal.skjaeringLosmasse = angre;
+                    App._ferdigflater.set(idA, flA);
+                    flA.nokkel = nokkelFoer;
+                  }
+
+                  /* ================================================================
+                     TVERRSNITTSVINDUET SKAL IKKE KORTE NED TERRENGET
+
+                     `v3_vindu` viser et utsnitt av vegen rundt tverrsnittet man
+                     står i. Det er en VISNING. Men flaten som legges inn som
+                     terreng for de andre anleggene ble bygd av det samme
+                     gitteret, så med vinduet på ble bare den strekningen
+                     registrert som ferdig bygd. Målt: flaten falt fra 50 × 104 m
+                     til 28 × 28 m. En nabotomt utenfor utsnittet regnet da mot
+                     rå mark – mens merknaden sa at den var regnet mot vegens
+                     ferdige nivå.
+                     ================================================================ */
+                  {
+                    const e6 = App.erTomt() ? Tomt3d : Veg3d;
+                    const foerV6 = e6.vindu;
+                    const areal = fl => (fl ? (fl.maksX - fl.minX) * (fl.maksY - fl.minY) : 0);
+                    const bygg = () => {
+                      /* Nøyaktig samme forholdsregel som byggFulleAnlegg tar. */
+                      const fv = e6.vindu;
+                      if (e6.vindu) { e6.vindu = 0; e6._gitterFor = null; }
+                      try {
+                        const g6 = e6._gitter(1);
+                        return g6 ? App.ferdigflateAv(g6, 1) : null;
+                      } finally { e6.vindu = fv; e6._gitterFor = null; }
+                    };
+                    const utanVindu = (() => {
+                      e6.vindu = 0; e6._gitterFor = null;
+                      const g6 = e6._gitter(1);
+                      return g6 ? App.ferdigflateAv(g6, 1) : null;
+                    })();
+                    e6.vindu = 30; e6._gitterFor = null;
+                    const medVindu = bygg();
+                    /* Og hva det ville blitt UTEN forholdsregelen – det pinner
+                       hva rettingen er verdt, uten noen magisk terskel. */
+                    const utan = (() => {
+                      const g6 = e6._gitter(1);
+                      return g6 ? App.ferdigflateAv(g6, 1) : null;
+                    })();
+                    e6.vindu = foerV6; e6._gitterFor = null;
+                    this.sjekk('  tverrsnittsvinduet korter ikke ned det de andre regner mot',
+                      areal(utanVindu) === 0 || areal(medVindu) > areal(utanVindu) * 0.9,
+                      Math.round(areal(medVindu)) + ' m² med vindu på, '
+                      + Math.round(areal(utanVindu)) + ' m² uten');
+                    this.sjekk('    og uten forholdsregelen ville den blitt kortet ned',
+                      areal(utanVindu) === 0 || areal(utan) < areal(utanVindu) * 0.9,
+                      Math.round(areal(utan)) + ' m² – det er feilen som var der');
+                  }
+
+                  /* Og et SLETTET anlegg – der finnes ikke engang et navn å
+                     melde med, så merknaden tidde og tallet sto. */
+                  {
+                    const idB = [...App._ferdigflater.keys()].find(k => k !== App.P.aktivt);
+                    const anlB = App.P.anlegg.find(x => x.id === idB);
+                    if (anlB) {
+                      const iB = App.P.anlegg.indexOf(anlB);
+                      App.P.anlegg.splice(iB, 1);
+                      const staarIgjen = App.prosjektterreng();
+                      this.sjekk('  et SLETTET anlegg slutter å være terreng',
+                        !App._ryddFerdigflater().has(idB),
+                        App._ferdigflater.has(idB) ? 'graver fortsatt fra det' : 'borte');
+                      this.sjekk('    og terrenget faller tilbake til rå mark',
+                        staarIgjen === App.terreng || !App._ferdigflater.has(idB));
+                      App.P.anlegg.splice(iB, 0, anlB);
+                    }
+                  }
+                }
+
                 if (f && f.size) {
                   const terr = App.prosjektterreng();
                   this.sjekk('    og terrenget beregningen får er ENDRET av dem',

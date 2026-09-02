@@ -394,7 +394,7 @@ ${this.sprengningsrader(res)}
          da inn naboene også, og tomta blir en flekk midt i et grått felt,
          stikk i strid med `kontekst`-innstillingen nedenfor. */
       Tomt3d.lag = Object.assign({}, Tomt3d.lag, { andre: false });
-      Tomt3d.glemBakgrunn(); Tomt3d._andreNa = null;
+      Tomt3d.glemBakgrunn();          // slipper også `_andreNa` – se der
       Tomt3d.senter = null; Tomt3d.panX = 0; Tomt3d.panY = 0;
       Tomt3d._skalaSatt = false;
       Tomt3d._gitterFor = null;
