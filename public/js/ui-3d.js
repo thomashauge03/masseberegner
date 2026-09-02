@@ -508,14 +508,38 @@ const Tegner3d = {
             + (a.type === 'tomt' ? 'ingen ferdig kote satt' : 'ingen høydeprofil ennå'));
         }
       }
+      /* TO RUNDER, IKKE ÉN.
+         Det første anlegget som regnes ser ikke naboene sine – de finnes ikke
+         ennå. Det siste ser alle. Etter én runde er tallene derfor avhengige av
+         rekkefølgen, og det er ikke et svar man kan gi fra seg. Andre runde
+         regner alle om igjen med alle de andre på plass, og da står de stille.
+         Ligger to anlegg OPPÅ hverandre, står de fortsatt ikke stille – og det
+         sies det fra om, se `App.overlappendeAnlegg`. */
+      /* ANLEGGET MAN STÅR I ER OGSÅ TERRENG FOR DE ANDRE.
+         Regelen er «alle de andre», og den gjelder begge veier. Uten dette
+         hadde naboene regnet mot lia der tomta man nettopp planerte ligger –
+         og bare den man sto i ville sett sannheten. Flaten hentes fra gitteret
+         som alt står ferdig, så det koster ingenting. */
+      {
+        const eierA = app.erTomt() ? Tomt3d : Veg3d;
+        const gA = eierA._gitter(1);
+        if (gA) {
+          if (!app._ferdigflater) app._ferdigflater = new Map();
+          const fA = app.ferdigflateAv(gA, 1);
+          if (fA) app._ferdigflater.set(foer, fA);
+        }
+      }
+      const runder = liste.length > 1 ? 2 : 1;
       let i = 0;
+      const totalt = liste.length * runder;
+      for (let runde = 0; runde < runder; runde++) {
       for (const a of liste) {
         i++;
-        app.framdrift(true, 'Regner ut ' + (a.navn || a.type) + ' … ' + i + '/' + liste.length,
-          i / (liste.length + 1));
+        app.framdrift(true, 'Regner ut ' + (a.navn || a.type) + ' … ' + i + '/' + totalt,
+          i / (totalt + 1));
         const nokkel = this._fullnokkel(a);
         const har = fulle.get(a.id);
-        if (har && har.nokkel === nokkel) continue;
+        if (har && har.nokkel === nokkel && har.runde >= runde) continue;
         const eier = a.type === 'tomt' ? Tomt3d : Veg3d;
         /* Vindu og kontekst former VEGENS gitter (`_gitter()` tar ingen
            parameter i det hele tatt). Sto vinduet på, ville naboen blitt et
@@ -532,7 +556,16 @@ const Tegner3d = {
           const g = eier._gitter(a.type === 'tomt' ? 2 : 1);
           eier._gitterFor = null;
           if (!g) throw new Error('ingen modell å bygge');
-          fulle.set(a.id, { g, eier, nokkel, navn: a.navn || a.type, type: a.type, id: a.id });
+          fulle.set(a.id, { g, eier, nokkel, runde, navn: a.navn || a.type, type: a.type, id: a.id });
+          /* OG DET FERDIGE ANLEGGET BLIR DET NYE TERRENGET.
+             Gitteret er tegningen; høydemodellen under er det de ANDRE
+             anleggene skal regne mot. Uten den siste linja ville bildet vist
+             at tomta ligger der, mens vegen fortsatt gravde fra lia som lå
+             der før – og den samme kubikken ville blitt talt to ganger. */
+          if (!app._ferdigflater) app._ferdigflater = new Map();
+          const flate = app.ferdigflateAv(g, a.type === 'tomt' ? 1 : 1);
+          if (flate) app._ferdigflater.set(a.id, flate);
+          else app._ferdigflater.delete(a.id);
         } catch (e) {
           fulle.delete(a.id);
           utelatt.push((a.navn || a.type) + ' – ' + e.message);
@@ -540,6 +573,7 @@ const Tegner3d = {
           eier.vindu = foerVindu;
           eier._gitterFor = null;
         }
+      }
       }
     } finally {
       app.autolagringPause--;
@@ -1004,6 +1038,98 @@ const Tegner3d = {
     return maks > 0 ? maks : null;
   },
 
+  /** To masker samtidig – begge må være sanne. */
+  _ogsaa(a, b) {
+    const ut = new Uint8Array(Math.min(a.length, b.length));
+    for (let i = 0; i < ut.length; i++) ut[i] = (a[i] && b[i]) ? 1 : 0;
+    return ut;
+  },
+
+  /**
+   * «Er denne bakken alt tegnet av anlegget jeg står i?»
+   *
+   * Gitteret til en veg følger senterlinjen og er ikke et rutenett man kan slå
+   * opp i. Første forsøk brukte `Linjeforing.projiser`, som gjør et søk i to
+   * tusen steg – ganget med elleve tusen noder i nabogitteret blir det
+   * tjuetre millioner punktberegninger per bilde.
+   * Her males dekningen i stedet inn i et grovt rutenett ÉN gang, og da er
+   * oppslaget ett regnestykke for begge formene. Rutenettet henges på gitteret
+   * og følger det, så det bygges bare når gitteret gjør det.
+   */
+  _dekningsprove() {
+    const g = this._sisteGitter;
+    if (!g || !g.wx || !g.finnes) return null;
+    if (g._dekning) return g._dekning.prov;
+    const rute = 2;
+    let minX = Infinity, maksX = -Infinity, minY = Infinity, maksY = -Infinity;
+    const n = g.nb * g.nh;
+    for (let k = 0; k < n; k++) {
+      if (!g.finnes[k]) continue;
+      if (g.wx[k] < minX) minX = g.wx[k];
+      if (g.wx[k] > maksX) maksX = g.wx[k];
+      if (g.wy[k] < minY) minY = g.wy[k];
+      if (g.wy[k] > maksY) maksY = g.wy[k];
+    }
+    if (!Number.isFinite(minX)) return null;
+    const nb = Math.max(2, Math.ceil((maksX - minX) / rute) + 1);
+    const nh = Math.max(2, Math.ceil((maksY - minY) / rute) + 1);
+    if (nb * nh > 4e6) return null;
+    const har = new Uint8Array(nb * nh);
+    /* Firkantene males inn, ikke bare hjørnene: med bare hjørnene ville vegen
+       fått hull hver femte meter, og naboen hadde tegnet terreng i dem. */
+    const fyll = (ax, ay, bx, by, cx, cy) => {
+      const iL = Math.max(0, Math.floor((Math.min(ax, bx, cx) - minX) / rute));
+      const iH = Math.min(nb - 1, Math.ceil((Math.max(ax, bx, cx) - minX) / rute));
+      const jL = Math.max(0, Math.floor((Math.min(ay, by, cy) - minY) / rute));
+      const jH = Math.min(nh - 1, Math.ceil((Math.max(ay, by, cy) - minY) / rute));
+      const omr = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+      if (Math.abs(omr) < 1e-12) return;
+      const inv = 1 / omr;
+      for (let j = jL; j <= jH; j++) {
+        const py = minY + j * rute;
+        for (let i = iL; i <= iH; i++) {
+          const px = minX + i * rute;
+          const w0 = ((bx - ax) * (py - ay) - (by - ay) * (px - ax)) * inv;
+          const w1 = ((cx - bx) * (py - by) - (cy - by) * (px - bx)) * inv;
+          const w2 = ((ax - cx) * (py - cy) - (ay - cy) * (px - cx)) * inv;
+          if (w0 < -1e-9 || w1 < -1e-9 || w2 < -1e-9) continue;
+          har[j * nb + i] = 1;
+        }
+      }
+    };
+    for (let j = 0; j < g.nh - 1; j++) {
+      for (let i = 0; i < g.nb - 1; i++) {
+        const k00 = j * g.nb + i, k10 = k00 + 1, k01 = k00 + g.nb, k11 = k01 + 1;
+        if (!g.finnes[k00] || !g.finnes[k10] || !g.finnes[k01] || !g.finnes[k11]) continue;
+        fyll(g.wx[k00], g.wy[k00], g.wx[k10], g.wy[k10], g.wx[k11], g.wy[k11]);
+        fyll(g.wx[k00], g.wy[k00], g.wx[k11], g.wy[k11], g.wx[k01], g.wy[k01]);
+      }
+    }
+    /* KRYMP MASKEN MED ÉN RUTE.
+       Uten det ble det en søm: en rute som er DELVIS dekt teller som dekt, så
+       naboen hoppet over hele den ruta – og der sto det en to meter bred svart
+       stripe mellom de to terrengene. Krympet mask lar naboen tegne to meter
+       inn under det aktive i stedet. Det aktive tegnes etterpå og legger seg
+       oppå, så overlappen er en søm man ikke ser, mens glipa var en man så. */
+    const krympa = new Uint8Array(har.length);
+    for (let j = 0; j < nh; j++) {
+      for (let i = 0; i < nb; i++) {
+        const k = j * nb + i;
+        if (!har[k]) continue;
+        const inne = i > 0 && j > 0 && i < nb - 1 && j < nh - 1
+          && har[k - 1] && har[k + 1] && har[k - nb] && har[k + nb];
+        krympa[k] = inne ? 1 : 0;
+      }
+    }
+    const prov = (x, y) => {
+      const i = Math.round((x - minX) / rute), j = Math.round((y - minY) / rute);
+      if (i < 0 || j < 0 || i >= nb || j >= nh) return false;
+      return !!krympa[j * nb + i];
+    };
+    Object.defineProperty(g, '_dekning', { value: { prov }, enumerable: false, configurable: true });
+    return prov;
+  },
+
   _tegnBakgrunn(gitre, rb, rh, kam, pal) {
     if (!gitre || !gitre.length) return;
     const rgb = Farger.annetAnleggRgb;
@@ -1045,9 +1171,31 @@ const Tegner3d = {
     eier.fyldig = this.fyldig;
     eier._kamNa = kam;
     eier.lag = Object.assign({}, eier.lag);
-    for (const felt of ['terreng', 'grav', 'fjell', 'rutenett']) {
+    for (const felt of ['grav', 'fjell', 'rutenett']) {
       if (felt in this.lag) eier.lag[felt] = this.lag[felt];
     }
+    /* TERRENGET ER ÉN FLATE, OG SKAL TEGNES ÉN GANG.
+       Hvert anlegg bærer sin egen kontekstring, og de ringene dekker den samme
+       bakken – her målt til 91 av 149 meter mellom to nabotomter. To flater i
+       nøyaktig samme høyde, med hver sin triangulering, slåss om dybden piksel
+       for piksel: resultatet var et kamuflasjemønster over hele terrenget.
+       Målt: 0,54 % skarpe fargesprang uten naboer, 7,3 % med to, 1,3 % etter.
+
+       Men det holder ikke å slå naboens terreng AV: da henger arbeidet hans i
+       lufta der det aktive anlegget ikke rekker. Naboen tegner derfor terreng
+       bare UTENFOR det som alt er dekt – én sammenhengende bakke, uten at noe
+       sted får to. */
+    const dekt = this._dekningsprove();
+    let krevTerreng = null;
+    if (dekt && bg.wx) {
+      const n2 = bg.nb * bg.nh;
+      krevTerreng = new Uint8Array(n2);
+      for (let k = 0; k < n2; k++) {
+        if (!bg.finnes[k]) continue;
+        krevTerreng[k] = dekt(bg.wx[k], bg.wy[k]) ? 0 : 1;
+      }
+    }
+    this._krevTerreng = krevTerreng;
     try {
       const lagene = this.visning === 'vanlig'
         ? eier._lagliste(g, pal)
@@ -1063,16 +1211,22 @@ const Tegner3d = {
         }];
       for (const lag of lagene) {
         if (!lag || !lag.hoyde) continue;
+        /* Terrenglaget kjennes på at det ikke har noe eget krav og ligger på
+           `zT`; det er det ene laget som må begrenses til det udekte. */
+        let krev = lag.krev;
+        if (this._krevTerreng && lag.hoyde === g.zT) {
+          krev = lag.krev ? this._ogsaa(lag.krev, this._krevTerreng) : this._krevTerreng;
+        }
         if (!(lag.blanding > 0)) {
           /* `id` er alltid null for et naboanlegg: museavlesningen skal svare
              om det man ARBEIDER med, ikke om noe man bare ser. */
           this._raster(g, lag.hoyde, lag.farge, this._piksler, this._dyp, null,
-            rb, rh, kam, lag.krev);
+            rb, rh, kam, krev);
           continue;
         }
         this._lag2.fill(0);
         this._dyp2.fill(Infinity);
-        this._raster(g, lag.hoyde, lag.farge, this._lag2, this._dyp2, null, rb, rh, kam, lag.krev);
+        this._raster(g, lag.hoyde, lag.farge, this._lag2, this._dyp2, null, rb, rh, kam, krev);
         const styrke = lag.blanding, n = rb * rh;
         const p = this._piksler, d1 = this._dyp, d2 = this._dyp2, l2 = this._lag2;
         for (let i = 0; i < n; i++) {

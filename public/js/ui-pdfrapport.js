@@ -642,7 +642,7 @@ const Pdfrapport = {
         [{ tekst: 'Profil', bredde: 8, venstre: true }, { tekst: 'Type', bredde: 14, venstre: true },
         { tekst: 'Merknad', bredde: 78, venstre: true }],
         res.merknader.map(v => ({
-          celler: [v.type === 'inngang' ? '–' : v.s.toFixed(0), v.type,
+          celler: [Number.isFinite(v.s) && v.type !== 'inngang' ? v.s.toFixed(0) : '–', v.type,
             this._kort(P, v.tekst, (innmarg - this.MARG) * 0.74, 7.2)]
         }))
       );

@@ -329,6 +329,7 @@ const Tomt3d = Object.assign(Object.create(Tegner3d), {
   /** Gulvet rett under kameraet – det basen trenger for å begrense flygingen. */
   _gulvNa(g) { return this._gulv(g, this.kamX, this.kamY); },
 
+
   /**
    * Hvor man lander når man går ned på bakken.
    *

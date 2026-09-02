@@ -1523,6 +1523,71 @@ const Nettlesertest = {
                 }
               }
 
+              /* ================================================================
+                 ET FERDIG ANLEGG ER DET NYE TERRENGET
+
+                 Legger man en tomt i prosjektet, er den bakken der. Graver man
+                 siden en veg over den, er det planum man graver fra – ellers
+                 telles den samme kubikken to ganger. Målt på brukerens eget
+                 prosjekt: vegens skjæring gikk fra 623 til 985 m³ da nabotomta
+                 ble regnet ferdig.
+                 ================================================================ */
+              {
+                const f = App._ferdigflater;
+                this.sjekk('  hvert regnet anlegg gir en ferdig flate til de andre',
+                  !!f && f.size > 0, f ? f.size + ' flater' : 'ingen');
+                if (f && f.size) {
+                  const terr = App.prosjektterreng();
+                  this.sjekk('    og terrenget beregningen får er ENDRET av dem',
+                    terr !== App.terreng, terr === App.terreng ? 'rått' : 'endret');
+
+                  /* Flaten skal bare overstyre der anlegget FAKTISK har endret
+                     bakken. Tok den med kontekstringen, byttet man ut
+                     høydemodellen med en rasterisering av seg selv, og tallene
+                     «endret seg» av ingenting annet enn omprøvingen. */
+                  let inne = 0, utanfor = 0;
+                  for (const [, fl] of f) {
+                    const midtX = (fl.minX + fl.maksX) / 2, midtY = (fl.minY + fl.maksY) / 2;
+                    if (Number.isFinite(fl.ved(midtX, midtY))) inne++;
+                    if (!Number.isFinite(fl.ved(fl.minX - 60, fl.minY - 60))) utanfor++;
+                  }
+                  this.sjekk('    flaten svarer inne i inngrepet',
+                    inne > 0, inne + ' av ' + f.size);
+                  this.sjekk('    og faller gjennom til høydemodellen utenfor',
+                    utanfor === f.size, utanfor + ' av ' + f.size);
+
+                  /* Utenfor alle flatene MÅ svaret være nøyaktig det samme som
+                     før – ellers har vi flyttet terreng vi ikke skulle røre. */
+                  const gA2 = Tomt3d._gitter(1) || Veg3d._gitter(1);
+                  let like = 0, ulike = 0;
+                  if (gA2) {
+                    for (let k2 = 0; k2 < gA2.nb * gA2.nh; k2 += 37) {
+                      if (!gA2.finnes[k2]) continue;
+                      const x = gA2.wx[k2], y = gA2.wy[k2];
+                      let dekt = false;
+                      for (const [id, fl] of f) {
+                        if (id === App.P.aktivt) continue;
+                        if (Number.isFinite(fl.ved(x, y))) { dekt = true; break; }
+                      }
+                      if (dekt) continue;
+                      const a1 = App.terreng.z(x, y), b1 = terr.z(x, y);
+                      if (a1 === b1 || (!Number.isFinite(a1) && !Number.isFinite(b1))) like++;
+                      else ulike++;
+                    }
+                  }
+                  this.sjekk('    og rører ikke ett eneste punkt utenfor inngrepene',
+                    ulike === 0, ulike + ' avvik av ' + (like + ulike) + ' prøvde');
+                }
+
+                /* MERKNADEN MÅ STÅ. Et tall som endrer seg med tre hundre
+                   kubikk uten et ord er den slags som oppdages på plassen. */
+                if (App.resultat && App._ferdigflater && App._ferdigflater.size > 1) {
+                  const m = (App.resultat.merknader || []).some(q => q.type === 'naboanlegg');
+                  this.sjekk('  og det står i merknadene at tallene er regnet mot naboene',
+                    m, JSON.stringify((App.resultat.merknader || []).map(q => q.type)));
+                }
+              }
+
               /* VELGE BORT ER IKKE DET SAMME SOM «LOT SEG IKKE TEGNE». */
               const bort = medFull[0];
               if (bort) {

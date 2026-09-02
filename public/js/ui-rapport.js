@@ -61,8 +61,15 @@ const Rapport = {
          eller øk «Søkebredde tverrprofil» under Vegmal.</div>`
       : '';
     /* En merknad om et tall som ikke lar seg regne med hører ikke til noe
-       profilnummer. «prof 0» foran den peker et sted den ikke gjelder. */
-    const utenSted = v => v.type === 'inngang' || (v.type === 'linje' && !v.s);
+       profilnummer. «prof 0» foran den peker et sted den ikke gjelder.
+       REGELEN ER «HAR DEN EN STASJON», IKKE «ER DEN AV DISSE TO TYPENE».
+       Her sto en liste over to typer, og den holdt akkurat så lenge det bare
+       fantes to typer uten sted. Første merknad som gjaldt HELE anlegget –
+       den om at massene er regnet mot naboanleggene – kastet på `v.s.toFixed`
+       inne i en async beregning, altså som en ufanget avvisning: atten av dem,
+       uten en eneste feilmelding på skjermen. Spørsmålet er om det finnes en
+       stasjon å skrive, og det svarer tallet selv på. */
+    const utenSted = v => v.type === 'inngang' || !Number.isFinite(v.s);
     const varselHtml = alvorlig + (varsler.length
       ? `<div class="varselboks"><b>${varsler.length} merknad${varsler.length === 1 ? '' : 'er'}</b>`
       + varsler.slice(0, 40).map(v =>
@@ -544,7 +551,7 @@ ${this.sprengningsrader(res)}
     }
 
     const merknader = res.merknader.map(v =>
-      `<tr><td>${v.type === 'inngang' ? '–' : v.s.toFixed(0)}</td><td>${v.type}</td><td>${v.tekst}</td></tr>`).join('');
+      `<tr><td>${Number.isFinite(v.s) && v.type !== 'inngang' ? v.s.toFixed(0) : '–'}</td><td>${v.type}</td><td>${v.tekst}</td></tr>`).join('');
 
     const tegninger = this.lagTegninger(res);
     const stikning = this.stikningstabell(res, res.lengdeKart > 600 ? 10 : 5);

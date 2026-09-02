@@ -193,6 +193,17 @@ const App = {
    */
   klargjorProsjekt(P) {
     if (!P) return P;
+    /* DE FERDIGE FLATENE HØRER TIL ETT PROSJEKT.
+       Åpner man et annet, ville de gamle blitt liggende som terreng under et
+       anlegg de ikke har noe med å gjøre – og de er høydemodeller i UTM, så
+       ingenting ville sagt fra. De regnes billig opp igjen. */
+    this._ferdigflater = null;
+    if (typeof Tegner3d !== 'undefined') {
+      Tegner3d._fulle = null;
+      Tegner3d._fulleUtelatt = null;
+      if (typeof Veg3d !== 'undefined') Veg3d._andreNokkel = null;
+      if (typeof Tomt3d !== 'undefined') Tomt3d._andreNokkel = null;
+    }
     /* Er `mal` eller `ip` en egen nøkkel pa prosjektet, er fila fra før
        tomtemodus. I den nye forma finnes de bare som ikke-tellbare aksessorer,
        og de blir aldri lagret - sa dette er et trygt kjennetegn.
@@ -291,6 +302,236 @@ const App = {
 
   /** Er det en tomt vi jobber med na? */
   erTomt() { const a = this.anlegg(); return !!a && a.type === 'tomt'; },
+
+  /* ================================================================
+     ET FERDIG ANLEGG ER DET NYE TERRENGET
+
+     Legger man en tomt i prosjektet, er den ikke lenger en tegning oppå en li
+     – den ER bakken der. Graver man siden en veg over den, er det planum man
+     graver fra, ikke lia som lå der før. Ellers teller den samme kubikken to
+     ganger: én gang når tomta ble planert, én gang til når vegen ble gravd
+     gjennom det samme.
+
+     Terrenget som beregningene får, er derfor ikke lenger bare Kartverkets
+     høydemodell. Det er høydemodellen ENDRET av de andre anleggene: der et
+     annet anlegg har en ferdig flate, er det den som gjelder.
+
+     REGELEN ER «ALLE DE ANDRE», og den er valgt fordi det er slik en plass
+     ser ut: det du prosjekterer nå, går inn i et anlegg som er planlagt
+     ferdig. Prisen er at to anlegg som ligger OPPÅ hverandre ser hverandre
+     begge veier, og da er det ikke entydig hvem som kom først. Det sies det
+     fra om – se `overlappendeAnlegg`.
+     ================================================================ */
+
+  /**
+   * Den ferdige flaten til et anlegg, som en høydemodell i UTM.
+   *
+   * Gitteret et anlegg tegnes av er ikke et rutenett man kan slå opp i: vegens
+   * noder følger senterlinjen og ligger tett på tvers og glissent på langs.
+   * Her rasteriseres flaten inn i et jevnt rutenett i stedet – hver firkant i
+   * gitteret fylles inn med interpolert høyde – og da er oppslaget ett
+   * regnestykke, uansett hvilken form anlegget har.
+   *
+   * `zEtter` er landskapet slik det BLIR: ferdig flate der det bygges,
+   * skråningene der de lander, dagens mark utenfor. Utenfor gitteret svarer
+   * den NaN, og da faller oppslaget tilbake på høydemodellen.
+   */
+  ferdigflateAv(g, rute) {
+    if (!g || !g.wx || !g.finnes) return null;
+    const z = g.zEtter || g.zP || g.zT;
+    if (!z) return null;
+    /* BARE DER ANLEGGET FAKTISK HAR ENDRET BAKKEN.
+       Gitteret har en kontekstring rundt inngrepet, og der ER `zEtter` bare
+       terrenget om igjen. Tok man med ringen, byttet man ut Kartverkets
+       høydemodell med en 1 m-rasterisering av seg selv over hele ringen – og
+       det er ikke det samme tallet. Målt på en veg som ikke rører noen av
+       nabotomtene: skjæringen «endret seg» fra 623 til 626 m³ av ingenting
+       annet enn den omprøvingen.
+       `harGrav` er inngrepets fotavtrykk – jordarbeidsflaten med skråningene.
+       Utenfor den faller oppslaget gjennom til den ekte modellen. */
+    const endra = g.harGrav || g.harVeg;
+    if (!endra) return null;
+    const n = g.nb * g.nh;
+    let minX = Infinity, maksX = -Infinity, minY = Infinity, maksY = -Infinity;
+    for (let k = 0; k < n; k++) {
+      if (!g.finnes[k] || !endra[k]) continue;
+      if (g.wx[k] < minX) minX = g.wx[k];
+      if (g.wx[k] > maksX) maksX = g.wx[k];
+      if (g.wy[k] < minY) minY = g.wy[k];
+      if (g.wy[k] > maksY) maksY = g.wy[k];
+    }
+    if (!Number.isFinite(minX)) return null;
+    const r = rute || 1;
+    const nb = Math.max(2, Math.ceil((maksX - minX) / r) + 1);
+    const nh = Math.max(2, Math.ceil((maksY - minY) / r) + 1);
+    if (nb * nh > 4e6) return null;
+    const ut = new Float32Array(nb * nh);
+    const har = new Uint8Array(nb * nh);
+
+    /* Hver firkant i gitteret males inn i rutenettet, ikke bare hjørnene. Med
+       bare hjørnene ville vegen fått hull hver femte meter – det er
+       profilavstanden – og et hull i det nye terrenget leses som «her er det
+       ikke gjort noe», altså feil masse. */
+    const trekant = (ax, ay, az, bx, by, bz, cx, cy, cz) => {
+      const iL = Math.max(0, Math.floor((Math.min(ax, bx, cx) - minX) / r));
+      const iH = Math.min(nb - 1, Math.ceil((Math.max(ax, bx, cx) - minX) / r));
+      const jL = Math.max(0, Math.floor((Math.min(ay, by, cy) - minY) / r));
+      const jH = Math.min(nh - 1, Math.ceil((Math.max(ay, by, cy) - minY) / r));
+      const omr = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+      if (Math.abs(omr) < 1e-12) return;
+      const inv = 1 / omr;
+      for (let j = jL; j <= jH; j++) {
+        const py = minY + j * r;
+        for (let i = iL; i <= iH; i++) {
+          const px = minX + i * r;
+          const w0 = ((bx - ax) * (py - ay) - (by - ay) * (px - ax)) * inv;
+          const w1 = ((cx - bx) * (py - by) - (cy - by) * (px - bx)) * inv;
+          const w2 = ((ax - cx) * (py - cy) - (ay - cy) * (px - cx)) * inv;
+          if (w0 < -1e-9 || w1 < -1e-9 || w2 < -1e-9) continue;
+          ut[j * nb + i] = az * w1 + bz * w2 + cz * w0;
+          har[j * nb + i] = 1;
+        }
+      }
+    };
+    for (let j = 0; j < g.nh - 1; j++) {
+      for (let i = 0; i < g.nb - 1; i++) {
+        const k00 = j * g.nb + i, k10 = k00 + 1, k01 = k00 + g.nb, k11 = k01 + 1;
+        if (!g.finnes[k00] || !g.finnes[k10] || !g.finnes[k01] || !g.finnes[k11]) continue;
+        if (!endra[k00] || !endra[k10] || !endra[k01] || !endra[k11]) continue;
+        if (g.celleSperre && g.celleSperre[k00]) continue;
+        if (!Number.isFinite(z[k00]) || !Number.isFinite(z[k10])
+          || !Number.isFinite(z[k01]) || !Number.isFinite(z[k11])) continue;
+        trekant(g.wx[k00], g.wy[k00], z[k00], g.wx[k10], g.wy[k10], z[k10],
+          g.wx[k11], g.wy[k11], z[k11]);
+        trekant(g.wx[k00], g.wy[k00], z[k00], g.wx[k11], g.wy[k11], z[k11],
+          g.wx[k01], g.wy[k01], z[k01]);
+      }
+    }
+    let dekt = 0;
+    for (let k = 0; k < har.length; k++) if (har[k]) dekt++;
+    if (!dekt) return null;
+    return {
+      minX, minY, rute: r, nb, nh, z: ut, har, dekt,
+      maksX: minX + (nb - 1) * r, maksY: minY + (nh - 1) * r,
+      /** Høyden her, eller NaN utenfor. */
+      ved(x, y) {
+        const i = Math.round((x - this.minX) / this.rute);
+        const j = Math.round((y - this.minY) / this.rute);
+        if (i < 0 || j < 0 || i >= this.nb || j >= this.nh) return NaN;
+        const k = j * this.nb + i;
+        return this.har[k] ? this.z[k] : NaN;
+      }
+    };
+  },
+
+  /**
+   * Høydemodellen slik de ANDRE anleggene har endret den.
+   *
+   * Beregningene rører terrenget gjennom én eneste metode – `z(x, y)` – og det
+   * er hele grunnen til at dette lar seg gjøre uten å skrive dem om. Her
+   * legges de ferdige flatene oppå, og resten faller gjennom til Kartverkets
+   * modell.
+   *
+   * Finnes ingen ferdige flater, returneres terrenget selv. Da er det ingen
+   * ekstra kostnad, og ingen tall endrer seg.
+   */
+  prosjektterreng() {
+    const grunn = this.terreng;
+    if (!grunn) return grunn;
+    const flater = [];
+    for (const [id, f] of (this._ferdigflater || new Map())) {
+      if (id === this.P.aktivt || !f) continue;
+      flater.push(f);
+    }
+    if (!flater.length) return grunn;
+    return {
+      _grunn: grunn, _flater: flater,
+      sone: grunn.sone, res: grunn.res, mangler: grunn.mangler,
+      z(x, y) {
+        for (let i = 0; i < this._flater.length; i++) {
+          const zz = this._flater[i].ved(x, y);
+          if (Number.isFinite(zz)) return zz;
+        }
+        return this._grunn.z(x, y);
+      },
+      dekning(...a) { return this._grunn.dekning.apply(this._grunn, a); },
+      lastOmraade(...a) { return this._grunn.lastOmraade.apply(this._grunn, a); }
+    };
+  },
+
+  /**
+   * Merknaden om at tallene ikke lenger står mot rå bakke.
+   *
+   * DETTE MÅ STÅ. Skjæringen på vegen gikk fra 623 til 985 m³ i det tomta ved
+   * siden av ble regnet ferdig – ikke fordi noen rørte vegen, men fordi bakken
+   * den graver fra er en annen nå. Et tall som endrer seg med tre hundre kubikk
+   * uten et ord er den slags som blir oppdaget på plassen.
+   */
+  naboMerknad(res) {
+    if (!res || !Array.isArray(res.merknader)) return;
+    const f = this._ferdigflater;
+    if (!f || !f.size) return;
+    const navn = [];
+    for (const [id] of f) {
+      if (id === this.P.aktivt) continue;
+      const a = this.P.anlegg.find(x => x.id === id);
+      if (a) navn.push(a.navn || a.type);
+    }
+    if (!navn.length) return;
+    res.merknader.push({ type: 'naboanlegg',
+      tekst: 'Regnet mot terrenget slik ' + navn.join(' og ') + ' gjør det ferdig – '
+        + 'ikke mot dagens mark. Der de har planert eller fylt, er det den nye '
+        + 'flaten det graves fra.' });
+    /* To anlegg som ligger OPPÅ hverandre ser hverandre begge veier, og da er
+       tallene avhengige av hvilken rekkefølge de sist ble regnet i. Det er
+       ikke galt, men det er ikke entydig – og da skal det sies. */
+    for (const o of this.overlappendeAnlegg()) {
+      res.merknader.push({ type: 'naboanlegg',
+        tekst: o.a + ' og ' + o.b + ' dekker den samme bakken (' + o.ruter
+          + ' ruter). Da er det ikke entydig hvem som ligger på hvem, og tallene '
+          + 'kan skifte med rekkefølgen de regnes i. Flytt det ene, eller la det '
+          + 'ene være en del av det andre.' });
+    }
+  },
+
+  /**
+   * Anlegg som dekker den samme bakken.
+   *
+   * Med regelen «alle de andre» ser to anlegg som ligger oppå hverandre
+   * hverandre begge veier, og da er det ikke entydig hvem som var der først.
+   * Tallene blir ikke gale av det, men de blir avhengige av hvilken rekkefølge
+   * de sist ble regnet i – og det er nettopp den slags som må sies fra om, ikke
+   * skjules.
+   */
+  overlappendeAnlegg() {
+    const f = [...(this._ferdigflater || new Map())];
+    const ut = [];
+    for (let i = 0; i < f.length; i++) {
+      for (let j = i + 1; j < f.length; j++) {
+        const a = f[i][1], b = f[j][1];
+        if (!a || !b) continue;
+        if (a.minX > b.maksX || b.minX > a.maksX
+          || a.minY > b.maksY || b.minY > a.maksY) continue;
+        // randboksene møtes – tell hvor mange ruter som faktisk er dekket av begge
+        let felles = 0;
+        const x0 = Math.max(a.minX, b.minX), x1 = Math.min(a.maksX, b.maksX);
+        const y0 = Math.max(a.minY, b.minY), y1 = Math.min(a.maksY, b.maksY);
+        for (let y = y0; y <= y1; y += 2) {
+          for (let x = x0; x <= x1; x += 2) {
+            if (Number.isFinite(a.ved(x, y)) && Number.isFinite(b.ved(x, y))) felles++;
+          }
+        }
+        if (felles > 4) {
+          const navn = id => {
+            const q = this.P.anlegg.find(z => z.id === id);
+            return q ? (q.navn || q.type) : id;
+          };
+          ut.push({ a: navn(f[i][0]), b: navn(f[j][0]), ruter: felles });
+        }
+      }
+    }
+    return ut;
+  },
 
   /**
    * Skal eksporten gjelde hele prosjektet?
@@ -624,10 +865,11 @@ const App = {
       minX = Math.min(minX, q.x); maksX = Math.max(maksX, q.x);
       minY = Math.min(minY, q.y); maksY = Math.max(maksY, q.y);
     }
+    const terr = this.prosjektterreng();
     for (let y = minY; y <= maksY; y += 1) {
       for (let x = minX; x <= maksX; x += 1) {
         if (!Tomtmasser.innenforPolygon(p, x, y)) continue;
-        const z = this.terreng.z(x, y);
+        const z = terr.z(x, y);
         if (Number.isFinite(z)) { sum += z; n++; }
       }
     }
@@ -664,7 +906,7 @@ const App = {
     const arealVed = kote => {
       const inn = Tomtmasser.innerflate({
         tomt: { punkter: p, kanter: t.kanter, nivaa: Object.assign({}, this.tomtenivaaIUtm(t), { kote }) },
-        mal: this.P.mal, terreng: this.terreng, fjell
+        mal: this.P.mal, terreng: this.prosjektterreng(), fjell
       });
       if (!inn.punkter) return { areal: 0, mangler: Infinity };
       const verst = (inn.mangler || []).reduce((m, x) => Math.max(m, x.mangler), 0);
@@ -731,14 +973,14 @@ const App = {
       if (t.omrissBetyr === 'yttergrense') {
         const inn = Tomtmasser.innerflate({
           tomt: { punkter, kanter: t.kanter, nivaa: this.tomtenivaaIUtm(t) },
-          mal: this.P.mal, terreng: this.terreng, fjell: this.fjellmodellIUtm()
+          mal: this.P.mal, terreng: this.prosjektterreng(), fjell: this.fjellmodellIUtm()
         });
         if (!inn.punkter) return Infinity;      // ingen plass til skråningene
         punkter = inn.punkter;
       }
       const r = Tomtmasser.beregnTomtemasser({
         tomt: { punkter, kanter: t.kanter, nivaa: this.tomtenivaaIUtm(t) },
-        mal: this.P.mal, terreng: this.terreng, fjell: this.fjellmodellIUtm(),
+        mal: this.P.mal, terreng: this.prosjektterreng(), fjell: this.fjellmodellIUtm(),
         grense: t.omrissBetyr === 'yttergrense' ? this.tomtIUtm(t) : null,
         rutestorrelse: Math.max(1, this.P.mal.rutestorrelse), bakkefaktor: this.bakkefaktor()
       });
@@ -800,14 +1042,14 @@ const App = {
       if (t.omrissBetyr === 'yttergrense') {
         const inn = Tomtmasser.innerflate({
           tomt: { punkter, kanter: t.kanter, nivaa: this.tomtenivaaIUtm(t) },
-          mal: this.P.mal, terreng: this.terreng, fjell: this.fjellmodellIUtm()
+          mal: this.P.mal, terreng: this.prosjektterreng(), fjell: this.fjellmodellIUtm()
         });
         if (!inn.punkter) return -Infinity;    // ingen plass: for høyt lagt
         punkter = inn.punkter;
       }
       const r = Tomtmasser.beregnTomtemasser({
         tomt: { punkter, kanter: t.kanter, nivaa: this.tomtenivaaIUtm(t) },
-        mal: this.P.mal, terreng: this.terreng, fjell: this.fjellmodellIUtm(),
+        mal: this.P.mal, terreng: this.prosjektterreng(), fjell: this.fjellmodellIUtm(),
         // samme grense som beregningen bruker, ellers balanserer den mot andre tall
         grense: t.omrissBetyr === 'yttergrense' ? this.tomtIUtm(t) : null,
         rutestorrelse: Math.max(1, this.P.mal.rutestorrelse), bakkefaktor: this.bakkefaktor()
@@ -1605,11 +1847,12 @@ const App = {
 
   hentTerrengProfil() {
     const steg = Math.max(0.5, Math.min(2, this.P.profilAvstand / 2));
+    const terr = this.prosjektterreng();
     const s = [], z = [];
     for (let d = 0; d <= this.linje.lengde + 1e-9; d += steg) {
       const dd = Math.min(d, this.linje.lengde);
       const p = this.linje.punktVed(dd);
-      s.push(dd); z.push(this.terreng.z(p.x, p.y));
+      s.push(dd); z.push(terr.z(p.x, p.y));
       if (dd >= this.linje.lengde) break;
     }
     this.terrengProfil = { s, z };
@@ -1738,13 +1981,14 @@ const App = {
     this.fjellmodell = this.fjellmodellIUtm();
     const t0 = performance.now();
     this.resultat = beregnMasser({
-      linje: this.linje, profil: this.vprofil, terreng: this.terreng,
+      linje: this.linje, profil: this.vprofil, terreng: this.prosjektterreng(),
       mal: this.P.mal, fjell: this.fjellmodell, faktorer: this.P.faktorer,
       tverrfallOverstyring: this.P.tverrfall,
       profilAvstand: this.P.profilAvstand, bakkefaktor: this.bakkefaktor()
     });
     this.resultat.mal.profilAvstand = this.P.profilAvstand;
     this.merkResultat();
+    this.naboMerknad(this.resultat);
     /* USIKKERHETEN VENTER TIL SKJERMEN ER TEGNET.
        Den kjørte hele beregningen TRE ganger til – én med fjellet der det står,
        én en halvmeter høyere og én en halvmeter dypere – midt i den omregningen
@@ -1869,7 +2113,7 @@ const App = {
        sprengningen i sammendraget for samme prosjekt, og da er det ikke til
        a stole pa noen av dem. */
     const kjor = fjell => beregnMasser({
-      linje: this.linje, profil: this.vprofil, terreng: this.terreng,
+      linje: this.linje, profil: this.vprofil, terreng: this.prosjektterreng(),
       mal: this.P.mal, fjell, faktorer: this.P.faktorer,
       tverrfallOverstyring: this.P.tverrfall,
       profilAvstand: this.P.profilAvstand,
@@ -1917,11 +2161,12 @@ const App = {
     }
 
     let sum = 0, n = 0, over2 = 0, over5 = 0, maks = 0;
+    const terr = this.prosjektterreng();
     const bredde = (this.P.mal.vegbredde || 4.5) / 2 + 8;
     for (let s = 0; s <= this.linje.lengde; s += 2) {
       for (let t = -bredde; t <= bredde; t += 2) {
         const p = this.linje.punktMedAvvik(s, t);
-        const bakke = this.terreng.z(p.x, p.y);
+        const bakke = terr.z(p.x, p.y);
         const topp = this._dom.z(p.x, p.y);
         if (!isFinite(bakke) || !isFinite(topp)) continue;
         const h = topp - bakke;
@@ -1947,7 +2192,7 @@ const App = {
   beregnRaskt(vipListe, linje) {
     const vp = new Vertikalprofil(vipListe);
     return beregnMasser({
-      linje: linje || this.linje, profil: vp, terreng: this.terreng,
+      linje: linje || this.linje, profil: vp, terreng: this.prosjektterreng(),
       mal: this.P.mal, fjell: this.fjellmodell, faktorer: this.P.faktorer,
       tverrfallOverstyring: this.P.tverrfall,
       /* Grovere enn den endelige beregningen. Optimaliseringen sammenligner
@@ -2076,7 +2321,7 @@ const App = {
     if (t.omrissBetyr === 'yttergrense') {
       const inn = Tomtmasser.innerflate({
         tomt: { punkter: p, kanter: t.kanter, nivaa: this.tomtenivaaIUtm(t) },
-        mal: this.P.mal, terreng: this.terreng, fjell: this.fjellmodellIUtm()
+        mal: this.P.mal, terreng: this.prosjektterreng(), fjell: this.fjellmodellIUtm()
       });
       if (inn.punkter) {
         bruktPolygon = inn.punkter;
@@ -2116,7 +2361,7 @@ const App = {
       tomt: { punkter: bruktPolygon, kanter: t.kanter, nivaa: this.tomtenivaaIUtm(t) },
       mal: this.P.mal,
       faktorer: this.P.faktorer,
-      terreng: this.terreng,
+      terreng: this.prosjektterreng(),
       fjell: this.fjellmodellIUtm(),
       /* Er omrisset yttergrensen, er det en grense i ordets egentlige forstand:
          ingenting regnes utenfor den. Uten dette talte rapporten masser pa
@@ -2142,6 +2387,7 @@ const App = {
     }
     this.resultat.balanse = this.tomtebalanse(this.resultat.sum);
     this.merkResultat();
+    this.naboMerknad(this.resultat);
     /* Sider der skraningen ikke far plass innenfor grensa.
        Her ble hele beregningen nektet med «ingen flate igjen». Na vises det som
        gar, og det sies HVILKEN side som er problemet og hvor mange meter som

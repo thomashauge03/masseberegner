@@ -214,6 +214,7 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
   /** Gulvet rett under kameraet – det basen trenger for å begrense flygingen. */
   _gulvNa(g) { return this._gulv(g, this.kamS, this.kamT); },
 
+
   /**
    * Øyet: på skinna. Går man, kamH over gulvet; flyr man, på sin egen kote.
    *
