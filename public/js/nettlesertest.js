@@ -179,6 +179,60 @@ const Nettlesertest = {
     this.sjekk('import gir nytt navn ved kollisjon', lagt.length === 1 && lagt[0] !== navn);
     for (const n of lagt) await Lager.slett(n);
 
+    /* ================================================================
+       «UBESTEMT» SKAL IKKE OVERLEVE EN ÅPNING
+
+       Flagget slettes med `delete` når man velger anleggstype, så det finnes
+       ikke i den lagrede fila – og åpningen bygger prosjektet som
+       `Object.assign(nyttProsjekt(), fila)`, der standardverdien `true` da
+       kommer tilbake. Et prosjekt fullt av tegnet geometri kom altså opp som
+       «ubestemt», programmet viste «Hva skal du regne på?», og ett klikk der
+       byttet ut hele det aktive anlegget. Målt: en tomt med 5 852 m³ skjæring
+       ble null. `velgAnleggstype` kaller ikke `merk()`, så det var ikke engang
+       en angrepost.
+       ================================================================ */
+    {
+      const foerP = JSON.stringify(App.P);
+      const n2 = navn + '_ub';
+      App.P = App.nyttProsjekt();
+      App.P.navn = n2;
+      App.velgAnleggstype('veg');
+      App.P.ip = [{ lat: 58.2958, lon: 7.2098, r: 0 }, { lat: 58.2971, lon: 7.2129, r: 30 }];
+      await Lager.lagre(n2, App.P);
+      const raa = await Lager.hent(n2);
+      this.sjekk('  fila bærer ikke «ubestemt» – flagget slettes når man velger',
+        !raa.ubestemt, 'ubestemt=' + raa.ubestemt);
+      /* Nøyaktig slik `apne` bygger det – TILORDNINGEN er poenget, for det er
+         setteren på `P` som kaller `klargjorProsjekt`. Er flagget sant her,
+         viser programmet «Hva skal du regne på?» over et ferdig tegnet
+         prosjekt. */
+      App.P = App.moderniserProsjekt(Object.assign(App.nyttProsjekt(), raa));
+      this.sjekk('  og et åpnet prosjekt er ikke «ubestemt»',
+        !App.P.ubestemt, 'ubestemt=' + App.P.ubestemt);
+      /* Men et HELT NYTT prosjekt skal fortsatt spørre – det er da spørsmålet
+         hører hjemme. Uten denne ville «slett flagget alltid» vært grønt. */
+      App.P = App.nyttProsjekt();
+      this.sjekk('    mens et helt nytt prosjekt fortsatt spør om typen',
+        App.P.ubestemt === true, 'ubestemt=' + App.P.ubestemt);
+
+      /* Og vakten i velgAnleggstype: har anlegget geometri, skal det ALDRI
+         byttes ut – uansett hva flagget sier. */
+      App.P = App.nyttProsjekt();
+      App.P.ubestemt = true;
+      App.P.ip = [{ lat: 58.2958, lon: 7.2098, r: 0 }, { lat: 58.2971, lon: 7.2129, r: 30 }];
+      const foerId = App.anlegg().id, foerAnt = App.P.anlegg.length;
+      App.velgAnleggstype('tomt');
+      const staar = App.P.anlegg.find(a => a.id === foerId);
+      this.sjekk('  et anlegg med geometri overlever et trykk på feil type',
+        !!staar && staar.ip && staar.ip.length === 2,
+        staar ? (staar.ip || []).length + ' knekkpunkt igjen' : 'ANLEGGET ER BORTE');
+      this.sjekk('    og man får et nytt anlegg i stedet',
+        App.P.anlegg.length === foerAnt + 1,
+        foerAnt + ' → ' + App.P.anlegg.length);
+      await Lager.slett(n2);
+      App.P = JSON.parse(foerP);
+    }
+
     await Lager.slett(navn);
     this.sjekk('slettet prosjekt er borte', !(await Lager.hent(navn)));
     this._testnavn = navn;
@@ -5239,6 +5293,50 @@ const Nettlesertest = {
 
   async tomt() {
     const foer = JSON.stringify(App.P);
+
+    /* ================================================================
+       SONEN FØLGER GEOMETRIEN, IKKE EN STARTVERDI
+
+       `App.sone` sto på 32, og prøven som skulle utlede den var
+       `if (!this.sone)` – som aldri kunne være sann. En VEG gikk klar, for
+       `byggLinje` setter sonen ubetinget. Et rent TOMTEPROSJEKT gjorde det
+       ikke: alt nord for lengdegrad 12 ble regnet i sone 32.
+
+       Målt på en tomt i Alta: x = 1 041 246 i sone 32, seks hundre kilometer
+       utenfor. Kartverket svarer ingenting der, hver rute blir NaN, og
+       skjæringen blir null m³. Kommer man forbi det, er arealet 68 706 m²
+       mot 68 250 – 0,67 % for stort, uten et ord.
+       ================================================================ */
+    {
+      const soneFoer = App.sone, satt = App._soneSatt;
+      const rundt = (la, lo) => ({ punkter: [
+        { lat: la, lon: lo }, { lat: la, lon: lo + 0.004 },
+        { lat: la - 0.004, lon: lo + 0.004 }, { lat: la - 0.004, lon: lo }] });
+      for (const [navn, la, lo, vent] of [
+        ['Kristiansand', 58.15, 8.00, 32],
+        ['Mo i Rana', 66.31, 14.14, 33],
+        ['Alta', 69.97, 23.27, 35]]) {
+        App._soneSatt = false;                     // som et nyåpnet prosjekt
+        App.sone = 32;                             // startverdien
+        const u = App.tomtIUtm(rundt(la, lo));
+        this.sjekk('  en tomt i ' + navn + ' regnes i sone ' + vent,
+          App.sone === vent, 'sone ' + App.sone
+          + ', x = ' + (u[0] ? u[0].x.toFixed(0) : '–'));
+        /* Og koordinaten må ligge innenfor sonen. Utenfor 0–1 000 000 er den
+           strukket så mye at både areal og terrengoppslag er ubrukelige. */
+        this.sjekk('    og koordinaten ligger innenfor sonen',
+          !!u[0] && u[0].x > 0 && u[0].x < 1e6, u[0] ? u[0].x.toFixed(0) : '–');
+      }
+      /* Men en senterlinje skal fortsatt bestemme – ellers ville en tomt i et
+         vegprosjekt kunne dra hele prosjektet over i en annen sone. */
+      App._soneSatt = false; App.sone = 32;
+      App._settSone(23.27);
+      const etterTomt = App.sone;
+      App._settSone(8.00);
+      this.sjekk('  og sonen står fast når den først er utledet',
+        App.sone === etterTomt, 'ble ' + App.sone + ', var ' + etterTomt);
+      App.sone = soneFoer; App._soneSatt = satt;
+    }
 
     App.P = App.nyttProsjekt();
     App.P.navn = '__test_tomt';

@@ -1018,11 +1018,42 @@ console.log('\n27. Skråningen treffer bakken – den blir aldri kappet loddrett
   if (!felt.size) {
     feil++; console.log('  FEIL  helningsfeltet er tomt');
   } else { ok++; console.log('  ok    helningsfeltet har ' + felt.size + ' kant(er)'); }
-  const kantNr = [...felt.keys()][0];
-  const midt = T.tvungetVed(felt, kantNr, 0.5);
-  if (!(midt > 0)) {
-    feil++; console.log('  FEIL  oppslaget midt på kanten gir ingen helning');
-  } else { ok++; console.log('  ok    oppslaget midt på kanten gir 1:' + midt.toFixed(2)); }
+  /* HVERT FOTPUNKT MÅ SLÅ OPP SIN EGEN HELNING.
+     Dette er hele løftet i kommentaren over `helningsfelt`, og prøven er
+     billig. Her sto en svakere prøve: at oppslaget midt på den FØRSTE kanten
+     ga en helning større enn null. Den krevde i praksis det motsatte av det
+     som er riktig – på kant 0 er bare 2 av 8 fotpunkt tvunget, de to i
+     vestenden der plassen tar slutt, mens de seks andre lander av seg selv
+     ti meter ut. Midtpunktet SKAL derfor svare «vanlig geometri», ikke arve
+     den bratte helningen fra enden. Målt før rettingen: 96 m³ mot 320
+     riktige i skråningsstripa langs den romslige halvdelen. */
+  let uenige = 0, verstU = null;
+  for (const f of fot) {
+    if (f.type === 'apen') continue;
+    const oppslag = T.tvungetVed(felt, f.kant, f.u);
+    const eiget = f.tvunget > 0 ? f.tvunget : 0;
+    if (Math.abs(oppslag - eiget) > 1e-9) {
+      uenige++;
+      if (verstU === null) verstU = 'kant ' + f.kant + ' u=' + f.u.toFixed(2)
+        + ': foten 1:' + eiget.toFixed(3) + ', volumet 1:' + oppslag.toFixed(3);
+    }
+  }
+  if (uenige) {
+    feil++; console.log('  FEIL  ' + uenige + ' fotpunkt regnes med en annen helning enn de tegnes med'
+      + (verstU ? ' (' + verstU + ')' : ''));
+  } else { ok++; console.log('  ok    hvert fotpunkt regnes med nøyaktig den helningen det tegnes med'); }
+  /* Og der skråningen FAKTISK måtte brattes opp, skal oppslaget gi den
+     bratte helningen – ellers ville prøven over vært grønn av at alt svarte
+     null. */
+  const tvungenKant = [...felt.keys()].find(k => felt.get(k).every(x => x.tvunget > 0));
+  if (tvungenKant === undefined) {
+    feil++; console.log('  FEIL  ingen kant er tvungen hele veien – prøven treffer ikke tilfellet');
+  } else {
+    const midt = T.tvungetVed(felt, tvungenKant, 0.5);
+    if (!(midt > 0)) {
+      feil++; console.log('  FEIL  en gjennomgående tvungen kant gir likevel ingen helning');
+    } else { ok++; console.log('  ok    en gjennomgående tvungen kant gir 1:' + midt.toFixed(2)); }
+  }
 
   const med = T.beregnTomtemasser({ tomt: { punkter: flate27, kanter: [], nivaa },
     mal: g27, terreng: li27, fjell: fj27, rutestorrelse: 1, bakkefaktor: 1, grense: p27 });

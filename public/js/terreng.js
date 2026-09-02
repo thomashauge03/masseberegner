@@ -26,8 +26,14 @@ const FLIS_M = 256;
  *   4: fliser som er nøyaktig null over alt regnes som manglende dekning.
  *      Utenfor dekningen svarer høydetjenesten 0,00 for hver eneste piksel,
  *      og de flisene la bufret som havflate.
+ *   5: og fliser som er DELVIS null, der nullflaten grenser mot høyt terreng.
+ *      En flis på selve dekningskanten har ekte data i den ene enden og
+ *      nuller i den andre, og slapp gjennom med nullene som koter – et stup
+ *      på sju hundre meter tvers over en cellegrense. Se `nullflateKant` i
+ *      lib/hoydedata.js. Nettleseren har flisen i sitt eget mellomlager òg,
+ *      så tallet her må følge med, ellers blir den gamle liggende.
  */
-const FLIS_VERSJON = 4;
+const FLIS_VERSJON = 5;
 
 /**
  * Pakker ut en flis fra serveren.

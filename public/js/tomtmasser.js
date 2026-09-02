@@ -241,16 +241,36 @@ function fyllingsflate(d, zKant, kant, mal, tvunget) {
  */
 function helningsfelt(fot) {
   const felt = new Map();
+  /* ALLE FOTPUNKTENE, OGSÅ DE UTVUNGNE.
+     Her sto `if (!(f.tvunget > 0)) continue;`, altså: bare punktene som MÅTTE
+     brattes opp ble husket. Da hadde `tvungetVed` ingenting å klemme mot på
+     de strekningene der skråningen landet av seg selv, og svarte med den
+     nærmeste tvungne helningen for hele resten av kanten.
+     Målt på en 40 × 40 m tomt med fire meters skjæring, yttergrense tre meter
+     unna på første halvdel av kanten og førti meter unna på andre: foten
+     tegnes ti meter ut på den romslige halvdelen, mens volumet regnes med den
+     bratte helningen fra den trange – 96 m³ mot 320 riktige, sytti prosent
+     for lite. Kartet og tallet forteller da to ulike historier om den samme
+     skråningen, og det er akkurat det kommentaren over lover at ikke skal skje. */
   for (const f of fot) {
-    if (!(f.tvunget > 0)) continue;
     if (!felt.has(f.kant)) felt.set(f.kant, []);
-    felt.get(f.kant).push({ u: f.u, tvunget: f.tvunget });
+    felt.get(f.kant).push({ u: f.u, tvunget: f.tvunget > 0 ? f.tvunget : 0 });
   }
   for (const liste of felt.values()) liste.sort((a, b) => a.u - b.u);
   return felt;
 }
 
-/** Helningen som gjelder et stykke ut på en kant. 0 = den vanlige holder. */
+/**
+ * Helningen som gjelder et stykke ut på en kant. 0 = den vanlige holder.
+ *
+ * NULL ER IKKE EN HELNING, det er en beskjed om å bruke den vanlige
+ * geometrien – som har et knekk mellom berg og løsmasse. Å interpolere mellom
+ * 0 og 0,75 ville gitt et tall som ikke betyr noe, og å oversette 0 til
+ * «standardhelningen som tall» ville sendt hele kanten inn i snarveien for
+ * tvungne skråninger og fjernet det knekket over alt. Derfor: interpolér bare
+ * mellom to punkter som BEGGE er tvungne; er ett av dem utvunget, gjelder den
+ * vanlige geometrien.
+ */
 function tvungetVed(felt, kant, u) {
   if (!felt || !felt.size) return 0;
   const liste = felt.get(kant);
@@ -262,6 +282,10 @@ function tvungetVed(felt, kant, u) {
       const bredde = liste[i + 1].u - liste[i].u;
       if (bredde < 1e-12) return liste[i].tvunget;
       const t = (u - liste[i].u) / bredde;
+      // nøyaktig på et punkt: det punktets egen helning, uansett naboen
+      if (t < 1e-9) return liste[i].tvunget;
+      if (t > 1 - 1e-9) return liste[i + 1].tvunget;
+      if (!(liste[i].tvunget > 0) || !(liste[i + 1].tvunget > 0)) return 0;
       return liste[i].tvunget + t * (liste[i + 1].tvunget - liste[i].tvunget);
     }
   }

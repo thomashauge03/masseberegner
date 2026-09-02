@@ -341,8 +341,29 @@ function beregnTverrprofil(o) {
   const ob = mal.slitelagTykkelse + mal.baerelagTykkelse;
   const rensk = mal.renskDybde;
 
-  // Terreng etter rensk (avdekking av matjord/stubber)
-  const terr = t => terrRå(t) - rensk;
+  /* Terreng etter rensk (avdekking av matjord/stubber).
+   *
+   * DYBDEN MÅ VÆRE DEN SAMME HER SOM I RENSKEPOSTEN.
+   * Her sto `terrRå(t) - rensk`, en fast dybde uten et blikk på hva som ligger
+   * under – mens renskeposten lenger nede med rette bokfører `min(renskDybde,
+   * dybden til fjell)`, fordi det ikke er noe å skrape av der fjellet ligger i
+   * dagen. De to var altså uenige, og laget mellom den virkelige renskebunnen
+   * og `terrRå − renskDybde` havnet i INGEN post.
+   *
+   * Målt på flatt terreng i kote 100 med veg i kote 96 og standardmalen:
+   * med fjellet i dagen ble det bokført 29,908 m²/lm skjæring og 0,000 rensk,
+   * mens den fysiske utgravingen mellom skråningsføttene er 31,393. Manko
+   * 1,485 m²/lm – knapt fem prosent av hele utgravingen, og hele tapet ligger
+   * på FJELLPOSTEN, den dyreste. Mankoen vokser lineært fra null ved
+   * fjelldybde 0,20 til full renskedybde ved fjell i dagen, og fjell i dagen
+   * er ikke et sjeldent tilfelle i Norge.
+   *
+   * `fjellflate` er definert lenger nede, men `terr` kalles først etter den. */
+  const terr = t => {
+    const zr = terrRå(t);
+    if (!isFinite(zr)) return NaN;
+    return zr - Math.max(0, Math.min(rensk, zr - fjellflate(t)));
+  };
 
   /* Ferdig vegoverflate. Venstre og høyre fall er skilt, slik at et
      oppmalt tverrsnitt kan treffes og kurver kan doseres ensidig. */
@@ -619,7 +640,17 @@ function beregnTverrprofil(o) {
       } else {
         arealSkjaeringFjell += (forrige.dFjell + naa.dFjell) / 2 * dtI;
         vSkjaeringFjell += (forrige.dFjell * forrige.w + naa.dFjell * naa.w) / 2 * dtI;
-        breddeFjell += dtI;
+        /* BARE DER DET FAKTISK ER FJELL.
+           Denne greina er «ingen overgang i steget», og det dekker BEGGE
+           tilfellene: fjell hele veien, og fjell ingen steder. Bredden ble
+           lagt til uansett, så `fjellbredde` ble hele tverrsnittsbredden.
+           Målt på flatt terreng med veg fire meter ned: uten fjell i det hele
+           tatt sto `skjaeringFjell` på 0,000000 og `fjellbredde` på 19,938 m.
+           Det går ut som `sprengning.areal` og som «bredeste fjellskjæring» –
+           altså et sprengningsareal ti ganger for stort, og en meldt bredde på
+           tjue meter der det ikke er fjell. Volumet var riktig hele tiden, så
+           ingenting så rart ut i totalen. */
+        if (forrige.dFjell > 0 && naa.dFjell > 0) breddeFjell += dtI;
         if (forrige.dFjell > maksFjelldybde) maksFjelldybde = forrige.dFjell;
         if (naa.dFjell > maksFjelldybde) maksFjelldybde = naa.dFjell;
       }
@@ -658,7 +689,18 @@ function beregnTverrprofil(o) {
   const tR0 = tV - mal.renskUtenfor, tR1 = tH + mal.renskUtenfor;
   const renskBredde = tR1 - tR0;
   let arealRensk = 0, vRensk = 0;
-  if (!manglerData && renskBredde > 0 && mal.renskDybde > 0) {
+  /* HULL I LASERDEKNINGEN SKAL TAS DER DE ER, IKKE FOR HELE SNITTET.
+     Her sto `!manglerData` som port: ett eneste NaN-punkt et sted i profilet –
+     også langt utenfor vegen – hoppet over hele renskeintegrasjonen. Men
+     løkka under håndterer alt manglende punkt lokalt allerede (`if
+     (!isFinite(zRaa)) return 0`), akkurat som tomteberegningen hopper over
+     cella og ikke snittet.
+     Målt på en rett veg på 200 m: en 0,2 m bred stripe uten dekning, ni og en
+     halv meter ute fra senterlinja, tok `sum.rensk` fra 877,51 til 0,00 m³ –
+     hundre prosent – mens skjæringen mistet 0,21. Rensken går rett i
+     deponiposten, så tallet for hva som må kjøres bort ble 877 kubikk for
+     lavt. Merknaden om manglende data står fortsatt. */
+  if (renskBredde > 0 && mal.renskDybde > 0) {
     const nR = Math.min(400, Math.max(8, Math.ceil(renskBredde / Math.max(0.05, dt))));
     const dtR = renskBredde / nR;
     for (let i = 0; i < nR; i++) {

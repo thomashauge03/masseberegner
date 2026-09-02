@@ -269,6 +269,117 @@ console.log('\n4. Masseberegning mot handregning');
   paastand('alt regnes som fjell når fjellet ligger i dagen',
     Math.abs(prFjell.areal.skjaeringFjell - prFjell.areal.skjaering) < 1e-6);
 
+  /* RENSK OG SKJÆRING MÅ MØTES I SAMME FLATE.
+     Skjæringen ble målt fra `terrRå − renskDybde`, en fast dybde, mens
+     renskeposten med rette bokfører `min(renskDybde, dybden til fjell)` –
+     det er ingenting å skrape av der fjellet ligger i dagen. De to var altså
+     uenige, og laget mellom dem havnet i ingen post. Målt før rettingen: med
+     fjellet i dagen 29,908 m²/lm skjæring + 0,000 rensk mot 31,793 fysisk –
+     manko 1,885, seks prosent, alt sammen på fjellposten.
+
+     Invarianten er at summen skal være UAVHENGIG av fjelldybden når fjell og
+     løsmasse har samme skråningshelning: hullet er det samme, det er bare
+     fordelingen mellom postene som flytter seg. */
+  {
+    /* Invarianten er IKKE at summen er den samme uansett fjelldybde – det er
+       den ikke, og det er riktig: ligger fjellet i dagen, må skråningen starte
+       en renskedybde høyere og blir bredere på toppen. Målt til 0,060 m²/lm,
+       nøyaktig de to kilene `renskDybde² × helning` gir.
+
+       Invarianten er at INGEN KUBIKK FALLER MELLOM POSTENE: alt mellom rå
+       terreng og den ferdige jordarbeidsflaten skal være bokført én gang, som
+       skjæring eller som rensk. Det måles mellom skråningsføttene, så
+       `renskUtenfor` – som ligger utenfor og med rette ikke har noen skjæring
+       – ikke blander seg inn. */
+    const arealAv = (A, B, fra, til) => {
+      let s2 = 0;
+      for (let i = 0; i < Math.min(A.length, B.length) - 1; i++) {
+        const t0 = A[i][0], t1 = A[i + 1][0];
+        if (t1 <= fra || t0 >= til || Math.abs(t1 - t0) < 1e-12) continue;
+        const d0 = Math.max(0, A[i][1] - B[i][1]), d1 = Math.max(0, A[i + 1][1] - B[i + 1][1]);
+        s2 += (d0 + d1) / 2 * (t1 - t0);
+      }
+      return s2;
+    };
+    let verst = 0, verstFd = null;
+    for (const fd of [0, 0.05, 0.10, 0.15, 0.20, 0.50, 2.0]) {
+      const pr2 = M.beregnTverrprofil({
+        linje, terreng, mal, fjell: new M.Fjellmodell({ standarddybde: fd, punkter: [] }),
+        s: 50, vegnivaa: 96, utvidelse: 0, integrasjonssteg: 0.02
+      });
+      const g2 = pr2.geometri;
+      const fra = g2.terreng[0][0], til = g2.terreng[g2.terreng.length - 1][0];
+      // alt som skal graves bort, fra rå mark ned til jordarbeidsflaten
+      const alt = arealAv(g2.terreng, g2.jord, fra, til);
+      /* Det BOKFØRTE rensketallet, ikke det tegnede. Her sto `geometri.rensk`,
+         og den prøven kunne ikke feile: tegningen er selvsagt enig med seg
+         selv – den tegnes av den samme `terr` som skjæringen måles fra. Det
+         som var uenig, var posten. Stripa utenfor skråningsfoten bokføres med
+         den virkelige dybden, og på flatt terreng med jevnt fjell er den
+         nøyaktig `2 · renskUtenfor · min(renskDybde, fjelldybde)`. */
+      const stripe = 2 * mal.renskUtenfor * Math.min(mal.renskDybde, fd);
+      const avvik = Math.abs(pr2.areal.skjaering + pr2.areal.rensk - stripe - alt);
+      if (avvik > verst) { verst = avvik; verstFd = fd; }
+    }
+    sjekk('ingen kubikk faller mellom rensken og skjæringen'
+      + (verstFd === null ? '' : ' (verst ved fjelldybde ' + verstFd + ')'),
+      verst, 0, 0.01);
+    /* Og der fjellet ligger grunnere enn renskedybden, skal ALT under
+       fjellflaten være bokført som fjell – ikke som ingenting. */
+    const iDagen = M.beregnTverrprofil({
+      linje, terreng, mal, fjell: new M.Fjellmodell({ standarddybde: 0, punkter: [] }),
+      s: 50, vegnivaa: 96, utvidelse: 0, integrasjonssteg: 0.02
+    });
+    const dypt = M.beregnTverrprofil({
+      linje, terreng, mal, fjell: new M.Fjellmodell({ standarddybde: 0.20, punkter: [] }),
+      s: 50, vegnivaa: 96, utvidelse: 0, integrasjonssteg: 0.02
+    });
+    paastand('fjell i dagen gir MER fjell å sprenge, ikke like mye',
+      iDagen.areal.skjaeringFjell > dypt.areal.skjaeringFjell + 1.0);
+
+    /* FJELLBREDDEN MÅ VÆRE NULL NÅR DET IKKE ER FJELL.
+       Bredden ble lagt til for hvert integrasjonssteg uten en overgang i seg –
+       og det dekker både «fjell hele veien» og «fjell ingen steder». Målt:
+       et tverrsnitt uten fjell i det hele tatt meldte skjaeringFjell 0,000000
+       og fjellbredde 19,938 m. Det går ut som sprengningsareal og som
+       «bredeste fjellskjæring», altså et areal ti ganger for stort. Volumet
+       var riktig hele tiden, så ingenting så rart ut i totalen.
+
+       Invarianten gjelder hvert eneste profil og koster ingenting å holde. */
+    const utenFjell = M.beregnTverrprofil({
+      linje, terreng, mal, fjell: new M.Fjellmodell({ standarddybde: 99, punkter: [] }),
+      s: 50, vegnivaa: 96, utvidelse: 0, integrasjonssteg: 0.02
+    });
+    sjekk('uten fjell er fjellbredden null, ikke hele tverrsnittet',
+      utenFjell.fjellbredde, 0, 1e-9);
+    /* Og der det ER fjell, kan bredden ikke overstige selve skjæringen –
+       fjellet ligger inne i hullet, ikke utenfor det. */
+    paastand('fjellbredden ligger innenfor skjæringen',
+      iDagen.fjellbredde > 0 && iDagen.fjellbredde <= (iDagen.fotHoyre - iDagen.fotVenstre) + 1e-6);
+
+    /* ET HULL I LASERDEKNINGEN SKAL TAS DER DET ER.
+       Renskeintegrasjonen sto bak en port på `!manglerData`: ett eneste
+       NaN-punkt i profilet – også langt utenfor vegen – hoppet over hele
+       posten, selv om løkka håndterer manglende punkt lokalt allerede.
+       Målt på en rett veg på 200 m med en 0,2 m bred stripe uten dekning ni og
+       en halv meter ute: rensken gikk fra 877,51 til 0,00 m³, hundre prosent,
+       mens skjæringen mistet 0,21. Rensken går rett i deponiposten. */
+    const linje2 = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 200, y: 0, r: 0 }]);
+    const profil2 = new Vertikalprofil([{ s: 0, z: 96, k: 1 }, { s: 200, z: 96, k: 1 }]);
+    const kjorHull = terr2 => M.beregnMasser({
+      linje: linje2, profil: profil2, terreng: terr2, mal,
+      fjell: new M.Fjellmodell({ standarddybde: 99, punkter: [] }),
+      profilAvstand: 5, bakkefaktor: 1, integrasjonssteg: 0.05
+    });
+    const heilt = kjorHull({ z: () => 100 });
+    const medHull = kjorHull({ z: (x, y) => (Math.abs(y - 9.5) < 0.1 ? NaN : 100) });
+    const tapt = 1 - medHull.sum.rensk / heilt.sum.rensk;
+    sjekk('et smalt hull i dekningen tar bare sin egen stripe av rensken',
+      tapt, 0, 0.05);
+    paastand('  og det blir fortsatt sagt fra om at data mangler',
+      (medHull.merknader || []).some(m => /data|dekning/i.test(m.tekst || '')));
+  }
+
   // Volum over 100 m
   const res = M.beregnMasser({
     linje, profil: new Vertikalprofil([{ s: 0, z: 100, k: 1 }, { s: 100, z: 100, k: 1 }]),
@@ -1891,6 +2002,77 @@ console.log('\n6c. Avlesning av PDF');
     const paaLand = H.pakkOpp(await H.hentFlis(sr, tx, ty, 1)).data;
     paastand('en flis med dekning blir ikke kastet som tom',
       [...paaLand].filter(v => !Number.isNaN(v)).length > paaLand.length * 0.9);
+
+    /* EN FLIS KAN VÆRE HALVT UTENFOR DEKNINGEN.
+       «Bare null» fanger flisen som er null over alt. En flis PÅ kanten har
+       ekte data i den ene enden og nuller i den andre, og de nullene sto som
+       vanlige koter. Målt på prosjektets egen buffer: 17 av 270 fliser har
+       begge deler – seksten er dekningskanter der nabocellene til nullene
+       ligger på 680 til 790 meter, og én er en ekte strandlinje der de ligger
+       på 0,02. Skillet er hvor høyt det spretter ved siden av nullene. */
+    const rutenett = (px, f) => {
+      const d = new Float32Array(px * px);
+      for (let j = 0; j < px; j++) for (let i = 0; i < px; i++) d[j * px + i] = f(i, j);
+      return d;
+    };
+    const etterKant = (px, f) => {
+      const d = rutenett(px, f);
+      H.nullflateKant(d, px);
+      let nan = 0, nuller = 0;
+      for (const v of d) { if (Number.isNaN(v)) nan++; else if (v === 0) nuller++; }
+      return { nan, nuller, n: d.length };
+    };
+    {
+      const k = etterKant(32, i => (i < 16 ? 0 : 700 + i * 0.5));
+      paastand('en dekningskant blir manglende data, ikke kote 0',
+        k.nuller === 0 && k.nan === 512, `${k.nan} NaN, ${k.nuller} nuller igjen`);
+    }
+    {
+      const s = etterKant(32, i => (i < 16 ? 0 : 0.02 + i * 0.05));
+      paastand('  men en strandlinje beholder havflaten sin',
+        s.nan === 0 && s.nuller === 512, `${s.nan} NaN, ${s.nuller} nuller igjen`);
+    }
+    {
+      const u = etterKant(32, i => 100 + i);
+      paastand('  og en flis uten nuller røres ikke',
+        u.nan === 0 && u.nuller === 0, `${u.nan} NaN`);
+    }
+    /* Og på ekte fliser: ingen som er sluppet gjennom skal ha et stup ved
+       siden av nullene sine. Går denne i rødt, ligger det en forgiftet flis i
+       mellomlageret – da er `FLIS_TOLKNING` ikke bumpet. */
+    try {
+      const mappe = H.cacheMappe && H.cacheMappe();
+      const fsm = require('fs'), pth = require('path');
+      if (mappe && fsm.existsSync(mappe)) {
+        const pre = `v${require('fs').readFileSync('lib/hoydedata.js', 'utf8')
+          .match(/const FLIS_TOLKNING = (\d+)/)[1]}_`;
+        const filer = fsm.readdirSync(mappe).filter(f => f.startsWith(pre) && f.endsWith('.bin'));
+        let verstFil = null, verst = 0, sett = 0;
+        for (const f of filer) {
+          let o; try { o = H.pakkOpp(fsm.readFileSync(pth.join(mappe, f))); } catch (e2) { continue; }
+          const d = o.data, w = o.px, rader = Math.floor(d.length / w);
+          let n0 = 0; for (let i = 0; i < d.length; i++) if (d[i] === 0) n0++;
+          if (!n0 || n0 === d.length) continue;
+          sett++;
+          const nab = [];
+          for (let j = 0; j < rader; j++) for (let i = 0; i < w; i++) {
+            const k2 = j * w + i; if (d[k2] !== 0) continue;
+            for (const nb of [i > 0 ? k2 - 1 : -1, i < w - 1 ? k2 + 1 : -1,
+              j > 0 ? k2 - w : -1, j < rader - 1 ? k2 + w : -1]) {
+              if (nb < 0) continue;
+              if (d[nb] !== 0 && isFinite(d[nb])) nab.push(Math.abs(d[nb]));
+            }
+          }
+          if (!nab.length) continue;
+          nab.sort((a, b) => a - b);
+          const p10 = nab[Math.floor(nab.length * 0.1)];
+          if (p10 > verst) { verst = p10; verstFil = f; }
+        }
+        paastand('ingen flis i mellomlageret har nullflate mot høyt terreng',
+          verst <= 5, `${sett} fliser med både null og data, verst ${verst.toFixed(2)} m`
+          + (verstFil ? ' i ' + verstFil : ''));
+      }
+    } catch (e3) { paastand('mellomlagerprøven kom seg gjennom', false, e3.message); }
   } catch (e) {
     /* Bare nettfeil er en gyldig grunn til a hoppe over. Alt annet er en feil
        i prøven eller i koden, og skal telle - ellers rapporterer denne

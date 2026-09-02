@@ -198,6 +198,23 @@ const App = {
        anlegg de ikke har noe med å gjøre – og de er høydemodeller i UTM, så
        ingenting ville sagt fra. De regnes billig opp igjen. */
     this._ferdigflater = null;
+    // sonen hører til geometrien i DETTE prosjektet – se `_settSone`
+    this._soneSatt = false;
+    /* ET PROSJEKT MED GEOMETRI ER IKKE «UBESTEMT».
+       Flagget slettes med `delete` når man velger type, så det står ikke i den
+       lagrede fila – og åpningen bygger prosjektet som
+       `Object.assign(nyttProsjekt(), fila)`, der standardverdien `true` da
+       kommer tilbake. Et ferdig tegnet prosjekt kom altså opp med «Hva skal du
+       regne på?», og ett klikk der byttet ut hele det aktive anlegget: målt en
+       tomt med 5 852 m³ skjæring som ble null, uten en angrepost.
+       Prøven står her og ikke i `apne`, fordi det er den samme fella for
+       import, for angre, og for hver annen vei et prosjekt kan komme inn. Et
+       HELT NYTT prosjekt har ingen geometri og forblir ubestemt – det er
+       nettopp da spørsmålet er på sin plass. */
+    if (Array.isArray(P.anlegg) && P.anlegg.some(a => (a.ip && a.ip.length)
+      || (a.tomt && a.tomt.punkter && a.tomt.punkter.length))) {
+      delete P.ubestemt;
+    }
     if (typeof Tegner3d !== 'undefined') {
       Tegner3d._fulle = null;
       Tegner3d._fulleUtelatt = null;
@@ -731,13 +748,29 @@ const App = {
     if (!this.P || !this.P.ubestemt) return;
     delete this.P.ubestemt;
     const a = this.anlegg();
-    if (a && a.type !== type) {
+    /* MEN BARE HVIS DET FAKTISK ER TOMT.
+       Antagelsen under – «ingenting er tegnet ennå» – holdt så lenge flagget
+       bare kunne stå på et helt ferskt prosjekt. Overlevde det en åpning, sto
+       det på et prosjekt fullt av geometri, og da slettet dette klikket
+       arbeidet. `velgAnleggstype` kaller ikke `merk()`, så det var ikke engang
+       en angrepost: neste endring skjøv tapet inn i historikken og lot
+       autolagringen skrive over fila. Selve flagget er rettet i `apne`; denne
+       vakten står fordi et datatap ikke skal henge på ett enkelt sted. */
+    const harNoe = a && ((a.ip && a.ip.length)
+      || (a.tomt && a.tomt.punkter && a.tomt.punkter.length));
+    if (a && a.type !== type && !harNoe) {
       /* Anlegget er tomt – ingenting er tegnet ennå – så det byttes ut i stedet
          for å konverteres. En konvertering ville måttet flytte felt som ikke
          finnes, og etterlatt en tomt med en vegmal. */
       const nytt = this.nyttAnlegg(type, type === 'tomt' ? 'Tomt' : 'Veg', a.id);
       this.P.anlegg[this.P.anlegg.indexOf(a)] = nytt;
       this.P.aktivt = nytt.id;
+    } else if (a && a.type !== type && harNoe) {
+      /* Har man tegnet noe, og likevel ber om en annen type, er svaret et NYTT
+         anlegg – ikke at det gamle forsvinner. Resten av metoden kjøres
+         etterpå som vanlig: den viser riktig skjema og setter kartmodus for
+         den typen man nettopp ba om. */
+      this.leggTilAnlegg(type);
     }
     this.visAnleggsvalg();
     this.visAnleggsvelger();
@@ -1846,7 +1879,10 @@ const App = {
 
   byggLinje() {
     const P = this.P;
-    if (P.ip.length) this.sone = Geo.sone(P.ip[0].lon);
+    /* Senterlinja bestemmer fortsatt ubetinget, som før – flagget sier bare
+       fra at sonen ER utledet, så en tomt i samme prosjekt ikke overstyrer
+       den. Se `_settSone`. */
+    if (P.ip.length) { this.sone = Geo.sone(P.ip[0].lon); this._soneSatt = true; }
     const ip = P.ip.map(p => {
       const u = Geo.tilUtm(p.lat, p.lon, this.sone);
       return { x: u.x, y: u.y, r: p.r || 0 };
@@ -2326,11 +2362,37 @@ const App = {
     this._tomteberegning = setTimeout(() => this.beregnTomt(), 150);
   },
 
+  /**
+   * UTM-sonen settes av GEOMETRIEN, én gang per prosjekt.
+   *
+   * `App.sone` sto på 32 som startverdi, og prøven som skulle utlede den var
+   * `if (!this.sone)` – som aldri kunne være sann. For en veg gjorde det
+   * ingenting: `byggLinje` setter sonen ubetinget. Men et rent TOMTEPROSJEKT
+   * gikk aldri innom den, så alt nord for lengdegrad 12 ble regnet i sone 32.
+   *
+   * Målt på en tomt i Alta (69,97 N / 23,27 Ø): sone 32 gir x = 1 041 246,
+   * altså seks hundre kilometer utenfor sonen. Kartverket svarer ingenting
+   * der, hver rute blir NaN, og skjæring og fylling blir null – med
+   * «N ruter mangler terrengdata» som eneste varsel. Kommer man forbi det,
+   * måles arealet i strukket UTM: 68 706 m² i sone 32 mot 68 250 i sone 35,
+   * 0,67 % for stort, uten et ord.
+   *
+   * Startverdien 32 kan ikke bare byttes til null – sonen leses seksti steder,
+   * og et manglende tall der ville forplantet seg overalt. Flagget sier i
+   * stedet om den er UTLEDET, som er det prøven egentlig spurte om.
+   */
+  _settSone(lon) {
+    if (this._soneSatt || !Number.isFinite(lon)) return this.sone;
+    this.sone = Geo.sone(lon);
+    this._soneSatt = true;
+    return this.sone;
+  },
+
   /** Tomta i UTM, sa areal og lengder males i meter og ikke i grader. */
   tomtIUtm(t) {
     const tt = t || (this.erTomt() ? this.P.tomt : null);
     if (!tt || !tt.punkter.length) return [];
-    if (!this.sone) this.sone = Geo.sone(tt.punkter[0].lon);
+    this._settSone(tt.punkter[0].lon);
     return tt.punkter.map(p => {
       const u = Geo.tilUtm(p.lat, p.lon, this.sone);
       return { x: u.x, y: u.y };
@@ -5502,6 +5564,16 @@ const App = {
        tomtemal for en tomt. Derfor skal malen ikke slas sammen her; en tomt
        ville da fatt vegens felt tredd nedover seg. */
     this.P = this.moderniserProsjekt(Object.assign(this.nyttProsjekt(), d));
+    /* «UBESTEMT» SKAL IKKE OVERLEVE EN ÅPNING.
+       Flagget slettes med `delete` når man velger type, så det finnes ikke i
+       den lagrede fila – og `Object.assign(nyttProsjekt(), d)` legger da inn
+       standardverdien `true` igjen. Prosjektet kom altså opp som «ubestemt»
+       selv om det var fullt av tegnet geometri, og da viser programmet boksen
+       «Hva skal du regne på?». Trykker man der, bytter `velgAnleggstype` ut
+       hele det aktive anlegget – målt: en tomt med 5 852 m³ skjæring ble til
+       null på ett klikk. Kommentaren ved standardverdien sier uttrykkelig at
+       flagget skal forsvinne når man åpner en fil; her er det. */
+    delete this.P.ubestemt;
     this.P.faktorer = Object.assign({}, StandardFaktorer, d.faktorer || {});
     this.P.fjell = Object.assign({ standarddybde: 0.5, rekkevidde: 60, strekninger: [], punkter: [], soner: [] }, d.fjell || {});
     document.getElementById('prosjektnavn').value = this.P.navn;
