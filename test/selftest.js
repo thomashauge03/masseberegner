@@ -18,6 +18,13 @@ const VK = require(path.join(__dirname, '..', 'public', 'js', 'veiklasser.js'));
 const H = require(path.join(__dirname, '..', 'lib', 'hoydedata.js'));
 const { Terreng, FLIS_M } = require(path.join(__dirname, '..', 'public', 'js', 'terreng.js'));
 
+/* HÅNDREGNINGENE I DENNE FILA GJELDER DEN KLASSISKE MODELLEN.
+   Rensk på en fast dybde, ingen masseutskifting. Fasitverdiene er regnet for
+   akkurat den, og de skal fortsatt måle det de ble regnet for. Utskiftingen –
+   der alt under vegkroppen graves ned til fjell og fylles tilbake – har sine
+   egne prøver i seksjon 4u, med sine egne håndregninger. */
+const KLASSISK = Object.assign({}, M.StandardMal, { utskifting: false });
+
 let feil = 0, ok = 0;
 function sjekk(navn, faktisk, ventet, toleranse) {
   const avvik = Math.abs(faktisk - ventet);
@@ -336,7 +343,7 @@ console.log('\n4. Masseberegning mot handregning');
   // Flatt terreng i kote 100, rett veg i kote 100.
   const terreng = { z: () => 100 };
   const linje = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 100, y: 0, r: 0 }]);
-  const mal = Object.assign({}, M.StandardMal);
+  const mal = Object.assign({}, KLASSISK);
   const fjell = new M.Fjellmodell({ standarddybde: 99, punkter: [] });
 
   const pr = M.beregnTverrprofil({
@@ -473,7 +480,7 @@ console.log('\n4. Masseberegning mot handregning');
        ut, og summen er rensk + løsmasse + fjell i fast volum. Og fordi
        ingenting går i fyllingen, kan ikke fyllingsfaktorene røre tallet. */
     {
-      const malU = Object.assign({}, M.StandardMal,
+      const malU = Object.assign({}, KLASSISK,
         { slitelagTykkelse: 0, baerelagTykkelse: 0 });
       const linjeU = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 300, y: 0, r: 0 }]);
       const profilU = new Vertikalprofil([{ s: 0, z: 94, k: 1 }, { s: 300, z: 94, k: 1 }]);
@@ -600,6 +607,128 @@ console.log('\n4. Masseberegning mot handregning');
 }
 
 /* ------------------------------------------------------------------ */
+console.log('\n4u. Masseutskifting – alt under vegkroppen ned til fjell');
+{
+  /* Rensk på tjue centimeter er avdekking. Under selve vegen er det som
+     ligger igjen ikke noe å bygge på – det er skrot, og ofte myr – så alt
+     graves bort helt ned til fast fjell og trauet fylles tilbake.
+
+     To volum, ikke ett: alt som tas ut er deponimasse, og hele rommet mellom
+     fjellet og planum må fylles på nytt. Utenfor vegkroppen er det fortsatt
+     vanlig rensk; der bygges det ingenting, så det er ingenting å skifte ut. */
+  const mal = Object.assign({}, M.StandardMal);
+  const linje = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 100, y: 0, r: 0 }]);
+  const hb = mal.vegbredde / 2;
+  const tUt = hb + mal.grofteDybdePlanum * mal.grofteInnerHelning + mal.grofteBunn;
+  const snitt = (fjelldybde, steg, m2) => M.beregnTverrprofil({
+    linje, terreng: { z: () => 100 }, mal: Object.assign({}, mal, m2 || {}),
+    fjell: new M.Fjellmodell({ standarddybde: fjelldybde, punkter: [] }),
+    s: 50, vegnivaa: 100, utvidelse: 0, integrasjonssteg: steg || 0.02
+  });
+
+  /* HÅNDREGNING. Vegkroppen er vegbredden pluss grøfta:
+       tUt = 2,25 + 0,20·1,0 + 0,30 = 2,75 m til hver side, altså 5,50 m brei.
+     Med fjellet to meter nede tas hele de to meterne der. Utenfor, fra
+     vegkroppen ut til skråningsfoten og en meter til, er det vanlig rensk på
+     tjue centimeter. */
+  {
+    const pr = snitt(2.0);
+    const fot = pr.fotHoyre;
+    const fasit = 2 * tUt * 2.0
+      + 2 * ((fot - tUt) + mal.renskUtenfor) * mal.renskDybde;
+    sjekk('utskifting: hele vegkroppen ned til fjell, vanlig rensk utenfor',
+      pr.areal.rensk, fasit, 0.01);
+    paastand('  og vegkroppen er 5,50 m brei, som malen sier',
+      Math.abs(2 * tUt - 5.5) < 1e-9);
+  }
+
+  /* Trauet har en loddrett vegg mot skråningen. Et sprang smøres ut av et
+     jevnt rutenett, og da henger volumet på hvor fint man deler opp – derfor
+     treffes veggen med egne knekkpunkt, både i tverrsnittet og i
+     renskeløkka. Uten dem: 11,8751 mot 11,8875 riktig. */
+  {
+    const v = [0.2, 0.05, 0.01, 0.002].map(st => snitt(2.0, st).areal.rensk);
+    sjekk('  og tallet henger ikke på integrasjonssteget',
+      Math.max(...v) - Math.min(...v), 0, 1e-6);
+  }
+
+  /* INGEN KUBIKK MELLOM POSTENE, OGSÅ MED UTSKIFTING.
+     Alt mellom rå mark og trauets bunn er rensk; alt mellom trauets bunn og
+     jordarbeidsflaten er enten skjæring eller tilbakefylling. `geometri.rensk`
+     ER trauets bunn, så invarianten kan måles rett av tegningen. */
+  {
+    const integ = (A, B) => {
+      let s2 = 0;
+      for (let i = 0; i < A.length - 1; i++) {
+        const dt2 = A[i + 1][0] - A[i][0];
+        if (Math.abs(dt2) < 1e-12) continue;
+        s2 += ((A[i][1] - B[i][1]) + (A[i + 1][1] - B[i + 1][1])) / 2 * dt2;
+      }
+      return s2;
+    };
+    let verst = 0, verstFd = null;
+    for (const fd of [0.2, 0.5, 1.0, 2.0, 4.0, 6.0]) {
+      const g = snitt(fd).geometri;
+      const pr = snitt(fd);
+      const avvik = Math.abs((pr.areal.skjaering - pr.areal.fylling)
+        - integ(g.rensk, g.jord));
+      if (avvik > verst) { verst = avvik; verstFd = fd; }
+    }
+    sjekk('skjæring minus fylling er nøyaktig trauet ned til jordarbeidsflaten'
+      + (verstFd === null ? '' : ' (verst ved fjelldybde ' + verstFd + ')'),
+    verst, 0, 0.001);
+  }
+
+  /* GRENSA PÅ FIRE METER. Ligger fjellet dypere, stopper uttaket der – og da
+     blir det liggende løsmasse igjen under, som må sies fra om. */
+  {
+    const grunn = snitt(2.0), dypt = snitt(6.0);
+    sjekk('under grensa graves det helt ned til fjell', grunn.utskiftingRest, 0, 1e-9);
+    sjekk('  og over den stopper uttaket, med resten oppgitt',
+      dypt.utskiftingRest, 6.0 - mal.maksUtskifting, 1e-6);
+    const fasitDypt = 2 * tUt * mal.maksUtskifting
+      + 2 * ((dypt.fotHoyre - tUt) + mal.renskUtenfor) * mal.renskDybde;
+    sjekk('    og da er det grensa som gjelder, ikke fjellet',
+      dypt.areal.rensk, fasitDypt, 0.01);
+  }
+
+  /* Under vegkroppen er alt over fjellet alt tatt ut som utskifting, så det
+     som står igjen å grave der er fjell. Løsmasseskjæringen som blir igjen
+     hører til skråningene utenfor. */
+  {
+    const pr = snitt(1.0);
+    const losIVegkropp = 2 * tUt * 1.0;   // det som ville vært løsmasseskjæring
+    paastand('under vegkroppen er det ikke løsmasse igjen å grave',
+      (pr.areal.skjaering - pr.areal.skjaeringFjell) < losIVegkropp * 0.25);
+  }
+
+  /* SLÅS DEN AV, ER ALT SOM FØR. Det er den prøven som gjør at alle
+     håndregningene over i denne fila fortsatt måler det de ble regnet for. */
+  {
+    const paa = snitt(1.5), av = snitt(1.5, 0.02, { utskifting: false });
+    paastand('med utskifting AV er rensken den gamle, faste dybden',
+      Math.abs(av.areal.rensk
+        - mal.renskDybde * ((av.fotHoyre - av.fotVenstre) + 2 * mal.renskUtenfor)) < 0.01);
+    paastand('  og med den PÅ er det vesentlig mer som skal ut',
+      paa.areal.rensk > av.areal.rensk * 2);
+    paastand('  og en tilbakefylling som ikke fantes før',
+      paa.areal.fylling > 1 && av.areal.fylling < 1e-6);
+  }
+
+  /* Dypere fjell skal gi mer ut og mer inn – aldri mindre. */
+  {
+    const dyp = [0.3, 0.6, 1.0, 1.5, 2.0, 3.0];
+    const rensk = dyp.map(d => snitt(d).areal.rensk);
+    const fyll = dyp.map(d => snitt(d).areal.fylling);
+    let stiger = true;
+    for (let i = 1; i < dyp.length; i++) {
+      if (rensk[i] < rensk[i - 1] - 1e-6 || fyll[i] < fyll[i - 1] - 1e-6) stiger = false;
+    }
+    paastand('dypere fjell gir mer å kjøre bort og mer å kjøre inn', stiger);
+  }
+}
+
+/* ------------------------------------------------------------------ */
 console.log('\n4a. Feil som er funnet og rettet');
 {
   /* Et knekkpunkt uten kurve ble stille hoppet over, og linja skar rett over
@@ -668,7 +797,7 @@ console.log('\n4a. Feil som er funnet og rettet');
      kom ut som −0,3 m². */
   const krapp = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 60, y: 0, r: 12 }, { x: 60, y: 60, r: 0 }]);
   const li = { z: (x, y) => 100 + 0.55 * y };
-  const mal = Object.assign({}, M.StandardMal, { maksSokebredde: 45, ekstraBredde: null });
+  const mal = Object.assign({}, KLASSISK, { maksSokebredde: 45, ekstraBredde: null });
   const vipK = [];
   for (let s = 0; s <= krapp.lengde; s += 5) {
     const q = krapp.punktVed(Math.min(s, krapp.lengde));
@@ -727,7 +856,7 @@ console.log('\n4a. Feil som er funnet og rettet');
   /* Laste høyder far K=0, og da lages det ingen vertikalkurve. Gikk kontrollen
      bare pa kurvelisten, slapp hele arbeidsmaten med innlagte høyder unna
      kravet til vertikalgeometri - uansett hvor skarpt bruddet var. */
-  const knekkmal = Object.assign({}, M.StandardMal, {
+  const knekkmal = Object.assign({}, KLASSISK, {
     minVertikalLavbrekk: 200, minVertikalHoybrekk: 100, maksStigning: 1, stigningIKurve: null
   });
   const skarptLavbrekk = M.beregnMasser({
@@ -767,17 +896,17 @@ console.log('\n4a. Feil som er funnet og rettet');
 
   /* En radius knappere enn tabellen rekker ga null breddeutvidelse - mindre
      enn en slakere sving fikk. */
-  const bredde = M.StandardMal.breddeIKurve;
-  const knappest = M.utvidelseFraRadius(M.StandardMal, bredde[0][0], 90);
+  const bredde = KLASSISK.breddeIKurve;
+  const knappest = M.utvidelseFraRadius(KLASSISK, bredde[0][0], 90);
   paastand('radius under tabellen gir minst like mye utvidelse som det knappeste bandet',
-    M.utvidelseFraRadius(M.StandardMal, bredde[0][0] - 3, 90) >= knappest - 1e-9);
+    M.utvidelseFraRadius(KLASSISK, bredde[0][0] - 3, 90) >= knappest - 1e-9);
 
   /* En kurve kortere enn profilavstanden falt mellom to profiler og fikk
      ingen utvidelse i det hele tatt. */
   const kortKurve = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 100, y: 0, r: 12 }, { x: 100, y: 100, r: 0 }]);
   const stasjonerGrovt = [];
   for (let s = 0; s <= kortKurve.lengde; s += 20) stasjonerGrovt.push(s);
-  const utv = M.lagUtvidelsesprofil(kortKurve, M.StandardMal, stasjonerGrovt, null);
+  const utv = M.lagUtvidelsesprofil(kortKurve, KLASSISK, stasjonerGrovt, null);
   paastand('kort kurve mellom to profiler far likevel utvidelse',
     Math.max(...utv) > 0, `største utvidelse ${Math.max(...utv).toFixed(2)} m`);
 
@@ -795,7 +924,7 @@ console.log('\n4a. Feil som er funnet og rettet');
      svaret ikke skal henge pa hvor fint man deler opp. */
   const krappLinje = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 60, y: 0, r: 12 }, { x: 60, y: 60, r: 0 }]);
   const skraaLi = { z: (x, y) => 100 + 0.55 * y };
-  const krappMal = Object.assign({}, M.StandardMal, { maksSokebredde: 45, ekstraBredde: null });
+  const krappMal = Object.assign({}, KLASSISK, { maksSokebredde: 45, ekstraBredde: null });
   const krappVip = [];
   for (let s = 0; s <= krappLinje.lengde; s += 5) {
     const q = krappLinje.punktVed(Math.min(s, krappLinje.lengde));
@@ -818,7 +947,7 @@ console.log('\n4a. Feil som er funnet og rettet');
      bærelag helt opp - ellers star 50 til 100 kubikk per kilometer pa
      ingen post. */
   for (const veiklasse of ['k1', 'k3', 'k7', 'k8']) {
-    const vm = Object.assign({}, M.StandardMal, VK.malFraVeiklasse(veiklasse) || {},
+    const vm = Object.assign({}, KLASSISK, VK.malFraVeiklasse(veiklasse) || {},
       { grofteDybdePlanum: 0, grofteBunn: 0 });
     const r = M.beregnMasser({
       linje: rettLinje, profil: new Vertikalprofil([{ s: 0, z: 100, k: 0 }, { s: 100, z: 100, k: 0 }]),
@@ -1128,8 +1257,8 @@ console.log('\n4h. Rensk der fjellet ligger høyt');
 
   /* Er fjellet halvveis oppe i renskelaget, skal halve renskevolumet bli
      igjen - resten er fjell. */
-  const full = rensk(M.StandardMal.renskDybde);
-  const halv = rensk(M.StandardMal.renskDybde / 2);
+  const full = rensk(KLASSISK.renskDybde);
+  const halv = rensk(KLASSISK.renskDybde / 2);
   paastand('halv dybde til fjell gir halv rensk',
     Math.abs(halv - full / 2) < full * 0.02, `${halv.toFixed(0)} mot ${(full / 2).toFixed(0)}`);
   /* Ligger fjellet dypere enn renskelaget, skal rensken vaere nøyaktig
@@ -1138,13 +1267,13 @@ console.log('\n4h. Rensk der fjellet ligger høyt');
      slakere skjæring og dermed bredere rensk. */
   {
     const pr = M.beregnTverrprofil({
-      linje, terreng: { z: () => 100 }, mal: M.StandardMal,
+      linje, terreng: { z: () => 100 }, mal: KLASSISK,
       fjell: new M.Fjellmodell({ standarddybde: 5 }), s: 50, vegnivaa: 96, utvidelse: 0,
       tverrfall: { venstre: 0.05, hoyre: 0.05 }, integrasjonssteg: 0.1
     });
-    const bredde = (pr.fotHoyre - pr.fotVenstre) + 2 * M.StandardMal.renskUtenfor;
+    const bredde = (pr.fotHoyre - pr.fotVenstre) + 2 * KLASSISK.renskUtenfor;
     sjekk('med fjellet dypt er rensken dybde ganger bredde',
-      pr.areal.rensk, M.StandardMal.renskDybde * bredde, 0.01);
+      pr.areal.rensk, KLASSISK.renskDybde * bredde, 0.01);
   }
 
   // og rensken skal fortsatt være null der terrengmodellen mangler data
@@ -1215,7 +1344,7 @@ console.log('\n4f. Eksportformatene');
     fjell: new M.Fjellmodell({ standarddybde: 2 }), profilAvstand: 10, bakkefaktor: 1
   });
   const app = {
-    P: { navn: 'Prøvevei «test»', vip: vp.vip, mal: M.StandardMal, fjell: { punkter: [] } },
+    P: { navn: 'Prøvevei «test»', vip: vp.vip, mal: KLASSISK, fjell: { punkter: [] } },
     vprofil: vp, sone: 32, linje,
     fallVed: () => ({ venstre: 0.05, hoyre: 0.05 })
   };
@@ -1375,7 +1504,7 @@ console.log('\n4f. Eksportformatene');
 console.log('\n4e. Fjellflaten på tvers av snittet');
 {
   const linje = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 100, y: 0, r: 0 }]);
-  const mal = Object.assign({}, M.StandardMal, { maksSokebredde: 40 });
+  const mal = Object.assign({}, KLASSISK, { maksSokebredde: 40 });
   const terreng = { z: (x, y) => 100 - 0.35 * y };
 
   /* Dybden til fjell ble malt ett sted - i senterlinjen - og brukt over hele
@@ -1745,7 +1874,7 @@ console.log('\n4c. Tall som ikke lar seg regne med');
 console.log('\n4b. Hull i terrengmodellen');
 {
   const linje = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 100, y: 0, r: 0 }]);
-  const mal = Object.assign({}, M.StandardMal);
+  const mal = Object.assign({}, KLASSISK);
   const fjell = new M.Fjellmodell({ standarddybde: 5 });
 
   // Ingen data i det hele tatt
@@ -1772,7 +1901,7 @@ console.log('\n4b. Hull i terrengmodellen');
 console.log('\n5. Massebalanse');
 {
   const linje = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 200, y: 0, r: 0 }]);
-  const mal = Object.assign({}, M.StandardMal);
+  const mal = Object.assign({}, KLASSISK);
   const flatt = { z: () => 100 };
 
   for (const [navn, vegz, fjelldybde] of [
@@ -1812,7 +1941,7 @@ console.log('\n5. Massebalanse');
 console.log('\n6. Veiklasser, breddeutvidelse og stigningskrav');
 {
   const V = require(path.join(__dirname, '..', 'public', 'js', 'veiklasser.js'));
-  const mal = M.StandardMal;   // klasse 5, veibredde 4,5 m
+  const mal = KLASSISK;   // klasse 5, veibredde 4,5 m
 
   /* Normalen for klasse 5 krever 5,5 m total bredde i en kort kurve med
      R = 10–14 m. Bygges veien 4,5 m bred, blir utvidelsen 1,0 m. */
@@ -1838,13 +1967,13 @@ console.log('\n6. Veiklasser, breddeutvidelse og stigningskrav');
   sjekk('Ydestad: rettstrekk gir 20 %', M.maksStigningFraRadius(mal, 1e9, 0.05, -1), 0.20, 1e-9);
 
   // Hurtigvalg av klasse skal sette malen
-  const k3 = V.malFraVeiklasse('k3', Object.assign({}, M.StandardMal));
+  const k3 = V.malFraVeiklasse('k3', Object.assign({}, KLASSISK));
   sjekk('klasse 3 setter veibredde', k3.vegbredde, 4.0, 1e-9);
   sjekk('klasse 3 setter minste radius', k3.minRadius, 10, 1e-9);
   sjekk('klasse 3 setter overgangslengde for bredde', k3.utvidelseOvergang, 20, 1e-9);
   sjekk('klasse 3 setter egen utflating for stigning', k3.utflatingForKurve, 10, 1e-9);
   sjekk('klasse 3 krever 7,0 m i R=10 kort kurve', M.utvidelseFraRadius(k3, 10, 45) + k3.vegbredde, 7.0, 1e-9);
-  const k2 = V.malFraVeiklasse('k2', Object.assign({}, M.StandardMal));
+  const k2 = V.malFraVeiklasse('k2', Object.assign({}, KLASSISK));
   sjekk('klasse 2 setter veibredde', k2.vegbredde, 4.5, 1e-9);
   sjekk('klasse 2 har 20 m minsteradius', k2.minRadius, 20, 1e-9);
   sjekk('klasse 2 maks 8 % stigning', M.maksStigningFraRadius(k2, 1e9, 0.05, -1), 0.08, 1e-9);
@@ -1883,7 +2012,7 @@ console.log('\n6. Veiklasser, breddeutvidelse og stigningskrav');
 
   /* Radiusbandene er hele meter. En radius mellom to band skal beholde det
      strengere kravet - før falt den mellom stolene og ga null utvidelse. */
-  const k3mal = V.malFraVeiklasse('k3', Object.assign({}, M.StandardMal, { vegbredde: 4.0 }));
+  const k3mal = V.malFraVeiklasse('k3', Object.assign({}, KLASSISK, { vegbredde: 4.0 }));
   sjekk('R=14 krever 7,0 m', M.utvidelseFraRadius(k3mal, 14, 45) + 4.0, 7.0, 1e-9);
   sjekk('R=14,5 faller ikke mellom bandene', M.utvidelseFraRadius(k3mal, 14.5, 45) + 4.0, 7.0, 1e-9);
   sjekk('R=15 gar over i neste band', M.utvidelseFraRadius(k3mal, 15, 45) + 4.0, 6.5, 1e-9);
@@ -1904,7 +2033,7 @@ console.log('\n6a. Avkortet beregningsbredde');
      nedover langt ut fra veien - fyllingsfoten havner 9,5 m ut, som er
      nettopp tilfellet beregningsbredden er laget for. */
   const li = { z: (x, y) => 100 + 0.5 * y };
-  const grunnmal = Object.assign({}, M.StandardMal, { ekstraBredde: null, maksSokebredde: 60 });
+  const grunnmal = Object.assign({}, KLASSISK, { ekstraBredde: null, maksSokebredde: 60 });
   const fjell = new M.Fjellmodell({ standarddybde: 5 });
   const profil = new Vertikalprofil([{ s: 0, z: 100, k: 0 }, { s: 100, z: 100, k: 0 }]);
 
@@ -1940,7 +2069,7 @@ console.log('\n6a. Avkortet beregningsbredde');
 /* ------------------------------------------------------------------ */
 console.log('\n6b. Eget tverrfall per profil');
 {
-  const mal = Object.assign({}, M.StandardMal, { ekstraBredde: null });
+  const mal = Object.assign({}, KLASSISK, { ekstraBredde: null });
   const linje = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 100, y: 0, r: 0 }]);
   const flatt = { z: () => 100 };
 
@@ -1970,7 +2099,7 @@ console.log('\n6b. Eget tverrfall per profil');
 /* ------------------------------------------------------------------ */
 console.log('\n6d. Kurvereglene fra normalen');
 {
-  const mal = Object.assign({}, M.StandardMal, { utvidelseOvergang: 15, ekstraBredde: null });
+  const mal = Object.assign({}, KLASSISK, { utvidelseOvergang: 15, ekstraBredde: null });
 
   /* Normalen: "Stigningen flates ut før knappe kurver", og
      stigningsovergangen jevnes ut over en avstand fra tangentpunktene.

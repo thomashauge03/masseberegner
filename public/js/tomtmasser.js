@@ -366,10 +366,14 @@ function beregnTomtemasser(o) {
   const cellA = ruteM * ruteM * arealFaktor;
   const matjord = Math.max(0, mal.matjordDybde || 0);
   const renskDybde = Math.max(0, mal.renskDybde || 0);
+  // se `utskifting` i tomtemalen – alt under tomta graves ned til fjell
+  const utskifting = !!mal.utskifting;
+  const maksUtskift = Math.max(0, mal.maksUtskifting || 0);
   const s = tom.sum;
   let utenData = 0, dypesteSkjaering = 0, hoyesteFylling = 0, hoyesteVegg = 0;
   const fjellhoyde = [];
   let forNaerBerg = 0;
+  let forDyptTilFjell = 0, utskiftingRest = 0;
   const rutenett = [];
 
   for (let y = minY + ruteM / 2; y <= maksY; y += ruteM) {
@@ -437,9 +441,35 @@ function beregnTomtemasser(o) {
       const matjordHer = Math.min(matjord, tilBerg);
       s.matjord += matjordHer * cellA;
       const zAvdekket = zT - matjordHer;
-      const losIgjen = tilBerg - matjordHer;        // løsmasse igjen over berget
 
-      const d = zAvdekket - zPlanum;               // positiv = skjæring
+      /* MASSEUTSKIFTING: INNE PÅ TOMTA GRAVES DET NED TIL FJELL.
+         Samme regel som under vegkroppen. Det som ligger igjen under en tomt
+         er ikke noe å bygge på – det er skrot, og ofte myr – så alt graves
+         bort ned til fast fjell, og rommet fylles tilbake. To volum, ikke ett.
+         Utenfor tomta, i skråningene, bygges det ingenting, og der er det
+         fortsatt vanlig avdekking.
+         Trauet blir aldri grunnere enn den avdekte flaten, og aldri dypere
+         enn `maksUtskifting` under bakken – se malen. */
+      const zTrau = (utskifting && iTomta)
+        ? Math.min(zAvdekket, maksUtskift > 0 ? Math.max(zFjell, zT - maksUtskift) : zFjell)
+        : zAvdekket;
+      const utskiftHer = Math.max(0, zAvdekket - zTrau);
+      s.rensk += utskiftHer * cellA;
+      /* Hvor mye løsmasse grensa lar bli liggende igjen under trauet.
+         `max(0, …)` er for lesbarhet, ikke en vakt: når fjellet ligger grunnere
+         enn grensen blir tallet negativt, og da faller det uansett på både
+         terskelen under og på sammenligningen mot `utskiftingRest`, som starter
+         på null. Mutasjonsprøven bekrefter det – fjernes klammen, melder ingen
+         test fra. Den står der fordi et negativt «rest» ikke betyr noe. */
+      if (utskifting && iTomta && maksUtskift > 0) {
+        const rest = Math.max(0, (zT - maksUtskift) - zFjell);
+        if (rest > 0.05) forDyptTilFjell += cellA;
+        if (rest > utskiftingRest) utskiftingRest = rest;
+      }
+      // løsmasse som fortsatt ligger over berget UNDER trauet
+      const losIgjen = Math.max(0, zTrau - zFjell);
+
+      const d = zTrau - zPlanum;                   // positiv = skjæring
       if (d > 0) {
         const iFjell = Math.max(0, d - losIgjen);         // under fjelloverflaten
         let iLos = d - iFjell;
@@ -475,19 +505,29 @@ function beregnTomtemasser(o) {
            Og tallet er et AREAL, ikke et antall ruter: samme tomt meldte 48,
            300, 1340, 5084 og 20336 «ruter» ved 5, 2, 1, 0,5 og 0,25 m rutenett
            – se FUNN 6 i test/konvergensprove.js. */
-        /* R761 prosess 22 c): er det mindre enn 0,75 m fra ferdig niva ned til
-           fast berg, ma det dypsprenges - berget ligger for nær til at et
-           vanlig salveuttak gar. */
-        if (iTomta && (mal.minAvstandTilBerg || 0) > 0) {
-          const fraFerdigTilBerg = (zPlanum + overbygning) - zFjell;
-          if (fraFerdigTilBerg < mal.minAvstandTilBerg) forNaerBerg += cellA;
-        }
       } else if (d < 0) {
         /* Fyllingen males fra den AVSKRAPTE flaten, ikke fra det opprinnelige
            terrenget. Matjorda er tatt bort, sa hullet som skal fylles er
            akkurat sa mye dypere. */
         s.fylling += -d * cellA;
         hoyesteFylling = Math.max(hoyesteFylling, -d);
+      }
+
+      /* R761 prosess 22 c): er det mindre enn 0,75 m fra ferdig niva ned til
+         fast berg, ma det dypsprenges - berget ligger for nær til at et vanlig
+         salveuttak gar.
+
+         DETTE ER EN AVSTAND I TERRENGET, IKKE EN FØLGE AV SKJÆRINGEN.
+         Sjekken sto inne i `d > 0`-grenen, altsa bare for ruter som tilfeldigvis
+         endte i skjæring. Med masseutskifting graves trauet ned til fjell, og da
+         er `d > 0` det samme som at planum ligger UNDER fjellet - sa skillet
+         flyttet seg fra kravet til overbygningens tykkelse. Malt: grensa la pa
+         0,55 m i stedet for 0,75, og et berg 0,60 m under ferdig niva - godt
+         innenfor kravet - ble aldri meldt. Klaringen ned til berget er den samme
+         enten ruta er i skjæring, i fylling eller akkurat i niva. */
+      if (iTomta && (mal.minAvstandTilBerg || 0) > 0) {
+        const fraFerdigTilBerg = (zPlanum + overbygning) - zFjell;
+        if (fraFerdigTilBerg < mal.minAvstandTilBerg) forNaerBerg += cellA;
       }
 
       /* Overbygningslagene legges IKKE opp celle for celle – se blokka etter
@@ -585,6 +625,8 @@ function beregnTomtemasser(o) {
   tom.dypesteSkjaering = dypesteSkjaering;
   tom.hoyesteFylling = hoyesteFylling;
   tom.hoyesteVegg = hoyesteVegg;
+  tom.utskiftingRest = utskiftingRest;
+  tom.forDyptTilFjell = forDyptTilFjell;
   /* Foten følger med ut, sa kartet og snittet tegner den samme skraningen som
      volumet er regnet pa. Regnet de den hver for seg, kunne de vaere uenige -
      og det var nettopp uenigheten man sa da snittet stoppet ved søkebredden
@@ -877,6 +919,25 @@ function beregnTomtemasser(o) {
       tekst: `${kom(forNaerBerg, 0)} m² av tomta har mindre enn `
         + `${kom(mal.minAvstandTilBerg || 0.75, 2)} m fra ferdig `
         + 'nivå ned til fast berg – der må det dypsprenges (R761 prosess 22)' });
+  }
+  /* Rapporten og regnestykket ma si det samme. Star arbeidstypen pa
+     «Masseutskifting» mens bryteren i malen er av, regnes det avdekking pa en
+     fast dybde - og overskriften lover noe helt annet enn kubikken under. */
+  if (o.tomt.arbeidstype === 'masseutskifting' && !utskifting) {
+    merknader.push({ type: 'utskifting',
+      tekst: 'Arbeidstypen er satt til masseutskifting, men masseutskifting er '
+        + 'slått av i innstillingene – det regnes avdekking på en fast dybde på '
+        + `${kom(renskDybde, 2)} m, ikke utgraving ned til fjell` });
+  }
+  /* Grensa for utskifting er en innstilling, ikke en grunnundersøkelse. Blir
+     den styrende, skal det stå i rapporten hvor mye løsmasse den lar bli
+     liggende igjen under tomta - areal OG verste dybde, av samme grunn som
+     over: et rutetall sier ingenting. */
+  if (utskifting && forDyptTilFjell > 0) {
+    merknader.push({ type: 'utskifting',
+      tekst: `${kom(forDyptTilFjell, 0)} m² av tomta har fjellet dypere enn `
+        + `grensen på ${kom(maksUtskift, 1)} m – der blir inntil `
+        + `${kom(utskiftingRest, 1)} m løsmasse liggende igjen under trauet` });
   }
   /* TEK17 § 8-3: en nivaforskjell pa mer enn 0,5 m mot hardt underlag, eller
      3,0 m mot mykt terreng, skal sikres. Det er ikke et volum, men det er noe

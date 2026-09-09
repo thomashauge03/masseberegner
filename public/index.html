@@ -512,7 +512,13 @@
       <div class="felt"><label>Fyllingsskråning</label><input type="number" id="m_fylling" step="0.1" value="1.5" min="0.02" max="10"><span>1:x</span></div>
 
       <h3>Rensk og utvidelse</h3>
-      <div class="felt"><label>Renskedybde (avdekking)</label><input type="number" id="m_renskDybde" step="0.05" value="0.20" min="0" max="3"><span>m</span></div>
+      <div class="felt"><label>Masseutskifting ned til fjell</label><input type="checkbox" id="m_utskifting" checked><span></span></div>
+      <div class="felt"><label>Stopp utskiftingen på</label><input type="number" id="m_maksUtskifting" step="0.5" value="4.0" min="0" max="15"><span>m</span></div>
+      <p class="notis">Under vegkroppen er løsmassen ikke noe å bygge på. Er den skrot eller
+        myr, graves alt bort ned til fast fjell og rommet fylles tilbake – to volum, ikke ett.
+        Ligger fjellet dypere enn grensen, stopper utskiftingen der, og rapporten sier hvor
+        mye som blir liggende igjen. Renskedybden under gjelder da bare utenfor vegkroppen.</p>
+      <div class="felt"><label>Renskedybde (utenfor vegkroppen)</label><input type="number" id="m_renskDybde" step="0.05" value="0.20" min="0" max="3"><span>m</span></div>
       <div class="felt"><label>Rensk utenfor skråning</label><input type="number" id="m_renskUtenfor" step="0.1" value="1.0" min="0" max="20"><span>m</span></div>
       <div class="felt"><label>Overgang breddeutvidelse</label><input type="number" id="m_utvidelseOvergang" step="1" value="15" min="0" max="100"><span>m</span></div>
 

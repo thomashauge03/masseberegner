@@ -170,6 +170,13 @@ const StandardTomtemal = {
   /* --- lagene over og under ferdig nivå --- */
   matjordDybde: 0.25,
   renskDybde: 0.20,
+  /* MASSEUTSKIFTING. Under en tomt er løsmassen ikke noe å bygge på – den
+     graves bort ned til fast fjell og rommet fylles tilbake med godkjent
+     masse. `renskDybde` over gjelder da bare skråningene utenfor tomta, der
+     det ikke bygges. Ligger fjellet dypere enn `maksUtskifting`, stopper
+     utskiftingen der: da bærer massen under seg selv, og resten blir meldt. */
+  utskifting: true,
+  maksUtskifting: 4.0,
   frostsikring: 0.0,
   forsterkningslag: 0.40,
   baerelagTykkelse: 0.10,

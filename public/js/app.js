@@ -2696,6 +2696,11 @@ const App = {
        du ba om. Det er lovlig så lenge den er over minstekravet, og det står
        her for at man skal vite at vegen ikke er helt den som ble tegnet. */
     avvik: 'annet',
+    /* «utskifting» er ogsa en opplysning: fjellet ligger dypere enn grensen for
+       masseutskifting, sa noe løsmasse blir liggende igjen under vegkroppen. Det
+       er ikke noe rettingen kan gjøre noe med - a flytte høyder endrer ikke hvor
+       fjellet ligger - og star her for a si det, ikke for a bli jaget. */
+    utskifting: 'annet',
     data: 'annet', inngang: 'annet', avkortet: 'annet'
   },
 
@@ -4388,6 +4393,13 @@ const App = {
     sett('m_skjaeringFjell', m.skjaeringFjell);
     sett('m_fylling', m.fylling);
     sett('m_renskDybde', m.renskDybde);
+    sett('m_maksUtskifting', m.maksUtskifting);
+    /* `.checked`, ikke `.value` – en avkryssingsboks leser ikke `value`, og
+       feltet ville stått uavkrysset uansett hva malen sa. */
+    {
+      const e = document.getElementById('m_utskifting');
+      if (e) e.checked = !!m.utskifting;
+    }
     sett('m_renskUtenfor', m.renskUtenfor);
     sett('m_utvidelseOvergang', m.utvidelseOvergang);
     sett('m_veiklasse', m.veiklasse || 'egen');
@@ -4787,7 +4799,9 @@ const App = {
       ['m', 'overberg', 'Overberg (egen post)', 0, 2, 0.05],
       ['h3', 'Lag under ferdig nivå'],
       ['m', 'matjordDybde', 'Matjord som tas av', 0, 1, 0.05],
-      ['m', 'renskDybde', 'Rensk mot fjell', 0, 1, 0.05],
+      ['bryter', 'utskifting', 'Masseutskifting ned til fjell'],
+      ['m', 'maksUtskifting', 'Stopp utskiftingen på', 0, 15, 0.5],
+      ['m', 'renskDybde', 'Rensk mot fjell (utenfor tomta)', 0, 1, 0.05],
       ['m', 'frostsikring', 'Frostsikring', 0, 2, 0.05],
       ['m', 'forsterkningslag', 'Forsterkningslag', 0, 2, 0.05],
       ['m', 'baerelagTykkelse', 'Bærelag', 0, 1, 0.05],
@@ -4819,6 +4833,15 @@ const App = {
       + 'skråningen havner nøyaktig på grensa.</p>';
     for (const rad of F) {
       if (rad[0] === 'h3') { ut += `<h3>${rad[1]}</h3>`; continue; }
+      /* Av/på hører ikke i et tallfelt. Ble masseutskiftingen skrudd av med
+         «0», var det ikke til å se forskjell på «ikke skift ut» og «skift ut
+         helt ned, uten grense» – to motsatte svar med samme tall. */
+      if (rad[0] === 'bryter') {
+        ut += `<div class="felt"><label>${rad[2]}</label>`
+          + `<input type="checkbox" data-tmbryter="${rad[1]}"${m[rad[1]] ? ' checked' : ''}>`
+          + '<span class="enhet"></span></div>';
+        continue;
+      }
       const [slag, felt, navn, min, maks, steg] = rad;
       const v = m[felt];
       let hint = '';
@@ -4844,6 +4867,14 @@ const App = {
         if (!Number.isFinite(v)) { inp.value = m[felt]; return; }
         this.merk('endret tomtemal');
         m[felt] = Math.max(+inp.min, Math.min(+inp.max, v));
+        this.tomtemalTilSkjema();
+        this.beregnTomt();
+      };
+    }
+    for (const inp of boks.querySelectorAll('input[data-tmbryter]')) {
+      inp.onchange = () => {
+        this.merk('endret tomtemal');
+        m[inp.dataset.tmbryter] = inp.checked;
         this.tomtemalTilSkjema();
         this.beregnTomt();
       };
@@ -4953,6 +4984,11 @@ const App = {
     m.skjaeringFjell = tall('m_skjaeringFjell');
     m.fylling = tall('m_fylling');
     m.renskDybde = tall('m_renskDybde');
+    m.maksUtskifting = tall('m_maksUtskifting');
+    {
+      const e = document.getElementById('m_utskifting');
+      if (e) m.utskifting = e.checked;
+    }
     m.renskUtenfor = tall('m_renskUtenfor');
     m.utvidelseOvergang = tall('m_utvidelseOvergang');
     m.maksSokebredde = tall('m_maksSokebredde');

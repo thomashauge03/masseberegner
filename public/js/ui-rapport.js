@@ -89,8 +89,10 @@ const Rapport = {
 
       <div class="sumkort">
         <h4>Masser – prosjektert fast volum (p.f.m³) <button class="hjelpknapp" data-hjelp="masser" title="Hva betyr postene?">?</button></h4>
-        <div class="sumrad" title="Matjord, torv, stubber og røtter som skrapes av før man begynner. Regnes ${m.renskDybde} m tykt over hele fotavtrykket pluss ${m.renskUtenfor} m på hver side. Går til deponi eller til jordkledning av fyllingene.">
-          <span>Rensk / avdekking</span><span class="verdi">${t(s.rensk)} m³</span></div>
+        <div class="sumrad" title="${m.utskifting
+          ? `Masseutskifting: under vegkroppen graves ALL løsmasse bort, helt ned til fast fjell – det er skrot, ofte myr, og ikke noe å bygge på. Stopper på ${m.maksUtskifting} m dybde; ligger fjellet dypere, bærer massen under seg selv. Utenfor vegkroppen skrapes ${m.renskDybde} m av, pluss ${m.renskUtenfor} m på hver side. Går til deponi.`
+          : `Matjord, torv, stubber og røtter som skrapes av før man begynner. Regnes ${m.renskDybde} m tykt over hele fotavtrykket pluss ${m.renskUtenfor} m på hver side. Går til deponi eller til jordkledning av fyllingene.`}">
+          <span>${m.utskifting ? 'Masseutskifting / rensk' : 'Rensk / avdekking'}</span><span class="verdi">${t(s.rensk)} m³</span></div>
         <div class="strek"></div>
         <div class="sumrad stor" title="Alt som må graves eller sprenges bort for å komme ned på planum, medregnet grøft og skjæringsskråning.">
           <span class="merke-skjaering">Skjæring totalt</span><span class="verdi merke-skjaering">${t(s.skjaering)} m³</span></div>
@@ -569,7 +571,9 @@ ${this.sprengningsrader(res)}
 <div>
 <h2>Sammendrag</h2>
 <table class="noekkel">
-<tr><td>Rensk / avdekking (${m.renskDybde} m + ${m.renskUtenfor} m utenfor)</td><td>${t(s.rensk)} m³</td></tr>
+<tr><td>${m.utskifting
+  ? `Masseutskifting (ned til fjell, maks ${m.maksUtskifting} m) + rensk ${m.renskDybde} m utenfor`
+  : `Rensk / avdekking (${m.renskDybde} m + ${m.renskUtenfor} m utenfor)`}</td><td>${t(s.rensk)} m³</td></tr>
 <tr><td>Skjæring i løsmasse</td><td>${t(s.skjaeringLosmasse)} p.f.m³</td></tr>
 <tr><td>Skjæring i fjell (sprengning)</td><td>${t(s.skjaeringFjell)} p.f.m³</td></tr>
 ${res.sprengning && res.sprengning.lopemeter > 0 ? `<tr><td>&nbsp;&nbsp;– løpemeter sprengning</td><td>${t(res.sprengning.lopemeter)} m</td></tr>

@@ -22,9 +22,13 @@ const Forklaring = {
         + 'Høydene er kontrollert mot Kartverkets eget punkt-API og stemmer innenfor '
         + 'noen få millimeter.' },
     { navn: 'Etter rensk', form: 'stipla', farge: () => Farger.rensk, modus: 'veg',
-      tekst: 'Flaten man står igjen med når matjord, torv, stubber og røtter er '
-        + 'skrapt av. Det er herfra skjæringen måles – ikke fra terrengoverflaten. '
-        + 'Ligger fjellet grunnere enn renskedybden, stopper rensken i fjellet.' },
+      tekst: 'Bunnen i trauet – flaten skjæringen måles fra, ikke terrengoverflaten. '
+        + 'Med masseutskifting slått på går den helt ned til fast fjell under '
+        + 'vegkroppen: løsmassen der er ikke noe å bygge på, så alt graves bort og '
+        + 'rommet fylles tilbake. Ligger fjellet dypere enn grensen i malen, stopper '
+        + 'den der, og du får en merknad om hvor mye som blir liggende igjen. Utenfor '
+        + 'vegkroppen er den terrenget minus renskedybden – matjord, torv, stubber og '
+        + 'røtter – og stopper i fjellet om det ligger grunnere.' },
     { navn: 'Planum', form: 'stipla', farge: () => Farger.planum, modus: 'begge',
       tekst: 'Der jordarbeidet slutter og overbygningen begynner. Skråningene '
         + 'starter i planum, ikke i overflaten – ellers ville jordarbeidsflaten '

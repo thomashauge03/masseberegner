@@ -491,7 +491,13 @@ const Pdfrapport = {
 
     toSpalter(
       { tittel: 'Sammendrag', rader: [
-        [`Rensk / avdekking (${t(m.renskDybde, 2)} m)`, t(s.rensk) + ' m³'],
+        /* Posten ma si HVA den er. Med masseutskifting er den ikke en fast
+           dybde lenger, men alt ned til fjell under vegkroppen - og et
+           sammendrag som fortsatt sa «0,20 m» ville oppgitt en dybde som ikke
+           har noe a gjøre med kubikken ved siden av. */
+        [m.utskifting
+          ? `Masseutskifting ned til fjell (maks ${t(m.maksUtskifting, 1)} m)`
+          : `Rensk / avdekking (${t(m.renskDybde, 2)} m)`, t(s.rensk) + ' m³'],
         ['Skjæring i løsmasse', t(s.skjaeringLosmasse) + ' p.f.m³'],
         ['Skjæring i fjell (sprengning)', t(s.skjaeringFjell) + ' p.f.m³'],
         /* SPRENGNINGEN SLIK DEN SOM SKAL SPRENGE SPØR OM DEN.

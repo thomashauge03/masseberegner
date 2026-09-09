@@ -28,11 +28,18 @@ function paastand(navn, sant, detalj) {
 /** Et rektangel med hjørne i origo. */
 const rektangel = (b, l) => [{ x: 0, y: 0 }, { x: b, y: 0 }, { x: b, y: l }, { x: 0, y: l }];
 
+/* HÅNDREGNINGENE NEDENFOR GJELDER DEN KLASSISKE MODELLEN: avdekking på en fast
+   dybde, ingen masseutskifting. Det er ikke en svakhet ved dem – de måler at
+   skjæring, fylling, lag og skråninger henger sammen, og det skal de gjøre
+   uansett hvor bunnen i trauet ligger. Derfor står `utskifting: false` her, og
+   utskiftingen har sine egne håndregninger i seksjon 31. Skrudde vi den på her,
+   ville hvert tall i fila måtte regnes om mot en bunn som flytter seg med
+   fjellmodellen, og vi ville mistet prøvene på resten. */
 const grunnmal = () => Object.assign({}, Tomt.StandardTomtemal, {
   matjordDybde: 0, renskDybde: 0, slitelagTykkelse: 0, baerelagTykkelse: 0,
   forsterkningslag: 0, frostsikring: 0, avrettingslag: 0, overberg: 0,
   maksSokebredde: 60, maksSkjaeringsdybde: 0, maksFyllingshoyde: 0, maksVeggHoyde: 0,
-  minAvstandTilBerg: 0
+  minAvstandTilBerg: 0, utskifting: false
 });
 
 const kjor = (o) => T.beregnTomtemasser(Object.assign({
@@ -1400,6 +1407,183 @@ console.log('\n30. Dypsprengning måles fra ferdig nivå');
     Math.max(...verdier) - Math.min(...verdier), 0, 0.01);
   sjekk('    og det er hele tomta som er for nær',
     verdier[2], 2400, 1);
+
+  /* Klaringen ned til berget er en avstand i terrenget. Den skal måles like
+     godt om ruta havner i skjæring, i fylling eller akkurat i nivå - og med
+     masseutskifting havner de fleste rutene i fylling, fordi trauet graves
+     under planum. Sto sjekken inne i skjæringsgrenen, flyttet skillet seg fra
+     kravet til overbygningens tykkelse: målt 0,55 m i stedet for 0,75. */
+  const malU = () => Object.assign(malB(), { utskifting: true, maksUtskifting: 4 });
+  const kjorU = kote => T.beregnTomtemasser({
+    tomt: { punkter: [{ x: 0, y: 0 }, { x: 40, y: 0 }, { x: 40, y: 60 }, { x: 0, y: 60 }],
+      kanter: [], nivaa: { modus: 'flat', kote } },
+    mal: malU(), terreng: { z: () => 100 },
+    fjell: new M.Fjellmodell({ standarddybde: 3 }),
+    rutestorrelse: 1, bakkefaktor: 1
+  });
+  const meldtU = [], stilleU = [];
+  for (let kl = 0; kl <= 2.0; kl += 0.05) {
+    (harBerg(kjorU(97 + kl)) ? meldtU : stilleU).push(+kl.toFixed(2));
+  }
+  paastand('  skillet ligger på kravet også med masseutskifting',
+    meldtU.length > 0 && stilleU.length > 0
+    && Math.max(...meldtU) < krav + 1e-6 && Math.min(...stilleU) > krav - 1e-6,
+    `meldt opp til ${Math.max(...meldtU)}, stille fra ${Math.min(...stilleU)}`);
+  /* Og det er nettopp disse rutene som ikke ble sett: med trauet gravd til fjell
+     ligger hver eneste rute INNE i tomta i fylling, mens skjæringen som finnes
+     er skråningene utenfor. Meldes hele tomta likevel, ma sjekken ha kjørt for
+     ruter som ikke er i skjæring. */
+  const u07 = kjorU(97 + 0.7);
+  const inneU = (u07.rutenett || []).filter(c => c.inne);
+  paastand('    og hver rute inne i tomta ligger i fylling, ikke i skjæring',
+    inneU.length > 0 && inneU.every(c => c.d < 0),
+    `${inneU.filter(c => c.d >= 0).length} av ${inneU.length} i skjæring`);
+  const bergAreal = r => {
+    const m = (r.merknader || []).find(x => x.type === 'berg');
+    if (!m) return NaN;                       // en manglende merknad er en FEIL, ikke en krasj
+    const t2 = /([\d\s ]+) m²/.exec(m.tekst);
+    return t2 ? Number(t2[1].replace(/[\s ]/g, '')) : NaN;
+  };
+  sjekk('    likevel meldes hele tomta', bergAreal(u07), 2400, 1);
+}
+
+/* ------------------------------------------------------------------ */
+console.log('\n31. Masseutskifting – alt under tomta ned til fjell');
+{
+  /* UNDER EN TOMT ER LØSMASSEN IKKE NOE Å BYGGE PÅ.
+     Ligger berget en halvmeter nede, skal den halvmeteren uansett bort - den er
+     skrot, og noen ganger myr. Sa graves trauet ned til fast fjell og rommet
+     fylles tilbake med godkjent masse. Det er TO volum, ikke ett: noe ut til
+     deponi, og like mye inn igjen.
+
+     Oppsettet er lagt sa alt kan regnes i hodet. Flatt terreng pa kote 100,
+     tomta 40 x 60 = 2 400 m², ferdig niva ogsa pa kote 100 og alle lag satt til
+     null - sa planum = terreng. Yttergrensa er lagt PA tomtekanten, slik at det
+     ikke finnes skraninger utenfor som kan blande seg inn i tallene. Da er
+     bunnen i trauet fjellflaten, og svaret er dybden ganger arealet. */
+  const rekt = [{ x: 0, y: 0 }, { x: 40, y: 0 }, { x: 40, y: 60 }, { x: 0, y: 60 }];
+  const malU = (o) => Object.assign(grunnmal(), { utskifting: true, maksUtskifting: 4 }, o || {});
+  const kjorU = (fjelldybde, o, rute) => T.beregnTomtemasser({
+    tomt: { punkter: rekt, kanter: [], nivaa: { modus: 'flat', kote: 100 } },
+    mal: malU(o), terreng: { z: () => 100 },
+    fjell: new M.Fjellmodell({ standarddybde: fjelldybde }),
+    rutestorrelse: rute || 1, bakkefaktor: 1, grense: rekt
+  });
+
+  /* En halvmeter ned til fjell: 0,5 x 2 400 = 1 200 m³ ut. */
+  const halv = kjorU(0.5);
+  sjekk('en halvmeter til fjell gir 1 200 m³ utskifting', halv.sum.rensk, 1200, 1);
+  sjekk('  og like mye ma fylles tilbake', halv.sum.fylling, 1200, 1);
+  sjekk('  arealet er tomtas eget', halv.areal, 2400, 0.01);
+
+  /* Myr: observert fjell to meter nede. 2 x 2 400 = 4 800 m³. */
+  const myr = kjorU(2);
+  sjekk('observert fjell 2 m nede gir 4 800 m³', myr.sum.rensk, 4800, 1);
+  sjekk('  og 4 800 m³ tilbake', myr.sum.fylling, 4800, 1);
+
+  /* INGEN LØSMASSE IGJEN UNDER TOMTA.
+     Nar trauet er gravd til fjell, er det fjell under det - ikke løsmasse. Gar
+     det likevel løsmasse i skjæringsposten, blir de samme kubikkene bokført to
+     ganger: én gang som utskifting og én gang som skjæring. */
+  paastand('ingen løsmasseskjæring igjen under trauet',
+    myr.sum.skjaeringLosmasse === 0, `fikk ${myr.sum.skjaeringLosmasse}`);
+
+  /* STEGET SKAL IKKE SYNES.
+     Utskiftingen males celle for celle, men volumet er en egenskap ved tomta -
+     ikke ved rutenettet. Spriker tallene med rutestørrelsen, er det malingen
+     som lekker, og da betyr ikke kubikken noe. */
+  const paaRute = [5, 2, 1, 0.25].map(r => kjorU(2, null, r).sum.rensk);
+  sjekk('  og rutestørrelsen flytter ingenting',
+    Math.max(...paaRute) - Math.min(...paaRute), 0, 0.01);
+
+  /* DYBDEGRENSEN: FØLG FJELLET, MEN STOPP PÅ 4 M.
+     Ligger berget dypere enn det, barer massen under seg selv og det er ingen
+     grunn til a skifte ut mer. Men da skal det SIES hvor mye som blir liggende
+     igjen - grensa er en innstilling, ikke en grunnundersøkelse. */
+  const dypt = kjorU(6);
+  sjekk('fjell 6 m nede blir kappet på grensen: 4 x 2 400', dypt.sum.rensk, 9600, 1);
+  sjekk('  og resten som blir liggende er 2 m', dypt.utskiftingRest, 2.0, 1e-6);
+  sjekk('  over hele tomtas areal', dypt.forDyptTilFjell, 2400, 1);
+  paastand('  og det star en merknad om det',
+    (dypt.merknader || []).some(m => m.type === 'utskifting'));
+  paastand('  mens fjell innenfor grensen ikke melder noe',
+    !(myr.merknader || []).some(m => m.type === 'utskifting')
+    && myr.utskiftingRest === 0 && myr.forDyptTilFjell === 0);
+  sjekk('  grensen er styrende, ikke fjellet: 8 m gir samme tall som 6',
+    kjorU(8).sum.rensk, dypt.sum.rensk, 1e-6);
+
+  /* BARE UNDER TOMTA. SKRÅNINGENE ER IKKE BYGGEGRUNN.
+     Det skal bygges pa tomta, og det er derfor løsmassen under den ma bort. I
+     skraningen utenfor bygges det ingenting, og a grave den ned til fjell ogsa
+     ville vaere a betale for a fjerne masse ingen har bedt om. Her er
+     yttergrensa tatt bort, sa det FINNES skraninger - 1 080 ruter av 3 480 -
+     og svaret skal likevel vaere dybden ganger tomtas eget areal. */
+  const medSkraning = T.beregnTomtemasser({
+    tomt: { punkter: rekt, kanter: [], nivaa: { modus: 'flat', kote: 98 } },
+    mal: malU(), terreng: { z: () => 100 },
+    fjell: new M.Fjellmodell({ standarddybde: 2 }),
+    rutestorrelse: 1, bakkefaktor: 1                      // ingen `grense`
+  });
+  paastand('  og det finnes faktisk skråninger utenfor å ta feil av',
+    (medSkraning.rutenett || []).filter(c => !c.inne).length > 500);
+  sjekk('utskiftingen stopper ved tomtekanten', medSkraning.sum.rensk, 2 * 2400, 1);
+
+  /* TRAUET LIGGER ALDRI OVER BAKKEN.
+     Fjellmodellen kan gi en fjellflate OVER terrengflaten - en oppmalt bergknaus
+     som 1 m-terrengmodellen har glattet bort, eller bare et malepunkt som ligger
+     litt høyt. Tas `min` mot den avdekte flaten bort, flyter bunnen i trauet opp
+     over bakken, og skjæringen males fra løse lufta: malt 2 400 m³ fjell som
+     ikke finnes. */
+  const overBakken = kjorU(-1);
+  sjekk('fjell over terrenget gir ingen skjæring', overBakken.sum.skjaering, 0, 1e-9);
+  sjekk('  og ingen utskifting', overBakken.sum.rensk, 0, 1e-9);
+
+  /* MONOTONT OPP TIL GRENSEN. Dypere fjell kan ikke gi mindre utskifting. */
+  let stiger = true, forrige = -1;
+  for (const d of [0.25, 0.5, 1, 1.5, 2, 3, 3.9]) {
+    const v = kjorU(d).sum.rensk;
+    if (v < forrige - 1e-6) stiger = false;
+    forrige = v;
+  }
+  paastand('dypere fjell gir aldri mindre utskifting', stiger);
+
+  /* MATJORDA TELLER IKKE TO GANGER.
+     Den tas av først, og utskiftingen starter under den. Til sammen skal de to
+     lagene vaere nøyaktig avstanden ned til fjell - ikke mer. */
+  const mj = kjorU(0.5, { matjordDybde: 0.25 });
+  sjekk('matjord + utskifting er nøyaktig ned til fjell',
+    mj.sum.matjord + mj.sum.rensk, 0.5 * 2400, 1);
+  sjekk('  matjorda er sitt eget lag', mj.sum.matjord, 0.25 * 2400, 1);
+
+  /* AV-BRYTEREN MA VIRKE. Den klassiske modellen er fortsatt et gyldig svar for
+     den som bare vil renske en fast dybde mot berget. */
+  const av = kjorU(0.5, { utskifting: false });
+  sjekk('utskifting av: ingen utskifting', av.sum.rensk, 0, 1e-9);
+  sjekk('  og ingenting a fylle tilbake', av.sum.fylling, 0, 1e-9);
+  paastand('  og ingen utskiftingsmerknad',
+    !(kjorU(6, { utskifting: false }).merknader || []).some(m => m.type === 'utskifting'));
+
+  /* ... men da skal arbeidstypen ikke love noe annet. Star det
+     «Masseutskifting» i overskriften mens bryteren er av, er overskriften og
+     kubikken under to forskjellige svar. */
+  const uenig = T.beregnTomtemasser({
+    tomt: { punkter: rekt, kanter: [], nivaa: { modus: 'flat', kote: 100 },
+      arbeidstype: 'masseutskifting' },
+    mal: malU({ utskifting: false }), terreng: { z: () => 100 },
+    fjell: new M.Fjellmodell({ standarddybde: 2 }),
+    rutestorrelse: 1, bakkefaktor: 1, grense: rekt
+  });
+  paastand('arbeidstype og bryter som er uenige, blir meldt',
+    (uenig.merknader || []).some(m => m.type === 'utskifting'
+      && /slått av/.test(m.tekst)));
+  paastand('  og er de enige, meldes ingenting',
+    !(T.beregnTomtemasser({
+      tomt: { punkter: rekt, kanter: [], nivaa: { modus: 'flat', kote: 100 },
+        arbeidstype: 'masseutskifting' },
+      mal: malU(), terreng: { z: () => 100 },
+      fjell: new M.Fjellmodell({ standarddybde: 2 }),
+      rutestorrelse: 1, bakkefaktor: 1, grense: rekt
+    }).merknader || []).some(m => m.type === 'utskifting'));
 }
 
 /* ------------------------------------------------------------------ */

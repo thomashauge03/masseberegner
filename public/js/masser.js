@@ -46,6 +46,25 @@ const StandardMal = {
   fylling: 1.5,               // H:V
   renskDybde: 0.20,
   renskUtenfor: 1.0,
+
+  /* MASSEUTSKIFTING: UNDER VEGKROPPEN GRAVES DET NED TIL FJELL.
+     Rensk på tjue centimeter er avdekking – matjord, torv og stubber. Men
+     under selve vegen er ikke det som ligger igjen noe å bygge på: det er
+     skrot, og ofte myr. Da graves alt bort helt ned til fast fjell, og
+     trauet fylles tilbake med sprengstein.
+     Det gir to volum, ikke ett: alt som tas ut er deponimasse, og hele
+     rommet mellom fjellet og planum må fylles på nytt. Med fjellet en halv
+     meter nede er det tretti centimeter mer enn rensken tok; med myr og
+     fjell to meter nede er det nesten to meter over hele vegbredden.
+     Utenfor vegkroppen – i skråningene – er det fortsatt vanlig rensk. Der
+     bygges det ingenting, så det er ingenting å skifte ut. */
+  utskifting: true,
+  /* Fire meter er dypt nok. Ligger fjellet dypere, er det ikke lenger
+     utskifting man driver med, og da stopper uttaket her og sier fra om hva
+     som blir liggende igjen under. Uten en grense ville en feilsatt
+     standarddybde på ti meter gitt et tall ingen kunne kjenne igjen. */
+  maksUtskifting: 4.0,
+
   maksSokebredde: 45,
 
   /* Minste totale veibredde i kurver etter normalen:
@@ -390,6 +409,43 @@ function beregnTverrprofil(o) {
     ? t => terrRå(t) - fjell.dybde(p.x + nx * t, p.y + ny * t, s)
     : t => terrRå(t) - 0.5;
 
+  /* --- Utskiftingstrauet ---------------------------------------------
+     Bunnen det faktisk graves til. Utenfor vegkroppen er den den vanlige
+     renskebunnen; under vegkroppen er den fjellet, men aldri dypere enn
+     `maksUtskifting` under bakken.
+
+     VEGKROPPEN ER VEGBREDDEN PLUSS GRØFTA. Grøftebunnen ligger under planum,
+     så trauet må uansett ned dit – og en utskifting som stoppet i vegkanten
+     ville etterlatt en stripe myr rett under grøfta, som er der vannet står.
+     Bredden regnes av malen og ikke av knekklista, fordi grøfta bare finnes i
+     skjæring: i fylling skal trauet være like bredt likevel, ellers ville
+     utskiftingen krympet og vokst med om profilet tilfeldigvis lå i skjæring.
+
+     `Math.min(terr(t), …)` står der for at trauet ALDRI skal bli grunnere enn
+     den vanlige rensken. Ligger fjellet i dagen, er de to like; ellers går
+     trauet dypere. */
+  const groftBredde = Math.max(0, mal.grofteDybdePlanum || 0) * Math.max(0, mal.grofteInnerHelning || 0)
+    + Math.max(0, mal.grofteBunn || 0);
+  const tUtskifting = hb + groftBredde;
+  const maksUt = Math.max(0, mal.maksUtskifting || 0);
+  const utskiftBotn = !mal.utskifting ? terr : (t) => {
+    const grunn = terr(t);
+    if (Math.abs(t) > tUtskifting) return grunn;
+    const zr = terrRå(t);
+    if (!isFinite(zr)) return NaN;
+    const zf = fjellflate(t);
+    const botn = maksUt > 0 ? Math.max(zf, zr - maksUt) : zf;
+    return Math.min(grunn, botn);
+  };
+  /* Hvor mye løsmasse som blir liggende igjen under trauet fordi grensa slo
+     inn. Null når fjellet nås. Meldes videre, se `beregnMasser`. */
+  const restUnderTrauet = (t) => {
+    if (!mal.utskifting || maksUt <= 0 || Math.abs(t) > tUtskifting) return 0;
+    const zr = terrRå(t);
+    if (!isFinite(zr)) return 0;
+    return Math.max(0, (zr - maksUt) - fjellflate(t));
+  };
+
   // --- Bygg jordarbeidsflaten for hver side --------------------------
   const sider = {};
   for (const side of [-1, 1]) {
@@ -543,6 +599,7 @@ function beregnTverrprofil(o) {
      bredden av steget – så det koster to addisjoner å ta dem vare på i stedet
      for å regne dem tilbake av et areal etterpå. */
   let breddeFjell = 0, maksFjelldybde = 0;
+  let utskiftingRest = 0;      // løsmasse som blir liggende under maksgrensa
   /* Tegningsgeometrien er langt tyngre enn tallene, og pa lange veier trengs
      den ikke: skjermen viser ett snitt om gangen. Da bygges den ikke i det
      hele tatt - a slippe den etterpa hjelper ikke, for da er toppen alt nadd. */
@@ -553,6 +610,21 @@ function beregnTverrprofil(o) {
   const brekk = new Set([tV, tH]);
   for (const side of [-1, 1]) for (const k of sider[side].knekk) brekk.add(side * k.t);
   for (const b of [-hb - 1e-7, -hb + 1e-7, hb - 1e-7, hb + 1e-7, 0]) brekk.add(b);
+  /* TRAUVEGGEN ER ET SPRANG, OG DET MÅ TREFFES NØYAKTIG.
+     Under vegkroppen ligger bunnen på fjellet, utenfor på renskebunnen – og
+     mellom dem står en loddrett vegg. Uten et knekkpunkt på hver side av den
+     interpolerte integrasjonen tvers over spranget, og da ble volumet
+     avhengig av hvor finmasket man delte opp. Målt: 0,017 m²/lm feil på
+     standardoppsettet, og prøven «ingen kubikk faller mellom rensken og
+     skjæringen» fanget det.
+
+     Trauet regnes som en teoretisk prisme uten utslag i sidene. Den virkelige
+     gropa får en helning og blir litt videre på toppen; det er en kjent og
+     bevisst forenkling, ikke en forglemmelse. */
+  if (mal.utskifting) {
+    for (const b of [-tUtskifting - 1e-7, -tUtskifting + 1e-7,
+      tUtskifting - 1e-7, tUtskifting + 1e-7]) brekk.add(b);
+  }
   /* Taket er det som skiller en tung beregning fra et program som dør. Bredde
      og integrasjonssteg kommer begge fra felt uten grenser, og produktet av
      dem er antall punkt: 20 m veg med 1e-6 steg er tjue millioner punkt i ett
@@ -576,8 +648,16 @@ function beregnTverrprofil(o) {
     }
     const zJ = jordflate(t);
     const zF = fjellflate(t);
-    const d = zT - zJ;                       // positiv = skjæring
-    const dFjell = Math.max(0, Math.min(zT, zF) - zJ);
+    /* SKJÆRINGEN MÅLES FRA TRAUETS BUNN, IKKE FRA RENSKEBUNNEN.
+       Under vegkroppen er alt over fjellet alt tatt ut som utskifting, så det
+       som står igjen å grave er fjell – og ligger planum OVER trauets bunn,
+       blir differansen negativ og faller i fyllingsposten av seg selv. Det er
+       nettopp den tilbakefyllingen som må kjøres inn.
+       Utenfor vegkroppen er `utskiftBotn` den samme renskebunnen som før, så
+       skråningene regnes uendret. */
+    const zU = utskiftBotn(t);
+    const d = zU - zJ;                       // positiv = skjæring
+    const dFjell = Math.max(0, Math.min(zU, zF) - zJ);
     /* Pappus-vekten gjelder bare sa lenge stripa ligger pa samme side av
        kurvesenteret som vegen. Strekker fyllingsfoten seg forbi senteret,
        blir (1 + t·krumning) negativ, og et areal ville da blitt trukket fra
@@ -658,11 +738,17 @@ function beregnTverrprofil(o) {
     forrige = naa;
     if (d > maksSkjaering) maksSkjaering = d;
     if (-d > maksFylling) maksFylling = -d;
+    /* Hvor mye løsmasse grensa lar bli liggende igjen under trauet. Meldes
+       videre så det ikke blir en stille forutsetning. */
+    const rest = restUnderTrauet(t);
+    if (rest > utskiftingRest) utskiftingRest = rest;
     if (geometri) {
       geometri.terreng.push([t, terrRå(t)]);
       geometri.jord.push([t, zJ]);
       geometri.fjell.push([t, zF]);
-      geometri.rensk.push([t, zT]);
+      /* Trauets bunn, ikke renskebunnen: det er den linja graveren følger, og
+         den som skiller det som kjøres bort fra det som blir liggende. */
+      geometri.rensk.push([t, zU]);
     }
   }
   // fjellandelen kan ikke overstige skjæringen
@@ -700,22 +786,48 @@ function beregnTverrprofil(o) {
      hundre prosent – mens skjæringen mistet 0,21. Rensken går rett i
      deponiposten, så tallet for hva som må kjøres bort ble 877 kubikk for
      lavt. Merknaden om manglende data står fortsatt. */
-  if (renskBredde > 0 && mal.renskDybde > 0) {
-    const nR = Math.min(400, Math.max(8, Math.ceil(renskBredde / Math.max(0.05, dt))));
-    const dtR = renskBredde / nR;
-    for (let i = 0; i < nR; i++) {
-      const tA = tR0 + i * dtR, tB = tA + dtR;
-      const dybdeVed = (tt) => {
-        const zRaa = terrRå(tt);
-        if (!isFinite(zRaa)) return 0;
-        const tilFjell = zRaa - fjellflate(tt);
-        return Math.max(0, Math.min(mal.renskDybde, tilFjell));
-      };
-      const dA = dybdeVed(tA), dB = dybdeVed(tB);
-      arealRensk += (dA + dB) / 2 * dtR;
-      // samme Pappus-vekting som resten av snittet, og vekten kan ikke bli negativ
-      const wA = Math.max(0, 1 + tA * kr), wB = Math.max(0, 1 + tB * kr);
-      vRensk += (dA * wA + dB * wB) / 2 * dtR;
+  /* `mal.utskifting` med i porten: setter man renskedybden til null mens
+     utskiftingen står på, er det fortsatt alt ned til fjell som skal ut under
+     vegkroppen – og med bare den gamle prøven hadde hele det uttaket falt
+     stille bort. */
+  if (renskBredde > 0 && (mal.renskDybde > 0 || mal.utskifting)) {
+    /* Dybden er avstanden ned til det som faktisk graves ut: renskebunnen
+       utenfor vegkroppen, trauets bunn under den. `utskiftBotn` er den ene
+       kilden til begge, så posten og geometrien ikke kan bli uenige. */
+    const dybdeVed = (tt) => {
+      const zRaa = terrRå(tt);
+      if (!isFinite(zRaa)) return 0;
+      const botn = utskiftBotn(tt);
+      if (!isFinite(botn)) return 0;
+      return Math.max(0, zRaa - botn);
+    };
+    /* TRAUVEGGEN MÅ TREFFES HER OGSÅ.
+       Denne løkka har sitt eget jevne rutenett, uavhengig av knekkpunktene
+       lenger oppe – og et jevnt rutenett smører et sprang ut over den ruta
+       spranget tilfeldigvis faller i. Målt på fjell to meter nede: 11,8751
+       mot 11,8876 riktig. Lite, men det er en feil som ikke krymper når man
+       finner oppdelingen, og rensken går rett i deponiposten. */
+    const kanter = new Set([tR0, tR1]);
+    if (mal.utskifting) {
+      for (const b of [-tUtskifting, tUtskifting]) {
+        if (b > tR0 && b < tR1) { kanter.add(b - 1e-9); kanter.add(b + 1e-9); }
+      }
+    }
+    const deler = [...kanter].sort((a, b) => a - b);
+    for (let k = 0; k < deler.length - 1; k++) {
+      const fra = deler[k], til = deler[k + 1];
+      const bredde = til - fra;
+      if (!(bredde > 1e-12)) continue;
+      const nR = Math.min(400, Math.max(2, Math.ceil(bredde / Math.max(0.05, dt))));
+      const dtR = bredde / nR;
+      for (let i = 0; i < nR; i++) {
+        const tA = fra + i * dtR, tB = tA + dtR;
+        const dA = dybdeVed(tA), dB = dybdeVed(tB);
+        arealRensk += (dA + dB) / 2 * dtR;
+        // samme Pappus-vekting som resten av snittet, og vekten kan ikke bli negativ
+        const wA = Math.max(0, 1 + tA * kr), wB = Math.max(0, 1 + tB * kr);
+        vRensk += (dA * wA + dB * wB) / 2 * dtR;
+      }
     }
   }
 
@@ -740,6 +852,9 @@ function beregnTverrprofil(o) {
     // bredden og dybden av selve sprengningen i dette snittet
     fjellbredde: breddeFjell,
     fjellSkjaeringsdybde: maksFjelldybde,
+    /* Løsmasse som blir liggende under trauet fordi maksdybden slo inn.
+       Null når fjellet nås – se `maksUtskifting` i malen. */
+    utskiftingRest,
     areal: {
       skjaering: arealSkjaering,
       skjaeringFjell: arealSkjaeringFjell,
@@ -809,6 +924,7 @@ const MALGRENSER = {
   grofteInnerHelning: [0, 10, 'Grøftehelning'],
   renskDybde: [0, 3, 'Renskedybde'],
   renskUtenfor: [0, 20, 'Rensk utenfor'],
+  maksUtskifting: [0, 15, 'Største utskiftingsdybde'],
   tverrfall: [0, 0.3, 'Tverrfall'],
   maksSokebredde: [1, 500, 'Søkebredde'],
   beregningsbredde: [0, 500, 'Beregningsbredde']
@@ -1253,6 +1369,18 @@ function beregnMasser(o) {
       merknader.push({
         s: pr.s, type: 'skjaering', verdi: pr.maksSkjaering, enhet: 'm', vaerst: 'stor',
         tekst: `Skjæringsdybde ${kom(pr.maksSkjaering, 1)} m over grensen på ${mal.maksSkjaeringsdybde} m`
+      });
+    }
+    /* UTSKIFTINGEN STOPPET FØR FJELLET.
+       Grensa er satt med vilje – dypere enn fire meter er det ikke lenger
+       utskifting man driver med. Men da blir det liggende løsmasse igjen
+       under vegen, og det er en forutsetning tallet hviler på. Den skal stå i
+       merknadene og ikke i hodet på den som satte grensa. */
+    if (mal.utskifting && pr.utskiftingRest > 0.05) {
+      merknader.push({
+        s: pr.s, type: 'utskifting', verdi: pr.utskiftingRest, enhet: 'm', vaerst: 'stor',
+        tekst: `Fjellet ligger dypere enn grensen på ${kom(mal.maksUtskifting, 1)} m – `
+          + `${kom(pr.utskiftingRest, 1)} m løsmasse blir liggende igjen under vegkroppen`
       });
     }
     if (mal.maksUtslag > 0) {
