@@ -98,6 +98,7 @@ const Nettlesertest = {
       await this.kartlag();
       await this.lovlighet();
       await this.framdrift();
+      await this.gamleFilerOgUtskifting();
       await this.opprydding();
     } catch (e) {
       this.sjekk('testen kom seg gjennom uten å kaste', false, e.message + ' — ' + (e.stack || '').split('\n')[1]);
@@ -2554,6 +2555,80 @@ const Nettlesertest = {
       App._terrengnokkel = null;
       App.visAnleggsvelger();
     }
+  },
+
+  /**
+   * En fil som er eldre enn masseutskiftingen skal regne som alt annet - og si det.
+   *
+   * Et prosjekt lagret før utskiftingen fins har ingen `utskifting`-nøkkel.
+   * Lot man den bli borte, ville gamle og nye prosjekter i samme program regnet
+   * to forskjellige svar pa samme terreng, og ingen av dem ville vaert til a
+   * stole pa. Sa standardverdien blir staende - men kubikken ENDRER seg, og pa
+   * et tilbud som er sendt er ikke det noe man skal finne ut av selv.
+   */
+  async gamleFilerOgUtskifting() {
+    const klar = (mal) => {
+      const P = { navn: 'p', ip: [], vip: [], mal };
+      App.klargjorProsjekt(P);
+      return P;
+    };
+    /* GAMMEL FIL: nøkkelen mangler. Standardverdien skal bli staende, og det
+       skal settes et flagg apningen kan melde fra pa. */
+    const g = klar({ renskDybde: 0.2, vegbredde: 4.5 });
+    this.sjekk('en fil uten utskifting-nøkkel får den nye modellen',
+      g.anlegg[0].mal.utskifting === true, String(g.anlegg[0].mal.utskifting));
+    this.sjekk('  og den blir meldt, ikke skjult', g.utskiftingErNy === true,
+      String(g.utskiftingErNy));
+
+    /* NY FIL: et valg som er tatt, skal overleve en apning. Ble det overskrevet
+       av standardverdien, kunne man ikke skru utskiftingen av i det hele tatt -
+       den kom tilbake neste gang fila ble apnet. */
+    const n = klar({ renskDybde: 0.2, utskifting: false, maksUtskifting: 2 });
+    this.sjekk('et lagret «av» overlever åpningen',
+      n.anlegg[0].mal.utskifting === false, String(n.anlegg[0].mal.utskifting));
+    this.sjekk('  og grensen som ble lagret også', n.anlegg[0].mal.maksUtskifting === 2,
+      String(n.anlegg[0].mal.maksUtskifting));
+    this.sjekk('  og da meldes ingenting', n.utskiftingErNy === false,
+      String(n.utskiftingErNy));
+    this.sjekk('heller ikke når den er lagret PÅ',
+      klar({ utskifting: true }).utskiftingErNy === false);
+
+    /* Klargjøringen kjøres to ganger av en import, en prøve, eller hva som helst
+       som vil forsikre seg. Andre runde ma gi det samme som første. */
+    App.klargjorProsjekt(n);
+    this.sjekk('to klargjøringer gir samme svar som én',
+      n.anlegg[0].mal.utskifting === false && n.utskiftingErNy === false);
+
+    /* OGSÅ EN TOMT. Den har sin egen mal og sin egen fletting, sa vegens prøve
+       sier ingenting om den.
+
+       INGEN `mal` PÅ TOPPNIVÅ HER. Her sto `{ navn, ip, vip, mal: null,
+       anlegg: [tomta] }`, og `eier('mal')` er sann ogsa for verdien `null` – sa
+       klargjøringen kjente igjen «gammel form», kastet anleggslisten og bygde
+       ETT VEGANLEGG av prosjektet. Proven malte da vegmalen, fant `utskifting`
+       der, og var grønn uten a ha vaert i naerheten av en tomtemal. */
+    const t = { navn: 'p', anlegg: [{ id: 'a1', type: 'tomt',
+      mal: { renskDybde: 0.2 }, tomt: { punkter: [], kanter: [] } }], aktivt: 'a1' };
+    App.klargjorProsjekt(t);
+    this.sjekk('prøven måler faktisk en tomt', t.anlegg.length === 1
+      && t.anlegg[0].type === 'tomt', JSON.stringify(t.anlegg.map(a => a.type)));
+    this.sjekk('  og en gammel tomt får den nye modellen også',
+      t.anlegg[0].mal.utskifting === true && t.anlegg[0].mal.maksUtskifting > 0,
+      JSON.stringify({ u: t.anlegg[0].mal.utskifting, m: t.anlegg[0].mal.maksUtskifting }));
+    this.sjekk('  og tomtemalen er en TOMTEMAL, ikke vegens',
+      'matjordDybde' in t.anlegg[0].mal && !('vegbredde' in t.anlegg[0].mal),
+      JSON.stringify({ matjord: 'matjordDybde' in t.anlegg[0].mal,
+        vegbredde: 'vegbredde' in t.anlegg[0].mal }));
+    this.sjekk('  og tomta melder fra den også', t.utskiftingErNy === true,
+      String(t.utskiftingErNy));
+
+    /* FLAGGET HØRER TIL ÅPNINGEN, IKKE TIL FILA.
+       Ble det lagret, ville det kommet tilbake neste gang - og `eier('mal')`-
+       sjekken i klargjøringen viser hva et uventet felt pa prosjektet kan
+       koste. Det skal ikke vaere med i `JSON.stringify`. */
+    this.sjekk('flagget blir ikke lagret i fila',
+      !('utskiftingErNy' in JSON.parse(JSON.stringify(g))) && g.utskiftingErNy === true,
+      JSON.stringify(Object.keys(JSON.parse(JSON.stringify(g)))));
   },
 
   async panelhoder() {

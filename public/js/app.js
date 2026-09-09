@@ -250,6 +250,9 @@ const App = {
       P.aktivt = 'a1';
       P.versjon = 2;
     }
+    /* Males FØR malene flettes: etterpa har hvert anlegg nøkkelen uansett. */
+    const manglerUtskifting = P.anlegg.some(a => a && a.mal
+      && typeof a.mal === 'object' && !('utskifting' in a.mal));
     for (const a of P.anlegg) {
       if (!a.type) a.type = a.tomt ? 'tomt' : 'veg';
       if (a.type === 'tomt') {
@@ -272,6 +275,21 @@ const App = {
         a.vip = a.vip || [];
       }
     }
+    /* EN FIL SOM ER ELDRE ENN MASSEUTSKIFTINGEN SKAL SI DET.
+       Et prosjekt lagret før utskiftingen fins har ingen `utskifting`-nøkkel, og
+       `Object.assign` over lar da standardverdien – PÅ – bli stående. Det er med
+       vilje: ellers ville gamle og nye prosjekter i samme program regnet to
+       forskjellige svar, og det er verre. Men kubikken ENDRER seg, og på et
+       tilbud som er sendt er det ikke noe man skal finne ut av selv. Flagget
+       leses av åpningen, som sier det én gang.
+
+       IKKE TELLBART, SÅ DET IKKE BLIR LAGRET. `JSON.stringify` tar bare tellbare
+       felt, og et vanlig `P.utskiftingErNy = …` ville fulgt med ut i fila – og
+       `eier()` over ser etter en VERDI pa prosjektet, sa et lagret flagg er
+       nettopp den slags felt som har skapt bry før. Det hører til denne
+       apningen, ikke til prosjektet. */
+    Object.defineProperty(P, 'utskiftingErNy',
+      { value: manglerUtskifting, enumerable: false, configurable: true, writable: true });
     /* TO ANLEGG MED SAMME ID ER ETT ANLEGG SOM IKKE FINNES.
        Alt slår opp med `find(a => a.id === P.aktivt)`, som gir det FØRSTE. Får
        to samme id – ved en håndredigert fil, en sammenslåing eller en framtidig
@@ -5640,6 +5658,13 @@ const App = {
     this.malTilSkjema();
     await this.oppdater();
     Kart.zoomTilLinje();
+    /* Sies ETTER oppdateringen, sa meldingen ikke blir overskrevet av
+       statuslinjene beregningen legger ut underveis. */
+    if (this.P.utskiftingErNy) {
+      this.status('Dette prosjektet er lagret før masseutskiftingen fantes. '
+        + 'Nå graves alt under vegkroppen ned til fjell – kubikken er høyere enn '
+        + 'den var. Skru av «Masseutskifting ned til fjell» i malen for de gamle tallene.');
+    }
   },
 
   /* Tomt3d.tegn() returnerer sjølv med ein gong når panelet er skjult, så
