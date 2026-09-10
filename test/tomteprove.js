@@ -1512,12 +1512,81 @@ console.log('\n31. Masseutskifting – alt under tomta ned til fjell');
   sjekk('  grensen er styrende, ikke fjellet: 8 m gir samme tall som 6',
     kjorU(8).sum.rensk, dypt.sum.rensk, 1e-6);
 
-  /* BARE UNDER TOMTA. SKRÅNINGENE ER IKKE BYGGEGRUNN.
-     Det skal bygges pa tomta, og det er derfor løsmassen under den ma bort. I
-     skraningen utenfor bygges det ingenting, og a grave den ned til fjell ogsa
-     ville vaere a betale for a fjerne masse ingen har bedt om. Her er
-     yttergrensa tatt bort, sa det FINNES skraninger - 1 080 ruter av 3 480 -
-     og svaret skal likevel vaere dybden ganger tomtas eget areal. */
+  /* GROPA STOPPER IKKE VED HUSVEGGEN – OG DET ER IKKE EN DETALJ.
+     Skråningen utenfor står på det som ligger der. Er det myr, siger den ut, og
+     den gode massen man nettopp fylte i har ingenting å bære seg mot. Så bunnen
+     går `utskiftingUtenfor` = 1,0 m forbi tomtekanten, og derfra skråner veggen
+     opp med 1:1,5.
+
+     HÅNDREGNING for en 40 × 60 tomt med fjellet D meter nede:
+       bunnen    tomta utvidet m meter til alle kanter – arealet blir
+                 A + P·m + π·m² (hjørnene er runde, ikke firkantede) – ganger D
+       flankene  langs de rette sidene: omkretsen P ganger trekanten
+                 ½·(D·h)·D
+       hjørnene  fire kvartsveip av den samme trekanten, Pappus:
+                 4 · (π/2) · r̄ · areal med r̄ = m + D·h/3
+     Med D = 2: 5 206,28 + 600,00 + 37,70 = 5 843,98 m³.
+
+     Første håndregning her sa 5 851 og bommet med 7 m³ – firkantede hjørner i
+     bunnen og feil omkrets i flankene. Det var regningen som var slurvete, ikke
+     koden: målingen står helt stille på 5 844,0 fra 1 m ned til 0,125 m
+     rutenett, så det er ingen oppløsningsfeil å skylde på. */
+  {
+    const fasit = (D, m2) => {
+      const m = m2 && m2.utskiftingUtenfor !== undefined ? m2.utskiftingUtenfor : 1.0;
+      const h = m2 && m2.utskiftingHelning !== undefined ? m2.utskiftingHelning : 1.5;
+      const d = Math.min(D, 4.0);
+      return (2400 + 200 * m + Math.PI * m * m) * d
+        + 200 * (d * d * h / 2)
+        + Math.PI * d * d * h * (m + d * h / 3);
+    };
+    /* UTEN yttergrense – ellers finnes det ingenting utenfor kanten å grave i.
+       `kjorU` lenger nede legger grensa PÅ tomtekanten med vilje, for å få rene
+       tall uten skråninger; her er det nettopp det utenfor kanten som måles. */
+    const fritt = (D, m2, rute) => T.beregnTomtemasser({
+      tomt: { punkter: rekt, kanter: [], nivaa: { modus: 'flat', kote: 100 } },
+      mal: malU(m2), terreng: { z: () => 100 },
+      fjell: new M.Fjellmodell({ standarddybde: D }),
+      rutestorrelse: rute || 0.5, bakkefaktor: 1
+    });
+    /* Rutenettet må være finere enn flanken, ellers måler man den ikke.
+       Ved fjellet en halvmeter nede er flanken bare 0,5·1,5 = 0,75 m brei, og
+       et halvmeters rutenett bommet med 4,3 m³. Ved 0,25 m treffer den fasit
+       på null desimaler, og står stille derfra og ned. */
+    for (const D of [0.5, 2, 4]) {
+      const rute = Math.min(0.5, D * 1.5 / 3);
+      sjekk(`fjell ${D} m: bunnen, flankene og hjørnene`,
+        fritt(D, null, rute).sum.utskifting, fasit(D), 1);
+    }
+    const loddrett = fritt(2, { utskiftingUtenfor: 0, utskiftingHelning: 0 });
+    sjekk('en loddrett vegg ville gitt tomta ganger dybden',
+      loddrett.sum.utskifting, 2 * 2400, 1);
+    paastand('  og den skrå veggen er vesentlig mer',
+      fritt(2).sum.utskifting > loddrett.sum.utskifting * 1.2,
+      `${fritt(2).sum.utskifting.toFixed(0)} mot ${loddrett.sum.utskifting.toFixed(0)}`);
+    /* Og volumet må stå stille når rutenettet finnes – ellers er det målingen
+       som lekker, ikke gropa som er stor. */
+    const paaRute = [1, 0.5, 0.25].map(r => fritt(2, null, r).sum.utskifting);
+    sjekk('  og rutestørrelsen flytter ikke den skrå veggen heller',
+      Math.max(...paaRute) - Math.min(...paaRute), 0, 0.5);
+
+    /* MEN EN YTTERGRENSE ER EN GRENSE. Har man sagt at omrisset ER
+       eiendomsgrensen, kan man ikke grave utenfor den – og da klippes gropa,
+       akkurat som skråningene. Det er ikke en feil; det er svaret på at det
+       ikke finnes mer plass. Tallet skal likevel si fra om at det er slik. */
+    sjekk('med yttergrensa på tomtekanten klippes gropa til den',
+      kjorU(2).sum.utskifting, 2 * 2400, 1);
+    paastand('  altså mindre enn om det var plass utenfor',
+      kjorU(2).sum.utskifting < fritt(2).sum.utskifting - 100);
+  }
+
+  /* GROPA HAR EN ENDE. Den går forbi tomtekanten – det er hele poenget – men
+     ikke ut i det uendelige. Rekkevidden er marginen pluss det veggen legger
+     ut på vei opp: 1,0 + 4·1,5 = 7,0 m i verste fall, og med fjellet to meter
+     nede 1,0 + 2·1,5 = 4,0 m.
+
+     Her sto et krav om at utskiftingen var nøyaktig tomtas areal ganger dybden,
+     fra den gang veggen var loddrett. Nå er den større, og skal være det. */
   const medSkraning = T.beregnTomtemasser({
     tomt: { punkter: rekt, kanter: [], nivaa: { modus: 'flat', kote: 98 } },
     mal: malU(), terreng: { z: () => 100 },
@@ -1526,7 +1595,26 @@ console.log('\n31. Masseutskifting – alt under tomta ned til fjell');
   });
   paastand('  og det finnes faktisk skråninger utenfor å ta feil av',
     (medSkraning.rutenett || []).filter(c => !c.inne).length > 500);
-  sjekk('utskiftingen stopper ved tomtekanten', medSkraning.sum.rensk, 2 * 2400, 1);
+  {
+    const inne = (medSkraning.rutenett || []).filter(c => c.inne);
+    const skiftet = (medSkraning.rutenett || []).filter(c => c.utskift > 1e-9);
+    paastand('utskiftingen går forbi tomtekanten',
+      skiftet.length > inne.length,
+      `${skiftet.length} ruter mot ${inne.length} inne på tomta`);
+    /* Ingen rute lenger ute enn rekkevidden skal være rørt. Rutas senter kan
+       ligge et halvt rutemål utenfor, derav marginen. */
+    const rekkevidde = 1.0 + 2 * 1.5;
+    const avstand = (c) => {
+      const dx = Math.max(0, Math.max(-c.x, c.x - 40));
+      const dy = Math.max(0, Math.max(-c.y, c.y - 60));
+      return Math.hypot(dx, dy);
+    };
+    const forLangt = skiftet.filter(c => avstand(c) > rekkevidde + 1.5);
+    paastand('  men ikke lenger ut enn veggen rekker',
+      forLangt.length === 0,
+      `${forLangt.length} ruter for langt ute, verst ${forLangt.length
+        ? avstand(forLangt.reduce((a, b) => avstand(a) > avstand(b) ? a : b)).toFixed(2) : 0} m`);
+  }
 
   /* TRAUET LIGGER ALDRI OVER BAKKEN.
      Fjellmodellen kan gi en fjellflate OVER terrengflaten - en oppmalt bergknaus
@@ -1575,22 +1663,33 @@ console.log('\n31. Masseutskifting – alt under tomta ned til fjell');
        ned, skjærer skråningene seg ned i berget og rensken kommer: målt 50 m³
        utenfor, mens utskiftingen står stille på 4 800. Det er nettopp det
        skillet skal vise. */
-    const utenGrense = (kote, renskDybde) => T.beregnTomtemasser({
+    const utenGrense = (kote, o) => T.beregnTomtemasser({
       tomt: { punkter: rekt, kanter: [], nivaa: { modus: 'flat', kote } },
-      mal: malU({ renskDybde }), terreng: { z: () => 100 },
+      mal: malU(o), terreng: { z: () => 100 },
       fjell: new M.Fjellmodell({ standarddybde: 2 }),
       rutestorrelse: 1, bakkefaktor: 1           // ingen `grense`
     });
-    const dypt = utenGrense(95, 0.25);
-    sjekk('utskiftingen stopper ved tomtekanten også når den skilles ut',
-      dypt.sum.utskifting, 2 * 2400, 1);
-    paastand('  og rensken utenfor kommer IKKE med i den',
-      dypt.sum.rensk > dypt.sum.utskifting + 10,
-      `${dypt.sum.rensk.toFixed(0)} mot ${dypt.sum.utskifting.toFixed(0)}`);
-    sjekk('  differansen er rensken mot berget i skråningene',
-      dypt.sum.rensk - dypt.sum.utskifting, 50, 2);
-    sjekk('  og uten renskedybde er de like igjen',
-      utenGrense(95, 0).sum.rensk, utenGrense(95, 0).sum.utskifting, 1e-9);
+    /* OG SÅ TOK TRAUET DEN OGSÅ.
+       Med skrå vegg rekker gropa 1,0 + 2·1,5 = 4,0 m forbi tomtekanten, og
+       skråningen her skjærer seg ned i berget først 4,5 m ute. Det som lå
+       imellom er nå gravd ut som utskifting i stedet for renset mot berget:
+       målt faller differansen fra 50 til 0 m³.
+       Skrur man veggen loddrett igjen, kommer de 50 tilbake. Det er det som
+       viser at de to postene faktisk er skilt - ikke at den ene er tom. */
+    const skraa = utenGrense(95, { renskDybde: 0.25 });
+    const loddrett = utenGrense(95, { renskDybde: 0.25, utskiftingUtenfor: 0, utskiftingHelning: 0 });
+    sjekk('med loddrett vegg står rensken mot berget igjen utenfor',
+      loddrett.sum.rensk - loddrett.sum.utskifting, 50, 2);
+    sjekk('  og utskiftingen er da tomta ganger dybden',
+      loddrett.sum.utskifting, 2 * 2400, 1);
+    sjekk('med skrå vegg tar trauet den også',
+      skraa.sum.rensk - skraa.sum.utskifting, 0, 1e-9);
+    paastand('  fordi gropa da rekker lenger ut enn rensken lå',
+      skraa.sum.utskifting > loddrett.sum.utskifting + 100,
+      `${skraa.sum.utskifting.toFixed(0)} mot ${loddrett.sum.utskifting.toFixed(0)}`);
+    sjekk('  og uten renskedybde er de like uansett',
+      utenGrense(95, { renskDybde: 0 }).sum.rensk,
+      utenGrense(95, { renskDybde: 0 }).sum.utskifting, 1e-9);
   }
   /* Og hver rute må bære med seg trauet sitt, ellers kan 3D-en ikke tegne det. */
   {

@@ -626,20 +626,49 @@ console.log('\n4u. Masseutskifting – alt under vegkroppen ned til fjell');
     s: 50, vegnivaa: 100, utvidelse: 0, integrasjonssteg: steg || 0.02
   });
 
-  /* HÅNDREGNING. Vegkroppen er vegbredden pluss grøfta:
-       tUt = 2,25 + 0,20·1,0 + 0,30 = 2,75 m til hver side, altså 5,50 m brei.
-     Med fjellet to meter nede tas hele de to meterne der. Utenfor, fra
-     vegkroppen ut til skråningsfoten og en meter til, er det vanlig rensk på
-     tjue centimeter. */
+  /* HÅNDREGNING FOR ET TRAU MED SKRÅ VEGG.
+     Vegkroppen er vegbredden pluss grøfta:
+       tUt = 2,25 + 0,20·1,0 + 0,30 = 2,75 m til hver side.
+     Bunnen går `utskiftingUtenfor` = 1,0 m forbi den, altså til 3,75 m, og
+     derfra skråner veggen opp med 1:1,5 til den treffer renskebunnen.
+
+     Med fjellet D meter nede blir arealet, målt fra RÅTT terreng:
+       bunnen   2 · tB · D
+       flankene veggen stiger fra dybde D til dybde `renskDybde`, altså
+                (D − renskDybde) høyde, som gir (D − renskDybde)·h bredde og
+                snittdybde (D + renskDybde)/2 – to sider blir da
+                h · (D² − renskDybde²)
+     Med D = 2: 2·3,75·2 = 15,00 pluss 1,5·(4 − 0,04) = 5,94, til sammen 20,94.
+
+     Renskeposten er det pluss stripa utenfor: `renskUtenfor` meter på hver side
+     av der veggen møter renskebunnen, i renskedybde. */
+  const tB = tUt + mal.utskiftingUtenfor;
+  const hUt = mal.utskiftingHelning;
+  const utskiftFasit = (D) => {
+    const d = Math.min(D, mal.maksUtskifting);
+    return 2 * tB * d + hUt * (d * d - mal.renskDybde * mal.renskDybde);
+  };
+  const stripa = 2 * mal.renskUtenfor * mal.renskDybde;
   {
     const pr = snitt(2.0);
-    const fot = pr.fotHoyre;
-    const fasit = 2 * tUt * 2.0
-      + 2 * ((fot - tUt) + mal.renskUtenfor) * mal.renskDybde;
-    sjekk('utskifting: hele vegkroppen ned til fjell, vanlig rensk utenfor',
-      pr.areal.rensk, fasit, 0.01);
+    sjekk('utskifting: bunnen pluss de to flankene',
+      pr.areal.utskifting, utskiftFasit(2.0), 0.01);
+    sjekk('  og renskeposten er det pluss stripa utenfor',
+      pr.areal.rensk, utskiftFasit(2.0) + stripa, 0.01);
     paastand('  og vegkroppen er 5,50 m brei, som malen sier',
       Math.abs(2 * tUt - 5.5) < 1e-9);
+    paastand('  mens trauets bunn er 7,50 m – en meter forbi på hver side',
+      Math.abs(2 * tB - 7.5) < 1e-9);
+
+    /* DET ER NETTOPP FLANKENE SOM ER POENGET. En loddrett vegg ville gitt
+       11,00 m²/lm; med skrå vegg 20,94. Forskjellen er den gode massen som
+       holder kanten oppe – uten den siger fyllingen ut i myra ved siden av. */
+    const loddrett = snitt(2.0, null, { utskiftingUtenfor: 0, utskiftingHelning: 0 });
+    sjekk('  en loddrett vegg ville gitt vegkroppen ganger dybden',
+      loddrett.areal.utskifting, 2 * tUt * 2.0, 0.01);
+    paastand('  og den skrå veggen er vesentlig mer',
+      pr.areal.utskifting > loddrett.areal.utskifting * 1.8,
+      `${pr.areal.utskifting.toFixed(2)} mot ${loddrett.areal.utskifting.toFixed(2)}`);
   }
 
   /* Trauet har en loddrett vegg mot skråningen. Et sprang smøres ut av et
@@ -686,8 +715,8 @@ console.log('\n4u. Masseutskifting – alt under vegkroppen ned til fjell');
     sjekk('under grensa graves det helt ned til fjell', grunn.utskiftingRest, 0, 1e-9);
     sjekk('  og over den stopper uttaket, med resten oppgitt',
       dypt.utskiftingRest, 6.0 - mal.maksUtskifting, 1e-6);
-    const fasitDypt = 2 * tUt * mal.maksUtskifting
-      + 2 * ((dypt.fotHoyre - tUt) + mal.renskUtenfor) * mal.renskDybde;
+    /* Kappet paa grensa: samme formel, med D = maksUtskifting. */
+    const fasitDypt = utskiftFasit(6.0) + stripa;
     sjekk('    og da er det grensa som gjelder, ikke fjellet',
       dypt.areal.rensk, fasitDypt, 0.01);
   }
@@ -736,25 +765,29 @@ console.log('\n4u. Masseutskifting – alt under vegkroppen ned til fjell');
   {
     const pr = snitt(2.0);
     const fot = pr.fotHoyre;
-    sjekk('utskiftingen alene er vegkroppen ganger fjelldybden',
-      pr.areal.utskifting, 2 * tUt * 2.0, 0.01);
-    sjekk('  og resten av rensken er avdekkingen utenfor',
-      pr.areal.rensk - pr.areal.utskifting,
-      2 * ((fot - tUt) + mal.renskUtenfor) * mal.renskDybde, 0.01);
+    sjekk('utskiftingen alene er bunnen pluss flankene',
+      pr.areal.utskifting, utskiftFasit(2.0), 0.01);
+    sjekk('  og resten av rensken er stripa utenfor',
+      pr.areal.rensk - pr.areal.utskifting, stripa, 0.01);
     paastand('  altså er utskiftingen en DEL av rensken, ikke et tillegg',
       pr.areal.utskifting < pr.areal.rensk - 1e-9);
 
     /* Trauveggen må komme ut, ellers vet ikke tegningen hvor det blå slutter. */
-    sjekk('trauveggen oppgis som halvbredde', pr.utskiftingHalvbredde, tUt, 1e-9);
-    sjekk('  og er null når utskiftingen er av',
-      snitt(2.0, null, { utskifting: false }).utskiftingHalvbredde, 0, 1e-9);
+    /* Bunnen slutter der marginen slutter; trauet selv strekker seg videre ut
+       til veggen har steget opp til renskebunnen: 3,75 + (2 - 0,2)*1,5 = 6,45. */
+    sjekk('trauets bunn oppgis som halvbredde', pr.utskiftingBunnHalvbredde, tB, 1e-9);
+    sjekk('  og trauets ytre ende der veggen har steget opp',
+      pr.utskiftingHalvbredde, tB + (2.0 - mal.renskDybde) * hUt, 0.01);
+    sjekk('  og begge er null når utskiftingen er av',
+      snitt(2.0, null, { utskifting: false }).utskiftingHalvbredde
+      + snitt(2.0, null, { utskifting: false }).utskiftingBunnHalvbredde, 0, 1e-9);
     sjekk('  og da er det ingen utskifting å farge heller',
       snitt(2.0, null, { utskifting: false }).areal.utskifting, 0, 1e-9);
 
     /* Fjellet i dagen: ingenting å skifte ut, men trauveggen står der fortsatt.
        En bredde uten dybde skal gi null areal, ikke en tom flate med bredde. */
     sjekk('fjell i dagen gir null utskifting', snitt(0).areal.utskifting, 0, 1e-9);
-    paastand('  men trauveggen står der likevel', snitt(0).utskiftingHalvbredde > 0);
+    paastand('  men trauets bunn står der likevel', snitt(0).utskiftingBunnHalvbredde > 0);
   }
 
   /* OG SOM VOLUM, ikke bare som snittareal - ellers kan tegningen fargelegge
@@ -771,7 +804,7 @@ console.log('\n4u. Masseutskifting – alt under vegkroppen ned til fjell');
     paastand('  og ligger inne i renskevolumet', r.sum.utskifting < r.sum.rensk,
       `${r.sum.utskifting.toFixed(1)} av ${r.sum.rensk.toFixed(1)}`);
     sjekk('  og er lengden ganger snittarealet på flat mark',
-      r.sum.utskifting, 100 * 2 * tUt * 2.0, 1);
+      r.sum.utskifting, 100 * utskiftFasit(2.0), 1);
   }
 }
 
@@ -1808,10 +1841,18 @@ console.log('\n4b. Krumningsvekten i kurver (Pappus)');
   const kjor = tegn => M.beregnMasser({
     linje, profil,
     terreng: { z: (x, y) => Z0 + tegn * G * (Math.hypot(x - senter.x, y - senter.y) - R) },
+    /* UTEN MASSEUTSKIFTING. Det som måles her er Pappus-vektingen – at en
+       stripe t meter ute sveiper (1 + t·kr) så langt som senterlinja – og den
+       er en egenskap ved integrasjonen, ikke ved trauet. `beregnMasser` fletter
+       malen med StandardMal, så utskiftingen sto PÅ her uten at det var meningen,
+       og med skrå trauvegg graves hele skjæringen bort som utskifting: alle 18
+       kurveprofilene fikk skjæring null, og «ytre side er tyngst» kan ikke måles
+       på null. Identiteten under gjelder like fullt for utskiftingen; den har
+       sine egne prøver i 4u. */
     mal: {
       vegbredde: 4.5, tverrfallType: 'tak', tverrfall: 0.05,
       breddeIKurve: [], ensidigUnderRadius: 0, maksSokebredde: 60,
-      skjaeringLosmasse: 1.5, fylling: 1.5, renskDybde: 0.2
+      skjaeringLosmasse: 1.5, fylling: 1.5, renskDybde: 0.2, utskifting: false
     },
     fjell: new M.Fjellmodell({ standarddybde: 50 }), profilAvstand: 5, bakkefaktor: 1
   });
@@ -1911,12 +1952,30 @@ console.log('\n4c. Tall som ikke lar seg regne med');
       `${r.merknader.filter(m => m.type === 'inngang').length} merknader, skjæring ${r.sum.skjaering.toFixed(0)}`);
   }
 
+  /* EN ØDELAGT FJELLDYBDE SKAL GI SAMME SVAR SOM STANDARDVERDIEN, IKKE FJELL
+     I DAGEN.
+     Her sto «fjellandelen er under 99 % av skjæringen» som mål på at berget
+     ikke lå oppe i dagen. Det var en omvei, og den sluttet å virke: med
+     masseutskifting er alt løst over fjellet allerede tatt ut som utskifting,
+     så det som står igjen å grave ER fjell – 100 % – også når fjelldybden er
+     helt i orden. Målt: 0,5 m og null og tom streng gir alle 5 540 m³ fjell.
+
+     Nå måles det som faktisk betyr noe: en ødelagt verdi skal gi NØYAKTIG de
+     samme kubikkene som den gyldige standardverdien på 0,5 m – ikke tallene man
+     får med berget i dagen, som er noe helt annet (rensk 893 mot 0). Og den
+     skal meldes. Det er strengere enn kravet som sto her. */
+  const fasitFjell = med({ fjell: new M.Fjellmodell({ standarddybde: 0.5 }) });
+  const iDagen = med({ fjell: new M.Fjellmodell({ standarddybde: 0 }) });
+  paastand('fjell i dagen er noe MERKBART annet enn standarddybden',
+    fasitFjell.sum.rensk > 100 && iDagen.sum.rensk < 1e-6,
+    `${fasitFjell.sum.rensk.toFixed(0)} mot ${iDagen.sum.rensk.toFixed(0)}`);
   for (const tom of [null, '']) {
     const r = med({ fjell: new M.Fjellmodell({ standarddybde: tom }) });
-    paastand(`fjelldybde ${JSON.stringify(tom)} gir ikke fjell i dagen`,
+    paastand(`fjelldybde ${JSON.stringify(tom)} rettes til standardverdien og meldes`,
       r.merknader.some(m => m.type === 'inngang' && /fjell/i.test(m.tekst))
-      && r.sum.skjaeringFjell < r.sum.skjaering * 0.99,
-      `fjell ${r.sum.skjaeringFjell.toFixed(0)} av ${r.sum.skjaering.toFixed(0)}`);
+      && Math.abs(r.sum.rensk - fasitFjell.sum.rensk) < 1e-6
+      && Math.abs(r.sum.skjaeringFjell - fasitFjell.sum.skjaeringFjell) < 1e-6,
+      `rensk ${r.sum.rensk.toFixed(1)} mot ${fasitFjell.sum.rensk.toFixed(1)}`);
   }
   paastand('en fjelldybde som ikke er oppgitt får standardverdien uten oppstyr',
     Math.abs(new M.Fjellmodell({}).standarddybde - 0.5) < 1e-9);

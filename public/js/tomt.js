@@ -177,6 +177,14 @@ const StandardTomtemal = {
      utskiftingen der: da bærer massen under seg selv, og resten blir meldt. */
   utskifting: true,
   maksUtskifting: 4.0,
+  /* GROPA STOPPER IKKE VED HUSVEGGEN.
+     Skråningen utenfor står på det som ligger der, og er det myr, siger den ut.
+     Så bunnen går `utskiftingUtenfor` meter forbi tomtekanten, og derfra
+     skråner veggen opp mot terrenget med `utskiftingHelning` – vannrett utlegg
+     per meter høyde, som de andre helningene her. En loddrett vegg i løsmasse
+     står uansett ikke. */
+  utskiftingUtenfor: 1.0,
+  utskiftingHelning: 1.5,
   frostsikring: 0.0,
   forsterkningslag: 0.40,
   baerelagTykkelse: 0.10,

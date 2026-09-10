@@ -294,20 +294,15 @@ const Tverrprofil = {
          utskiftingsfargen, og veggene som loddrette streker. Uten dem flyter det
          blå ut i det svake bandet ved siden av, og man kan ikke se hvor
          utskiftingen slutter - som er nettopp det tallet man skal lese av. */
+      /* Bunnen og de to skrå veggene tegnes opp igjen i utskiftingsfargen –
+         hele veien ut til der veggen møter renskebunnen, ikke bare bunnen.
+         Klipper man til bunnen, blir flankene borte, og de er en tredel av
+         volumet. */
       if (tU > 0) {
         const inne = trau.filter(([t]) => Math.abs(t) <= tU + 1e-9);
         if (inne.length > 1) {
           c.strokeStyle = Farger.utskifting; c.lineWidth = 1.6; c.setLineDash([]);
           bane(inne); c.stroke();
-        }
-        c.strokeStyle = Farger.utskifting; c.lineWidth = 1.1; c.setLineDash([3, 3]);
-        for (const side of [-tU, tU]) {
-          const zTopp = terr.reduce((b, [t, z]) =>
-            Math.abs(t - side) < Math.abs(b[0] - side) ? [t, z] : b, terr[0])[1];
-          const zBotn = trau.reduce((b, [t, z]) =>
-            Math.abs(t - side) < Math.abs(b[0] - side) ? [t, z] : b, trau[0])[1];
-          if (!isFinite(zTopp) || !isFinite(zBotn) || zTopp - zBotn < 0.01) continue;
-          c.beginPath(); c.moveTo(px(side), py(zTopp)); c.lineTo(px(side), py(zBotn)); c.stroke();
         }
       }
     }

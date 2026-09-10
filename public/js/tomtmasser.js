@@ -374,6 +374,10 @@ function beregnTomtemasser(o) {
   // se `utskifting` i tomtemalen – alt under tomta graves ned til fjell
   const utskifting = !!mal.utskifting;
   const maksUtskift = Math.max(0, mal.maksUtskifting || 0);
+  /* Hvor langt bunnen går forbi tomtekanten, og helningen på veggen opp
+     derfra – se kommentaren ved `zTrau`. */
+  const utUtenfor = Math.max(0, mal.utskiftingUtenfor || 0);
+  const utHelning = Math.max(0, mal.utskiftingHelning || 0);
   const s = tom.sum;
   let utenData = 0, dypesteSkjaering = 0, hoyesteFylling = 0, hoyesteVegg = 0;
   const fjellhoyde = [];
@@ -420,9 +424,24 @@ function beregnTomtemasser(o) {
           ? skraningsflate(naer.d, zKant, zFjell, kant, mal, tvunget)
           : fyllingsflate(naer.d, zKant, kant, mal, tvunget);
         if (!Number.isFinite(zPlanum)) continue;           // apen kant
-        // utenfor tomta teller cella bare til skraningen har møtt terrenget
-        if (skjaerer && zPlanum >= zT) continue;
-        if (!skjaerer && zPlanum <= zT) continue;
+        /* Utenfor tomta teller cella bare til skråningen har møtt terrenget.
+           MEN TRAUET GÅR FORBI FOTEN, og de cellene skal fortsatt med: der
+           graves det ned, og der fylles det tilbake.
+
+           Uten dette falt hele margin­en stille bort. Målt på en tomt som
+           ligger i nivå med terrenget finnes det ingen skråningsceller i det
+           hele tatt – hver eneste celle utenfor traff en av disse to prøvene –
+           og utskiftingen ble nøyaktig tomtas areal ganger dybden, uansett hvor
+           langt forbi kanten gropa var satt til å gå.
+
+           Der ute er det ingenting bygget, så flaten er bakken selv. */
+        const rekkevidde = utskifting
+          ? utUtenfor + (utHelning > 0 ? maksUtskift * utHelning : 0) : 0;
+        const forbiFoten = (skjaerer && zPlanum >= zT) || (!skjaerer && zPlanum <= zT);
+        if (forbiFoten) {
+          if (!(rekkevidde > 0 && naer.d <= rekkevidde + 1e-9)) continue;
+          zPlanum = zT;
+        }
         if (kant.type === 'fjellvegg' && skjaerer) {
           hoyesteVegg = Math.max(hoyesteVegg, Math.min(zT, zFjell) - zKant);
         }
@@ -447,30 +466,51 @@ function beregnTomtemasser(o) {
       s.matjord += matjordHer * cellA;
       const zAvdekket = zT - matjordHer;
 
-      /* MASSEUTSKIFTING: INNE PÅ TOMTA GRAVES DET NED TIL FJELL.
-         Samme regel som under vegkroppen. Det som ligger igjen under en tomt
-         er ikke noe å bygge på – det er skrot, og ofte myr – så alt graves
-         bort ned til fast fjell, og rommet fylles tilbake. To volum, ikke ett.
-         Utenfor tomta, i skråningene, bygges det ingenting, og der er det
-         fortsatt vanlig avdekking.
-         Trauet blir aldri grunnere enn den avdekte flaten, og aldri dypere
-         enn `maksUtskifting` under bakken – se malen. */
-      const zTrau = (utskifting && iTomta)
-        ? Math.min(zAvdekket, maksUtskift > 0 ? Math.max(zFjell, zT - maksUtskift) : zFjell)
-        : zAvdekket;
+      /* MASSEUTSKIFTING: UNDER TOMTA GRAVES DET NED TIL FJELL – OG LITT FORBI.
+         Det som ligger igjen under et hus er ikke noe å bygge på: det er skrot,
+         og ofte myr. Alt graves bort ned til fast fjell, og rommet fylles
+         tilbake. To volum, ikke ett.
+
+         MEN GROPA STOPPER IKKE VED HUSVEGGEN. Skråningen utenfor står på det
+         som ligger der, og er det myr, siger den ut – den gode massen man
+         nettopp fylte i har ingenting å bære seg mot. Og en fire meter høy
+         loddrett vegg i løsmasse står uansett ikke; den raser mens graveren
+         står i den.
+         Så bunnen går `utskiftingUtenfor` meter forbi tomtekanten, og derfra
+         skråner veggen opp mot terrenget med `utskiftingHelning`.
+
+         Trauet blir aldri grunnere enn den avdekte flaten, og aldri dypere enn
+         `maksUtskifting` under bakken – se tomtemalen. */
+      const utAvstand = iTomta ? 0 : naer.d;      // meter ut fra tomtekanten
+      const bunnFull = maksUtskift > 0 ? Math.max(zFjell, zT - maksUtskift) : zFjell;
+      let zTrau = zAvdekket;
+      let iTrauet = false;
+      if (utskifting) {
+        if (utAvstand <= utUtenfor + 1e-9) {
+          zTrau = Math.min(zAvdekket, bunnFull);
+          iTrauet = true;
+        } else if (utHelning > 0) {
+          const stig = (utAvstand - utUtenfor) / utHelning;
+          zTrau = Math.min(zAvdekket, bunnFull + stig);
+          iTrauet = zTrau < zAvdekket - 1e-9;
+        }
+      }
       const utskiftHer = Math.max(0, zAvdekket - zTrau);
       s.rensk += utskiftHer * cellA;
       /* Utskiftingen under tomta skilles ut fra renskeposten: det er et annet
          arbeid til en annen pris enn avdekkingen i skråningene utenfor, og
          tegningen skal kunne fargelegge det ene alene. Den ligger INNE i
          `s.rensk`, ikke oppå – se prøven på at summen holder. */
-      if (utskifting && iTomta) s.utskifting += utskiftHer * cellA;
+      if (iTrauet) s.utskifting += utskiftHer * cellA;
       /* Hvor mye løsmasse grensa lar bli liggende igjen under trauet.
          `max(0, …)` er for lesbarhet, ikke en vakt: når fjellet ligger grunnere
          enn grensen blir tallet negativt, og da faller det uansett på både
          terskelen under og på sammenligningen mot `utskiftingRest`, som starter
          på null. Mutasjonsprøven bekrefter det – fjernes klammen, melder ingen
          test fra. Den står der fordi et negativt «rest» ikke betyr noe. */
+      /* Resten gjelder BUNNEN, ikke veggen: under skråningen er det ikke
+         meningen å komme ned til fjell, så det som ligger igjen der er ikke
+         en rest noen har gitt opp - det er utenfor tomta. */
       if (utskifting && iTomta && maksUtskift > 0) {
         const rest = Math.max(0, (zT - maksUtskift) - zFjell);
         if (rest > 0.05) forDyptTilFjell += cellA;

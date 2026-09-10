@@ -64,6 +64,18 @@ const StandardMal = {
      som blir liggende igjen under. Uten en grense ville en feilsatt
      standarddybde på ti meter gitt et tall ingen kunne kjenne igjen. */
   maksUtskifting: 4.0,
+  /* TRAUET GÅR FORBI VEGKROPPEN, OG VEGGEN SKRÅNER.
+     `utskiftingUtenfor` er hvor langt bunnen går utenfor vegkroppen, og
+     `utskiftingHelning` er vannrett utlegg per meter høyde på veggen opp til
+     terrenget – samme skrivemåte som de andre helningene i malen.
+
+     Begge er der av samme grunn: en loddrett vegg i løsmasse står ikke, og den
+     gode massen man fyller i må ha noe å bære seg mot. Uten margin står
+     fyllingen kant i kant med myra den erstattet, og skråningen oppå siger ut.
+     1,0 m og 1:1,5 er det som holder i vanlig løsmasse; i bløt myr trengs
+     slakere, og da settes helningen opp. */
+  utskiftingUtenfor: 1.0,
+  utskiftingHelning: 1.5,
 
   maksSokebredde: 45,
 
@@ -428,19 +440,67 @@ function beregnTverrprofil(o) {
     + Math.max(0, mal.grofteBunn || 0);
   const tUtskifting = hb + groftBredde;
   const maksUt = Math.max(0, mal.maksUtskifting || 0);
-  const utskiftBotn = !mal.utskifting ? terr : (t) => {
-    const grunn = terr(t);
-    if (Math.abs(t) > tUtskifting) return grunn;
+  /* ET TRAU HAR IKKE LODDRETTE VEGGER.
+     Her sto veggen som et loddrett sprang ved vegkroppens kant. Da står den
+     gode massen man nettopp fylte i mot en vegg av det man kastet - myr eller
+     skrot - og skråningen oppå har ingenting å bære seg mot. Den siger ut.
+     Og en fire meter høy loddrett vegg i løsmasse står ikke; den raser mens
+     graveren står i den.
+
+     Så bunnen går `utskiftingUtenfor` meter forbi vegkroppen, og derfra
+     skråner veggen opp til terrenget med `utskiftingHelning` - vannrett utlegg
+     per meter høyde, som alle andre helninger i malen. Den utvendige delen er
+     ikke noe man kunne latt være: det er den som gjør at kanten holder. */
+  const utUtenfor = Math.max(0, mal.utskiftingUtenfor || 0);
+  const utHelning = Math.max(0, mal.utskiftingHelning || 0);
+  const tUtskiftBunn = tUtskifting + utUtenfor;
+  /* Bunnen slik den ville vært uten vegg – fjellet, eller grensa. */
+  const trauBunnRett = (t) => {
     const zr = terrRå(t);
     if (!isFinite(zr)) return NaN;
     const zf = fjellflate(t);
-    const botn = maksUt > 0 ? Math.max(zf, zr - maksUt) : zf;
-    return Math.min(grunn, botn);
+    return maksUt > 0 ? Math.max(zf, zr - maksUt) : zf;
+  };
+  const utskiftBotn = !mal.utskifting ? terr : (t) => {
+    const grunn = terr(t);
+    const at = Math.abs(t);
+    if (at <= tUtskiftBunn) {
+      const b = trauBunnRett(t);
+      return isFinite(b) ? Math.min(grunn, b) : NaN;
+    }
+    if (utHelning <= 0) return grunn;          // loddrett vegg: ingenting utenfor
+    /* Skråningen stiger fra bunnen ved VEGGFOTEN, ikke fra det lokale
+       trauet – det er den ene sammenhengende flaten graveren følger. */
+    const bFot = trauBunnRett((t < 0 ? -1 : 1) * tUtskiftBunn);
+    if (!isFinite(bFot)) return grunn;
+    const zVegg = bFot + (at - tUtskiftBunn) / utHelning;
+    const b = trauBunnRett(t);
+    return Math.min(grunn, isFinite(b) ? Math.max(b, zVegg) : zVegg);
+  };
+  /* Der veggen møter den vanlige renskebunnen. Utenfor dette punktet er trauet
+     ikke lenger dypere enn en vanlig avdekking, og der er det ingen utskifting.
+     Løses ved halvering: terrenget kan skråne, så det finnes ingen formel. */
+  const veggMoeter = (side) => {
+    if (!mal.utskifting || utHelning <= 0) return tUtskiftBunn;
+    const dypere = (t) => utskiftBotn(t) < terr(t) - 1e-9;
+    let lav = tUtskiftBunn, hoy = tUtskiftBunn;
+    /* Finn først et punkt der veggen ER oppe. Rekkevidden kan ikke bli
+       uendelig: dypeste mulige trau er `maksUt`, eller hele veien til fjell. */
+    const rekkevidde = Math.max(1, (maksUt > 0 ? maksUt : 50) * utHelning) + 1;
+    hoy = tUtskiftBunn + rekkevidde;
+    if (dypere(side * hoy)) return hoy;
+    for (let i = 0; i < 40; i++) {
+      const m = (lav + hoy) / 2;
+      if (dypere(side * m)) lav = m; else hoy = m;
+    }
+    return hoy;
   };
   /* Hvor mye løsmasse som blir liggende igjen under trauet fordi grensa slo
-     inn. Null når fjellet nås. Meldes videre, se `beregnMasser`. */
+     inn. Null når fjellet nås. Meldes videre, se `beregnMasser`.
+     Gjelder bunnen, ikke veggen: under skråningen er det ikke meningen at man
+     skal ned til fjell, så det som ligger igjen der er ikke en rest. */
   const restUnderTrauet = (t) => {
-    if (!mal.utskifting || maksUt <= 0 || Math.abs(t) > tUtskifting) return 0;
+    if (!mal.utskifting || maksUt <= 0 || Math.abs(t) > tUtskiftBunn) return 0;
     const zr = terrRå(t);
     if (!isFinite(zr)) return 0;
     return Math.max(0, (zr - maksUt) - fjellflate(t));
@@ -578,8 +638,30 @@ function beregnTverrprofil(o) {
         return k[i].z + f * (k[i + 1].z - k[i].z);
       }
     }
+    /* SISTE KNEKKPUNKT HOLDER HERFRA. RØR DEN IKKE.
+       Det ser ut som om terrenget burde overtatt her - utenfor skråningen er
+       det jo bakken som er flaten - og det ble prøvd. Men `tFot` er IKKE alltid
+       det siste knekkpunktet: målt på et kjegleterreng sto foten på 8,130 m
+       mens siste knekk lå på 6,514, og i det mellomrommet er man fortsatt på
+       den bygde skråningen. Byttet man til terrenget der, forsvant hele
+       skjæringen på alle 18 kurveprofilene og fyllingen falt fra 49,92 til
+       48,14 m²/lm.
+       Trenger man flaten UTENFOR foten - og det gjør trauet, som nå går forbi
+       den - hentes den der, ikke her. Se `flateVed` i integrasjonen. */
     return k[k.length - 1].z;
   }
+  /* Flaten trauet skal fylles opp til.
+     Innenfor profilets egne grenser er det jordarbeidsflaten. UTENFOR dem - og
+     det området finnes bare fordi trauet har fått skrå vegg og går forbi
+     skråningen - er det bakken selv: der er det ikke bygget noe, så gropa
+     graves og bakken legges tilbake slik den lå.
+
+     Grensen er `tV`/`tH`, ikke `tFot`. Det ble prøvd med foten, og det traff
+     ikke: målt kalles flaten på t = -8,175 mens venstre fot står på 7,421, så
+     «utenfor foten» slo inn 6 259 ganger midt inne i et helt vanlig profil og
+     tok skjæringen på alle 18 kurveprofilene til null. */
+  const flateVed = (t) =>
+    (mal.utskifting && (t < tV - 1e-9 || t > tH + 1e-9)) ? terr(t) : jordflate(t);
 
   // --- Integrer arealene --------------------------------------------
   /* Er det satt en beregningsbredde, stopper regnestykket der selv om
@@ -618,21 +700,41 @@ function beregnTverrprofil(o) {
      standardoppsettet, og prøven «ingen kubikk faller mellom rensken og
      skjæringen» fanget det.
 
-     Trauet regnes som en teoretisk prisme uten utslag i sidene. Den virkelige
-     gropa får en helning og blir litt videre på toppen; det er en kjent og
-     bevisst forenkling, ikke en forglemmelse. */
+     Her sto trauet som en teoretisk prisme uten utslag i sidene, med en
+     kommentar om at det var en kjent forenkling. Det holder ikke: en loddrett
+     vegg i løsmasse står ikke, og den gode massen man fyller i må ha noe å
+     bære seg mot - ellers siger den ut. Nå har trauet en skrå vegg, og
+     knekkpunktene er derfor tre per side: veggfoten, og der veggen møter den
+     vanlige renskebunnen. Faller de mellom to integrasjonspunkt, blir
+     spranget smurt utover den ruta det tilfeldigvis lander i. */
   if (mal.utskifting) {
-    for (const b of [-tUtskifting - 1e-7, -tUtskifting + 1e-7,
-      tUtskifting - 1e-7, tUtskifting + 1e-7]) brekk.add(b);
+    const kanter = [tUtskiftBunn];
+    for (const side of [-1, 1]) {
+      const møte = veggMoeter(side);
+      if (møte > tUtskiftBunn + 1e-6) kanter.push(møte);
+    }
+    for (const k of kanter) {
+      for (const s of [-1, 1]) { brekk.add(s * k - 1e-7); brekk.add(s * k + 1e-7); }
+    }
   }
   /* Taket er det som skiller en tung beregning fra et program som dør. Bredde
      og integrasjonssteg kommer begge fra felt uten grenser, og produktet av
      dem er antall punkt: 20 m veg med 1e-6 steg er tjue millioner punkt i ett
      eneste snitt. Fire tusen punkt over snittet er finere enn terrengmodellen
      selv, sa taket koster ingenting i nøyaktighet. */
-  const nJevn = Math.min(4000, Math.max(4, Math.ceil((tH - tV) / dt)));
-  for (let i = 0; i <= nJevn; i++) brekk.add(tV + (tH - tV) * i / nJevn);
-  const offsets = [...brekk].filter(t => t >= tV - 1e-9 && t <= tH + 1e-9).sort((a, b) => a - b);
+  /* OMRÅDET MÅ DEKKE TRAUET, IKKE BARE SKRÅNINGEN.
+     Med skrå trauvegg går gropa forbi skråningsfoten: med fjellet to meter nede
+     står foten på 3,97 m mens veggen først møter renskebunnen på 6,45. Stoppet
+     regnestykket ved foten, ble den ytterste delen av trauet kappet bort - både
+     massen som skal kjøres ut og den som må fylles tilbake. */
+  let tI0 = tV, tI1 = tH;
+  if (mal.utskifting) {
+    tI0 = Math.min(tI0, -veggMoeter(-1));
+    tI1 = Math.max(tI1, veggMoeter(1));
+  }
+  const nJevn = Math.min(4000, Math.max(4, Math.ceil((tI1 - tI0) / dt)));
+  for (let i = 0; i <= nJevn; i++) brekk.add(tI0 + (tI1 - tI0) * i / nJevn);
+  const offsets = [...brekk].filter(t => t >= tI0 - 1e-9 && t <= tI1 + 1e-9).sort((a, b) => a - b);
 
   let forrige = null;
   let manglerData = false;
@@ -646,7 +748,7 @@ function beregnTverrprofil(o) {
       forrige = null;
       continue;
     }
-    const zJ = jordflate(t);
+    const zJ = flateVed(t);
     const zF = fjellflate(t);
     /* SKJÆRINGEN MÅLES FRA TRAUETS BUNN, IKKE FRA RENSKEBUNNEN.
        Under vegkroppen er alt over fjellet alt tatt ut som utskifting, så det
@@ -772,7 +874,19 @@ function beregnTverrprofil(o) {
      veg: fast fjell, ført som avdekket løsmasse. Na males dybden mot
      fjelloverflaten pa hvert punkt, og der fjellet er nærmere overflaten enn
      renskedybden, er det fjellet som bestemmer. */
-  const tR0 = tV - mal.renskUtenfor, tR1 = tH + mal.renskUtenfor;
+  /* TRAUET KAN NÅ LENGER UT ENN SKRÅNINGSFOTEN, OG DA MÅ OMRÅDET FØLGE MED.
+     Renskeområdet var foten pluss `renskUtenfor`. Med skrå trauvegg går gropa
+     forbi det: med fjellet to meter nede står foten på 3,97 m mens veggen først
+     møter renskebunnen på 6,45 m. Alt utenfor 4,97 ble da kappet bort - målt
+     ble hele renskeposten lik utskiftingen, 18,88 mot 20,94 riktig, fordi det
+     ikke var plass til avdekkingen utenfor i det hele tatt.
+     Nå strekker området seg til det ytterste av de to. */
+  let tUt0 = tV - mal.renskUtenfor, tUt1 = tH + mal.renskUtenfor;
+  if (mal.utskifting) {
+    tUt0 = Math.min(tUt0, -veggMoeter(-1) - mal.renskUtenfor);
+    tUt1 = Math.max(tUt1, veggMoeter(1) + mal.renskUtenfor);
+  }
+  const tR0 = tUt0, tR1 = tUt1;
   const renskBredde = tR1 - tR0;
   /* `arealUtskifting` er den delen av renskeposten som ligger INNE under
      vegkroppen, altså selve masseutskiftingen. Resten er vanlig avdekking
@@ -815,7 +929,15 @@ function beregnTverrprofil(o) {
        finner oppdelingen, og rensken går rett i deponiposten. */
     const kanter = new Set([tR0, tR1]);
     if (mal.utskifting) {
-      for (const b of [-tUtskifting, tUtskifting]) {
+      /* Både veggfoten og der veggen møter renskebunnen – med skrå vegg er det
+         to sprang per side, ikke ett. */
+      const grenser = [tUtskiftBunn];
+      for (const side of [-1, 1]) {
+        const møte = veggMoeter(side);
+        if (møte > tUtskiftBunn + 1e-6) grenser.push(møte);
+      }
+      for (const g of grenser) for (const s of [-1, 1]) {
+        const b = s * g;
         if (b > tR0 && b < tR1) { kanter.add(b - 1e-9); kanter.add(b + 1e-9); }
       }
     }
@@ -826,10 +948,17 @@ function beregnTverrprofil(o) {
       if (!(bredde > 1e-12)) continue;
       const nR = Math.min(400, Math.max(2, Math.ceil(bredde / Math.max(0.05, dt))));
       const dtR = bredde / nR;
-      /* Delen ligger ENTEN helt inne i trauet eller helt utenfor – løkka over
-         deler nettopp ved trauveggen, så midtpunktet avgjør for hele delen. Det
-         er derfor dette ikke trenger en egen prøve per rute. */
-      const iTrauet = mal.utskifting && Math.abs((fra + til) / 2) <= tUtskifting;
+      /* Delen ligger ENTEN inne i trauet eller helt utenfor – løkka over deler
+         ved både veggfoten og der veggen møter renskebunnen, så midtpunktet
+         avgjør for hele delen. Det er derfor dette ikke trenger en egen prøve
+         per rute. Prøvd: summen av de to postene er hele renskeposten.
+
+         «Inne i trauet» er der trauet faktisk går DYPERE enn den vanlige
+         rensken – ikke en fast bredde. Med skrå vegg tynner utskiftingen ut mot
+         null, og en fast bredde ville enten tatt med avdekking som ikke er
+         utskifting eller kuttet skråningen bort. */
+      const midt = (fra + til) / 2;
+      const iTrauet = mal.utskifting && utskiftBotn(midt) < terr(midt) - 1e-9;
       for (let i = 0; i < nR; i++) {
         const tA = fra + i * dtR, tB = tA + dtR;
         const dA = dybdeVed(tA), dB = dybdeVed(tB);
@@ -869,11 +998,18 @@ function beregnTverrprofil(o) {
     /* Løsmasse som blir liggende under trauet fordi maksdybden slo inn.
        Null når fjellet nås – se `maksUtskifting` i malen. */
     utskiftingRest,
-    /* HVOR TRAUVEGGEN STÅR, slik tegningen kan fargelegge nøyaktig det som
-       skiftes ut og ikke en meter for mye. Halvbredde, som `halvbredde` – altså
-       fra senterlinjen ut til veggen, til hver side. Null når utskiftingen er
-       slått av, for da finnes det ikke noe trau. */
-    utskiftingHalvbredde: mal.utskifting ? tUtskifting : 0,
+    /* HVOR TRAUET SLUTTER, slik tegningen kan fargelegge nøyaktig det som
+       skiftes ut og ikke en meter for mye. Begge oppgis som halvbredde, som
+       `halvbredde` – fra senterlinjen ut, til hver side.
+
+       `utskiftingHalvbredde` er den YTRE enden, der veggen møter den vanlige
+       renskebunnen. Det er den tegningen trenger: klippes det blå til bunnen i
+       stedet, blir flankene kappet bort, og de er en tredel av volumet.
+       `utskiftingBunnHalvbredde` er der bunnen slutter og veggen begynner.
+       Begge er null når utskiftingen er av, for da finnes det ikke noe trau. */
+    utskiftingHalvbredde: mal.utskifting
+      ? Math.max(veggMoeter(-1), veggMoeter(1)) : 0,
+    utskiftingBunnHalvbredde: mal.utskifting ? tUtskiftBunn : 0,
     areal: {
       skjaering: arealSkjaering,
       skjaeringFjell: arealSkjaeringFjell,
