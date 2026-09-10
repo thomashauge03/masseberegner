@@ -76,6 +76,22 @@ const StandardMal = {
      slakere, og da settes helningen opp. */
   utskiftingUtenfor: 1.0,
   utskiftingHelning: 1.5,
+  /* KANTEN AV VEGKROPPEN SKRÅR, OG DEN STÅR PÅ NOE.
+     Lagene ble lagt opp som `tykkelse · vegbredde` – en plate med loddrett kant
+     ved vegkanten – mens skråningen startet i planum rett under. Målt på en veg
+     1,5 m over terrenget: vegoverflaten i kanten står på kote 101,388 og planum
+     på 100,688, altså en 0,70 m høy loddrett vegg som ingen post dekker. Plata
+     hang ut i lufta.
+
+     Nå går planum `overbygningstykkelsen · overbygningHelning` forbi vegkanten
+     før grøfta eller skråningen tar over. Det er skulderen: hyllen lagene står
+     på, og som gjør at kanten holder.
+
+     SAMME TALL I SKJÆRING OG FYLLING, med vilje. Skråningen starter fortsatt i
+     planum – se kommentaren i sideløkka om hvorfor – og skulderen er like brei
+     på begge sider, så et profil som vipper fra skjæring til fylling ikke får
+     et sprang å bli trukket mot. */
+  overbygningHelning: 1.5,
 
   maksSokebredde: 45,
 
@@ -438,7 +454,16 @@ function beregnTverrprofil(o) {
      trauet dypere. */
   const groftBredde = Math.max(0, mal.grofteDybdePlanum || 0) * Math.max(0, mal.grofteInnerHelning || 0)
     + Math.max(0, mal.grofteBunn || 0);
-  const tUtskifting = hb + groftBredde;
+  /* SKULDEREN: hyllen i planum som vegkroppen står på.
+     Lagene har en skrå kant, ikke en loddrett – se `overbygningHelning` i malen
+     – og der kanten møter planum, slutter vegkroppen. Derfra tar grøfta eller
+     skråningen over. Er helningen null, er skulderen null, og alt er som før:
+     en plate med loddrett kant. */
+  const obHelning = Math.max(0, mal.overbygningHelning || 0);
+  const skulder = ob * obHelning;
+  /* Vegkroppen er bredere i planum enn oppe på vegen, og det er vegkroppen
+     trauet skal ligge under – skulderen skal stå på fast grunn den også. */
+  const tUtskifting = hb + skulder + groftBredde;
   const maksUt = Math.max(0, mal.maksUtskifting || 0);
   /* ET TRAU HAR IKKE LODDRETTE VEGGER.
      Her sto veggen som et loddrett sprang ved vegkroppens kant. Da står den
@@ -511,6 +536,7 @@ function beregnTverrprofil(o) {
   for (const side of [-1, 1]) {
     const zKant = vegflate(side * hb);
     const planumKant = zKant - ob;
+    const hbS = hb + skulder;                  // ytterkant av skulderen
     const tKant = terr(side * hb);
     const knekk = [];  // {t (positiv utover), z} - jordarbeidsflaten
     let type, tFot;
@@ -528,9 +554,12 @@ function beregnTverrprofil(o) {
       const skjaeringVedKant = tKant - planumKant;
       const grofteAndel = Math.max(0, Math.min(1, skjaeringVedKant / 0.5));
       const zGroft = planumKant - Math.max(0, mal.grofteDybdePlanum) * grofteAndel;
-      const t1 = hb + Math.max(0, planumKant - zGroft) * mal.grofteInnerHelning;
+      const t1 = hbS + Math.max(0, planumKant - zGroft) * mal.grofteInnerHelning;
       const t2 = t1 + mal.grofteBunn * grofteAndel;
+      /* Skulderen først, så grøfta. Sto grøfta rett i vegkanten, hadde
+         vegkroppen ingenting å stå på ute ved kanten. */
       knekk.push({ t: hb, z: planumKant });
+      if (skulder > 1e-9) knekk.push({ t: hbS, z: planumKant });
       knekk.push({ t: t1, z: zGroft });
       knekk.push({ t: t2, z: zGroft });
 
@@ -578,6 +607,8 @@ function beregnTverrprofil(o) {
       /* --- Fylling: skraning ned til terreng --- */
       type = 'fylling';
       knekk.push({ t: hb, z: planumKant });
+      // skulderen: hyllen vegkroppens skrå kant står på
+      if (skulder > 1e-9) knekk.push({ t: hbS, z: planumKant });
       /* Skraningen starter i planum, ikke i veikanten. Overbygningen er en
          egen post som legges oppa, og skal ikke telles med i fyllingen -
          slik det ogsa star i rapporten.
@@ -590,9 +621,9 @@ function beregnTverrprofil(o) {
          Fyllingsskraningen har fast helning hele veien - ingen fjellovergang
          a treffe. Da kan stegene vaere store, og treffpunktet finnes med
          halvering. */
-      let t = hb, z = planumKant;
+      let t = hbS, z = planumKant;
       const fallPerM = 1 / Math.max(0.02, mal.fylling);
-      const skraning = tt => planumKant - (tt - hb) * fallPerM;
+      const skraning = tt => planumKant - (tt - hbS) * fallPerM;
       const steg = 0.4;
       let truffet = false;
       while (t < mal.maksSokebredde) {
@@ -981,8 +1012,22 @@ function beregnTverrprofil(o) {
   const bredde = mal.vegbredde + utvidelse;
   const slitebredde = Math.min(mal.slitelagBredde + utvidelse, bredde);
   const arealSlitelag = mal.slitelagTykkelse * slitebredde;
-  const arealBaerelag = mal.baerelagTykkelse * bredde
-    + mal.slitelagTykkelse * (bredde - slitebredde);
+  /* VEGKROPPEN HAR SKRÅ KANT, IKKE LODDRETT.
+     Her sto `tykkelse · bredde` for hvert lag – to rektangler som endte i en
+     loddrett vegg ved vegkanten, med skråningen startende i planum rett under.
+     Målt på en veg 1,5 m over terrenget: vegoverflaten i kanten på kote 101,388
+     og planum på 100,688, en 0,70 m høy vegg som ingen post dekket.
+
+     Kanten skrår ut og ned med `overbygningHelning`, så i høyden y over planum
+     er halvbredden hb + (ob − y)·h. Hele stabelen blir da
+        ∫₀^ob 2·(hb + (ob − y)·h) dy  =  bredde·ob + h·ob²
+     Første leddet er plata som sto her før; `h·ob²` er de to kilene på skuldrene.
+     Med standardmalen: 4,5 · 0,70 = 3,150 pluss 1,5 · 0,49 = 0,735 m²/lm.
+
+     HELE KILEN GÅR I BÆRELAGET. Slitelaget ligger bare over kjørebanen og skal
+     ikke ut på skulderen – der er det bærelagsmasse, ikke asfalt. */
+  const kile = obHelning * ob * ob;
+  const arealBaerelag = bredde * ob + kile - arealSlitelag;
 
   return {
     s, x: p.x, y: p.y, retning: p.retning, krumning: kr,
@@ -1010,6 +1055,10 @@ function beregnTverrprofil(o) {
     utskiftingHalvbredde: mal.utskifting
       ? Math.max(veggMoeter(-1), veggMoeter(1)) : 0,
     utskiftingBunnHalvbredde: mal.utskifting ? tUtskiftBunn : 0,
+    /* Skulderen: hvor langt vegkroppen står forbi vegkanten i planum. Tegningen
+       trenger den for å vise den skrå kanten – regnet den selv, ville to steder
+       regnet det samme, og de kan komme i utakt. */
+    skulderbredde: skulder,
     areal: {
       skjaering: arealSkjaering,
       skjaeringFjell: arealSkjaeringFjell,

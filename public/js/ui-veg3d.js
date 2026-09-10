@@ -447,10 +447,29 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
         } else if (i >= nb - kn) {                      // kontekst til høyre
           t = tH + this.kontekst * (i - (nb - kn) + 1) / kn; erGrav = false;
         } else {
+          /* SKULDERKANTEN MÅ TREFFES AV EN NODE.
+             Vegkroppen har skrå kant og står på en skulder, så
+             jordarbeidsflaten har et knekk på `hb + skulderbredde`. Falt det
+             mellom to noder, ble spranget smurt ut over den ruta det tilfeldigvis
+             landet i, og modellen viste en annen vegkropp enn rapporten regnet
+             på: målt 0,750 m²/lm borte på verste profil, 31 % av snittet.
+             Ett punkt legges derfor nøyaktig på kanten, og resten fordeles
+             utover derfra – samme grep som knekkpunktene i integrasjonen. */
+          const sk = Math.max(0, Math.min(pr.skulderbredde || 0, Math.max(0, tH - hb) - 1e-6));
+          const utover = (fra, til, u) => {
+            if (sk <= 1e-9) return fra + (til - fra) * u;
+            const uSk = 1 / (this.KOL - 1 - this.KANT_H);   // første steget
+            const kant = fra + sk;
+            return u <= uSk ? fra + sk * (u / uSk)
+              : kant + (til - kant) * ((u - uSk) / (1 - uSk));
+          };
           const c = i - kn;
-          if (c <= this.KANT_V) t = tV + (-hb - tV) * (c / this.KANT_V);
-          else if (c >= this.KANT_H) t = hb + (tH - hb) * ((c - this.KANT_H) / (this.KOL - 1 - this.KANT_H));
-          else t = -hb + 2 * hb * ((c - this.KANT_V) / (this.KANT_H - this.KANT_V));
+          if (c <= this.KANT_V) {
+            const u = 1 - c / this.KANT_V;                  // 1 ytterst, 0 ved vegkanten
+            t = -utover(hb, -tV, u);
+          } else if (c >= this.KANT_H) {
+            t = utover(hb, tH, (c - this.KANT_H) / (this.KOL - 1 - this.KANT_H));
+          } else t = -hb + 2 * hb * ((c - this.KANT_V) / (this.KANT_H - this.KANT_V));
         }
         tAkse[k] = t;
         const p = app.linje.punktMedAvvik(pr.s, t);

@@ -3831,7 +3831,11 @@ const Nettlesertest = {
       }
 
       /* 17.4 Fotavtrykket er selve leveransen: modellens bredeste inngrep skal
-         være profilens egen fot, ikke en tilfeldig ytterkolonne. */
+         være profilens eget inngrep, ikke en tilfeldig ytterkolonne.
+
+         MERK: fasiten er foten alene. Trauet med skrå vegg kan gå FORBI foten,
+         og de rutene er ikke i modellen – se den kjente feilen i «modellen
+         omslutter masser.js sine areal». */
       {
         let modell = 0, fasit = 0;
         for (let j = 0; j < g.nh; j++) {
@@ -3972,6 +3976,16 @@ const Nettlesertest = {
            Første treff i en skanning ovenfra-og-ned er alltid ytterkanten, og
            fire zoomsteg der tar punktet utenfor. Punktet i midten av treffene
            er det prøven egentlig vil måle på. */
+        /* STASJONEN SETTES FØR SKANNINGEN, IKKE ETTER.
+           Her sto skanningen først og `settTverrStasjon(0)` etterpå. Men å
+           flytte stasjonen flytter DREIEPUNKTET – se `stasjonEndret` – og
+           dermed kameraet, så klikket landet på koordinater som ikke lenger
+           pekte på det man hadde funnet. Målt: skanningen fant rad 30 (stasjon
+           150), klikket traff rad 18 (stasjon 90).
+           Prøven var avhengig av at kameraet tilfeldigvis ikke flyttet seg. Nå
+           står det stille når punktet velges. */
+        App.settTverrStasjon(0);
+        await this.vent(160);
         const alle = [];
         for (let y = 20; y < o.clientHeight - 20; y += 7) {
           for (let x = 20; x < o.clientWidth - 20; x += 7) {
@@ -3982,8 +3996,6 @@ const Nettlesertest = {
         const treff = alle.length ? alle[(alle.length / 2) | 0] : null;
         this.sjekk('det finnes noe å klikke på i modellen', !!treff);
         if (treff) {
-          App.settTverrStasjon(0);
-          await this.vent(80);
           mus('mousedown', treff.x, treff.y); opp(treff.x, treff.y);
           await this.vent(160);
           const j = (treff.k / gg.nb) | 0;

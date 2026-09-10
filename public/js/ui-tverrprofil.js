@@ -338,10 +338,25 @@ const Tverrprofil = {
     const veg = pr.geometri.veg;
     if (veg.length > 1) {
       const planum = veg.map(([t, z]) => [t, z - mal.slitelagTykkelse - mal.baerelagTykkelse]);
+      /* VEGKROPPEN HAR SKRÅ KANT, OG DEN SKAL SYNES.
+         Bærelaget ble tegnet som et rektangel mellom vegkantene, altså en plate
+         med loddrett vegg – mens beregningen bokfører de to kilene på skuldrene
+         (`overbygningHelning · ob²`, 0,735 m²/lm med standardmalen). Tegningen
+         viste da en annen vegkropp enn den rapporten regnet på.
+
+         Skulderbredden kommer fra beregningen, ikke fra en ny utregning her:
+         to steder som regner det samme kan komme i utakt. */
+      const sk = pr.skulderbredde || 0;
+      const under = veg.map(([t, z]) => [t, z - mal.slitelagTykkelse]);
+      const pV = planum[0], pH = planum[planum.length - 1];
+      const baerelagBane = under
+        .concat(sk > 0 ? [[pH[0] + sk, pH[1]]] : [])
+        .concat(planum.slice().reverse())
+        .concat(sk > 0 ? [[pV[0] - sk, pV[1]]] : []);
       c.fillStyle = Farger.baerelag;
-      bane(veg.map(([t, z]) => [t, z - mal.slitelagTykkelse]).concat(planum.slice().reverse()), true); c.fill();
+      bane(baerelagBane, true); c.fill();
       c.fillStyle = Farger.slitelag;
-      bane(veg.concat(veg.map(([t, z]) => [t, z - mal.slitelagTykkelse]).reverse()), true); c.fill();
+      bane(veg.concat(under.slice().reverse()), true); c.fill();
       c.strokeStyle = Farger.veg; c.lineWidth = 2; bane(veg); c.stroke();
     }
 

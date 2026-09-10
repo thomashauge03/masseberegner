@@ -4455,6 +4455,7 @@ const App = {
     sett('m_maksUtskifting', m.maksUtskifting);
     sett('m_utskiftingUtenfor', m.utskiftingUtenfor);
     sett('m_utskiftingHelning', m.utskiftingHelning);
+    sett('m_overbygningHelning', m.overbygningHelning);
     /* `.checked`, ikke `.value` – en avkryssingsboks leser ikke `value`, og
        feltet ville stått uavkrysset uansett hva malen sa. */
     {
@@ -5051,6 +5052,7 @@ const App = {
     m.maksUtskifting = tall('m_maksUtskifting');
     m.utskiftingUtenfor = tall('m_utskiftingUtenfor');
     m.utskiftingHelning = tall('m_utskiftingHelning');
+    m.overbygningHelning = tall('m_overbygningHelning');
     {
       const e = document.getElementById('m_utskifting');
       if (e) m.utskifting = e.checked;
