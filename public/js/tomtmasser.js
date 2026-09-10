@@ -310,7 +310,12 @@ function beregnTomtemasser(o) {
   const merknader = [];
   const tom = {
     sum: { skjaering: 0, skjaeringFjell: 0, skjaeringLosmasse: 0, fylling: 0,
-      rensk: 0, matjord: 0, slitelag: 0, baerelag: 0, forsterkningslag: 0,
+      /* `utskifting` er den delen av `rensk` som er masseutskifting inne på
+         tomta. Den må stå her med null, ikke bli til underveis: et felt som
+         først finnes når utskiftingen er på, ville gitt `undefined` i en
+         rapportrad den dagen noen slo den av - og `undefined` i en sum blir
+         NaN, som sprer seg til hvert tall den er med i. */
+      rensk: 0, utskifting: 0, matjord: 0, slitelag: 0, baerelag: 0, forsterkningslag: 0,
       frostsikring: 0, avrettingslag: 0, overberg: 0,
       murFundament: 0, murBakfylling: 0 },
     areal: 0, arealMedSkraning: 0, celler: 0, merknader, rutenett: null
@@ -455,6 +460,11 @@ function beregnTomtemasser(o) {
         : zAvdekket;
       const utskiftHer = Math.max(0, zAvdekket - zTrau);
       s.rensk += utskiftHer * cellA;
+      /* Utskiftingen under tomta skilles ut fra renskeposten: det er et annet
+         arbeid til en annen pris enn avdekkingen i skråningene utenfor, og
+         tegningen skal kunne fargelegge det ene alene. Den ligger INNE i
+         `s.rensk`, ikke oppå – se prøven på at summen holder. */
+      if (utskifting && iTomta) s.utskifting += utskiftHer * cellA;
       /* Hvor mye løsmasse grensa lar bli liggende igjen under trauet.
          `max(0, …)` er for lesbarhet, ikke en vakt: når fjellet ligger grunnere
          enn grensen blir tallet negativt, og da faller det uansett på både
@@ -558,6 +568,13 @@ function beregnTomtemasser(o) {
         zT, zAvdekket, zPlanum, zFjell,
         zFerdig: iTomta ? zPlanum + overbygning : null,
         matjord: matjordHer,
+        /* BUNNEN I TRAUET, og hvor mye som skiftes ut i nettopp denne ruta.
+           Uten `zTrau` kan tegningen ikke vise trauet i det hele tatt, og uten
+           `utskift` kan den ikke skille en rute der det graves fire meter fra en
+           der fjellet ligger i dagen. `zAvdekket` alene sier bare hvor matjorda
+           sluttet. Begge er regnet i løkka over – de tas med ut i stedet for å
+           regnes om igjen i tegningen, for da kunne de to blitt uenige. */
+        zTrau, utskift: utskiftHer,
         kant: iTomta ? -1 : naer.kant });
     }
   }

@@ -726,6 +726,156 @@ console.log('\n4u. Masseutskifting – alt under vegkroppen ned til fjell');
     }
     paastand('dypere fjell gir mer å kjøre bort og mer å kjøre inn', stiger);
   }
+
+  /* DE TO POSTENE MÅ KUNNE SKILLES, OG SUMMEN MÅ HOLDE.
+     Utskiftingen under vegkroppen og avdekkingen utenfor er to forskjellige
+     arbeider til to forskjellige priser. Tegningen skal fargelegge det ene
+     alene, og rapporten skal kunne si hvor mange kubikk det blå er - så
+     `areal.utskifting` er skilt ut. Men den er en DEL av `areal.rensk`, ikke et
+     tillegg: blir den lagt oppå, er de samme kubikkene bokført to ganger. */
+  {
+    const pr = snitt(2.0);
+    const fot = pr.fotHoyre;
+    sjekk('utskiftingen alene er vegkroppen ganger fjelldybden',
+      pr.areal.utskifting, 2 * tUt * 2.0, 0.01);
+    sjekk('  og resten av rensken er avdekkingen utenfor',
+      pr.areal.rensk - pr.areal.utskifting,
+      2 * ((fot - tUt) + mal.renskUtenfor) * mal.renskDybde, 0.01);
+    paastand('  altså er utskiftingen en DEL av rensken, ikke et tillegg',
+      pr.areal.utskifting < pr.areal.rensk - 1e-9);
+
+    /* Trauveggen må komme ut, ellers vet ikke tegningen hvor det blå slutter. */
+    sjekk('trauveggen oppgis som halvbredde', pr.utskiftingHalvbredde, tUt, 1e-9);
+    sjekk('  og er null når utskiftingen er av',
+      snitt(2.0, null, { utskifting: false }).utskiftingHalvbredde, 0, 1e-9);
+    sjekk('  og da er det ingen utskifting å farge heller',
+      snitt(2.0, null, { utskifting: false }).areal.utskifting, 0, 1e-9);
+
+    /* Fjellet i dagen: ingenting å skifte ut, men trauveggen står der fortsatt.
+       En bredde uten dybde skal gi null areal, ikke en tom flate med bredde. */
+    sjekk('fjell i dagen gir null utskifting', snitt(0).areal.utskifting, 0, 1e-9);
+    paastand('  men trauveggen står der likevel', snitt(0).utskiftingHalvbredde > 0);
+  }
+
+  /* OG SOM VOLUM, ikke bare som snittareal - ellers kan tegningen fargelegge
+     noe rapporten ikke kan tallfeste. */
+  {
+    const r = M.beregnMasser({
+      linje, profil: new Vertikalprofil([{ s: 0, z: 100, k: 0 }, { s: 100, z: 100, k: 0 }]),
+      terreng: { z: () => 100 }, mal,
+      fjell: new M.Fjellmodell({ standarddybde: 2.0, punkter: [] }),
+      profilAvstand: 5, bakkefaktor: 1, integrasjonssteg: 0.05
+    });
+    paastand('utskiftingen kommer ut som volum også', r.sum.utskifting > 0,
+      `${r.sum.utskifting.toFixed(1)} m³`);
+    paastand('  og ligger inne i renskevolumet', r.sum.utskifting < r.sum.rensk,
+      `${r.sum.utskifting.toFixed(1)} av ${r.sum.rensk.toFixed(1)}`);
+    sjekk('  og er lengden ganger snittarealet på flat mark',
+      r.sum.utskifting, 100 * 2 * tUt * 2.0, 1);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+console.log('\n4v. Tegningen skal vise de samme tallene som rapporten');
+{
+  /* TEGNINGEN ER ET SVAR, IKKE EN ILLUSTRASJON.
+     Tverrsnittet fyller flater med skjæringsfarge og fyllingsfarge, og den som
+     ser på det leser av hvor mye som skal graves. Da må de flatene være de
+     SAMME arealene rapporten bokfører. Var de ikke det, ville programmet gitt
+     to svar på samme spørsmål, og ingen av dem ville vært til å stole på.
+
+     Snittet delte flatene ved TERRENGLINJEN. Regnestykket måler fra bunnen i
+     trauet – `const d = zU - zJ` – og med masseutskifting ligger de to langt
+     fra hverandre. Målt med standardmalen og fjellet to meter nede: snittet
+     fylte 5,85 m²/lm med skjæringsfarge der rapporten bokførte 0,99, og
+     tilbakefyllingen på 6,62 m²/lm – massen som må KJØPES OG KJØRES INN, den
+     dyre halvparten – ble tegnet som null. Ved seks meter: 17,62 m²/lm
+     usynlige.
+
+     Prøven integrerer flatene tegningen ville fylt, rett fra den geometrien
+     tverrsnittet får utlevert, og krever at de treffer de bokførte arealene. */
+  const kom = (v, d) => v.toFixed(d).replace('.', ',');
+  const mal = Object.assign({}, M.StandardMal);
+  const linje = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 100, y: 0, r: 0 }]);
+  /* MERK: denne `snitt` tar (fjelldybde, malOverstyring) – seksjon 4u har sin
+     egen med (fjelldybde, STEG, malOverstyring). Flytter man en linje mellom de
+     to seksjonene, havner malen i steget: `integrasjonssteg` blir et objekt,
+     regnestykket blir tull, og en prøve som ser etter null kan bli grønn på
+     falskt grunnlag. Det skjedde. */
+  const snitt = (fjelldybde, m2) => M.beregnTverrprofil({
+    linje, terreng: { z: () => 100 }, mal: Object.assign({}, mal, m2 || {}),
+    fjell: new M.Fjellmodell({ standarddybde: fjelldybde, punkter: [] }),
+    s: 50, vegnivaa: 100, utvidelse: 0, integrasjonssteg: 0.02
+  });
+
+  /* Arealet mellom to kurver som tegningen har dem: samme t-punkter, trapes.
+     Det er nettopp det `c.fill()` dekker mellom to baner. */
+  const mellom = (ovre, nedre) => {
+    let A = 0;
+    for (let i = 1; i < ovre.length; i++) {
+      const t0 = ovre[i - 1][0], t1 = ovre[i][0];
+      const a = Math.max(0, ovre[i - 1][1] - nedre[i - 1][1]);
+      const b = Math.max(0, ovre[i][1] - nedre[i][1]);
+      A += (a + b) / 2 * (t1 - t0);
+    }
+    return A;
+  };
+
+  for (const d of [0.5, 1.0, 2.0, 4.0, 6.0]) {
+    const pr = snitt(d), g = pr.geometri;
+    /* Overkanten er TRAU-BUNNEN (`geometri.rensk`), ikke terrenget. */
+    sjekk(`fjell ${kom(d, 1)} m: den tegnede skjæringen er den bokførte`,
+      mellom(g.rensk, g.jord), pr.areal.skjaering, 0.02);
+    sjekk('  og den tegnede fyllingen er den bokførte',
+      mellom(g.jord, g.rensk), pr.areal.fylling, 0.02);
+    /* Og det blå: alt mellom terrenget og trau-bunnen skal ut - utskiftingen
+       under vegkroppen pluss avdekkingen utenfor.
+
+       MINUS STRIPA UTENFOR SKRÅNINGSFOTEN. `areal.rensk` tar med `renskUtenfor`
+       meter på hver side av foten, og de ligger utenfor det tegningen i det hele
+       tatt strekker seg over - geometrien slutter ved foten. Her sto et krav om
+       likhet, og det falt med nøyaktig 0,40 m²/lm = 2 · 1,0 m · 0,20 m, altså
+       stripa. Den skal trekkes fra, ikke tegnes. Og den stopper i fjellet som
+       all annen rensk, så ved fjellet ti centimeter nede er den 0,20. */
+    const stripe = 2 * mal.renskUtenfor * Math.min(mal.renskDybde, d);
+    sjekk('  og det som skal skiftes ut er renskeposten innenfor foten',
+      mellom(g.terreng, g.rensk), pr.areal.rensk - stripe, 0.02);
+  }
+
+  /* MÅLT FRA TERRENGET I STEDET GIR FEIL SVAR, OG PRØVEN SKAL VITE DET.
+     Ellers kunne man flyttet overkanten tilbake til terrenglinjen og prøven
+     ville fortsatt vært grønn på et snitt der de to tilfeldigvis er like. */
+  {
+    const pr = snitt(2.0), g = pr.geometri;
+    paastand('fra terrenget i stedet ville gitt et helt annet tall',
+      mellom(g.terreng, g.jord) > pr.areal.skjaering * 3,
+      `${kom(mellom(g.terreng, g.jord), 2)} mot bokført ${kom(pr.areal.skjaering, 2)}`);
+    paastand('  og tilbakefyllingen ville forsvunnet helt',
+      pr.areal.fylling > 1 && mellom(g.jord, g.terreng) < 1e-6,
+      `bokført ${kom(pr.areal.fylling, 2)}, tegnet ${kom(mellom(g.jord, g.terreng), 2)}`);
+  }
+
+  /* MED UTSKIFTING AV SKAL DET FORTSATT STEMME. Da er trau-bunnen den gamle
+     faste renskedybden, og de tre kravene over gjelder like fullt. */
+  for (const d of [0.1, 0.5, 2.0]) {
+    const pr = snitt(d, { utskifting: false }), g = pr.geometri;
+    sjekk(`utskifting av, fjell ${kom(d, 1)} m: skjæringen stemmer`,
+      mellom(g.rensk, g.jord), pr.areal.skjaering, 0.02);
+    sjekk('  og renskeposten stemmer',
+      mellom(g.terreng, g.rensk),
+      pr.areal.rensk - 2 * mal.renskUtenfor * Math.min(mal.renskDybde, d), 0.02);
+  }
+
+  /* FJELLET I DAGEN: trauet har null dybde, og flaten blir tom. Tegningen skal
+     tåle det uten å melde noe, og tallet skal være null - ikke NaN. */
+  {
+    const pr = snitt(0), g = pr.geometri;
+    const blaa = mellom(g.terreng, g.rensk);
+    paastand('fjell i dagen gir en tom utskiftingsflate, ikke NaN',
+      isFinite(blaa) && blaa < 0.01, String(blaa));
+    sjekk('  og skjæringen stemmer fortsatt', mellom(g.rensk, g.jord),
+      pr.areal.skjaering, 0.02);
+  }
 }
 
 /* ------------------------------------------------------------------ */

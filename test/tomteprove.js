@@ -1555,6 +1555,57 @@ console.log('\n31. Masseutskifting – alt under tomta ned til fjell');
     mj.sum.matjord + mj.sum.rensk, 0.5 * 2400, 1);
   sjekk('  matjorda er sitt eget lag', mj.sum.matjord, 0.25 * 2400, 1);
 
+  /* UTSKIFTINGEN MÅ KUNNE SKILLES UT - tegningen skal fargelegge den alene, og
+     rapporten skal kunne tallfeste det blå. Men den er en DEL av renskeposten,
+     ikke et tillegg: blir den lagt oppå, er de samme kubikkene bokført to
+     ganger. Her er yttergrensa på tomtekanten, så det finnes ingen avdekking
+     utenfor, og de to skal være like. */
+  sjekk('utskiftingen kan tallfestes for seg', myr.sum.utskifting, 4800, 1);
+  sjekk('  og uten skråninger utenfor er den hele renskeposten',
+    myr.sum.utskifting, myr.sum.rensk, 1e-9);
+  {
+    /* PÅ EN TOMT ER `renskDybde` RENSK MOT FJELL, IKKE AVDEKKING.
+       Her sto et krav om at rensken utenfor tomta alltid er større enn
+       utskiftingen, og det falt: 4 800 mot 4 800. Det var påstanden som var
+       feil, ikke koden. Avdekkingen på en tomt er `matjordDybde`; `renskDybde`
+       er det siste laget som skrapes av selve bergflaten, og det bokføres bare
+       der uttaket FAKTISK når ned til berget - se kommentaren ved `naarBerget`.
+       Med ferdig nivå på berget (kote 98) når skråningene utenfor aldri ned, og
+       da er det ingen rensk der å skille fra. Legger man tomta tre meter lenger
+       ned, skjærer skråningene seg ned i berget og rensken kommer: målt 50 m³
+       utenfor, mens utskiftingen står stille på 4 800. Det er nettopp det
+       skillet skal vise. */
+    const utenGrense = (kote, renskDybde) => T.beregnTomtemasser({
+      tomt: { punkter: rekt, kanter: [], nivaa: { modus: 'flat', kote } },
+      mal: malU({ renskDybde }), terreng: { z: () => 100 },
+      fjell: new M.Fjellmodell({ standarddybde: 2 }),
+      rutestorrelse: 1, bakkefaktor: 1           // ingen `grense`
+    });
+    const dypt = utenGrense(95, 0.25);
+    sjekk('utskiftingen stopper ved tomtekanten også når den skilles ut',
+      dypt.sum.utskifting, 2 * 2400, 1);
+    paastand('  og rensken utenfor kommer IKKE med i den',
+      dypt.sum.rensk > dypt.sum.utskifting + 10,
+      `${dypt.sum.rensk.toFixed(0)} mot ${dypt.sum.utskifting.toFixed(0)}`);
+    sjekk('  differansen er rensken mot berget i skråningene',
+      dypt.sum.rensk - dypt.sum.utskifting, 50, 2);
+    sjekk('  og uten renskedybde er de like igjen',
+      utenGrense(95, 0).sum.rensk, utenGrense(95, 0).sum.utskifting, 1e-9);
+  }
+  /* Og hver rute må bære med seg trauet sitt, ellers kan 3D-en ikke tegne det. */
+  {
+    const inne = (myr.rutenett || []).filter(c => c.inne);
+    paastand('hver rute inne på tomta vet hvor trauet ligger',
+      inne.length > 0 && inne.every(c => isFinite(c.zTrau) && isFinite(c.utskift)),
+      `${inne.filter(c => !isFinite(c.zTrau)).length} uten zTrau`);
+    paastand('  og hvor mye som skiftes ut der - her to meter overalt',
+      inne.every(c => Math.abs(c.utskift - 2) < 1e-6),
+      JSON.stringify(inne.slice(0, 3).map(c => +c.utskift.toFixed(3))));
+    paastand('  og summen av rutene er utskiftingsvolumet',
+      Math.abs(inne.reduce((a, c) => a + c.utskift, 0) * 1 - myr.sum.utskifting) < 1,
+      `${(inne.reduce((a, c) => a + c.utskift, 0)).toFixed(0)} mot ${myr.sum.utskifting.toFixed(0)}`);
+  }
+
   /* AV-BRYTEREN MA VIRKE. Den klassiske modellen er fortsatt et gyldig svar for
      den som bare vil renske en fast dybde mot berget. */
   const av = kjorU(0.5, { utskifting: false });

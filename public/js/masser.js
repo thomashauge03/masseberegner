@@ -774,7 +774,13 @@ function beregnTverrprofil(o) {
      renskedybden, er det fjellet som bestemmer. */
   const tR0 = tV - mal.renskUtenfor, tR1 = tH + mal.renskUtenfor;
   const renskBredde = tR1 - tR0;
-  let arealRensk = 0, vRensk = 0;
+  /* `arealUtskifting` er den delen av renskeposten som ligger INNE under
+     vegkroppen, altså selve masseutskiftingen. Resten er vanlig avdekking
+     utenfor. De er to forskjellige arbeider til to forskjellige priser, og
+     tegningen skal kunne fargelegge det ene uten det andre – så de skilles her,
+     i den ene løkka som måler dem, og ikke i et eget overslag som kunne kommet
+     i utakt. Summen av de to ER `arealRensk`; det er prøvd. */
+  let arealRensk = 0, vRensk = 0, arealUtskifting = 0, vUtskifting = 0;
   /* HULL I LASERDEKNINGEN SKAL TAS DER DE ER, IKKE FOR HELE SNITTET.
      Her sto `!manglerData` som port: ett eneste NaN-punkt et sted i profilet –
      også langt utenfor vegen – hoppet over hele renskeintegrasjonen. Men
@@ -820,13 +826,21 @@ function beregnTverrprofil(o) {
       if (!(bredde > 1e-12)) continue;
       const nR = Math.min(400, Math.max(2, Math.ceil(bredde / Math.max(0.05, dt))));
       const dtR = bredde / nR;
+      /* Delen ligger ENTEN helt inne i trauet eller helt utenfor – løkka over
+         deler nettopp ved trauveggen, så midtpunktet avgjør for hele delen. Det
+         er derfor dette ikke trenger en egen prøve per rute. */
+      const iTrauet = mal.utskifting && Math.abs((fra + til) / 2) <= tUtskifting;
       for (let i = 0; i < nR; i++) {
         const tA = fra + i * dtR, tB = tA + dtR;
         const dA = dybdeVed(tA), dB = dybdeVed(tB);
-        arealRensk += (dA + dB) / 2 * dtR;
+        const bit = (dA + dB) / 2 * dtR;
+        arealRensk += bit;
+        if (iTrauet) arealUtskifting += bit;
         // samme Pappus-vekting som resten av snittet, og vekten kan ikke bli negativ
         const wA = Math.max(0, 1 + tA * kr), wB = Math.max(0, 1 + tB * kr);
-        vRensk += (dA * wA + dB * wB) / 2 * dtR;
+        const vBit = (dA * wA + dB * wB) / 2 * dtR;
+        vRensk += vBit;
+        if (iTrauet) vUtskifting += vBit;
       }
     }
   }
@@ -855,12 +869,20 @@ function beregnTverrprofil(o) {
     /* Løsmasse som blir liggende under trauet fordi maksdybden slo inn.
        Null når fjellet nås – se `maksUtskifting` i malen. */
     utskiftingRest,
+    /* HVOR TRAUVEGGEN STÅR, slik tegningen kan fargelegge nøyaktig det som
+       skiftes ut og ikke en meter for mye. Halvbredde, som `halvbredde` – altså
+       fra senterlinjen ut til veggen, til hver side. Null når utskiftingen er
+       slått av, for da finnes det ikke noe trau. */
+    utskiftingHalvbredde: mal.utskifting ? tUtskifting : 0,
     areal: {
       skjaering: arealSkjaering,
       skjaeringFjell: arealSkjaeringFjell,
       skjaeringLosmasse: arealSkjaering - arealSkjaeringFjell,
       fylling: arealFylling,
       rensk: arealRensk,
+      /* Delen av rensken som er masseutskifting under vegkroppen. `rensk` er
+         fortsatt hele posten, så ingenting som leser den fra før endrer svar. */
+      utskifting: arealUtskifting,
       slitelag: arealSlitelag,
       baerelag: arealBaerelag
     },
@@ -870,6 +892,7 @@ function beregnTverrprofil(o) {
       skjaeringLosmasse: vSkjaering - vSkjaeringFjell,
       fylling: vFylling,
       rensk: vRensk,
+      utskifting: vUtskifting,
       slitelag: arealSlitelag,
       baerelag: arealBaerelag
     },
@@ -1155,7 +1178,10 @@ function beregnMasser(o) {
   };
 
   // --- Volum mellom profilene (gjennomsnittlig endeareal) ------------
-  const felt = ['skjaering', 'skjaeringFjell', 'skjaeringLosmasse', 'fylling', 'rensk', 'slitelag', 'baerelag'];
+  /* `utskifting` er med her, ikke bare som snittareal: ellers kunne tegningen
+     fargelegge utskiftingen mens rapporten ikke kunne si hvor mange kubikk det
+     blå er. Den ligger INNE i `rensk` og skal ikke legges til noen sum. */
+  const felt = ['skjaering', 'skjaeringFjell', 'skjaeringLosmasse', 'fylling', 'rensk', 'utskifting', 'slitelag', 'baerelag'];
   const sum = {}; felt.forEach(f => sum[f] = 0);
   const intervaller = [];
 

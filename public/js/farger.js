@@ -64,6 +64,12 @@ const Farger = {
      Målt på tomterapporten dekket den mørke flaten 42 % av bildet. */
   get terrengFlateRgb() { return this.rgb('data-terrengflate'); },
   get fjellRgb() { return this.rgb('data-fjell'); },
+  /* Til 3D-en, som blander per piksel og ikke kan sende en CSS-streng inn i en
+     Uint32Array. Tas fra STREKfargen, ikke flatefargen: flaten er
+     halvgjennomsiktig, og `rgb()` kaster gjennomsikten - da ville 3D-en fått en
+     blåfarge som var blandet mot ingenting og sett helt annerledes ut enn
+     snittet. Den som blander, bestemmer selv hvor mye som slipper gjennom. */
+  get utskiftingRgb() { return this.rgb('data-utskifting'); },
   get flateRgb() { return this.rgb('flate'); },
   /* De andre anleggene i 3D-scenen. Egen farge, ikke en tone av terrenget:
      en bakgrunnsflate som ligner terreng blir lest som terreng. */
@@ -72,6 +78,11 @@ const Farger = {
 
   get terreng() { return this.hent('data-terreng'); },
   get rensk() { return this.hent('data-rensk'); },
+  /* Masseutskifting: massen som skal bort fordi den ikke er byggegrunn. Strek
+     og flate hver for seg, som for skjæring og fylling - streken er trauveggen,
+     flaten er volumet mellom terrenget og bunnen i trauet. */
+  get utskifting() { return this.hent('data-utskifting'); },
+  get utskiftingFlate() { return this.hent('data-utskifting-flate'); },
   get veg() { return this.hent('data-veg'); },
   get planum() { return this.hent('data-planum'); },
   get skjaering() { return this.hent('data-skjaering'); },

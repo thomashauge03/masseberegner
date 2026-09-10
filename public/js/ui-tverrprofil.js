@@ -223,24 +223,61 @@ const Tverrprofil = {
       if (lukk) c.closePath();
     };
 
-    /* Flaten mellom terrenget og jordarbeidsflaten deles i to:
-       ligger jordarbeidsflaten under terrenget skal det graves (skjæring),
-       ligger den over skal det fylles. */
     const terr = pr.geometri.terreng, jord = pr.geometri.jord, fjellL = pr.geometri.fjell;
+    /* BUNNEN I TRAUET ER SKILLELINJEN, IKKE TERRENGET.
+       Alt over trau-bunnen kjøres bort uansett: masseutskifting under vegkroppen,
+       avdekking utenfor. Det som ligger UNDER den er skjæringen og fyllingen, og
+       det er nettopp derfra beregningen måler dem - `const d = zU - zJ`.
+
+       Her sto terrenglinjen som skille, og da viste tegningen noe annet enn
+       rapporten. Målt med standardmalen og fjellet to meter nede: snittet fylte
+       5,85 m²/lm med skjæringsfarge der rapporten bokførte 0,99 - nesten seks
+       ganger for mye - og tilbakefyllingen på 6,62 m²/lm, massen som må KJØPES
+       OG KJØRES INN, ble tegnet som null fordi planum lå under terrenget. Ved
+       seks meter: 17,62 m²/lm usynlige. Fra trau-bunnen treffer begge eksakt;
+       se seksjon 4v i test/selftest.js, som integrerer flatene og krever det. */
+    const trau = (pr.geometri.rensk && pr.geometri.rensk.length === terr.length)
+      ? pr.geometri.rensk : terr;
+
+    /* DET SOM SKAL BORT: bandet mellom terrenget og trau-bunnen.
+       Hele bandet males svakt, og den delen som ligger inne mellom trauveggene
+       får utskiftingsfargen - det er den massen som skal skiftes ut fordi den
+       ikke er byggegrunn. Utenfor veggene er det vanlig avdekking, og den skal
+       ikke ha samme farge: en farge som betyr to ting betyr ingenting.
+
+       Males med fillRect inne i en klipping, ikke med fill() på en bane: etter
+       to klippinger finnes det ingen bane å fylle. */
+    const tU = pr.utskiftingHalvbredde || 0;
+    if (trau !== terr) {
+      c.save();
+      bane(terr.concat(trau.slice().reverse()), true); c.clip();
+      c.fillStyle = Farger.rensk;
+      c.fillRect(m.v, m.o, B - m.h - m.v, H - m.u - m.o);
+      if (tU > 0) {
+        c.fillStyle = Farger.utskiftingFlate;
+        c.fillRect(px(-tU), m.o, Math.max(1, px(tU) - px(-tU)), H - m.u - m.o);
+      }
+      c.restore();
+    }
+
+    /* Flaten mellom trau-bunnen og jordarbeidsflaten deles i to:
+       ligger jordarbeidsflaten under trauet skal det graves (skjæring),
+       ligger den over skal det fylles. */
     c.save();
-    bane(terr.concat(jord.slice().reverse()), true);
+    bane(trau.concat(jord.slice().reverse()), true);
     c.clip();
-    c.fillStyle = Farger.skjaeringFlate;   // skjæring: under terrengoverflaten
-    bane(terr.concat([[terr[terr.length - 1][0], zMin], [terr[0][0], zMin]]), true); c.fill();
-    c.fillStyle = Farger.fyllingFlate;     // fylling: over terrengoverflaten
-    bane(terr.concat([[terr[terr.length - 1][0], zMax], [terr[0][0], zMax]]), true); c.fill();
+    c.fillStyle = Farger.skjaeringFlate;   // skjæring: under bunnen i trauet
+    bane(trau.concat([[trau[trau.length - 1][0], zMin], [trau[0][0], zMin]]), true); c.fill();
+    c.fillStyle = Farger.fyllingFlate;     // fylling: over bunnen i trauet
+    bane(trau.concat([[trau[trau.length - 1][0], zMax], [trau[0][0], zMax]]), true); c.fill();
     c.restore();
 
     /* Fjellet er den delen av skjæringen som ma sprenges. Det blir skravert
        oppa skjæringsfargen i stedet for a fa en egen kulør, sa det leses som
-       "denne delen av det samme". */
+       "denne delen av det samme". Klippes mot TRAUET av samme grunn som over:
+       det som sprenges er `min(trau, fjell)` ned til jordarbeidsflaten. */
     c.save();
-    bane(terr.concat(jord.slice().reverse()), true); c.clip();
+    bane(trau.concat(jord.slice().reverse()), true); c.clip();
     bane(fjellL.concat([[fjellL[fjellL.length - 1][0], zMin], [fjellL[0][0], zMin]]), true);
     c.fillStyle = Farger.fjellskravur(c); c.fill();
     c.restore();
@@ -249,10 +286,30 @@ const Tverrprofil = {
     c.strokeStyle = Farger.fjell; c.lineWidth = 1.2; c.setLineDash([5, 4]);
     bane(fjellL); c.stroke();
 
-    // terreng etter rensk - grensen masseberegningen regnes fra
+    // bunnen i trauet - grensen masseberegningen regnes fra
     if (pr.geometri.rensk && pr.geometri.rensk.length > 1) {
       c.strokeStyle = Farger.rensk; c.lineWidth = 1; c.setLineDash([2, 3]);
       bane(pr.geometri.rensk); c.stroke();
+      /* Den delen av bunnen som ligger inne i trauet tegnes opp igjen i
+         utskiftingsfargen, og veggene som loddrette streker. Uten dem flyter det
+         blå ut i det svake bandet ved siden av, og man kan ikke se hvor
+         utskiftingen slutter - som er nettopp det tallet man skal lese av. */
+      if (tU > 0) {
+        const inne = trau.filter(([t]) => Math.abs(t) <= tU + 1e-9);
+        if (inne.length > 1) {
+          c.strokeStyle = Farger.utskifting; c.lineWidth = 1.6; c.setLineDash([]);
+          bane(inne); c.stroke();
+        }
+        c.strokeStyle = Farger.utskifting; c.lineWidth = 1.1; c.setLineDash([3, 3]);
+        for (const side of [-tU, tU]) {
+          const zTopp = terr.reduce((b, [t, z]) =>
+            Math.abs(t - side) < Math.abs(b[0] - side) ? [t, z] : b, terr[0])[1];
+          const zBotn = trau.reduce((b, [t, z]) =>
+            Math.abs(t - side) < Math.abs(b[0] - side) ? [t, z] : b, trau[0])[1];
+          if (!isFinite(zTopp) || !isFinite(zBotn) || zTopp - zBotn < 0.01) continue;
+          c.beginPath(); c.moveTo(px(side), py(zTopp)); c.lineTo(px(side), py(zBotn)); c.stroke();
+        }
+      }
     }
     c.setLineDash([]);
 
@@ -297,9 +354,14 @@ const Tverrprofil = {
     /* Tegnforklaringen viser hver post slik den faktisk er tegnet - strek,
        flate eller skravur. Med bare fargeruter ville de tre rødtonene sett
        nesten like ut. */
+    /* Utskiftingen står bare i forklaringen når den FINNES i tegningen. En post
+       om en farge som ikke er brukt er en opplysning om noe annet enn det man
+       ser på. */
     const forklaring = [
       ['Terreng', 'strek', Farger.terreng],
-      ['Etter rensk', 'stipla', Farger.rensk],
+      ['Bunn i trauet', 'stipla', Farger.rensk],
+      ...(tU > 0 && pr.areal && pr.areal.utskifting > 0.01
+        ? [['Skiftes ut', 'flate', Farger.utskiftingFlate]] : []),
       ['Planum/skråning', 'strek', Farger.planum],
       ['Skjæring', 'flate', Farger.skjaeringFlate],
       ['Fylling', 'flate', Farger.fyllingFlate],
