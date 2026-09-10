@@ -185,6 +185,12 @@ const StandardTomtemal = {
      står uansett ikke. */
   utskiftingUtenfor: 1.0,
   utskiftingHelning: 1.5,
+  /* KANTEN AV OVERBYGNINGEN SKRÅR. En pall med loddrette sider finnes ikke: er
+     lagene til sammen en meter tykke, må den meteren ha en skråning ut og ned,
+     og den skråningen er masse som må kjøpes og kjøres. Vannrett utlegg per
+     meter høyde, som de andre helningene. Settes den til null, blir lagene
+     igjen plater med loddrett kant – slik det var før. */
+  overbygningHelning: 1.5,
   frostsikring: 0.0,
   forsterkningslag: 0.40,
   baerelagTykkelse: 0.10,

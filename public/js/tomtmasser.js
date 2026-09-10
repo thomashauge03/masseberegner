@@ -638,20 +638,58 @@ function beregnTomtemasser(o) {
   /* Regnet her og ikke hentet fra `Tomt.areal`: den bor i en annen fil som
      ikke er importert hit, og som i node bare finnes som et globalt navn i
      nettleseren. Skolisseformelen er fem linjer og kan ikke komme i utakt. */
-  let signert = 0;
+  let signert = 0, omkrets = 0;
   for (let i = 0, j = p.length - 1; i < p.length; j = i++) {
     signert += (p[j].x + p[i].x) * (p[j].y - p[i].y);
+    omkrets += Math.hypot(p[i].x - p[j].x, p[i].y - p[j].y);
   }
   const eksaktAreal = Math.abs(signert / 2) * arealFaktor;
   if (eksaktAreal > 0) {
     tom.arealMedSkraning += eksaktAreal - tom.areal;   // ringen utenfor står
     tom.areal = eksaktAreal;
   }
-  s.slitelag = (mal.slitelagTykkelse || 0) * tom.areal;
-  s.baerelag = (mal.baerelagTykkelse || 0) * tom.areal;
-  s.forsterkningslag = (mal.forsterkningslag || 0) * tom.areal;
-  s.frostsikring = (mal.frostsikring || 0) * tom.areal;
-  s.avrettingslag = (mal.avrettingslag || 0) * tom.areal;
+
+  /* OVERBYGNINGEN HAR EN SKRÅ KANT, IKKE EN LODDRETT.
+     Lagene ble lagt opp som `areal · tykkelse`, altså en plate med loddrett
+     kant hele veien rundt. Målt: et forsterkningslag på 1,0 m over en 40 × 60
+     tomt ga nøyaktig 2 400,00 m³ – ikke en kubikk til – ved hver eneste
+     tykkelse fra 0,1 til 2,0 m. En pall med loddrette sider finnes ikke; kanten
+     skrår ut og ned, og den skråningen er masse som må kjøpes og kjøres.
+
+     Flaten man skal bruke er tomta, så kanten flarer UTOVER nedover: i høyde y
+     over planum er omrisset tomta utvidet (T − y)·h, der T er hele
+     overbygningen. Arealet i den høyden er da
+        A + P·(T−y)·h + π·((T−y)·h)²
+     – omkretsen gir de rette sidene, π-leddet de runde hjørnene. Integrert over
+     et lag fra y0 til y1 gir det lagets volum med kanten.
+
+     Med T = 1,0 m og 1:1,5 blir tillegget P·h·T²/2 + π·h²·T³/3 = 150,0 + 2,4 =
+     152,4 m³ på den tomta, altså drøyt seks prosent. */
+  const obH = Math.max(0, mal.overbygningHelning === undefined
+    ? (mal.fylling || 0) : mal.overbygningHelning);
+  const T = overbygning;
+  const A = tom.areal, P = omkrets * Math.sqrt(arealFaktor);
+  /* Volumet av laget mellom y0 og y1 over planum, med den skrå kanten. */
+  const lagVolum = (y0, y1) => {
+    if (!(y1 > y0)) return 0;
+    if (obH <= 0 || T <= 0) return A * (y1 - y0);
+    const ledd = (y) => {
+      const u = (T - y) * obH;                       // utstikk i denne høyden
+      return A * y + P * obH * (T * y - y * y / 2)
+        + Math.PI * obH * obH * (T * T * y - T * y * y + y * y * y / 3);
+    };
+    return ledd(y1) - ledd(y0);
+  };
+  /* Nedenfra og opp: frostsikring, forsterkningslag, bærelag, avretting,
+     slitelag. Rekkefølgen betyr noe her – et lag lavt i stabelen har en bredere
+     kant enn ett høyt oppe. */
+  let y = 0;
+  const legg = (tykkelse) => { const v = lagVolum(y, y + tykkelse); y += tykkelse; return v; };
+  s.frostsikring = legg(mal.frostsikring || 0);
+  s.forsterkningslag = legg(mal.forsterkningslag || 0);
+  s.baerelag = legg(mal.baerelagTykkelse || 0);
+  s.avrettingslag = legg(mal.avrettingslag || 0);
+  s.slitelag = legg(mal.slitelagTykkelse || 0);
 
   /* Overberg males pa BERGFLATEN som sprenges, ikke pa grunnflaten.
      Her sto `mal.overberg * cellA / ruteM`, som er m x m² / m = m² - en flate,

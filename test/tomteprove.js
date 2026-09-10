@@ -210,11 +210,75 @@ console.log('\n7. Lagene under ferdig nivå');
     mal, terreng: { z: () => 100 }, fjell: new M.Fjellmodell({ standarddybde: 100 }),
     rutestorrelse: 0.5, bakkefaktor: 1
   });
-  sjekk('slitelag = 2400 x 0,05', r.sum.slitelag, 2400 * 0.05, 2);
-  sjekk('bærelag = 2400 x 0,10', r.sum.baerelag, 2400 * 0.10, 3);
-  sjekk('forsterkningslag = 2400 x 0,40', r.sum.forsterkningslag, 2400 * 0.40, 12);
-  sjekk('frostsikring = 2400 x 0,30', r.sum.frostsikring, 2400 * 0.30, 9);
-  sjekk('avretting = 2400 x 0,03', r.sum.avrettingslag, 2400 * 0.03, 2);
+  /* LAGENE ER IKKE PLATER MED LODDRETT KANT.
+     Her sto «tykkelse ganger 2400» for hvert lag. En pall med loddrette sider
+     finnes ikke: kanten skrår ut og ned, og den skråningen er masse som må
+     kjøpes og kjøres. Målt med det gamle regnestykket ga et lag på 1,0 m
+     nøyaktig 2 400,00 m³ – ikke en kubikk til – ved hver eneste tykkelse fra
+     0,1 til 2,0 m.
+
+     Formelen gjentas ikke her; en prøve som regner det samme som koden beviser
+     ingenting. I stedet måles egenskaper den ikke kan treffe ved uhell. */
+  for (const [navn, post, tykkelse] of [
+    ['slitelag', 'slitelag', 0.05], ['bærelag', 'baerelag', 0.10],
+    ['forsterkningslag', 'forsterkningslag', 0.40],
+    ['frostsikring', 'frostsikring', 0.30], ['avretting', 'avrettingslag', 0.03]
+  ]) {
+    paastand(`${navn} er mer enn plata, fordi kanten skrår`,
+      r.sum[post] > 2400 * tykkelse + 1e-9,
+      `${r.sum[post].toFixed(1)} mot ${(2400 * tykkelse).toFixed(1)}`);
+  }
+
+  /* SUMMEN AV LAGENE ER HELE OVERBYGNINGEN, og den har en lukket form som ikke
+     avhenger av hvordan stabelen er delt opp:
+       A·T + P·h·T²/2 + π·h²·T³/3
+     Med A = 2 400, P = 200, h = fyllingsskråningen og T = 0,88. Deler man
+     stabelen annerledes, må summen stå stille – og det er nettopp det et lagvis
+     integral lett kan komme til å bryte. */
+  {
+    /* `overbygningHelning`, ikke `fylling`. De to er ikke det samme: standard
+       fyllingsskråning er 1:2, kanten på lagene 1:1,5. Prøven leste
+       fyllingsskråningen og bommet med 40 m³ – den skal lese den innstillingen
+       den faktisk prøver. */
+    const Tt = 0.88, P = 200, h = mal.overbygningHelning;
+    const helheten = 2400 * Tt + P * h * Tt * Tt / 2 + Math.PI * h * h * Tt * Tt * Tt / 3;
+    const lagt = r.sum.slitelag + r.sum.baerelag + r.sum.forsterkningslag
+      + r.sum.frostsikring + r.sum.avrettingslag;
+    sjekk('lagene til sammen er overbygningen med skrå kant', lagt, helheten, 3);
+    paastand('  og det er merkbart mer enn plata',
+      lagt > 2400 * Tt + 50, `${lagt.toFixed(0)} mot ${(2400 * Tt).toFixed(0)}`);
+  }
+
+  /* ET LAG LAVT I STABELEN HAR BREDERE KANT ENN ETT HØYT OPPE. Med to lag av
+     SAMME tykkelse må det nederste bli størst – ellers er stabelen snudd, og da
+     havner de dyre lagene på feil sted. */
+  {
+    const rr = T.beregnTomtemasser({
+      tomt: { punkter: rektangel(40, 60), kanter: [], nivaa: { modus: 'flat', kote: 98 } },
+      mal: Object.assign(grunnmal(), {
+        frostsikring: 0.20, forsterkningslag: 0, baerelagTykkelse: 0,
+        avrettingslag: 0, slitelagTykkelse: 0.20, matjordDybde: 0
+      }),
+      terreng: { z: () => 100 }, fjell: new M.Fjellmodell({ standarddybde: 100 }),
+      rutestorrelse: 0.5, bakkefaktor: 1
+    });
+    paastand('nederste lag har bredere kant enn øverste ved samme tykkelse',
+      rr.sum.frostsikring > rr.sum.slitelag + 1,
+      `frostsikring ${rr.sum.frostsikring.toFixed(1)} mot slitelag ${rr.sum.slitelag.toFixed(1)}`);
+  }
+
+  /* OG AV-BRYTEREN: med kanthelning null er hvert lag nøyaktig plata igjen. */
+  {
+    const flat = T.beregnTomtemasser({
+      tomt: { punkter: rektangel(40, 60), kanter: [], nivaa: { modus: 'flat', kote: 98 } },
+      mal: Object.assign({}, mal, { overbygningHelning: 0 }),
+      terreng: { z: () => 100 }, fjell: new M.Fjellmodell({ standarddybde: 100 }),
+      rutestorrelse: 0.5, bakkefaktor: 1
+    });
+    sjekk('uten kanthelning er laget nøyaktig plata',
+      flat.sum.forsterkningslag, 2400 * 0.40, 0.01);
+    sjekk('  og slitelaget også', flat.sum.slitelag, 2400 * 0.05, 0.01);
+  }
   sjekk('overbygningen er summen av lagene', r.overbygning, 0.05 + 0.10 + 0.40 + 0.30 + 0.03, 1e-9);
   /* Overbygningen senker planum, sa skjæringen blir dypere: 2 m + 0,88 m. */
   sjekk('planum ligger under ferdig nivå', r.dypesteSkjaering, 2 + 0.88, 0.3);
@@ -1349,9 +1413,18 @@ console.log('\n29. Arealet er polygonets, ikke antall ruter');
     kjorA(24.5, 37.5, rute, 60, { baerelagTykkelse: 0.55 }).r.sum.baerelag);
   sjekk('bærelaget er det samme uansett rutestørrelse',
     Math.max(...bl) - Math.min(...bl), 0, 0.01);
-  sjekk('  og det er tykkelsen ganger det eksakte arealet',
-    bl[0], 0.55 * areal([{ x: 0, y: 0 }, { x: 24.5, y: 0 },
-      { x: 24.5, y: 37.5 }, { x: 0, y: 37.5 }]), 0.01);
+  /* Og det er tykkelsen ganger det EKSAKTE arealet – pluss den skrå kanten.
+     Her sto bare arealet ganger tykkelsen, fra den gang laget var en plate med
+     loddrett kant. Poenget med prøven er at arealet er polygonets og ikke et
+     rutetall, og det står: uten kanthelning treffer den fortsatt eksakt. */
+  const eksakt = areal([{ x: 0, y: 0 }, { x: 24.5, y: 0 },
+    { x: 24.5, y: 37.5 }, { x: 0, y: 37.5 }]);
+  sjekk('  og uten kanthelning er det tykkelsen ganger det eksakte arealet',
+    kjorA(24.5, 37.5, 0.5, 60, { baerelagTykkelse: 0.55, overbygningHelning: 0 }).r.sum.baerelag,
+    0.55 * eksakt, 0.01);
+  paastand('  mens med kanthelning er det mer, og kanten er hele forskjellen',
+    bl[0] > 0.55 * eksakt + 1,
+    `${bl[0].toFixed(1)} mot ${(0.55 * eksakt).toFixed(1)}`);
 }
 
 /* ------------------------------------------------------------------ */

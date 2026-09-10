@@ -3968,6 +3968,47 @@ const App = {
 
   /* ---------------- optimalisering ---------------- */
 
+  /**
+   * Flytter hele profilen loddrett, saa mange meter man ber om.
+   *
+   * «Massebalanse» finner høyden som gir like mye skjæring som fylling. Men
+   * noen ganger vet man selv hva man vil ha - vegen skal en halvmeter opp, av
+   * grunner programmet ikke kjenner - og da er det tallet som skal gjelde, ikke
+   * et regnestykke.
+   *
+   * LÅSTE HØYDER BLIR LIGGENDE, som i «Massebalanse», «Foreslå profil» og
+   * «Optimaliser». En låst høyde er som regel en tilknytning til noe som
+   * allerede finnes; flyttet man den, ville vegen ikke lenger møtt det den
+   * skal møte. Er ALLE låst, sies det fra - ellers ville knappen sett ut som
+   * den virket mens ingenting skjedde.
+   */
+  flyttProfil(d) {
+    if (!isFinite(d) || Math.abs(d) < 1e-9) {
+      this.status('Sett hvor mange meter profilen skal flyttes først');
+      return;
+    }
+    if (!this.P.vip || !this.P.vip.length) {
+      this.status('Legg inn høyder først');
+      return;
+    }
+    if (this.P.vip.every(v => v.laast)) {
+      this.status('Alle høyder er låst – lås opp noen for å kunne flytte profilen');
+      return;
+    }
+    this.merk(d > 0 ? 'hev profilen' : 'senk profilen');
+    let flyttet = 0, laste = 0;
+    for (const v of this.P.vip) {
+      if (v.laast) { laste++; continue; }
+      v.z += d;
+      flyttet++;
+    }
+    this.profilEndret(false);
+    this.visHoydetabell();
+    const retning = d > 0 ? 'hevet' : 'senket';
+    this.status(`${flyttet} høyder ${retning} ${Math.abs(d).toFixed(2)} m`
+      + (laste ? ` – ${laste} låste ble liggende` : ''));
+  },
+
   async balanser() {
     this.merk('balanser massene');
     if (!this.terreng || !this.linje) return;
@@ -4412,6 +4453,8 @@ const App = {
     sett('m_fylling', m.fylling);
     sett('m_renskDybde', m.renskDybde);
     sett('m_maksUtskifting', m.maksUtskifting);
+    sett('m_utskiftingUtenfor', m.utskiftingUtenfor);
+    sett('m_utskiftingHelning', m.utskiftingHelning);
     /* `.checked`, ikke `.value` – en avkryssingsboks leser ikke `value`, og
        feltet ville stått uavkrysset uansett hva malen sa. */
     {
@@ -4819,12 +4862,15 @@ const App = {
       ['m', 'matjordDybde', 'Matjord som tas av', 0, 1, 0.05],
       ['bryter', 'utskifting', 'Masseutskifting ned til fjell'],
       ['m', 'maksUtskifting', 'Stopp utskiftingen på', 0, 15, 0.5],
+      ['m', 'utskiftingUtenfor', 'Trauet går forbi tomtekanten', 0, 10, 0.25],
+      ['los', 'utskiftingHelning', 'Helning på trauveggen', 0, 5, 0.1],
       ['m', 'renskDybde', 'Rensk mot fjell (utenfor tomta)', 0, 1, 0.05],
       ['m', 'frostsikring', 'Frostsikring', 0, 2, 0.05],
       ['m', 'forsterkningslag', 'Forsterkningslag', 0, 2, 0.05],
       ['m', 'baerelagTykkelse', 'Bærelag', 0, 1, 0.05],
       ['m', 'avrettingslag', 'Avretting', 0, 0.5, 0.01],
       ['m', 'slitelagTykkelse', 'Slitelag', 0, 0.5, 0.01],
+      ['los', 'overbygningHelning', 'Helning på kanten av lagene', 0, 5, 0.1],
       ['h3', 'Grenser'],
       ['m', 'maksSkjaeringsdybde', 'Maks skjæringsdybde', 0, 30, 0.5],
       ['m', 'maksFyllingshoyde', 'Maks fyllingshøyde', 0, 30, 0.5],
@@ -5003,6 +5049,8 @@ const App = {
     m.fylling = tall('m_fylling');
     m.renskDybde = tall('m_renskDybde');
     m.maksUtskifting = tall('m_maksUtskifting');
+    m.utskiftingUtenfor = tall('m_utskiftingUtenfor');
+    m.utskiftingHelning = tall('m_utskiftingHelning');
     {
       const e = document.getElementById('m_utskifting');
       if (e) m.utskifting = e.checked;
@@ -5721,6 +5769,13 @@ const App = {
     id('knappRettOpp').onclick = () => this.rettOpp();
     id('knappGjorLovlig').onclick = () => this.gjorLovlig();
     id('knappBalanser').onclick = () => this.balanser();
+    if (id('h_flyttOpp')) {
+      /* Tallet leses som et POSITIVT antall meter, og knappen bestemmer
+         retningen. Skrev man -0,5 og trykket «Senk», ville vegen gått opp. */
+      const meter = () => Math.abs(parseFloat(id('h_flyttTall').value));
+      id('h_flyttOpp').onclick = () => this.flyttProfil(meter());
+      id('h_flyttNed').onclick = () => this.flyttProfil(-meter());
+    }
     id('knappOptimaliser').onclick = () => this.optimaliser();
     if (id('knappUtenSprengning')) id('knappUtenSprengning').onclick = () => this.rettOpp('sprengning');
     if (id('tm_utenSprengning')) id('tm_utenSprengning').onclick = () => this.sprengfriTomt();

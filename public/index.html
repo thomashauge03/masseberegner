@@ -447,6 +447,16 @@
         <button id="h_laasAlle" class="knapp">Lås alle</button>
         <button id="h_laasIngen" class="knapp">Lås ingen</button>
       </div>
+      <div class="knapperad hoydeverktoy">
+        <label class="minitall">Flytt hele profilen
+          <input type="number" id="h_flyttTall" value="0.50" min="0" max="20" step="0.05"> m</label>
+        <button id="h_flyttOpp" class="knapp" title="Løfter alle ulåste høyder like mye">▲ Hev</button>
+        <button id="h_flyttNed" class="knapp" title="Senker alle ulåste høyder like mye">▼ Senk</button>
+      </div>
+      <p class="notis">Vil du bare ha hele vegen en halvmeter opp, setter du tallet og
+        trykker <b>Hev</b>. Låste høyder blir liggende – de er som regel tilknytninger
+        til noe som allerede finnes, og skal ikke flytte seg. Står alle låst, sier
+        programmet fra i stedet for å gjøre ingenting.</p>
       <div class="felt avkryssfelt">
         <label><input type="checkbox" id="h_retteLinjer"> Rette linjer mellom høydene (ingen vertikalkurver)</label>
       </div>
@@ -514,6 +524,8 @@
       <h3>Rensk og utvidelse</h3>
       <div class="felt"><label>Masseutskifting ned til fjell</label><input type="checkbox" id="m_utskifting" checked><span></span></div>
       <div class="felt"><label>Stopp utskiftingen på</label><input type="number" id="m_maksUtskifting" step="0.5" value="4.0" min="0" max="15"><span>m</span></div>
+      <div class="felt"><label>Trauet går forbi vegkroppen</label><input type="number" id="m_utskiftingUtenfor" step="0.25" value="1.0" min="0" max="10"><span>m</span></div>
+      <div class="felt"><label>Helning på trauveggen</label><input type="number" id="m_utskiftingHelning" step="0.1" value="1.5" min="0" max="5"><span>1:x</span></div>
       <p class="notis">Under vegkroppen er løsmassen ikke noe å bygge på. Er den skrot eller
         myr, graves alt bort ned til fast fjell og rommet fylles tilbake – to volum, ikke ett.
         Ligger fjellet dypere enn grensen, stopper utskiftingen der, og rapporten sier hvor

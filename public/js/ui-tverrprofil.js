@@ -180,7 +180,15 @@ const Tverrprofil = {
       for (const [, z] of liste) if (isFinite(z)) { zMin = Math.min(zMin, z); zMax = Math.max(zMax, z); }
     }
     if (!isFinite(zMin)) { zMin = pr.vegnivaa - 2; zMax = pr.vegnivaa + 2; }
-    const tMin = pr.fotVenstre - 1.5, tMax = pr.fotHoyre + 1.5;
+    /* Bildet må dekke TRAUET også, ikke bare skråningen.
+       Området var foten pluss halvannen meter. Med skrå trauvegg går gropa
+       forbi foten – målt sto foten på 3,97 m mens trauet slutter på 6,45 – og
+       da ble det blå kappet ved kanten av lerretet i stedet for å slutte der
+       gravingen slutter. Man kunne ikke se hvor den endte, som er nettopp det
+       tallet man skal lese av. */
+    const tTrau = pr.utskiftingHalvbredde || 0;
+    const tMin = Math.min(pr.fotVenstre, -tTrau) - 1.5;
+    const tMax = Math.max(pr.fotHoyre, tTrau) + 1.5;
     const zSlakk = Math.max(0.35, (zMax - zMin) * 0.10);
     zMin -= zSlakk; zMax += zSlakk;
 
@@ -239,26 +247,7 @@ const Tverrprofil = {
     const trau = (pr.geometri.rensk && pr.geometri.rensk.length === terr.length)
       ? pr.geometri.rensk : terr;
 
-    /* DET SOM SKAL BORT: bandet mellom terrenget og trau-bunnen.
-       Hele bandet males svakt, og den delen som ligger inne mellom trauveggene
-       får utskiftingsfargen - det er den massen som skal skiftes ut fordi den
-       ikke er byggegrunn. Utenfor veggene er det vanlig avdekking, og den skal
-       ikke ha samme farge: en farge som betyr to ting betyr ingenting.
-
-       Males med fillRect inne i en klipping, ikke med fill() på en bane: etter
-       to klippinger finnes det ingen bane å fylle. */
     const tU = pr.utskiftingHalvbredde || 0;
-    if (trau !== terr) {
-      c.save();
-      bane(terr.concat(trau.slice().reverse()), true); c.clip();
-      c.fillStyle = Farger.rensk;
-      c.fillRect(m.v, m.o, B - m.h - m.v, H - m.u - m.o);
-      if (tU > 0) {
-        c.fillStyle = Farger.utskiftingFlate;
-        c.fillRect(px(-tU), m.o, Math.max(1, px(tU) - px(-tU)), H - m.u - m.o);
-      }
-      c.restore();
-    }
 
     /* Flaten mellom trau-bunnen og jordarbeidsflaten deles i to:
        ligger jordarbeidsflaten under trauet skal det graves (skjæring),
@@ -281,6 +270,32 @@ const Tverrprofil = {
     bane(fjellL.concat([[fjellL[fjellL.length - 1][0], zMin], [fjellL[0][0], zMin]]), true);
     c.fillStyle = Farger.fjellskravur(c); c.fill();
     c.restore();
+
+    /* DET SOM SKAL SKIFTES UT: bandet mellom terrenget og trau-bunnen.
+       Hele bandet males svakt, og den delen som ligger innenfor trauet får
+       utskiftingsfargen – det er massen som skal bort fordi den ikke er
+       byggegrunn. Utenfor er det vanlig avdekking, og den skal ikke ha samme
+       farge: en farge som betyr to ting betyr ingenting.
+
+       TEGNES SIST, OVER SKJÆRING OG FYLLING. Det er ikke pynt: inne i trauet er
+       det SAMME rommet både gravd ut og fylt igjen, og med fyllingen tegnet
+       oppå forsvant det blå nesten helt – man så en grønn grop og ikke at den
+       var skiftet ut. Nå ligger utskiftingsfargen over, og fyllingen skinner
+       gjennom under den, så begge deler leses.
+
+       Males med fillRect inne i en klipping, ikke med fill() på en bane: etter
+       to klippinger finnes det ingen bane å fylle. */
+    if (trau !== terr) {
+      c.save();
+      bane(terr.concat(trau.slice().reverse()), true); c.clip();
+      c.fillStyle = Farger.rensk;
+      c.fillRect(m.v, m.o, B - m.h - m.v, H - m.u - m.o);
+      if (tU > 0) {
+        c.fillStyle = Farger.utskiftingFlate;
+        c.fillRect(px(-tU), m.o, Math.max(1, px(tU) - px(-tU)), H - m.u - m.o);
+      }
+      c.restore();
+    }
 
     // fjelloverflate
     c.strokeStyle = Farger.fjell; c.lineWidth = 1.2; c.setLineDash([5, 4]);
