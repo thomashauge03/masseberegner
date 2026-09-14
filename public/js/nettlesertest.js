@@ -13,12 +13,32 @@
  */
 
 const Nettlesertest = {
-  ok: 0, feil: 0, linjer: [],
+  ok: 0, feil: 0, hopp: 0, linjer: [],
 
   sjekk(navn, sant, detalj) {
     if (sant) { this.ok++; this.linjer.push({ ok: true, navn }); }
     else { this.feil++; this.linjer.push({ ok: false, navn, detalj }); }
     return sant;
+  },
+
+  /**
+   * ET HOPP ER IKKE ET BESTÅTT.
+   *
+   * Fem prøver begynte med `this.sjekk('… – hopper over', true)`: et grønt hakk
+   * for å ha prøvd ingenting, og deretter `return`. De vokter hele
+   * prøvefunksjoner – autolagring, overskriving, tverrsnittavlesning,
+   * pdfrapport og linjeredigering. Slår vakten inn, står det «853 ok» på
+   * skjermen mens fem seksjoner aldri kjørte, og ingenting skiller de to.
+   *
+   * Det er den samme feilen som en prøve som ikke kan feile, bare på et nivå
+   * over: tallet lover dekning det ikke har. Hopp telles nå for seg og står i
+   * rapporten, så et hopp må ses og forklares i stedet for å gå i ett med
+   * resten.
+   */
+  hoppOver(navn, grunn) {
+    this.hopp++;
+    this.linjer.push({ ok: true, hopp: true, navn: '⤼ HOPPET OVER: ' + navn, detalj: grunn });
+    return false;
   },
   naer(navn, faktisk, ventet, slingring) {
     const d = Math.abs(faktisk - ventet);
@@ -77,7 +97,7 @@ const Nettlesertest = {
 
   async kjor() {
     const t0 = performance.now();
-    this.ok = 0; this.feil = 0; this.linjer = [];
+    this.ok = 0; this.feil = 0; this.hopp = 0; this.linjer = [];
     const feilILoggen = [];
     const gammelFeil = window.onerror;
     window.onerror = (m) => { feilILoggen.push(String(m)); };
@@ -113,7 +133,7 @@ const Nettlesertest = {
           som så ferdig ut. En prøve som henger er en feil, og skal meldes som
           en feil. Da stopper vi også resten: den hengende prøven kjører videre
           i bakgrunnen og ville rotet i prosjektet under dem som kom etter. */
-    const proever = ['modulene', 'lagring', 'tegneLinje', 'profilverktoy', 'hoyder',
+    const proever = ['hoppTellesForSeg', 'modulene', 'lagring', 'tegneLinje', 'profilverktoy', 'hoyder',
       'veiklasser', 'tverrprofil', 'grenser', 'eksport', 'linjeredigering',
       'autolagring', 'overskriving', 'tverrsnittAvlesning', 'pdfrapport',
       'pdfavlesning', 'rapport', 'paneler', 'flereAnlegg', 'tverrsnittEnsidig',
@@ -171,6 +191,40 @@ const Nettlesertest = {
   },
 
   /* ---------------- 1. modulene ---------------- */
+  /**
+   * ET HOPP TELLES IKKE SOM ET BESTÅTT.
+   *
+   * Fem prøver begynte med et grønt hakk for å ha prøvd ingenting – se
+   * `hoppOver`. Prøven her passer på at mekanismen som skiller de to faktisk
+   * gjør det: et hopp skal øke `hopp`, ikke `ok`, og det skal stå i rapporten.
+   * Uten denne kunne noen skrive `this.sjekk('hopper over', true)` igjen i
+   * morgen, og ingenting ville sagt fra.
+   */
+  async hoppTellesForSeg() {
+    const foer = { ok: this.ok, feil: this.feil, hopp: this.hopp, n: this.linjer.length };
+    this.hoppOver('en prøve som ikke kunne kjøre', 'grunnen står her');
+    const etter = { ok: this.ok, feil: this.feil, hopp: this.hopp, n: this.linjer.length };
+    /* Rydd bort prøvehoppet igjen – det skal ikke stå i rapporten som om noe
+       ekte ble hoppet over. Tellingen sjekkes på tallene over. */
+    this.linjer.pop();
+    this.hopp = foer.hopp;
+
+    this.sjekk('et hopp teller ikke som bestått', etter.ok === foer.ok,
+      `ok gikk fra ${foer.ok} til ${etter.ok}`);
+    this.sjekk('  og heller ikke som feil', etter.feil === foer.feil);
+    this.sjekk('  men det blir talt for seg', etter.hopp === foer.hopp + 1,
+      `hopp gikk fra ${foer.hopp} til ${etter.hopp}`);
+    this.sjekk('  og det står en linje om det, med grunn',
+      etter.n === foer.n + 1);
+    this.sjekk('  og rapporten bærer tallet videre',
+      Object.prototype.hasOwnProperty.call(this.rapporterProve(), 'hopp'));
+  },
+
+  /** Bare formen på rapporten – uten å tegne noe på skjermen. */
+  rapporterProve() {
+    return { ok: this.ok, feil: this.feil, hopp: this.hopp, tid: 0, feilende: [], hoppa: [] };
+  },
+
   async modulene() {
     for (const n of ['Geo', 'Linjeforing', 'Vertikalprofil', 'Terreng', 'Fjellmodell',
       'beregnMasser', 'Veiklasser', 'Lager', 'Farger', 'PdfImport', 'Kart', 'Lengdeprofil',
@@ -514,7 +568,7 @@ const Nettlesertest = {
   async linjeredigering() {
     const app = App;
     if (!app.linje || app.P.ip.length < 2) {
-      this.sjekk('ingen linje å redigere – hopper over', true);
+      this.hoppOver('linjeredigering', 'ingen linje å redigere');
       return;
     }
 
@@ -615,7 +669,7 @@ const Nettlesertest = {
      glemte a lagre. Og det var lett a glemme: bade «Apne» og «Ny» byttet
      prosjekt uten a spørre. */
   async autolagring() {
-    if (!App.P || App.P.ip.length < 2) { this.sjekk('ikke noe prosjekt å lagre – hopper over', true); return; }
+    if (!App.P || App.P.ip.length < 2) { this.hoppOver('autolagring', 'ikke noe prosjekt å lagre'); return; }
 
     /* Prøven star pa egne ben: den lagrer det som ligger der na under et eget
        navn, sa den ikke henger pa hva de foregaende prøvene gjorde. */
@@ -691,7 +745,7 @@ const Nettlesertest = {
 
   /* ---------------- ingenting skal skrives over i stillhet ---------------- */
   async overskriving() {
-    if (!App.P || !App.P.ip.length) { this.sjekk('ikke noe prosjekt – hopper over', true); return; }
+    if (!App.P || !App.P.ip.length) { this.hoppOver('overskriving', 'ikke noe prosjekt'); return; }
     const annet = 'Massekalk prøve annet';
     const gammeltFelt = document.getElementById('prosjektnavn').value;
     const gammeltAapnet = App._aapnetSom;
@@ -749,7 +803,7 @@ const Nettlesertest = {
      pa vegen og i skraningen, sa avlesningen kan prøves mot den. */
   async tverrsnittAvlesning() {
     const pr = Tverrprofil.profil;
-    if (!pr || !pr.geometri) { this.sjekk('ingen tverrsnitt å lese av – hopper over', true); return; }
+    if (!pr || !pr.geometri) { this.hoppOver('tverrsnittavlesning', 'ingen tverrsnitt å lese av'); return; }
     const g = pr.geometri, mal = App.P.mal;
 
     const paaVegen = Tverrprofil._helning(g.jord, pr.halvbredde * 0.5);
@@ -795,7 +849,7 @@ const Nettlesertest = {
      /Length ma stemme med det som faktisk star mellom stream og endstream.
      Bommer en av delene apner ingen leser fila. */
   async pdfrapport() {
-    if (!App.resultat) { this.sjekk('ingen beregning å lage PDF av – hopper over', true); return; }
+    if (!App.resultat) { this.hoppOver('pdfrapport', 'ingen beregning å lage PDF av'); return; }
     const bytes = await Pdfrapport.lag(false);
     this.sjekk('PDF-en ble laget', !!bytes && bytes.length > 2000, bytes ? bytes.length + ' byte' : 'ingen');
     if (!bytes) return;
@@ -6947,21 +7001,32 @@ const Nettlesertest = {
   rapporter(tid) {
     const linjer = this.linjer;
     const feilende = linjer.filter(l => !l.ok);
-    console.log(`%cNettlesertest: ${this.ok} ok, ${this.feil} feil (${tid} ms)`,
+    const hoppa = linjer.filter(l => l.hopp);
+    console.log(`%cNettlesertest: ${this.ok} ok, ${this.feil} feil` + (this.hopp ? `, ${this.hopp} HOPPET OVER` : '') + ` (${tid} ms)`,
       `font-weight:bold;color:${this.feil ? '#d81e28' : '#15803d'}`);
     feilende.forEach(l => console.log('%c  FEIL ' + l.navn + (l.detalj ? ' — ' + l.detalj : ''), 'color:#d81e28'));
 
     const boks = document.createElement('div');
     boks.className = 'testresultat';
-    boks.innerHTML = `<h3>${this.feil ? '⚠' : '✓'} ${this.ok} ok, ${this.feil} feil <small>${tid} ms</small></h3>`
+    /* ET HOPP SKAL STÅ I OVERSKRIFTEN, IKKE GJEMMES I EN LISTE.
+       «Alt virker» over fem seksjoner som aldri kjørte er ikke sant, og det er
+       nettopp den setningen man leser og går videre fra. */
+    boks.innerHTML = `<h3>${this.feil ? '⚠' : (this.hopp ? '⤼' : '✓')} ${this.ok} ok, ${this.feil} feil`
+      + (this.hopp ? `, ${this.hopp} hoppet over` : '')
+      + ` <small>${tid} ms</small></h3>`
       + (feilende.length
         ? '<ul>' + feilende.map(l => `<li>${l.navn}${l.detalj ? ' <small>' + l.detalj + '</small>' : ''}</li>`).join('') + '</ul>'
-        : '<p>Alt virker.</p>')
+        : (this.hopp ? '' : '<p>Alt virker.</p>'))
+      + (hoppa.length
+        ? '<ul>' + hoppa.map(l => `<li>${l.navn}${l.detalj ? ' <small>' + l.detalj + '</small>' : ''}</li>`).join('') + '</ul>'
+        : '')
       + '<button>Lukk</button>';
     boks.querySelector('button').onclick = () => boks.remove();
     document.body.appendChild(boks);
 
-    return { ok: this.ok, feil: this.feil, tid, feilende: feilende.map(l => l.navn + (l.detalj ? ' — ' + l.detalj : '')) };
+    return { ok: this.ok, feil: this.feil, hopp: this.hopp, tid,
+      feilende: feilende.map(l => l.navn + (l.detalj ? ' — ' + l.detalj : '')),
+      hoppa: hoppa.map(l => l.navn + (l.detalj ? ' — ' + l.detalj : '')) };
   }
 };
 

@@ -10,6 +10,18 @@ const gm = o => Object.assign({}, Tomt.StandardTomtemal, {matjordDybde:0,renskDy
   slitelagTykkelse:0,baerelagTykkelse:0,forsterkningslag:0,frostsikring:0,avrettingslag:0,
   overberg:0,maksSokebredde:60,maksSkjaeringsdybde:0,maksFyllingshoyde:0,maksVeggHoyde:0,
   minAvstandTilBerg:0}, o||{});
+/* VAKTER SOM FAKTISK KAN SLA.
+   Resten av fila er en DIAGNOSE - den maaler hvordan tall oppfoerer seg naar
+   rutenettet finere, og skriver dem ut til et menneske. Det er greit, og den
+   skal ikke gjoeres om til paastander: tallene ER unoeyaktige, og det er nettopp
+   det den viser.
+
+   Men enkelte av funnene er RETTET, og staar igjen som vakthold. De hadde sitt
+   eget pass/fail-kriterium og printet «ADVARSEL» i stedet for aa feile - og fila
+   hadde ingen process.exit, saa den avsluttet med 0 uansett hva den fant.
+   Det som legges i denne lista, gjoer at fila avslutter med 1. */
+const vakthold = [];
+
 const kjor = (p, kote, rute, mal, terreng, fjell) => T.beregnTomtemasser({
   tomt:{punkter:p,kanter:[],nivaa:{modus:'flat',kote}}, mal: mal||gm(),
   terreng: terreng||{z:()=>100}, fjell: fjell||new M.Fjellmodell({standarddybde:100}),
@@ -73,4 +85,20 @@ console.log('\nFUNN 6  Dypsprengningsmerknaden - RETTET, staar her som vakthold'
  const gyldige=tall.filter(Number.isFinite);
  const spenn=gyldige.length?Math.max(...gyldige)-Math.min(...gyldige):NaN;
  console.log(`  -> spenn ${Number.isFinite(spenn)?spenn.toFixed(1)+' m²':'-'}`
-   + (spenn===0?'  (staar stille, som det skal)':'  ADVARSEL: flytter seg med rutenettet'));}
+   + (spenn===0?'  (staar stille, som det skal)':'  ADVARSEL: flytter seg med rutenettet'));
+ /* DETTE ER EN VAKT, OG DA MA DEN KUNNE SLA.
+    Her sto bare utskriften over. Kontrollen regnet ut sitt eget pass/fail-
+    kriterium - `spenn === 0` - og PRINTET «ADVARSEL» i stedet for a feile.
+    Fila hadde ingen `process.exit`, sa den avsluttet med 0 uansett hva den
+    fant: en vakt som ikke kan sla, i en mappe som heter `test`.
+    Na settes flagget, og fila avslutter med 1 om vakten gar. */
+ if (!(spenn === 0)) { vakthold.push('FUNN 6: berg-merknaden flytter seg med rutenettet, spenn '
+   + (Number.isFinite(spenn)?spenn.toFixed(1)+' m²':'ingen tall')); }}
+
+if (vakthold.length) {
+  console.log('\nVAKTHOLD SLO UT:');
+  for (const v of vakthold) console.log('  FEIL ' + v);
+  process.exit(1);
+}
+console.log('\nVakthold: ingenting slo ut.');
+process.exit(0);
