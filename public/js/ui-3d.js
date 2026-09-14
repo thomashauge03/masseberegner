@@ -508,18 +508,28 @@ const Tegner3d = {
             + (a.type === 'tomt' ? 'ingen ferdig kote satt' : 'ingen høydeprofil ennå'));
         }
       }
-      /* TO RUNDER, IKKE ÉN.
-         Det første anlegget som regnes ser ikke naboene sine – de finnes ikke
-         ennå. Det siste ser alle. Etter én runde er tallene derfor avhengige av
-         rekkefølgen, og det er ikke et svar man kan gi fra seg. Andre runde
-         regner alle om igjen med alle de andre på plass, og da står de stille.
-         Ligger to anlegg OPPÅ hverandre, står de fortsatt ikke stille – og det
-         sies det fra om, se `App.overlappendeAnlegg`. */
-      /* ANLEGGET MAN STÅR I ER OGSÅ TERRENG FOR DE ANDRE.
-         Regelen er «alle de andre», og den gjelder begge veier. Uten dette
-         hadde naboene regnet mot lia der tomta man nettopp planerte ligger –
-         og bare den man sto i ville sett sannheten. Flaten hentes fra gitteret
-         som alt står ferdig, så det koster ingenting. */
+      /* ÉN RUNDE, I LISTEREKKEFØLGE.
+         Her sto to runder, og begrunnelsen var at «etter én runde er tallene
+         avhengige av rekkefølgen, og det er ikke et svar man kan gi fra seg».
+         Den andre runden regnet alle om igjen med alle de andre på plass, og da
+         sto tallene stille.
+
+         DET VAR NETTOPP DET SOM VAR GALT. «Alle de andre» er ingen rekkefølge,
+         det er en sirkel: A regnet mot en ferdig B samtidig som B regnet mot en
+         ferdig A, og der de overlapper trakk begge fra for den samme
+         utgravingen. Målt på to tomter med 15 × 30 m felles ble 640–890 m³
+         skjæring borte fra prisgrunnlaget – se `App._naboflater`.
+
+         Massen er nå bundet til rekkefølgen anleggene står i på lista: det
+         første møter rå mark, det andre møter det første ferdig. Da er én runde
+         i listerekkefølge ikke bare nok – to ville satt sirkelen tilbake i
+         modellen, så bildet viste noe annet enn Masser regner.
+         Ligger to anlegg OPPÅ hverandre, sies det fortsatt fra om det, se
+         `App.overlappendeAnlegg`. */
+      /* ANLEGGET MAN STÅR I ER OGSÅ TERRENG – FOR DEM SOM KOMMER ETTER DET.
+         Flaten legges i hurtiglageret her; `App._naboflater` avgjør hvem som
+         får se den, nemlig bare de anleggene som står bak dette på lista.
+         Flaten hentes fra gitteret som alt står ferdig, så det koster ingenting. */
       {
         const eierA = app.erTomt() ? Tomt3d : Veg3d;
         /* VINDUET MÅ AV HER OGSÅ.
@@ -545,7 +555,7 @@ const Tegner3d = {
           }
         } finally { eierA.vindu = foerVinduA; eierA._gitterFor = null; }
       }
-      const runder = liste.length > 1 ? 2 : 1;
+      const runder = 1;                  // se begrunnelsen over
       let i = 0;
       const totalt = liste.length * runder;
       for (let runde = 0; runde < runder; runde++) {

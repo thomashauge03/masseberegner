@@ -102,7 +102,8 @@ const Nettlesertest = {
       'veiklasser', 'tverrprofil', 'grenser', 'eksport', 'linjeredigering',
       'autolagring', 'overskriving', 'tverrsnittAvlesning', 'pdfrapport',
       'pdfavlesning', 'rapport', 'paneler', 'flereAnlegg', 'tverrsnittEnsidig',
-      'snuplassBlirSynlig', 'naboOverlapping', 'grensesnittbredder', 'panelhoder',
+      'snuplassBlirSynlig', 'naboOverlapping', 'anleggsrekkefolge',
+      'grensesnittbredder', 'panelhoder',
       'tomt', 'tomteksport', 'tomterydding', 'tomt3d', 'veg3d', 'kartlag',
       'lovlighet', 'framdrift', 'gamleFilerOgUtskifting', 'opprydding'];
     for (const navn of proever) {
@@ -1434,6 +1435,117 @@ const Nettlesertest = {
     }
   },
 
+  /**
+   * REKKEFØLGE ER ET VALG – IKKE NOE SOM FORSVINNER.
+   *
+   * Naboflatene sto på «alle de andre», og det er ikke en rekkefølge, det er en
+   * sirkel: A ble regnet mot en verden der B var ferdig, og B mot en verden der
+   * A var ferdig. Der de overlapper trakk begge fra for den samme utgravingen –
+   * og da er det ingen som graver den. Målt på to tomter med 15 × 30 m felles:
+   *
+   *     summert slik det sto      5 805 m³ skjæring
+   *     bygger du A og så B       6 695 m³
+   *     bygger du B og så A       6 445 m³
+   *
+   * 640–890 m³ manglet i prisgrunnlaget, og de to riktige svarene var borte
+   * begge to. Prøven her er skrevet så den ikke KAN gå hvis sirkelen kommer
+   * tilbake: den krever at det første anlegget koster nøyaktig det samme som
+   * det gjør helt alene, og at de to rekkefølgene gir ULIKE summer.
+   *
+   * Fasiten er ikke et tall skrevet av her. Den regnes i prøven ved å sette opp
+   * hver tomt alene i sitt eget prosjekt – altså med en annen vei gjennom koden
+   * enn den som prøves.
+   */
+  async anleggsrekkefolge() {
+    const app = App;
+    const foer = JSON.stringify(app.P);
+    const gz = Terreng.prototype.z, gd = Terreng.prototype.dekning, gl = Terreng.prototype.lastOmraade;
+    try {
+      const x0 = 430000, y0 = 6460000;
+      // skrått terreng, ellers er det ingenting å grave og prøven måler intet
+      Terreng.prototype.z = function (x, y) { return 100 - (y - y0) * 0.12; };
+      Terreng.prototype.dekning = function () { return 1; };
+      Terreng.prototype.lastOmraade = async function () { return true; };
+
+      const rute = (xa, xb) => [[xa, 0], [xb, 0], [xb, 30], [xa, 30]].map(([dx, dy]) => {
+        const ll = Geo.fraUtm(x0 + dx, y0 + dy, app.sone);
+        return { lat: ll.lat, lon: ll.lon };
+      });
+      const lagTomt = (id, navn, xa, xb, kote) => ({ id, type: 'tomt', navn, ip: [], vip: [],
+        tverrfall: [], plasser: [],
+        mal: Object.assign({}, Tomt.StandardTomtemal, { utskifting: false }),
+        tomt: Object.assign(Tomt.nyTomt(), { punkter: rute(xa, xb), kanter: [],
+          nivaa: { modus: 'flat', kote } }) });
+      // A og B deler feltet x 25–40. Ulike koter, ellers merkes rekkefølgen ikke.
+      const A = () => lagTomt('tA', 'Tomt A', 0, 40, 97);
+      const B = () => lagTomt('tB', 'Tomt B', 25, 65, 95);
+
+      const regn = async (anlegg, aktivt) => {
+        app.P.anlegg = anlegg;
+        app.P.aktivt = aktivt;
+        app.klargjorProsjekt(app.P);
+        app._ferdigflater = null;
+        app._terrengnokkel = '';
+        await app.beregnTomt();
+        const s = app.resultat && app.resultat.sum;
+        return s ? s.skjaering : null;
+      };
+
+      // fasit: det hver tomt koster HELT ALENE er det den koster som den første
+      const aAlene = await regn([A()], 'tA');
+      const bAlene = await regn([B()], 'tB');
+      this.sjekk('begge tomtene har noe å grave i det hele tatt',
+        aAlene > 500 && bAlene > 500,
+        `A ${(aAlene || 0).toFixed(0)}, B ${(bAlene || 0).toFixed(0)} m³`);
+      if (!(aAlene > 500 && bAlene > 500)) return;
+
+      const aFoerst = { a: await regn([A(), B()], 'tA'), b: await regn([A(), B()], 'tB') };
+      const bFoerst = { b: await regn([B(), A()], 'tB'), a: await regn([B(), A()], 'tA') };
+
+      /* Den som står først møter rå mark. DETTE ER PRØVENS KJERNE: med den
+         gamle sirkelen så A naboen sin også når den var først, og tallet var
+         889 m³ for lavt. */
+      this.naer('den første i lista møter rå mark, ikke naboen sin',
+        aFoerst.a, aAlene, 1);
+      this.naer('  og det gjelder uansett hvem som står først',
+        bFoerst.b, bAlene, 1);
+
+      // den andre møter den første ferdig, og skal da ha MINDRE igjen å grave
+      this.sjekk('den andre møter den første ferdig',
+        aFoerst.b < bAlene - 100,
+        `${(aFoerst.b || 0).toFixed(0)} mot ${(bAlene || 0).toFixed(0)} m³ alene`);
+      this.sjekk('  og motsatt vei',
+        bFoerst.a < aAlene - 100,
+        `${(bFoerst.a || 0).toFixed(0)} mot ${(aAlene || 0).toFixed(0)} m³ alene`);
+
+      /* To rekkefølger, to svar. Med sirkelen var de to summene NØYAKTIG like,
+         fordi ingen av dem var en rekkefølge i det hele tatt. */
+      const sumA = aFoerst.a + aFoerst.b, sumB = bFoerst.a + bFoerst.b;
+      this.sjekk('rekkefølgen endrer summen – den er et valg man tar',
+        Math.abs(sumA - sumB) > 50,
+        `${sumA.toFixed(0)} mot ${sumB.toFixed(0)} m³`);
+
+      /* Og ingen kubikk får forsvinne: uansett rekkefølge må summen være minst
+         så stor som den dyreste tomta alene. Sirkelen ga 5 805 m³ der den
+         billigste riktige rekkefølgen ga 6 445. */
+      const dyrast = Math.max(aAlene, bAlene);
+      this.sjekk('ingen kubikk forsvinner mellom to anlegg',
+        Math.min(sumA, sumB) >= dyrast - 1,
+        `minste sum ${Math.min(sumA, sumB).toFixed(0)} mot ${dyrast.toFixed(0)} m³ for den dyreste alene`);
+    } catch (e) {
+      this.sjekk('rekkefølgeprøven kom seg gjennom', false,
+        e.message + ' — ' + (e.stack || '').split('\n')[1]);
+    } finally {
+      Terreng.prototype.z = gz; Terreng.prototype.dekning = gd; Terreng.prototype.lastOmraade = gl;
+      app.P = JSON.parse(foer);
+      app.klargjorProsjekt(app.P);
+      app._ferdigflater = null;
+      app.resultat = null;
+      app._terrengnokkel = null;
+      app.visAnleggsvelger();
+    }
+  },
+
   async flereAnlegg() {
     const foer = JSON.stringify(App.P);
     const gz = Terreng.prototype.z, gd = Terreng.prototype.dekning, gl = Terreng.prototype.lastOmraade;
@@ -2565,9 +2677,24 @@ const Nettlesertest = {
                  ble regnet ferdig.
                  ================================================================ */
               {
+                /* REKKEFØLGEN BESTEMMER HVEM SOM ER TERRENG FOR HVEM.
+                   Et anlegg graver fra dem som står FORAN det på lista – se
+                   `App._naboflater`. Bolken her prøver nettopp at naboflatene
+                   virker, og må derfor stå i et anlegg som HAR noen foran seg.
+                   Sto prøven i det FØRSTE anlegget, ville svaret vært rå mark –
+                   og det er riktig svar, det er bare ikke det som prøves her. */
+                if (App.P.anlegg.length > 1 && !App._bygdFoer().length) {
+                  const sist = App.P.anlegg[App.P.anlegg.length - 1].id;
+                  App.byttAnlegg(sist);
+                  try { await Rapport.ventPaaResultat(20000, sist); }
+                  catch (e) { /* statuslinja sier fra */ }
+                }
                 const f = App._ferdigflater;
                 this.sjekk('  hvert regnet anlegg gir en ferdig flate til de andre',
                   !!f && f.size > 0, f ? f.size + ' flater' : 'ingen');
+                this.sjekk('  og prøven står i et anlegg som har noen foran seg',
+                  App.P.anlegg.length < 2 || App._bygdFoer().length > 0,
+                  App._bygdFoer().map(a => a.navn || a.type).join(', ') || 'ingen foran');
 
                 /* ================================================================
                    EN FLATE SOM IKKE GJELDER LENGER ER IKKE TERRENG
@@ -2579,7 +2706,13 @@ const Nettlesertest = {
                    fortsatte å være bakken de andre gravde fra.
                    ================================================================ */
                 if (f && f.size > 1) {
-                  const idA = [...f.keys()].find(k => k !== App.P.aktivt);
+                  /* Flaten må høre til et anlegg som står FORAN det aktive –
+                     bare de er terreng for det. Plukket prøven en hvilken som
+                     helst flate fra hurtiglageret, kunne den treffe et anlegg
+                     som står bak, og da er «flaten overstyrer bakken» usant
+                     uten at noe er galt. */
+                  const foran = new Set(App._bygdFoer().map(a => a.id));
+                  const idA = [...f.keys()].find(k => k !== App.P.aktivt && foran.has(k));
                   const anlA = App.P.anlegg.find(x => x.id === idA);
                   const flA = f.get(idA);
                   this.sjekk('  hver ferdig flate bærer nøkkelen til anlegget den kom fra',

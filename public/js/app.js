@@ -693,16 +693,60 @@ const App = {
     return this.ferdigflateAv({ wx, wy, zEtter: z, finnes, harGrav, nb, nh }, 1);
   },
 
-  /** Naboenes ferdige flater, bygget om nødvendig og hurtiglagret. */
+  /**
+   * Anleggene som er BYGGET FØR dette – de eneste som har rørt bakken ennå.
+   *
+   * Rekkefølgen er den anleggene står i på lista. Det er den samme rekkefølgen
+   * man ser i anleggsvelgeren, og den man kan endre.
+   */
+  _bygdFoer(id) {
+    const liste = (this.P && Array.isArray(this.P.anlegg)) ? this.P.anlegg : [];
+    const meg = id != null ? id : (this.P && this.P.aktivt);
+    const i = liste.findIndex(a => a.id === meg);
+    return i <= 0 ? [] : liste.slice(0, i);
+  },
+
+  /**
+   * Ferdige flater fra anleggene som er bygget FØR dette.
+   *
+   * HER STO «ALLE DE ANDRE», OG DET ER IKKE EN REKKEFØLGE – DET ER EN SIRKEL.
+   * A ble regnet mot en verden der B var ferdig, og B mot en verden der A var
+   * ferdig. Der de overlapper trakk begge fra for den samme utgravingen, og da
+   * er det ingen som graver den. Kubikken ble ikke talt to ganger, den forsvant.
+   *
+   * Målt på to tomter med 15 × 30 m felles felt, A på kote 97 og B på kote 95:
+   *
+   *     Tomt A alene           2 329 m³ skjæring
+   *     Tomt A med B ved siden 1 440        – 890 fordi «B har alt gravd det»
+   *     Tomt B alene           5 005
+   *     Tomt B med A ved siden 4 366        – 639 fordi «A har alt gravd det»
+   *
+   *     slik det ble summert   5 805 m³
+   *     bygger du A og så B    6 695 m³
+   *     bygger du B og så A    6 445 m³
+   *
+   * 640–890 m³ skjæring manglet i prisgrunnlaget, og hvilken av de to riktige
+   * summene som gjelder er ikke et regnestykke – det er et valg om hva man
+   * graver først. Derfor ser hvert anlegg nå bare dem som står FORAN det på
+   * lista: det første møter rå mark, det andre møter det første ferdig. Den
+   * felles massen hører til den som tar den først, og rekkefølgen er noe man
+   * bestemmer i stedet for noe som forsvinner.
+   *
+   * Selve FLATEN til en nabo er fremdeles regnet mot rå bakke – se
+   * `ferdigflateForTomt`. Et ferdig planum ligger der det er prosjektert
+   * uansett hva som lå under. Det som avhenger av rekkefølgen, er hvor mye
+   * masse som må flyttes for å komme dit, og det er nettopp det som rettes her.
+   */
   _naboflater() {
-    const f = this._ryddFerdigflater() || new Map();
+    const bufret = this._ryddFerdigflater() || new Map();
+    const f = new Map();
     if (!this.P || !Array.isArray(this.P.anlegg)) return f;
     const T = (typeof Tegner3d !== 'undefined') ? Tegner3d : null;
-    for (const a of this.P.anlegg) {
-      if (a.id === this.P.aktivt || f.has(a.id)) continue;
+    for (const a of this._bygdFoer()) {
       /* Bygges ÉN gang per tilstand. `prosjektterreng` kalles inne i
          massebalansens halveringssøk – uten hurtiglageret ville hele naboen
          blitt regnet om for hver eneste prøvekote. */
+      if (bufret.has(a.id)) { f.set(a.id, bufret.get(a.id)); continue; }
       const flate = a.type === 'tomt' ? this.ferdigflateForTomt(a) : this.ferdigflateForVeg(a);
       if (!flate) continue;
       if (T && T._fullnokkel) flate.nokkel = T._fullnokkel(a);
@@ -714,15 +758,21 @@ const App = {
   },
 
   /**
-   * Hvor mye av tomta naboen allerede har tatt.
+   * Hvor mye av tomta de som bygges FØR denne allerede har tatt.
    *
-   * Tomta regnes mot terrenget slik naboanleggene gjør det ferdig – det er
-   * derfor den samme kubikken ikke blir talt to ganger. Men da forsvinner den
-   * også ut av synet: tallet blir bare mindre, uten at noe sier hvor mye eller
-   * hvorfor. Her regnes tomta ÉN gang til mot rå bakke, og forskjellen er
-   * nettopp den massen naboen tar. Målt på to tomter som dekker hverandre til
-   * halvparten: 7 176 m³ alene, 3 904 med naboen – 3 272 m³ som før ble talt
-   * to ganger.
+   * Tomta regnes mot terrenget slik anleggene foran den på lista gjør det
+   * ferdig – det er derfor den samme kubikken ikke blir talt to ganger. Men da
+   * forsvinner den også ut av synet: tallet blir bare mindre, uten at noe sier
+   * hvor mye eller hvorfor. Her regnes tomta ÉN gang til mot rå bakke, og
+   * forskjellen er nettopp den massen de foran tar. Målt på to tomter som
+   * dekker hverandre til halvparten: 7 176 m³ alene, 3 904 med naboen –
+   * 3 272 m³ som før ble talt to ganger.
+   *
+   * MERK HVA TALLET BETYR ETTER AT REKKEFØLGEN BLE INNFØRT: det er ikke lenger
+   * «det naboen tar uansett», men «det den foran meg tar fordi den bygges
+   * først». Snur man rekkefølgen, flytter massen seg til det andre anlegget.
+   * Den er ikke borte fra prosjektet, den står bare et annet sted – se
+   * `_naboflater`.
    *
    * Regnes bare når en nabo faktisk overlapper. Ellers er svaret null, og en
    * hel ekstra beregning for å komme fram til det ville vært sløsing.
@@ -797,15 +847,32 @@ const App = {
    */
   naboMerknad(res) {
     if (!res || !Array.isArray(res.merknader)) return;
-    const f = this._ryddFerdigflater();
-    if (!f || !f.size) return;
+    /* MERKNADEN MÅ NAVNGI DE SAMME ANLEGGENE SOM REGNESTYKKET BRUKTE.
+       Her sto `_ryddFerdigflater()`, altså hurtiglageret. Det holder på flater
+       fra anlegg man har vært innom før, også dem som står BAK dette på lista
+       og derfor ikke er med i beregningen i det hele tatt. Merknaden ville da
+       fortelle at tallene sto mot et anlegg de ikke sto mot. `_naboflater()`
+       er lista over dem som faktisk ble brukt – se `_bygdFoer`. */
+    const f = this._naboflater() || new Map();
     const navn = [];
     for (const [id] of f) {
-      if (id === this.P.aktivt) continue;
       const a = this.P.anlegg.find(x => x.id === id);
       if (a) navn.push(a.navn || a.type);
     }
-    if (!navn.length) return;
+    /* «UBYGGELIG» HENGER IKKE PÅ REKKEFØLGEN – DEN KOMMER LENGER NEDE.
+       Her sto `return` når det ikke fantes noen naboflate å regne mot. Det gikk
+       bra så lenge regelen var «alle de andre», for da fantes det alltid en så
+       snart det var to anlegg. Med rekkefølgen har det FØRSTE anlegget ingen
+       foran seg – og da forsvant også varselet om at to anlegg ligger oppå
+       hverandre, som handler om at det ikke lar seg bygge og ikke om hvem som
+       graver fra hvem. Derfor: bare selve merknaden om hva tallene står mot
+       henger på `navn`, resten av rutinen kjører uansett. */
+    if (navn.length) this._naboTekst(res, navn);
+    this._ubyggeligMerknad(res);
+  },
+
+  /** Merknaden om hva tallene står mot – bare når noe faktisk står foran. */
+  _naboTekst(res, navn) {
     /* MED TALL, IKKE BARE ET FORBEHOLD.
        «Regnet mot naboens ferdige flate» sier at tallet er noe annet enn man
        tror, men ikke hvor mye. Overlappen er den massen naboen tar – den som
@@ -814,22 +881,36 @@ const App = {
     const kubikk = v => Rapport.tall(v, 0) + ' m³';
     res.merknader.push({ type: 'naboanlegg',
       tekst: 'Regnet mot terrenget slik ' + navn.join(' og ') + ' gjør det ferdig – '
-        + 'ikke mot dagens mark. Der de har planert eller fylt, er det den nye '
-        + 'flaten det graves fra.'
+        + 'ikke mot dagens mark. ' + (navn.length === 1 ? 'Det anlegget står' : 'De anleggene står')
+        + ' foran dette i listen og bygges først, så der '
+        + (navn.length === 1 ? 'det' : 'de') + ' har planert eller fylt, er det den nye '
+        + 'flaten det graves fra. Endrer du rekkefølgen, endrer tallene seg.'
         + (tok && tok.noe
           ? ' Overlapping: ' + [
             tok.skjaering > 0.5 ? kubikk(tok.skjaering) + ' skjæring' : null,
             tok.fylling > 0.5 ? kubikk(tok.fylling) + ' fylling' : null,
             tok.rensk > 0.5 ? kubikk(tok.rensk) + ' rensk' : null
           ].filter(Boolean).join(', ')
-            + ' er allerede tatt av naboanlegget og står ikke i tallene her. '
-            + 'Uten det ville den samme massen ligget på begge.'
+            + ' er tatt av det som bygges før, og står derfor ikke i tallene her. '
+            + 'Massen er ikke borte – den ligger på det anlegget som tar den først.'
           : '') });
-    /* TO ANLEGG PÅ SAMME BAKKE ER ENTEN ET MØTE ELLER EN BEGRAVELSE.
-       «De dekker den samme bakken» er sant og nesten ubrukelig – det sier ikke
-       om de møtes pent i en kant eller om det ene er borte inne i det andre.
-       Med høydeforskjellen målt blir det ett spørsmål man kan svare på, og det
-       er den forskjellen som avgjør om anlegget lar seg bygge. */
+  },
+
+  /**
+   * TO ANLEGG PÅ SAMME BAKKE ER ENTEN ET MØTE ELLER EN BEGRAVELSE.
+   *
+   * «De dekker den samme bakken» er sant og nesten ubrukelig – det sier ikke
+   * om de møtes pent i en kant eller om det ene er borte inne i det andre.
+   * Med høydeforskjellen målt blir det ett spørsmål man kan svare på, og det
+   * er den forskjellen som avgjør om anlegget lar seg bygge.
+   *
+   * Dette gjelder UAVHENGIG av rekkefølgen anleggene regnes i: at det ene
+   * ligger åtte meter nede i det andre er like sant om man bygger det først
+   * eller sist. Derfor står den for seg, utenfor merknaden om hva tallene er
+   * regnet mot – se `naboMerknad`.
+   */
+  _ubyggeligMerknad(res) {
+    if (!res || !Array.isArray(res.merknader)) return;
     const HALV_METER = 0.5;
     for (const o of this.overlappendeAnlegg()) {
       const dyp = Math.abs(o.verst);
