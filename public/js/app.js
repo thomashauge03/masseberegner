@@ -1235,11 +1235,26 @@ const App = {
     if (nytt == null) return;
     const rent = String(nytt).trim().slice(0, 40);
     if (!rent) return;
+    /* TO ANLEGG KAN IKKE HETE DET SAMME.
+       Navnet er identiteten i merknadene, i kartet og på lappen i 3D. Med to
+       anlegg som het «Tomt» sa programmet «Tomt og Tomt møtes på den samme
+       bakken» – en setning ingen kan handle på – og lappene i modellen pekte
+       på hvert sitt volum med samme tekst. Her legges det på et tall i stedet
+       for å nekte: den som skriver navnet vil ha DET navnet, og et program som
+       stopper deg er verre enn ett som teller. */
+    let endelig = rent;
+    if (this.P.anlegg.some(x => x !== a && (x.navn || x.type) === endelig)) {
+      let n = 2;
+      while (this.P.anlegg.some(x => x !== a && (x.navn || x.type) === rent + ' ' + n)) n++;
+      endelig = rent + ' ' + n;
+    }
     this.merk('nytt anleggsnavn');
-    a.navn = rent;
+    a.navn = endelig;
     this.visAnleggsvelger();
     this.tegnAlt();
-    this.status('Anlegget heter nå «' + rent + '»');
+    this.status(endelig === rent
+      ? 'Anlegget heter nå «' + endelig + '»'
+      : 'Anlegget heter nå «' + endelig + '» – «' + rent + '» var opptatt');
   },
 
   /**

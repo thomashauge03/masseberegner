@@ -2378,6 +2378,55 @@ const Tegner3d = {
     k.textBaseline = 'alphabetic';
   },
 
+  /**
+   * LAPPEN PÅ DET MAN SELV ARBEIDER MED.
+   *
+   * Her var det bare NABOENE som ble merket. Med to tomter i bildet sto det
+   * altså ett navn på skjermen, og det navnet pekte på det man IKKE holdt på
+   * med – mens knappen oppe samtidig sa «Tomt 2». For å lese bildet måtte man
+   * kunne regelen «lappen er ikke min», og det er ingen regel noen skal måtte
+   * kunne. Det aktive anlegget får derfor sin egen lapp, i sin egen farge, med
+   * samme merke som anleggsvelgeren og kartet bruker.
+   *
+   * Bare når prosjektet har mer enn ett anlegg. Med ett anlegg er lappen bare
+   * støy midt i bildet – det er ingen tvil om hva man ser på da.
+   */
+  _merkMitt(k, g, kam, b, h) {
+    const app = this.app || App;
+    if (!g || !kam || !app || !app.P || !Array.isArray(app.P.anlegg)) return;
+    if (app.P.anlegg.length < 2) return;
+    const a = app.anlegg();
+    if (!a) return;
+    const naer = kam.naer || 1e-6;
+    const m = g.merke || { x: g.midtX, y: g.midtY, z: g.hoy };
+    if (!Number.isFinite(m.x) || !Number.isFinite(m.y) || !Number.isFinite(m.z)) return;
+    const q = kam.punkt(m.x, m.y, m.z);
+    if (!(q.w > naer)) return;
+    const x = q.px * b / this._sisteRb;
+    const yFlate = q.py * h / this._sisteRh;
+    const y = yFlate - 16;
+    if (!(x > -40 && x < b + 40 && y > -20 && y < h + 20)) return;
+    const merke = (typeof app.anleggsmerke === 'function') ? app.anleggsmerke(a) + ' ' : '';
+    const tekst = merke + (a.navn || a.type);
+    k.save();
+    k.font = '700 11px system-ui, sans-serif';
+    k.textAlign = 'center';
+    k.textBaseline = 'middle';
+    const br = k.measureText(tekst).width + 12;
+    k.strokeStyle = Farger.veg;
+    k.lineWidth = 1;
+    k.beginPath(); k.moveTo(x, y + 9); k.lineTo(x, yFlate); k.stroke();
+    k.fillStyle = Farger.flate;
+    k.globalAlpha = 0.9;
+    k.fillRect(x - br / 2, y - 9, br, 18);
+    k.globalAlpha = 1;
+    k.lineWidth = 1.6;
+    k.strokeRect(x - br / 2, y - 9, br, 18);
+    k.fillStyle = Farger.veg;
+    k.fillText(tekst, x, y + 1);
+    k.restore();
+  },
+
   /** Har visningen noe å bygge et gitter av? Overskrives av hver visning. */
   _harData(res) { return !!(res && res.rutenett && res.rutenett.length); },
 
@@ -2410,6 +2459,7 @@ const Tegner3d = {
     };
     this._strekOppsett(kam, b, h);
     this._merkBakgrunn(k, kam, b, h);
+    this._merkMitt(k, g, kam, b, h);
 
     /* Strekene og tallene som hører til NETTOPP denne visningen – tomtegrense
        og skråningsfot for tomta, vegkanter og stasjonsmerker for vegen.

@@ -102,7 +102,7 @@ const Nettlesertest = {
       'veiklasser', 'tverrprofil', 'grenser', 'eksport', 'linjeredigering',
       'autolagring', 'overskriving', 'tverrsnittAvlesning', 'pdfrapport',
       'pdfavlesning', 'rapport', 'paneler', 'flereAnlegg', 'tverrsnittEnsidig',
-      'snuplassBlirSynlig', 'naboOverlapping', 'anleggsrekkefolge',
+      'snuplassBlirSynlig', 'naboOverlapping', 'anleggsrekkefolge', 'anleggsmerking',
       'grensesnittbredder', 'panelhoder',
       'tomt', 'tomteksport', 'tomterydding', 'tomtsnittOverbygning',
       'tomt3d', 'veg3d', 'kartlag',
@@ -1581,6 +1581,63 @@ const Nettlesertest = {
       app.resultat = null;
       app._terrengnokkel = null;
       app.visAnleggsvelger();
+    }
+  },
+
+  /**
+   * «NÅR VI HAR 2 TOMTER MÅ D SYNES BEDRE.»
+   *
+   * I 3D ble bare NABOENE merket med navn. Med to tomter i bildet sto det
+   * altså ett navn på skjermen, og det navnet pekte på det man IKKE holdt på
+   * med – mens anleggsvelgeren samtidig sa «Tomt 2». For å lese bildet måtte
+   * man kunne regelen «lappen er ikke min».
+   *
+   * Prøven bruker et stub-kamera. Den prøver AVGJØRELSEN – blir lappen tegnet,
+   * og hva står det på den – ikke projeksjonsmatematikken, som er den samme
+   * som naboenes lapper og dekket av dem.
+   */
+  async anleggsmerking() {
+    const T = (typeof Tegner3d !== 'undefined') ? Tegner3d : null;
+    this.sjekk('3D-tegneren finnes', !!T && typeof T._merkMitt === 'function');
+    if (!T || typeof T._merkMitt !== 'function') return;
+    const foer = App.P.anlegg.slice();
+    const foerRb = T._sisteRb, foerRh = T._sisteRh;
+    try {
+      const lerret = document.createElement('canvas');
+      lerret.width = 800; lerret.height = 600;
+      const k = lerret.getContext('2d');
+      const fanga = [];
+      const gt = k.fillText.bind(k);
+      k.fillText = function (t, x, y) { fanga.push(String(t)); return gt(t, x, y); };
+      const kam = { naer: 0.001, punkt: () => ({ px: 400, py: 300, w: 10 }) };
+      const g = { midtX: 0, midtY: 0, hoy: 100 };
+      T._sisteRb = 800; T._sisteRh = 600;
+
+      /* Med ETT anlegg er lappen bare støy midt i bildet. */
+      T._merkMitt(k, g, kam, 800, 600);
+      this.sjekk('med ett anlegg står det ingen lapp i veien', fanga.length === 0,
+        fanga.join(', '));
+
+      App.P.anlegg = foer.slice();
+      App.P.anlegg.push({ id: '__merke2', type: 'tomt', navn: 'Nedre tomt',
+        ip: [], vip: [], tverrfall: [], plasser: [], mal: {}, tomt: { punkter: [] } });
+      fanga.length = 0;
+      T._merkMitt(k, g, kam, 800, 600);
+      const mitt = App.anlegg();
+      this.sjekk('med to anlegg får det man arbeider med sin egen lapp',
+        fanga.length === 1, fanga.join(', ') || 'ingen lapp');
+      this.sjekk('  og den bærer navnet på anlegget man står i',
+        fanga.some(t => t.indexOf(mitt.navn || mitt.type) >= 0),
+        `«${fanga.join(', ')}» mot «${mitt.navn || mitt.type}»`);
+      this.sjekk('  og samme merke som anleggsvelgeren bruker',
+        fanga.some(t => t.indexOf(App.anleggsmerke(mitt)) === 0),
+        App.anleggsmerke(mitt) + ' — ' + fanga.join(', '));
+    } catch (e) {
+      this.sjekk('anleggsmerkingen kom seg gjennom', false,
+        e.message + ' — ' + (e.stack || '').split('\n')[1]);
+    } finally {
+      App.P.anlegg = foer;
+      T._sisteRb = foerRb; T._sisteRh = foerRh;
     }
   },
 
@@ -4000,6 +4057,33 @@ const Nettlesertest = {
       this.sjekk('terrenget tegnes sist, så det aldri blir dekket',
         lange.length > 0 && lange[lange.length - 1].farge === Farger.terreng,
         lange.map(t => t.farge).join(', '));
+
+      /* TO ANLEGG KAN IKKE HETE DET SAMME.
+         Navnet er identiteten i merknadene, i kartet og på lappen i 3D. Med to
+         som het «Tomt» sa programmet «Tomt og Tomt møtes på den samme bakken»
+         – en setning ingen kan handle på. */
+      {
+        const gmlPrompt = window.prompt;
+        const gmlNavn = app.P.anlegg[0].navn;
+        const nabo = { id: 'tnabo', type: 'tomt', navn: 'Naboen', ip: [], vip: [],
+          tverrfall: [], plasser: [], mal: Object.assign({}, Tomt.StandardTomtemal),
+          tomt: Object.assign(Tomt.nyTomt(), { punkter: [], kanter: [],
+            nivaa: { modus: 'flat', kote: 97 } }) };
+        app.P.anlegg.push(nabo);
+        try {
+          window.prompt = () => 'Naboen';
+          app.dopAnlegg('tsnitt');
+          this.sjekk('to anlegg kan ikke hete det samme',
+            app.P.anlegg[0].navn !== nabo.navn,
+            `${app.P.anlegg[0].navn} mot ${nabo.navn}`);
+          this.sjekk('  og det nye navnet er til å kjenne igjen',
+            /^Naboen/.test(app.P.anlegg[0].navn), app.P.anlegg[0].navn);
+        } finally {
+          window.prompt = gmlPrompt;
+          app.P.anlegg = app.P.anlegg.filter(x => x.id !== 'tnabo');
+          app.P.anlegg[0].navn = gmlNavn;
+        }
+      }
 
       /* EN GROP SKAL IKKE SE UT SOM EN OPPFYLLING.
          Slås masseutskifting på, males hele tomta grønn, fordi cellefeltet `d`
