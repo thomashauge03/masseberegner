@@ -511,11 +511,148 @@ const App = {
     return f;
   },
 
+  /**
+   * Den ferdige flaten til en TOMT, regnet uten å gå veien om 3D.
+   *
+   * DETTE MÅ IKKE HENGE PÅ HVILKE PANELER MAN HAR ÅPNET.
+   * `_ferdigflater` ble bare fylt fra 3D-modellen, av «alle anlegg»-laget. Da
+   * regnet tomt 2 fra den bakken som lå der FØR tomt 1 ble gravd – med mindre
+   * man tilfeldigvis hadde vært innom 3D først. Målt på to tomter som dekker
+   * hverandre til halvparten: 7 176 m³ skjæring på tomt 2 enten tomt 1 fantes
+   * eller ikke, altså den samme massen talt to ganger. Og verre enn tallet:
+   * svaret var avhengig av hva man hadde klikket på.
+   *
+   * Flaten bygges nå av tomtas eget rutenett, som beregningen uansett lager.
+   *
+   * REGNET MOT RÅ BAKKE, ikke mot prosjektterrenget. Ellers ville A spurt om B
+   * som spør om A. Naboens ferdige flate er dessuten en egenskap ved naboen,
+   * ikke ved rekkefølgen de tilfeldigvis ble regnet i.
+   */
+  ferdigflateForTomt(a) {
+    if (!a || a.type !== 'tomt' || !a.tomt || (a.tomt.punkter || []).length < 3) return null;
+    const grunn = this.terreng;
+    if (!grunn) return null;
+    let r;
+    try {
+      r = Tomtmasser.beregnTomtemasser({
+        tomt: { punkter: this.tomtIUtm(a.tomt), kanter: a.tomt.kanter,
+          nivaa: this.tomtenivaaIUtm(a.tomt) },
+        mal: a.mal, terreng: grunn, fjell: this.fjellmodellIUtm(),
+        grense: a.tomt.omrissBetyr === 'yttergrense' ? this.tomtIUtm(a.tomt) : null,
+        rutestorrelse: Math.max(1, a.mal.rutestorrelse || 1), bakkefaktor: this.bakkefaktor()
+      });
+    } catch (e) { return null; }
+    const celler = (r && r.rutenett) || [];
+    if (!celler.length) return null;
+
+    const rute = Math.max(1, a.mal.rutestorrelse || 1);
+    let minX = Infinity, maksX = -Infinity, minY = Infinity, maksY = -Infinity;
+    for (const c of celler) {
+      if (!Number.isFinite(c.zFerdig)) continue;
+      if (c.x < minX) minX = c.x; if (c.x > maksX) maksX = c.x;
+      if (c.y < minY) minY = c.y; if (c.y > maksY) maksY = c.y;
+    }
+    if (!Number.isFinite(minX)) return null;
+    const nb = Math.max(2, Math.round((maksX - minX) / rute) + 1);
+    const nh = Math.max(2, Math.round((maksY - minY) / rute) + 1);
+    if (nb * nh > 4e6) return null;
+    const z = new Float32Array(nb * nh);
+    const har = new Uint8Array(nb * nh);
+    for (const c of celler) {
+      if (!Number.isFinite(c.zFerdig)) continue;
+      const i = Math.round((c.x - minX) / rute), j = Math.round((c.y - minY) / rute);
+      if (i < 0 || j < 0 || i >= nb || j >= nh) continue;
+      z[j * nb + i] = c.zFerdig; har[j * nb + i] = 1;
+    }
+    return {
+      minX, maksX, minY, maksY,
+      /* Nærmeste rute, ikke interpolert: rutenettet ER oppløsningen beregningen
+         har. En interpolasjon her ville funnet på høyder mellom celler som
+         beregningen selv ikke kjenner. */
+      ved(x, y) {
+        const i = Math.round((x - this.minX) / rute), j = Math.round((y - this.minY) / rute);
+        if (i < 0 || j < 0 || i >= nb || j >= nh) return NaN;
+        const k = j * nb + i;
+        return har[k] ? z[k] : NaN;
+      }
+    };
+  },
+
+  /** Naboenes ferdige flater, bygget om nødvendig og hurtiglagret. */
+  _naboflater() {
+    const f = this._ryddFerdigflater() || new Map();
+    if (!this.P || !Array.isArray(this.P.anlegg)) return f;
+    const T = (typeof Tegner3d !== 'undefined') ? Tegner3d : null;
+    for (const a of this.P.anlegg) {
+      if (a.id === this.P.aktivt || f.has(a.id) || a.type !== 'tomt') continue;
+      /* Bygges ÉN gang per tilstand. `prosjektterreng` kalles inne i
+         massebalansens halveringssøk – uten hurtiglageret ville hele naboen
+         blitt regnet om for hver eneste prøvekote. */
+      const flate = this.ferdigflateForTomt(a);
+      if (!flate) continue;
+      if (T && T._fullnokkel) flate.nokkel = T._fullnokkel(a);
+      if (!this._ferdigflater) this._ferdigflater = new Map();
+      this._ferdigflater.set(a.id, flate);
+      f.set(a.id, flate);
+    }
+    return f;
+  },
+
+  /**
+   * Hvor mye av tomta naboen allerede har tatt.
+   *
+   * Tomta regnes mot terrenget slik naboanleggene gjør det ferdig – det er
+   * derfor den samme kubikken ikke blir talt to ganger. Men da forsvinner den
+   * også ut av synet: tallet blir bare mindre, uten at noe sier hvor mye eller
+   * hvorfor. Her regnes tomta ÉN gang til mot rå bakke, og forskjellen er
+   * nettopp den massen naboen tar. Målt på to tomter som dekker hverandre til
+   * halvparten: 7 176 m³ alene, 3 904 med naboen – 3 272 m³ som før ble talt
+   * to ganger.
+   *
+   * Regnes bare når en nabo faktisk overlapper. Ellers er svaret null, og en
+   * hel ekstra beregning for å komme fram til det ville vært sløsing.
+   */
+  naboOverlapp(polygon, t) {
+    if (!polygon || polygon.length < 3) return null;
+    const flater = [];
+    for (const [id, f] of (this._naboflater() || new Map())) {
+      if (id === this.P.aktivt || !f) continue;
+      flater.push(f);
+    }
+    if (!flater.length) return null;
+    let minX = Infinity, maksX = -Infinity, minY = Infinity, maksY = -Infinity;
+    for (const q of polygon) {
+      if (q.x < minX) minX = q.x; if (q.x > maksX) maksX = q.x;
+      if (q.y < minY) minY = q.y; if (q.y > maksY) maksY = q.y;
+    }
+    const roerer = flater.some(f => !(f.minX > maksX || f.maksX < minX
+      || f.minY > maksY || f.maksY < minY));
+    if (!roerer) return null;
+    let raa;
+    try {
+      raa = Tomtmasser.beregnTomtemasser({
+        tomt: { punkter: polygon, kanter: t.kanter, nivaa: this.tomtenivaaIUtm(t) },
+        mal: this.P.mal, terreng: this.terreng, fjell: this.fjellmodellIUtm(),
+        grense: t.omrissBetyr === 'yttergrense' ? this.tomtIUtm(t) : null,
+        rutestorrelse: Math.max(1, this.P.mal.rutestorrelse), bakkefaktor: this.bakkefaktor()
+      });
+    } catch (e) { return null; }
+    const n = this.resultat && this.resultat.sum;
+    if (!n || !raa || !raa.sum) return null;
+    const d = (felt) => Math.max(0, (raa.sum[felt] || 0) - (n[felt] || 0));
+    const ut = {
+      skjaering: d('skjaering'), fylling: d('fylling'), rensk: d('rensk'),
+      matjord: d('matjord'), skjaeringFjell: d('skjaeringFjell')
+    };
+    ut.noe = (ut.skjaering + ut.fylling + ut.rensk) > 0.5;
+    return ut;
+  },
+
   prosjektterreng() {
     const grunn = this.terreng;
     if (!grunn) return grunn;
     const flater = [];
-    for (const [id, f] of (this._ryddFerdigflater() || new Map())) {
+    for (const [id, f] of (this._naboflater() || new Map())) {
       if (id === this.P.aktivt || !f) continue;
       flater.push(f);
     }
@@ -554,10 +691,25 @@ const App = {
       if (a) navn.push(a.navn || a.type);
     }
     if (!navn.length) return;
+    /* MED TALL, IKKE BARE ET FORBEHOLD.
+       «Regnet mot naboens ferdige flate» sier at tallet er noe annet enn man
+       tror, men ikke hvor mye. Overlappen er den massen naboen tar – den som
+       ellers ville stått på begge regnestykkene. */
+    const tok = res.naboTok;
+    const kubikk = v => Rapport.tall(v, 0) + ' m³';
     res.merknader.push({ type: 'naboanlegg',
       tekst: 'Regnet mot terrenget slik ' + navn.join(' og ') + ' gjør det ferdig – '
         + 'ikke mot dagens mark. Der de har planert eller fylt, er det den nye '
-        + 'flaten det graves fra.' });
+        + 'flaten det graves fra.'
+        + (tok && tok.noe
+          ? ' Overlapping: ' + [
+            tok.skjaering > 0.5 ? kubikk(tok.skjaering) + ' skjæring' : null,
+            tok.fylling > 0.5 ? kubikk(tok.fylling) + ' fylling' : null,
+            tok.rensk > 0.5 ? kubikk(tok.rensk) + ' rensk' : null
+          ].filter(Boolean).join(', ')
+            + ' er allerede tatt av naboanlegget og står ikke i tallene her. '
+            + 'Uten det ville den samme massen ligget på begge.'
+          : '') });
     /* TO ANLEGG PÅ SAMME BAKKE ER ENTEN ET MØTE ELLER EN BEGRAVELSE.
        «De dekker den samme bakken» er sant og nesten ubrukelig – det sier ikke
        om de møtes pent i en kant eller om det ene er borte inne i det andre.
@@ -2564,6 +2716,7 @@ const App = {
       } finally { this._utvidetRunde = false; }
     }
     this.resultat.balanse = this.tomtebalanse(this.resultat.sum);
+    this.resultat.naboTok = this.naboOverlapp(bruktPolygon, t);
     this.merkResultat();
     this.naboMerknad(this.resultat);
     /* Sider der skraningen ikke far plass innenfor grensa.

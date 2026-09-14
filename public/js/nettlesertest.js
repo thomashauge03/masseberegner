@@ -88,6 +88,7 @@ const Nettlesertest = {
       await this.rapport();
       await this.paneler();
       await this.flereAnlegg();
+      await this.naboOverlapping();
       await this.grensesnittbredder();
       await this.panelhoder();
       await this.tomt();
@@ -1039,6 +1040,81 @@ const Nettlesertest = {
    * klikkene fra det man arbeider med, og at tallene i topplinja er summen av
    * dem og ikke ett av dem.
    */
+  /**
+   * To tomter på samme bakke skal ikke telle den samme kubikken to ganger.
+   *
+   * Tomt 2 regnes mot terrenget slik tomt 1 gjør det ferdig. Mekanismen fantes,
+   * men `_ferdigflater` ble BARE fylt fra 3D-modellens «alle anlegg»-lag – så
+   * naboen talt bare hvis man tilfeldigvis hadde åpnet 3D først. Målt før
+   * rettingen: 7 176 m³ skjæring på tomt 2 enten naboen fantes eller ikke.
+   * Verre enn tallet: svaret var avhengig av hvilke paneler man hadde klikket.
+   */
+  async naboOverlapping() {
+    const app = App;
+    const foer = JSON.stringify(app.P);
+    const gz = Terreng.prototype.z, gd = Terreng.prototype.dekning, gl = Terreng.prototype.lastOmraade;
+    try {
+      Terreng.prototype.z = function () { return 100; };
+      Terreng.prototype.dekning = function () { return 1; };
+      Terreng.prototype.lastOmraade = async function () { return true; };
+      const firkant = (x0, b, l) => [[0, 0], [b, 0], [b, l], [0, l]].map(([dx, dy]) => {
+        const ll = Geo.fraUtm(430000 + x0 + dx, 6460000 + dy, app.sone);
+        return { lat: ll.lat, lon: ll.lon };
+      });
+      const lagTomt = (id, navn, x0) => ({ id, type: 'tomt', navn, ip: [], vip: [],
+        tverrfall: [], plasser: [],
+        mal: Object.assign({}, Tomt.StandardTomtemal, { utskifting: false }),
+        tomt: Object.assign(Tomt.nyTomt(), { punkter: firkant(x0, 40, 40),
+          kanter: [], nivaa: { modus: 'flat', kote: 96 } }) });
+      const kjor = async (medNabo) => {
+        app.P.anlegg = medNabo ? [lagTomt('t1', 'Tomt A', 0), lagTomt('t2', 'Tomt B', 20)]
+          : [lagTomt('t2', 'Tomt B', 20)];
+        app.P.aktivt = 't2';
+        app.klargjorProsjekt(app.P);
+        app._ferdigflater = null;
+        app._terrengnokkel = '';
+        await app.beregnTomt();
+        return app.resultat;
+      };
+      const med = await kjor(true);
+      const utan = await kjor(false);
+      this.sjekk('to tomter alene gir noe å grave', utan && utan.sum.skjaering > 1000,
+        utan ? utan.sum.skjaering.toFixed(0) + ' m³' : 'ingen');
+      this.sjekk('naboen tar en vesentlig del av skjæringen',
+        med && utan && med.sum.skjaering < utan.sum.skjaering * 0.8,
+        med && utan ? `${med.sum.skjaering.toFixed(0)} mot ${utan.sum.skjaering.toFixed(0)} m³` : '');
+
+      /* OG DET MÅ SKJE UTEN AT 3D HAR VÆRT ÅPNET. Det var nettopp det som var
+         galt: flaten ble bygget som en bivirkning av å tegne. */
+      this.sjekk('  uten at 3D-modellen har vært åpnet',
+        med && med.sum.skjaering < utan.sum.skjaering - 500);
+
+      /* Overlappen skal TALLFESTES, ikke bare trekkes fra i stillhet. */
+      const tok = med && med.naboTok;
+      this.sjekk('overlappingen er oppgitt som eget tall', !!(tok && tok.noe));
+      if (tok) {
+        this.naer('og den er nøyaktig det naboen tar',
+          tok.skjaering, utan.sum.skjaering - med.sum.skjaering, 1);
+      }
+      this.sjekk('  og den står i merknaden',
+        (med.merknader || []).some(m => /Overlapping:/.test(m.tekst || '')));
+
+      /* Uten nabo skal det verken regnes en ekstra gang eller meldes noe. */
+      this.sjekk('en tomt uten nabo melder ingen overlapping', !utan.naboTok);
+    } catch (e) {
+      this.sjekk('nabo-overlappingen kom seg gjennom', false,
+        e.message + ' — ' + (e.stack || '').split('\n')[1]);
+    } finally {
+      Terreng.prototype.z = gz; Terreng.prototype.dekning = gd; Terreng.prototype.lastOmraade = gl;
+      app.P = JSON.parse(foer);
+      app.klargjorProsjekt(app.P);
+      app._ferdigflater = null;
+      app.resultat = null;
+      app._terrengnokkel = null;
+      app.visAnleggsvelger();
+    }
+  },
+
   async flereAnlegg() {
     const foer = JSON.stringify(App.P);
     const gz = Terreng.prototype.z, gd = Terreng.prototype.dekning, gl = Terreng.prototype.lastOmraade;
@@ -2209,18 +2285,44 @@ const Nettlesertest = {
                       anlA.mal.skjaeringLosmasse = (angre || 1) + 0.53;
                     }
                     const etterZ = App.prosjektterreng().z(midtX, midtY);
-                    this.sjekk('    men et REDIGERT anlegg slutter å være terreng',
-                      !App._ferdigflater.has(idA)
-                      && (etterZ === raaZ || (!Number.isFinite(etterZ) && !Number.isFinite(raaZ))),
-                      App._ferdigflater.has(idA) ? 'flaten står igjen'
-                        : 'falt tilbake til rå mark');
-                    /* Og merknaden må slutte å påstå det den påsto. */
+                    /* ET REDIGERT ANLEGG SKAL ALDRI VÆRE FORELDET TERRENG.
+                       Kravet var at flaten skulle FORSVINNE når naboen ble
+                       redigert. Det var riktig så lenge flaten bare kunne
+                       bygges av 3D-modellen: da var «borte» det eneste
+                       alternativet til «feil». Nå bygger beregningen den selv –
+                       se `ferdigflateForTomt` – så den kan være à jour i
+                       stedet, og det er et bedre svar enn å være borte.
+
+                       Kravet er derfor det det hele tiden handlet om: flaten
+                       skal ikke ligge igjen med den GAMLE høyden. En tomt
+                       bygges om og følger den nye koten; en veg har ingen slik
+                       bygger ennå og faller tilbake til rå mark. Begge er
+                       riktige; det tredje – å bli stående på det gamle – er
+                       det som ikke går an. */
+                    const erTomt9 = anlA.type === 'tomt';
+                    if (erTomt9) {
+                      this.naer('    et REDIGERT naboanlegg følger den nye høyden',
+                        etterZ - foerZ, 3.7, 0.25);
+                    } else {
+                      this.sjekk('    et REDIGERT naboanlegg slutter å være terreng',
+                        !App._ferdigflater.has(idA)
+                        && (etterZ === raaZ || (!Number.isFinite(etterZ) && !Number.isFinite(raaZ))),
+                        App._ferdigflater.has(idA) ? 'flaten står igjen'
+                          : 'falt tilbake til rå mark');
+                    }
+                    this.sjekk('      og den står ALDRI igjen med den gamle høyden',
+                      Math.abs(etterZ - foerZ) > 0.5
+                      || (!Number.isFinite(etterZ) && !Number.isFinite(foerZ)),
+                      `${(foerZ || 0).toFixed(2)} → ${(etterZ || 0).toFixed(2)}`);
+                    /* Merknaden skal si det som gjelder NÅ. Er naboen fortsatt
+                       terreng, skal den nevnes; er den falt bort, skal den ikke. */
                     const res9 = { merknader: [], sum: {} };
                     App.naboMerknad(res9);
-                    this.sjekk('      og merknaden slutter å si at det er regnet mot det',
-                      !res9.merknader.some(q => q.type === 'naboanlegg'
-                        && q.tekst.indexOf(anlA.navn || anlA.type) >= 0),
-                      JSON.stringify(res9.merknader.map(q => q.type)));
+                    const nevnt9 = res9.merknader.some(q => q.type === 'naboanlegg'
+                      && q.tekst.indexOf(anlA.navn || anlA.type) >= 0);
+                    this.sjekk('      og merknaden sier det som gjelder nå',
+                      nevnt9 === App._ferdigflater.has(idA),
+                      nevnt9 ? 'nevner naboen' : 'nevner den ikke');
                     // legg tilbake
                     if (anlA.tomt && anlA.tomt.nivaa && angre != null) anlA.tomt.nivaa.kote = angre;
                     else if (anlA.mal && angre != null) anlA.mal.skjaeringLosmasse = angre;
