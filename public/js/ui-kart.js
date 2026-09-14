@@ -837,10 +837,31 @@ const Kart = {
       const utm = Geo.tilUtm(e.latlng.lat, e.latlng.lng, this.app.sone);
       const tr = this.app.linje.projiser(utm.x, utm.y);
       this.app.merk('ny snuplass');
+      /* GRENSENE MÅ BITE DER TALLET BLIR LEST.
+         `plassLengde` og `plassBredde` står i MALGRENSER, men klemmingen skjer
+         inne i `beregnMasser`, på en kopi av malen – og motoren leser aldri de
+         to feltene. Eneste leser er linja her, og den leste prosjektets mal
+         uklemt. Et tomt eller vilt forvalg ble dermed til en plass med lengde
+         NaN eller null, og en plass uten lengde finnes ikke: `plassUtvidelse`
+         filtrerer den bort i stillhet, og snuplassen man nettopp satte ut var
+         borte fra både tallene og tegningen. */
+      const gr = (typeof MALGRENSER !== 'undefined') ? MALGRENSER : null;
+      /* `minst` er ikke det samme som nedre grense i MALGRENSER. Der står 0 for
+         bredden, og en plass som er null meter bredere enn vegen er ingen
+         plass – den blir filtrert bort av `plassUtvidelse` uten et ord. Her
+         settes derfor et gulv som holder plassen synlig, og brukeren kan heller
+         slette den om han ikke ville ha den. */
+      const innenfor = (v, standard, felt, minst) => {
+        let t = Number(v);
+        if (!Number.isFinite(t) || t <= 0) t = standard;
+        const g = gr && gr[felt];
+        if (g) t = Math.min(Math.max(t, g[0]), g[1]);
+        return Math.max(t, minst);
+      };
       this.app.P.plasser.push({
         s: +tr.s.toFixed(2),
-        lengde: this.app.P.mal.plassLengde != null ? this.app.P.mal.plassLengde : 20,
-        bredde: this.app.P.mal.plassBredde != null ? this.app.P.mal.plassBredde : 5.5,
+        lengde: innenfor(this.app.P.mal.plassLengde, 20, 'plassLengde', 1),
+        bredde: innenfor(this.app.P.mal.plassBredde, 5.5, 'plassBredde', 0.5),
         navn: 'Snuplass'
       });
       this.settModus('rediger');

@@ -4823,6 +4823,12 @@ const App = {
     }
     sett('m_renskUtenfor', m.renskUtenfor);
     sett('m_utvidelseOvergang', m.utvidelseOvergang);
+    /* MÅLENE EN NY SNUPLASS FÅR. De sto i StandardMal og hadde grenser i
+       MALGRENSER, men ingen kunne stille dem: eneste leser er ui-kart.js, som
+       henter dem fra prosjektets mal når en plass settes ut. Et forvalg man
+       ikke kan endre er like ubrukelig som et felt som ikke gjør noe. */
+    sett('m_plassLengde', m.plassLengde);
+    sett('m_plassBredde', m.plassBredde);
     sett('m_veiklasse', m.veiklasse || 'egen');
     sett('m_lassretning', String(m.lassretning || -1));
     this.visVeiklasse();
@@ -5419,6 +5425,8 @@ const App = {
     }
     m.renskUtenfor = tall('m_renskUtenfor');
     m.utvidelseOvergang = tall('m_utvidelseOvergang');
+    m.plassLengde = tall('m_plassLengde');
+    m.plassBredde = tall('m_plassBredde');
     m.maksSokebredde = tall('m_maksSokebredde');
     m.maksFyllingshoyde = tall('m_maksFyllingshoyde');
     m.maksSkjaeringsdybde = tall('m_maksSkjaeringsdybde');

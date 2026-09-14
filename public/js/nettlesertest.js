@@ -1265,6 +1265,43 @@ const Nettlesertest = {
           document.activeElement === rad.querySelector('.plassnavn'),
           document.activeElement ? document.activeElement.className : 'ingen');
       }
+
+      /* FORVALGET MÅ VÆRE NOE MAN KAN STILLE.
+         `plassLengde` og `plassBredde` sto i StandardMal og hadde grenser i
+         MALGRENSER, men det fantes ikke ett felt for dem noe sted – og motoren
+         leser dem aldri, så klemmingen i `beregnMasser` traff en kopi ingen
+         spør. Eneste leser er ui-kart.js, som hentet dem uklemt. */
+      const fL = document.getElementById('m_plassLengde');
+      const fB = document.getElementById('m_plassBredde');
+      this.sjekk('  målene for en ny snuplass har egne felt', !!fL && !!fB,
+        (fL ? '' : 'mangler lengde ') + (fB ? '' : 'mangler bredde'));
+      if (fL && fB) {
+        app.P.plasser.length = 0;
+        fL.value = '34'; fB.value = '7';
+        fL.dispatchEvent(new Event('change', { bubbles: true }));
+        fB.dispatchEvent(new Event('change', { bubbles: true }));
+        await this.vent(250);
+        Kart.settModus('plass');
+        Kart.klikk({ latlng: { lat: ll.lat, lng: ll.lon } });
+        await this.vent(500);
+        const p = (app.P.plasser || [])[0];
+        this.sjekk('    og en ny plass får dem', !!p && p.lengde === 34 && p.bredde === 7,
+          p ? `${p.lengde} × ${p.bredde}` : 'ingen plass');
+
+        /* ET TOMT FORVALG MÅ IKKE GI EN PLASS SOM FORSVINNER. Uten gulvet ble
+           lengden NaN, og `plassUtvidelse` filtrerer den bort i stillhet –
+           snuplassen man nettopp satte ut fantes verken i tall eller tegning. */
+        app.P.plasser.length = 0;
+        app.P.mal.plassLengde = NaN; app.P.mal.plassBredde = 0;
+        Kart.settModus('plass');
+        Kart.klikk({ latlng: { lat: ll.lat, lng: ll.lon } });
+        await this.vent(500);
+        const q = (app.P.plasser || [])[0];
+        this.sjekk('    og et tomt forvalg gir likevel en plass som finnes',
+          !!q && Number.isFinite(q.lengde) && q.lengde > 0
+          && Number.isFinite(q.bredde) && q.bredde > 0,
+          q ? `${q.lengde} × ${q.bredde}` : 'ingen plass');
+      }
     } catch (e) {
       this.sjekk('snuplass-synligheten kom seg gjennom', false,
         e.message + ' — ' + (e.stack || '').split('\n')[1]);
@@ -2683,11 +2720,14 @@ const Nettlesertest = {
                    virker, og må derfor stå i et anlegg som HAR noen foran seg.
                    Sto prøven i det FØRSTE anlegget, ville svaret vært rå mark –
                    og det er riktig svar, det er bare ikke det som prøves her. */
+                /* Bare peke, ikke regne om. Her sto `byttAnlegg` + `ventPaa-
+                   Resultat(20000)`, og i full kjøring kostet den ventingen tjue
+                   sekunder som dyttet hele prøven forbi fristen på seksti – den
+                   ble avbrutt av vaktbikkja, og resten av suiten falt bort med
+                   den. Bolken under leser `_ferdigflater` og `prosjektterreng`,
+                   og begge ser på `P.aktivt` der og da. */
                 if (App.P.anlegg.length > 1 && !App._bygdFoer().length) {
-                  const sist = App.P.anlegg[App.P.anlegg.length - 1].id;
-                  App.byttAnlegg(sist);
-                  try { await Rapport.ventPaaResultat(20000, sist); }
-                  catch (e) { /* statuslinja sier fra */ }
+                  App.P.aktivt = App.P.anlegg[App.P.anlegg.length - 1].id;
                 }
                 const f = App._ferdigflater;
                 this.sjekk('  hvert regnet anlegg gir en ferdig flate til de andre',
@@ -2720,7 +2760,6 @@ const Nettlesertest = {
                   if (anlA && flA && flA.nokkel) {
                     const midtX = (flA.minX + flA.maksX) / 2, midtY = (flA.minY + flA.maksY) / 2;
                     const foerZ = App.prosjektterreng().z(midtX, midtY);
-                    const raaZ = App.terreng.z(midtX, midtY);
                     this.sjekk('    og flaten overstyrer bakken mens den gjelder',
                       Number.isFinite(foerZ), 'z = ' + (foerZ || 0).toFixed(2));
 
@@ -2755,17 +2794,34 @@ const Nettlesertest = {
                     if (erTomt9) {
                       this.naer('    et REDIGERT naboanlegg følger den nye høyden',
                         etterZ - foerZ, 3.7, 0.25);
-                    } else {
-                      this.sjekk('    et REDIGERT naboanlegg slutter å være terreng',
-                        !App._ferdigflater.has(idA)
-                        && (etterZ === raaZ || (!Number.isFinite(etterZ) && !Number.isFinite(raaZ))),
-                        App._ferdigflater.has(idA) ? 'flaten står igjen'
-                          : 'falt tilbake til rå mark');
                     }
+                    /* KRAVET ER AT FLATEN IKKE ER DEN GAMLE – ikke at høyden
+                       flyttet seg et halvt metertall.
+
+                       Her sto to grener: en tomt skulle følge den nye koten, en
+                       VEG skulle forsvinne, «fordi en veg ikke har noen slik
+                       bygger ennå». Det stemmer ikke lenger – `ferdigflateForVeg`
+                       finnes, og vegen bygges om som tomta. Og den felles
+                       påstanden krevde at høyden flyttet seg over en halv meter,
+                       som er feil mål på en veg: redigeringen her endrer
+                       skråningshelningen, og midt på vegens egen flate ligger
+                       nivået fast på lengdeprofilen uansett hva skråningen gjør.
+                       Målt: 102,43 → 102,45. Flaten VAR bygget om; prøven så
+                       etter feil bevis og kalte det en feil.
+
+                       Beviset er nøkkelen: står flaten igjen, må den bære
+                       nøkkelen til anlegget slik det er NÅ. Da fanges nettopp
+                       den feilen dette handler om – en flate fra før
+                       redigeringen som fortsatt brukes som terreng – og den
+                       fanges for begge anleggstyper og for enhver redigering,
+                       stor eller liten. */
+                    const naa9 = App._ferdigflater.get(idA);
                     this.sjekk('      og den står ALDRI igjen med den gamle høyden',
-                      Math.abs(etterZ - foerZ) > 0.5
-                      || (!Number.isFinite(etterZ) && !Number.isFinite(foerZ)),
-                      `${(foerZ || 0).toFixed(2)} → ${(etterZ || 0).toFixed(2)}`);
+                      !naa9 || (naa9.nokkel && naa9.nokkel !== nokkelFoer
+                        && naa9.nokkel === Tegner3d._fullnokkel(anlA)),
+                      !naa9 ? 'falt tilbake til rå mark'
+                        : (naa9.nokkel === nokkelFoer ? 'GAMMEL flate står igjen'
+                          : 'bygget om, men nøkkelen stemmer ikke med anlegget'));
                     /* Merknaden skal si det som gjelder NÅ. Er naboen fortsatt
                        terreng, skal den nevnes; er den falt bort, skal den ikke. */
                     const res9 = { merknader: [], sum: {} };
@@ -2894,10 +2950,22 @@ const Nettlesertest = {
 
                 /* MERKNADEN MÅ STÅ. Et tall som endrer seg med tre hundre
                    kubikk uten et ord er den slags som oppdages på plassen. */
-                if (App.resultat && App._ferdigflater && App._ferdigflater.size > 1) {
-                  const m = (App.resultat.merknader || []).some(q => q.type === 'naboanlegg');
+                /* Merknaden hentes fra `naboMerknad` selv, ikke fra det
+                   resultatet som tilfeldigvis ligger der. Bolken har pekt
+                   `P.aktivt` på et anlegg med noen foran seg uten å regne om –
+                   se over – så `App.resultat` er fra et annet anlegg. Å lese
+                   den ville prøvd feil ting, og å regne om ville kostet den
+                   tiden som nettopp felte prøven. */
+                if (App._bygdFoer().length) {
+                  const res3 = { merknader: [], sum: {} };
+                  App.naboMerknad(res3);
                   this.sjekk('  og det står i merknadene at tallene er regnet mot naboene',
-                    m, JSON.stringify((App.resultat.merknader || []).map(q => q.type)));
+                    res3.merknader.some(q => q.type === 'naboanlegg'),
+                    JSON.stringify(res3.merknader.map(q => q.type)));
+                  this.sjekk('    og den navngir hvem som bygges først',
+                    res3.merknader.some(q => q.type === 'naboanlegg'
+                      && App._bygdFoer().some(a => q.tekst.includes(a.navn || a.type))),
+                    App._bygdFoer().map(a => a.navn || a.type).join(', '));
                 }
 
                 /* TO ANLEGG PÅ SAMME BAKKE ER ENTEN ET MØTE ELLER EN BEGRAVELSE.
