@@ -5020,6 +5020,8 @@ const App = {
        ikke kan endre er like ubrukelig som et felt som ikke gjør noe. */
     sett('m_plassLengde', m.plassLengde);
     sett('m_plassBredde', m.plassBredde);
+    sett('m_plassRadius', m.plassRadius);
+    sett('m_plassOvergangsradius', m.plassOvergangsradius);
     sett('m_veiklasse', m.veiklasse || 'egen');
     sett('m_lassretning', String(m.lassretning || -1));
     this.visVeiklasse();
@@ -5618,6 +5620,8 @@ const App = {
     m.utvidelseOvergang = tall('m_utvidelseOvergang');
     m.plassLengde = tall('m_plassLengde');
     m.plassBredde = tall('m_plassBredde');
+    m.plassRadius = tall('m_plassRadius');
+    m.plassOvergangsradius = tall('m_plassOvergangsradius');
     m.maksSokebredde = tall('m_maksSokebredde');
     m.maksFyllingshoyde = tall('m_maksFyllingshoyde');
     m.maksSkjaeringsdybde = tall('m_maksSkjaeringsdybde');
@@ -5697,24 +5701,66 @@ const App = {
        hvis raden faktisk har havnet utenfor. Ellers ville en rulling brukeren
        selv har gjort i mellomtiden blitt overstyrt. */
     const settRad = () => (nr != null ? boks.querySelectorAll('.plassrad')[nr] : null);
-    const rull = (tving) => {
+    /* SETT RULLEPOSISJONEN SELV – IKKE BE OM Å BLI RULLET TIL.
+       `scrollIntoView` gjorde INGENTING på det første kallet. Sporet er
+       entydig: `scrollTop` sto på 0 gjennom hele det første sekundet, mens
+       raden lå på y 1 699 i et vindu på 1 000. Andre og tredje gang virket den.
+       Forskjellen er at panelet måtte ÅPNES først, og da er ikke feltet ferdig
+       lagt ut i det bildet kallet skjer.
+
+       Her regnes målet ut på feltet som faktisk ruller, og `scrollTop` settes
+       rett. Det er ikke avhengig av at layouten har satt seg – bare av at
+       raden har en høyde – og det kan gjentas til den står der den skal. */
+    const rull = () => {
       const rad = settRad();
       const mal = rad || boks;
-      if (!mal || !mal.getBoundingClientRect) return;
-      const r = mal.getBoundingClientRect();
-      const utenfor = r.height <= 0 || r.top < 0 || r.bottom > window.innerHeight;
-      if (tving || utenfor) mal.scrollIntoView({ block: 'center' });
+      const felt = mal && mal.closest ? mal.closest('.faneinnhold') : null;
+      if (!felt || !mal.getBoundingClientRect) return false;
+      const rb = mal.getBoundingClientRect();
+      if (!(rb.height > 0)) return false;
+      const fb = felt.getBoundingClientRect();
+      const mot = (rb.top - fb.top) + felt.scrollTop - (felt.clientHeight - rb.height) / 2;
+      const maks = Math.max(0, felt.scrollHeight - felt.clientHeight);
+      felt.scrollTop = Math.max(0, Math.min(mot, maks));
+      /* Svaret er om raden NÅ står på skjermen – ikke om vi forsøkte. */
+      const etter = mal.getBoundingClientRect();
+      return etter.height > 0 && etter.top >= 0 && etter.bottom <= window.innerHeight + 1;
     };
+    /* PRØV TIL DEN FAKTISK STÅR DER, MED EN GRENSE.
+       Ett forsøk holdt ikke, og faste tidspunkt holdt heller ikke: målt i full
+       kjøring sto `scrollTop` på null gjennom hele det første sekundet, mens
+       raden lå på y 1 699 i et vindu på 1 000 – og i neste kjøring gikk det
+       bra. Grunnen er at panelet ÅPNES i samme klikk: feltet er ikke rullbart
+       ennå (`scrollHeight` er lik `clientHeight`), så et mål regnet der blir
+       klemt til null. Når layouten har satt seg, er tidspunktet ikke til å
+       forutsi – kartet får `invalidateSize` etter 60 ms, og beregningen skriver
+       nye tall inn i panelet når den er ferdig.
+
+       Derfor: prøv på nytt til raden står på skjermen, inntil ett sekund. Det
+       stopper i det den står der, så det koster ingenting når alt er som det
+       skal. En prøve som er grønn i én kjøring og rød i den neste er verre enn
+       en som alltid feiler – den blir avfeid som støy. */
+    let forsok = 0;
+    const proev = () => {
+      if (rull() || forsok++ > 16) return;
+      setTimeout(proev, 60);
+    };
+    /* IKKE BARE `requestAnimationFrame`. Den fyrer ikke når fanen ligger i
+       bakgrunnen, og da ble raden aldri rullet fram – og en prøve som venter
+       på den ble stående. `setTimeout` går uansett, så runden startes begge
+       veier og stopper i det raden står der den skal. */
+    proev();
     requestAnimationFrame(() => {
-      rull(true);
+      proev();
       const rad = settRad();
       const navn = rad && rad.querySelector('.plassnavn');
       if (navn) { navn.focus(); navn.select(); }
-      /* Neste bilde, og igjen etter at kartet har fått sin nye størrelse. */
-      requestAnimationFrame(() => rull(false));
-      setTimeout(() => rull(false), 120);
-      setTimeout(() => rull(false), 400);
     });
+    setTimeout(() => {
+      const rad = settRad();
+      const navn = rad && rad.querySelector('.plassnavn');
+      if (navn && document.activeElement !== navn) { navn.focus(); navn.select(); }
+    }, 60);
   },
 
   /**
@@ -5740,19 +5786,38 @@ const App = {
          her, måtte brukeren trekke fra vegbredden i hodet for å skjønne hva
          som skjer når vegbredden endres – og et felt man må regne om er et
          felt man skriver feil i. Totalen vises ved siden av, som opplysning. */
-      const total = (this.P.mal.vegbredde || 0) + (p.bredde || 0);
       const side = p.side === 'venstre' || p.side === 'hoyre' ? p.side : 'sentrum';
-      const form = p.form === 'rektangel' ? 'rektangel' : 'oval';
+      const form = p.form === 'sirkel' ? 'sirkel'
+        : (p.form === 'rektangel' ? 'rektangel' : 'oval');
       const valgt = (a, b) => a === b ? ' selected' : '';
+      /* RADIUS OG LENGDE/BREDDE KAN IKKE STÅ FRAMME SAMTIDIG.
+         De beskriver den samme kurven, og to felt som kan settes i motstrid
+         har ikke ett riktig svar – bare to. Formvalget avgjør hvilket sett som
+         lever, i grensesnittet akkurat som i motoren: er formen «sirkel», er
+         det radius og overgangsradius som vises, og lengde og bredde leses
+         ikke av noen. Se `sirkelPlass` i masser.js. */
+      const erSirkel = form === 'sirkel';
+      const R1 = p.radius != null ? p.radius
+        : (this.P.mal.plassRadius != null ? this.P.mal.plassRadius : 13);
+      const R2 = p.overgangsradius != null ? p.overgangsradius
+        : (this.P.mal.plassOvergangsradius != null ? this.P.mal.plassOvergangsradius : 15);
+      /* Totalen er opplysning, ikke noe man skriver i. For sirkelen er den
+         2 · radius; for de andre vegbredden pluss tillegget. */
+      const total = erSirkel ? 2 * R1 : (this.P.mal.vegbredde || 0) + (p.bredde || 0);
+      const maal = erSirkel
+        ? `<label>radius</label><input type="number" step="0.5" min="3" class="plassr" value="${R1}">
+           <label>overgang</label><input type="number" step="0.5" min="0" class="plassor" value="${R2}">`
+        : `<label>lengde</label><input type="number" step="1" min="1" class="plassl" value="${p.lengde}">
+           <label>bredere</label><input type="number" step="0.5" min="0.5" class="plassb" value="${p.bredde}">`;
       rad.innerHTML = `<input type="text" class="plassnavn" value="${escapeHtml(p.navn || 'Snuplass')}" spellcheck="false">
         <label>prof</label><input type="number" step="1" class="plasss" value="${p.s}">
-        <label>lengde</label><input type="number" step="1" min="1" class="plassl" value="${p.lengde}">
-        <label>bredere</label><input type="number" step="0.5" min="0.5" class="plassb" value="${p.bredde}">
+        ${maal}
         <select class="plassside" title="Hvilken side vegen utvides til">
           <option value="sentrum"${valgt(side, 'sentrum')}>midt på</option>
           <option value="venstre"${valgt(side, 'venstre')}>venstre</option>
           <option value="hoyre"${valgt(side, 'hoyre')}>høyre</option></select>
-        <select class="plassform" title="Oval buler ut og inn igjen. Rett er en møteplass med innkjøring i hver ende.">
+        <select class="plassform" title="Sirkel er en snuplass med radius. Oval buler ut og inn igjen. Rett er en møteplass med innkjøring i hver ende.">
+          <option value="sirkel"${valgt(form, 'sirkel')}>sirkel</option>
           <option value="oval"${valgt(form, 'oval')}>oval</option>
           <option value="rektangel"${valgt(form, 'rektangel')}>rett</option></select>
         <small class="plasstotal">= ${Rapport.tall(total, 1)} m veg</small>
@@ -5762,6 +5827,20 @@ const App = {
         e.onchange = () => {
           this.merk('endret snuplass');
           p[felt] = e.value;
+          /* VELGER MAN SIRKEL, MÅ RADIEN FINNES.
+             `sirkelPlass` svarer null på en plass uten radius, og da faller
+             den tilbake til ovalen sin – valget i nedtrekket ville ikke gjort
+             noe som helst. Verdiene hentes fra malen, som er der forvalget
+             for en ny snuplass står. */
+          if (felt === 'form' && e.value === 'sirkel') {
+            if (!(p.radius > 0)) {
+              p.radius = this.P.mal.plassRadius != null ? this.P.mal.plassRadius : 13;
+            }
+            if (!(p.overgangsradius >= 0)) {
+              p.overgangsradius = this.P.mal.plassOvergangsradius != null
+                ? this.P.mal.plassOvergangsradius : 15;
+            }
+          }
           this.plasserTilSkjema();
           this.planlegg(30);
         };
@@ -5771,21 +5850,31 @@ const App = {
       const navn = rad.querySelector('.plassnavn');
       const [fs, fl, fb] = [rad.querySelector('.plasss'),
         rad.querySelector('.plassl'), rad.querySelector('.plassb')];
+      const [fr, fo] = [rad.querySelector('.plassr'), rad.querySelector('.plassor')];
       navn.onchange = () => { this.merk('endret snuplass'); p.navn = navn.value; };
       /* Et tomt eller ugyldig felt må ikke skrive NaN inn i plassen. Da ville
          `isFinite(p.s)` slått den av i stillhet, og snuplassen forsvunnet fra
          regnestykket uten at noe sa fra. Verdien som sto der beholdes. */
-      const tall = (felt, navn2, minste) => {
+      const tall = (felt, navn2, minste, standard) => {
         const v = parseFloat(felt.value);
-        if (!isFinite(v) || v < minste) { felt.value = p[navn2]; return; }
+        if (!isFinite(v) || v < minste) {
+          felt.value = p[navn2] != null ? p[navn2] : standard;
+          return;
+        }
         this.merk('endret snuplass');
         p[navn2] = v;
         this.plasserTilSkjema();
         this.planlegg(30);
       };
       fs.onchange = () => tall(fs, 's', 0);
-      fl.onchange = () => tall(fl, 'lengde', 0.5);
-      fb.onchange = () => tall(fb, 'bredde', 0.1);
+      if (fl) fl.onchange = () => tall(fl, 'lengde', 0.5);
+      if (fb) fb.onchange = () => tall(fb, 'bredde', 0.1);
+      /* Radien har et GULV som betyr noe: en sirkel som er smalere enn vegen
+         er ingen snuplass, og `sirkelPlass` svarer null på den. Uten gulvet
+         her ville plassen falt tilbake til ovalen sin uten at noe sa fra. */
+      if (fr) fr.onchange = () => tall(fr, 'radius',
+        (this.P.mal.vegbredde || 0) / 2 + 0.25, R1);
+      if (fo) fo.onchange = () => tall(fo, 'overgangsradius', 0, R2);
       rad.querySelector('button').onclick = () => {
         this.merk('slettet snuplass');
         this.P.plasser.splice(i, 1);

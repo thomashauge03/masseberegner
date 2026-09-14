@@ -26,9 +26,24 @@ const Nettlesertest = {
   },
   vent(ms) { return new Promise(r => setTimeout(r, ms)); },
 
-  /** Kjører en prøve med en frist. Blir den ikke ferdig, kastes det – en
-      prøve som henger skal melde fra, ikke bli stille. */
-  medFrist(gjor, ms = 60000) {
+  /**
+   * Kjører en prøve med en frist. Blir den ikke ferdig, kastes det – en prøve
+   * som henger skal melde fra, ikke bli stille.
+   *
+   * FRISTEN SKAL FANGE EN PRØVE SOM ALDRI BLIR FERDIG, IKKE EN SOM ER TREG.
+   * Her sto 60 sekunder, og det var en gjetning. Målt over en hel kjøring er
+   * `flereAnlegg` den tyngste med 11,6 s, og de tre neste ligger på 4,2, 3,5 og
+   * 2,9 – langt under. Men `flereAnlegg` bygger full 3D-detalj for tre anlegg,
+   * og hver av dem venter inntil 20 sekunder på et resultat som kanskje ikke
+   * kommer (`Rapport.ventPaaResultat` i ui-3d.js). Tre slike på rad er 60
+   * sekunder av ren, lovlig venting, og da felte vakthunden en prøve som ikke
+   * hadde gjort noe galt – og stoppet resten av suiten med den.
+   *
+   * 120 sekunder er over det dobbelte av det verste lovlige tilfellet, og
+   * fortsatt langt under «aldri». Det er den grensen som gjør forskjell på treg
+   * og hengende.
+   */
+  medFrist(gjor, ms = 120000) {
     let tid;
     const frist = new Promise((_, avvis) => {
       tid = setTimeout(() => {
@@ -1246,7 +1261,11 @@ const Nettlesertest = {
       const midt = app.linje.punktVed(app.linje.lengde / 2);
       const ll = Geo.fraUtm(midt.x, midt.y, app.sone);
       Kart.klikk({ latlng: { lat: ll.lat, lng: ll.lon } });
-      await this.vent(700);
+      /* `visPlassliste` prøver på nytt inntil ett sekund til raden står på
+         skjermen – panelet åpnes i samme klikk, og feltet er ikke rullbart før
+         layouten har satt seg. Prøven må vente den runden ut, ellers måler den
+         en tilstand programmet selv er i ferd med å rette. */
+      await this.vent(1300);
 
       this.sjekk('snuplassen ble lagt inn', (app.P.plasser || []).length === 1,
         (app.P.plasser || []).length + ' i lista');
@@ -1272,6 +1291,39 @@ const Nettlesertest = {
          MALGRENSER, men det fantes ikke ett felt for dem noe sted – og motoren
          leser dem aldri, så klemmingen i `beregnMasser` traff en kopi ingen
          spør. Eneste leser er ui-kart.js, som hentet dem uklemt. */
+      /* RADIEN SKAL VÆRE ET TALL MAN KAN STILLE PÅ – og de to settene kan
+         ikke stå framme samtidig. «Hvor er det man stiller på snuplass altså
+         radien» var spørsmålet, og svaret var at den ikke fantes: ovalen er en
+         halv ellipse i breddetillegget, så krumningen falt ut av lengde og
+         bredde. Her kreves det at formvalget faktisk bytter parametersett, i
+         grensesnittet som i motoren. */
+      {
+        const p0 = app.P.plasser[0];
+        const felt = () => [...document.querySelectorAll('#plassliste .plassrad input')]
+          .map(x => x.className);
+        this.sjekk('en plass starter med lengde og bredde',
+          felt().includes('plassl') && felt().includes('plassb'), felt().join(', '));
+        const velger = document.querySelector('#plassliste .plassform');
+        this.sjekk('  og formvalget tilbyr sirkel',
+          !!velger && [...velger.options].some(o => o.value === 'sirkel'),
+          velger ? [...velger.options].map(o => o.value).join(', ') : 'ingen velger');
+        if (velger) {
+          velger.value = 'sirkel';
+          velger.dispatchEvent(new Event('change', { bubbles: true }));
+          await this.vent(250);
+          this.sjekk('  og velger man sirkel, byttes feltene ut med radius',
+            felt().includes('plassr') && felt().includes('plassor')
+            && !felt().includes('plassl') && !felt().includes('plassb'),
+            felt().join(', '));
+          /* Valget må gjøre noe. `sirkelPlass` svarer null på en plass uten
+             radius, og da faller den tilbake til ovalen – nedtrekket ville
+             ikke endret en eneste kubikk. */
+          this.sjekk('    og radien er fylt inn, ikke tom',
+            p0.radius > 0 && p0.overgangsradius >= 0,
+            `radius ${p0.radius}, overgang ${p0.overgangsradius}`);
+        }
+      }
+
       const fL = document.getElementById('m_plassLengde');
       const fB = document.getElementById('m_plassBredde');
       this.sjekk('  målene for en ny snuplass har egne felt', !!fL && !!fB,
@@ -5963,8 +6015,15 @@ const Nettlesertest = {
           }
           k.stroke();
         };
+        /* SAMME RETNINGER I BEGGE MÅLINGENE.
+           Her sto [0, 180] mot de fire over, og en maks over to retninger mot
+           en maks over fire er ikke den samme målingen – skjevheten går rett
+           imot påstanden. Utslaget var en prøve som sviktet av og til: målt
+           2,74 % uten klipping mot kravet 1,66 · 1,8 = 2,99, altså rødt i én
+           kjøring og grønt i den neste. Det er verre enn en prøve som alltid
+           feiler, for den blir avfeid som støy. */
         const naive = [];
-        for (const yaw of [0, 180]) {
+        for (const yaw of [0, 90, 180, 270]) {
           Veg3d.kamYaw = yaw; Veg3d.tegn();
           await this.vent(220);
           naive.push(dekning8());

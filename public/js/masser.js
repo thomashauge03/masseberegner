@@ -104,6 +104,12 @@ const StandardMal = {
      møteplasser rundt 20 m lengde og en samlet bredde på 8-10 m – altså 4-5 m
      mer enn en 4,5 m veg. Tallene kan endres på hver enkelt plass. */
   plassLengde: 20,
+  /* Forvalget for en NY snuplass satt ut som sirkel. 13 m ytre radius er det
+     tallet en snuplass for lastebil med henger vanligvis oppgis med, og 15 m
+     overgangsradius gir en kant som gaar ut fra vegen uten knekk - se
+     `sirkelPlass`. Begge kan stilles i Vegmal-fanen. */
+  plassRadius: 13,
+  plassOvergangsradius: 15,
   plassBredde: 5.5,
   utflatingForKurve: 10,     // hvor langt stigningen flates ut før kurven
 
@@ -317,33 +323,117 @@ function plassInnkjoring(p, overgang) {
   return Math.max(overgang || 0, utPerSide * PLASS_FLARE);
 }
 
-function plassUtvidelse(plasser, lengdeLinje, overgang) {
+/**
+ * EN SNUPLASS SOM SIRKEL, MED OVERGANGSBUE MOT VEGEN.
+ *
+ * «Hvor er det man stiller på snuplass altså radien» – og svaret var at radien
+ * ikke fantes. Ovalen er en halv ellipse i breddetillegget, så krumningen falt
+ * ut av lengde og bredde: man styrte radien uten å se den.
+ *
+ * Her er den som et tall. `radius` er den YTRE radien på det kjørbare
+ * snuarealet, målt fra plassens senter – det en sjåfør faktisk svinger rundt,
+ * og det tallet en vegnormal oppgir. `overgangsradius` er motkurven som kobler
+ * den rette vegkanten til sirkelen, slik at kanten ikke går ut fra vegen i
+ * nesten rett vinkel.
+ *
+ * RADIUS OG LENGDE/BREDDE KAN IKKE GJELDE SAMTIDIG. To tall som beskriver den
+ * samme kurven kan settes i motstrid, og da finnes det ikke noe riktig svar –
+ * bare to. Derfor er `form` bryteren: er den 'sirkel', leser motoren radius og
+ * overgangsradius og rører ikke lengde og bredde. Er den 'oval' eller
+ * 'rektangel', er det omvendt. Ingen mellomting, ingen «radius overstyrer
+ * bredde hvis satt».
+ *
+ * Geometrien, med w = vegbredde, c = sirkelsenterets avvik fra senterlinja:
+ *
+ *     sentrum:  c = 0            – sirkelen ligger symmetrisk om senterlinja
+ *     ensidig:  c = R1 − w/2     – sirkelen tangerer motsatt vegkant innvendig
+ *
+ *     a  = w/2 + R2 − c
+ *     d  = √((R1+R2)² − a²)             halve lengden av hele figuren
+ *     st = R1·d/(R1+R2)                 der sirkelen møter overgangsbuen
+ *
+ *     |t| ≥ d    : y = w/2                                    vanlig veg
+ *     st ≤ |t| < d: y = w/2 + R2 − √(R2² − (d−|t|)²)          overgangsbuen
+ *     |t| < st   : y = c + √(R1² − t²)                        sirkelen
+ *
+ * Kanten går ut fra vegkanten med helning null ved ±d og møter sirkelen med
+ * felles tangent ved ±st. Det eneste spranget er i krumning, akkurat som i et
+ * kurvesett uten klotoide.
+ *
+ * GYLDIGHETSOMRÅDET ER EN HARD GRENSE, ikke en anbefaling. Konstruksjonen
+ * krever a > 0 og (R1+R2)² ≥ a², og en sirkel som er smalere enn vegen er
+ * ingen snuplass. Utenfor det gir kvadratrota et negativt tall, og da blir hele
+ * plassen NaN – et svar uten tall. Derfor svarer denne `null`, og den som
+ * spør faller tilbake på ovalen.
+ */
+function sirkelPlass(p, vegbredde) {
+  const w = Math.max(0, vegbredde || 0);
+  const R1 = Number(p && p.radius);
+  if (!Number.isFinite(R1) || R1 <= w / 2) return null;
+  let R2 = Number(p && p.overgangsradius);
+  if (!Number.isFinite(R2) || R2 < 0) R2 = 0;
+  const ensidig = p.side === 'venstre' || p.side === 'hoyre';
+  const c = ensidig ? R1 - w / 2 : 0;
+  const a = w / 2 + R2 - c;
+  if (!(a > 0)) return null;                 // ensidig krever R2 > R1 − w
+  const kvad = (R1 + R2) * (R1 + R2) - a * a;
+  if (!(kvad > 0)) return null;
+  const d = Math.sqrt(kvad);
+  if (!Number.isFinite(d) || d <= 0) return null;
+  const st = R2 > 0 ? R1 * d / (R1 + R2) : d;
+  return { R1, R2, c, a, d, st, w, ensidig };
+}
+
+/** Halvbredden fra senterlinja i avstand `t` fra plassens senter. */
+function sirkelHalvbredde(s, t) {
+  const at = Math.abs(t);
+  if (at >= s.d) return s.w / 2;
+  if (s.R2 > 0 && at >= s.st) {
+    const u = s.d - at;
+    const rot = s.R2 * s.R2 - u * u;
+    return s.w / 2 + s.R2 - Math.sqrt(Math.max(0, rot));
+  }
+  return s.c + Math.sqrt(Math.max(0, s.R1 * s.R1 - t * t));
+}
+
+function plassUtvidelse(plasser, lengdeLinje, overgang, vegbredde) {
   /* `> 0` ER IKKE NOK: `Infinity > 0` er sant.
      En bredde på `Infinity` – eller `1e400`, som blir det samme – slapp gjennom
      filteret og ga NaN i bærelaget, altså et helt svar uten tall. Kravet er at
      tallet er ENDELIG og positivt, ikke bare positivt. */
   const endeligPositiv = v => typeof v === 'number' && Number.isFinite(v) && v > 0;
+  /* En SIRKEL står på radius, ikke på lengde og bredde – se `sirkelPlass`.
+     Holder ikke radien mål, faller plassen tilbake til ovalen sin, for da har
+     den i det minste en form. Er heller ikke den gyldig, er det ingen plass. */
+  const sirkelFor = p => (p && p.form === 'sirkel' ? sirkelPlass(p, vegbredde) : null);
   const gyldige = (plasser || []).filter(p => p && Number.isFinite(p.s)
-    && endeligPositiv(p.lengde) && endeligPositiv(p.bredde));
+    && (sirkelFor(p) || (endeligPositiv(p.lengde) && endeligPositiv(p.bredde))));
   /* Samme FORM uten plasser som med. Her sto `() => 0`, altså et tall der
      resten av fila venter `{sym, v, h}` – og `Math.max(sym, undefined)` er NaN,
      som `JSON.stringify` viser som `null`. Hele utvidelsen ble NaN så snart
      ingen plasser var satt ut, altså i de aller fleste prosjekter. */
   if (!gyldige.length) return () => ({ sym: 0, v: 0, h: 0 });
   const omraader = gyldige.map(p => {
-    const halv = p.lengde / 2;
+    const sirk = sirkelFor(p);
+    /* Halve lengden til HELE figuren. For sirkelen er det `d` – dit
+       overgangsbuen når ut – ikke radien. Med R1 13 og R2 15 er figuren 44,1 m
+       lang, ikke 26. Sto radien her, ville klemmingen mot vegenden og
+       stasjonene i `plassKanter` begge blitt for korte. */
+    const halv = sirk ? sirk.d : p.lengde / 2;
     /* Midten klemmes inn slik at hele plassen ligger på vegen. Er vegen
        kortere enn plassen, dekker den hele vegen. */
-    const midt = lengdeLinje <= p.lengde ? lengdeLinje / 2
+    const midt = lengdeLinje <= 2 * halv ? lengdeLinje / 2
       : Math.min(Math.max(p.s, halv), lengdeLinje - halv);
     return { fra: midt - halv, til: midt + halv, halv, midt, bredde: p.bredde,
       side: p.side === 'venstre' || p.side === 'hoyre' ? p.side : 'sentrum',
-      /* OVAL ELLER RETT.
+      /* SIRKEL, OVAL ELLER RETT.
          En snuplass ser som regel ut som en oval: vegen buler ut, er bredest på
          midten, og kommer inn igjen. En møteplass er rett, med en innkjøring i
-         hver ende. De to er forskjellige figurer og ulike kubikk - en oval tar
-         π/4 av rektangelet, altså 79 % - så formen er et valg, ikke en pynt. */
-      form: p.form === 'rektangel' ? 'rektangel' : 'oval',
+         hver ende. En SIRKEL er den man oppgir en radius for – se
+         `sirkelPlass`. De tre er forskjellige figurer og ulike kubikk – en oval
+         tar π/4 av rektangelet, altså 79 % – så formen er et valg, ikke pynt. */
+      form: sirk ? 'sirkel' : (p.form === 'rektangel' ? 'rektangel' : 'oval'),
+      sirk,
       inn: plassInnkjoring(p, overgang) };
   });
   /* Returnerer `{sym, v, h}`: den symmetriske delen, og det som bare hører til
@@ -354,7 +444,15 @@ function plassUtvidelse(plasser, lengdeLinje, overgang) {
     const ut = { sym: 0, v: 0, h: 0 };
     for (const o of omraader) {
       let b;
-      if (o.form === 'oval') {
+      if (o.form === 'sirkel') {
+        /* Sirkelen er gitt som en HALVBREDDE fra senterlinja, ikke som et
+           tillegg. Tillegget er det som ligger utenfor vegen: hele bredden
+           minus vegen for en plass midt på, og halvparten av det for en
+           ensidig, der bare den ene siden utvides. */
+        const y = sirkelHalvbredde(o.sirk, s - o.midt);
+        b = o.sirk.ensidig ? Math.max(0, y - o.sirk.w / 2)
+          : Math.max(0, 2 * y - o.sirk.w);
+      } else if (o.form === 'oval') {
         /* Halv ellipse over hele lengden: bredest på midten, null i endene.
            Da er omrisset en ekte oval i plan, og den trenger ingen egen
            innkjøring - den trapper seg selv inn. */
@@ -386,15 +484,35 @@ function plassUtvidelse(plasser, lengdeLinje, overgang) {
  * kilometer veg med ti snuplasser: 10 ms mot 3 ms uten plasser i grov modus, og
  * med åtte punkt er det nede i 5. Den endelige beregningen bruker alltid 32.
  */
-function plassKanter(plasser, lengdeLinje, overgang, grovt) {
+function plassKanter(plasser, lengdeLinje, overgang, grovt, vegbredde) {
   const ut = [];
   for (const p of (plasser || [])) {
+    const sirk = (p && p.form === 'sirkel') ? sirkelPlass(p, vegbredde) : null;
     // samme krav som i plassUtvidelse: ENDELIG og positiv, ikke bare positiv
-    if (!p || !Number.isFinite(p.s) || !(p.lengde > 0) || !(p.bredde > 0)
-      || !Number.isFinite(p.lengde) || !Number.isFinite(p.bredde)) continue;
-    const halv = p.lengde / 2;
-    const midt = lengdeLinje <= p.lengde ? lengdeLinje / 2
+    if (!p || !Number.isFinite(p.s) || (!sirk && (!(p.lengde > 0) || !(p.bredde > 0)
+      || !Number.isFinite(p.lengde) || !Number.isFinite(p.bredde)))) continue;
+    const halv = sirk ? sirk.d : p.lengde / 2;
+    const midt = lengdeLinje <= 2 * halv ? lengdeLinje / 2
       : Math.min(Math.max(p.s, halv), lengdeLinje - halv);
+    if (sirk) {
+      /* SIRKELEN HAR TRE KNEKKPUNKT, IKKE TO.
+         Enden av figuren (±d), der overgangsbuen møter sirkelen (±st), og
+         midten. Uten dem faller volumet mellom to profiler i det jevne
+         rutenettet og blir smurt ut over nabostrekket. Resten deles som
+         ovalen, tettere mot endene der kurven svinger mest. */
+      const punkt = [midt - sirk.d, midt + sirk.d, midt];
+      if (sirk.R2 > 0 && sirk.st > 1e-6 && sirk.st < sirk.d - 1e-6) {
+        punkt.push(midt - sirk.st, midt + sirk.st);
+      }
+      const deler = grovt ? 8 : 32;
+      for (let i = 1; i < deler; i++) {
+        punkt.push(midt + sirk.d * Math.cos(Math.PI * i / deler));
+      }
+      for (const t of punkt) {
+        if (t > 1e-9 && t < lengdeLinje - 1e-9) ut.push(+t.toFixed(4));
+      }
+      continue;                    // sirkelen trapper seg selv – ingen innkjøring
+    }
     /* Selve kantene, og der avtrappingen er ferdig. Uten disse faller en kort
        plass mellom to profiler i det jevne rutenettet, og volumet blir smurt
        ut over nabostrekkene i stedet for å ligge der plassen er. */
@@ -454,7 +572,7 @@ function lagUtvidelsesprofil(linje, mal, stasjoner, ekstra, plasser) {
     const dreining = kurve ? Math.abs(kurve.avbøy) * 180 / Math.PI : 45;
     return utvidelseFraRadius(mal, linje.radiusVed(s), dreining);
   };
-  const plass = plassUtvidelse(plasser, linje.lengde, mal.utvidelseOvergang);
+  const plass = plassUtvidelse(plasser, linje.lengde, mal.utvidelseOvergang, mal.vegbredde);
   const grunn = stasjoner.map((s, i) => {
     const før = i > 0 ? (s - stasjoner[i - 1]) / 2 : 0;
     const etter = i + 1 < stasjoner.length ? (stasjoner[i + 1] - s) / 2 : 0;
@@ -1442,6 +1560,8 @@ const MALGRENSER = {
   utskiftingUtenfor: [0, 20, 'Trauets bunn utenfor vegkroppen'],
   plassLengde: [1, 500, 'Lengde på snuplass'],
   plassBredde: [0, 50, 'Bredde på snuplass'],
+  plassRadius: [3, 60, 'Radius på snuplass'],
+  plassOvergangsradius: [0, 200, 'Overgangsradius på snuplass'],
   tverrfall: [0, 0.3, 'Tverrfall'],
   maksSokebredde: [1, 500, 'Søkebredde'],
   beregningsbredde: [0, 500, 'Beregningsbredde']
@@ -1679,7 +1799,7 @@ function beregnMasser(o) {
      lang i den ene enden og for kort i den andre, og tallet henger på hvor
      brukeren tilfeldigvis klikket. Kantene legges derfor inn som egne
      stasjoner, slik knekkpunktene gjøres ellers i fila. */
-  const kanter = plassKanter(o.plasser, linje.lengde, mal.utvidelseOvergang || 0, !!o.raskt);
+  const kanter = plassKanter(o.plasser, linje.lengde, mal.utvidelseOvergang || 0, !!o.raskt, mal.vegbredde);
   if (kanter.length) {
     for (const k of kanter) stasjoner.push(k);
     stasjoner.sort((a, b) => a - b);

@@ -3241,6 +3241,111 @@ console.log('\n6c. Avlesning av PDF');
     else paastand('seksjon 8 kom seg gjennom', false, e.message);
   }
 
+console.log('\n6f. Snuplass som SIRKEL – radien er et tall man kan stille på');
+{
+  /* «Hvor er det man stiller på snuplass altså radien» – og svaret var at den
+     ikke fantes. Ovalen er en halv ellipse i breddetillegget, så krumningen
+     falt ut av lengde og bredde: man styrte radien uten å se den.
+
+     FASITEN ER ET INTEGRAL, ikke et tall fra en tidligere kjøring. Figuren er
+     en sirkel med radius R1 om plassens senter, koblet til den rette vegkanten
+     med en motkurve R2. Arealet regnes her ved å integrere den samme
+     geometrien med tett steg – en annen vei enn beregningen tar, som går om
+     profiler og gjennomsnittlig endeareal. */
+  const linjeS = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 300, y: 0, r: 0 }]);
+  const profilS = new Vertikalprofil([{ s: 0, z: 100, k: 0 }, { s: 300, z: 100, k: 0 }]);
+  const malS = Object.assign({}, KLASSISK, { overbygningHelning: 0, utvidelseOvergang: 0 });
+  const obS = malS.slitelagTykkelse + malS.baerelagTykkelse;
+  const kjorS = plasser => M.beregnMasser({
+    linje: linjeS, profil: profilS, terreng: { z: () => 100 }, mal: malS,
+    fjell: new M.Fjellmodell({ standarddybde: 99, punkter: [] }),
+    profilAvstand: 5, bakkefaktor: 1, integrasjonssteg: 0.05, plasser
+  });
+  const lagS = r => r.sum.baerelag + r.sum.slitelag;
+  const utenS = lagS(kjorS(null));
+
+  /** Tilleggsarealet til en sirkelplass, regnet med tett numerisk integral. */
+  const fasitAreal = (R1, R2, w, ensidig) => {
+    const c = ensidig ? R1 - w / 2 : 0;
+    const a = w / 2 + R2 - c;
+    const d = Math.sqrt((R1 + R2) * (R1 + R2) - a * a);
+    const st = R2 > 0 ? R1 * d / (R1 + R2) : d;
+    const y = tt => {
+      const at = Math.abs(tt);
+      if (at >= d) return w / 2;
+      if (R2 > 0 && at >= st) {
+        const u = d - at;
+        return w / 2 + R2 - Math.sqrt(Math.max(0, R2 * R2 - u * u));
+      }
+      return c + Math.sqrt(Math.max(0, R1 * R1 - tt * tt));
+    };
+    const n = 400000;
+    let A = 0;
+    for (let i = 0; i < n; i++) {
+      const tt = -d + (i + 0.5) * 2 * d / n;
+      A += (ensidig ? Math.max(0, y(tt) - w / 2) : Math.max(0, 2 * y(tt) - w)) * (2 * d / n);
+    }
+    return { A, d };
+  };
+
+  const w = malS.vegbredde;
+  for (const [R1, R2, side, hva] of [
+    [13, 15, 'sentrum', 'midt på vegen'],
+    [13, 0, 'sentrum', 'uten overgangsbue – ren sirkel'],
+    [10, 20, 'sentrum', 'liten sirkel, lang overgang'],
+    [13, 15, 'hoyre', 'ensidig, ut til høyre']
+  ]) {
+    const f = fasitAreal(R1, R2, w, side !== 'sentrum');
+    const r = kjorS([{ s: 150, radius: R1, overgangsradius: R2, side, form: 'sirkel' }]);
+    sjekk(`sirkel R${R1}/R${R2} ${hva}: overbygningen er arealet · tykkelsen`,
+      lagS(r) - utenS, f.A * obS, Math.max(0.4, f.A * obS * 0.004));
+  }
+
+  /* RADIEN MÅ FAKTISK STYRE. En større radius skal gi mer, og figuren skal
+     være lengre enn 2R – overgangsbuen strekker den. */
+  /* Her sto en sammenligning av TOTALENE, ikke av tillegget – og totalen
+     inneholder hele vegen, så «dobbelt så stor radius» ble drukket i de 945 m³
+     som lå der fra før. Kravet er at TILLEGGET vokser for hver eneste radius,
+     over hele spennet. Målt: 53,1 · 108,5 · 181,1 · 322,3 · 501,3 · 801,4 m³. */
+  const tillegg = R => lagS(kjorS([{ s: 150, radius: R, overgangsradius: 15, form: 'sirkel' }])) - utenS;
+  const rekke = [6, 8, 10, 13, 16, 20].map(tillegg);
+  let stiger = true;
+  for (let i = 1; i < rekke.length; i++) if (!(rekke[i] > rekke[i - 1] * 1.2)) stiger = false;
+  paastand('tillegget vokser med radien, hele veien',
+    stiger && rekke[0] > 10 && rekke[rekke.length - 1] > 500);
+
+  /* LENGDE OG BREDDE SKAL IKKE LESES NÅR FORMEN ER SIRKEL.
+     To tall som beskriver den samme kurven kan settes i motstrid, og da finnes
+     det ikke ett riktig svar – bare to. Prøven setter dem til noe vilt og
+     krever at svaret ikke rører seg. */
+  const rein = lagS(kjorS([{ s: 150, radius: 13, overgangsradius: 15, form: 'sirkel' }]));
+  const forstyrret = lagS(kjorS([{ s: 150, radius: 13, overgangsradius: 15, form: 'sirkel',
+    lengde: 300, bredde: 40 }]));
+  sjekk('lengde og bredde leses ikke når formen er sirkel', forstyrret, rein, 0.01);
+
+  /* OG OMVENDT: en oval skal ikke la seg påvirke av en radius som ligger der. */
+  const oval = lagS(kjorS([{ s: 150, lengde: 20, bredde: 5.5, form: 'oval' }]));
+  const ovalMedR = lagS(kjorS([{ s: 150, lengde: 20, bredde: 5.5, form: 'oval',
+    radius: 30, overgangsradius: 50 }]));
+  sjekk('og radien leses ikke når formen er oval', ovalMedR, oval, 0.01);
+
+  /* EN UMULIG SIRKEL SKAL IKKE GI NaN. Radius under halve vegbredden, eller en
+     ensidig plass der overgangsbuen ikke kan nå fram, har ingen løsning – da
+     faller plassen tilbake på ovalen sin i stedet for å svare med et tall som
+     ikke er et tall. Det var slik `Infinity` slapp gjennom en gang før. */
+  for (const [hva, pl] of [
+    ['radius under halve vegbredden', { s: 150, radius: 1, overgangsradius: 15, form: 'sirkel', lengde: 20, bredde: 5.5 }],
+    ['ensidig der overgangsbuen ikke når fram', { s: 150, radius: 13, overgangsradius: 0, side: 'hoyre', form: 'sirkel', lengde: 20, bredde: 5.5 }],
+    ['radius som ikke er et tall', { s: 150, radius: NaN, overgangsradius: 15, form: 'sirkel', lengde: 20, bredde: 5.5 }]
+  ]) {
+    const r = kjorS([pl]);
+    paastand(`umulig sirkel gir tall, ikke NaN: ${hva}`,
+      Number.isFinite(r.sum.baerelag) && Number.isFinite(r.sum.fylling)
+      && Number.isFinite(r.sum.skjaering),
+      `baerelag ${r.sum.baerelag}, fylling ${r.sum.fylling}`);
+  }
+}
+
   console.log(`\n${ok} tester ok, ${feil} feil\n`);
   process.exit(feil ? 1 : 0);
 })();
