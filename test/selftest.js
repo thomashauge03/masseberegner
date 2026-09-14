@@ -2863,6 +2863,105 @@ console.log('\n6e. Snuplass og møteplass – vegen blir bredere på et stykke')
     }
   }
 
+  /* EN PLASS SOM ER SKREVET FEIL SKAL SIES FRA OM, IKKE SPERRES.
+     Bredden gikk rett inn i vegbredden uten å passere noen grense. En tastefeil
+     – 55 i stedet for 5,5, ett tegn – ga en veg på 59,5 m uten et ord. Ved
+     500 m kom det merknader fra geometrien, men ved 50 m ingen.
+     Det sperres ikke: en stor plass er en gyldig ting å ville ha, og hvor stor
+     den kan være vet ikke programmet. */
+  {
+    const medBredde = (b) => M.beregnMasser({
+      linje: linjeP, profil: profilP, terreng: { z: () => 100 },
+      mal: Object.assign({}, KLASSISK), fjell: new M.Fjellmodell({ standarddybde: 99, punkter: [] }),
+      profilAvstand: 10, bakkefaktor: 1, integrasjonssteg: 0.2,
+      plasser: [{ s: 100, lengde: 20, bredde: b, navn: 'Snuplass',
+        form: 'rektangel', innkjoring: 0 }]
+    });
+    const meldt = (b) => (medBredde(b).merknader || [])
+      .some(m => m.type === 'inngang' && /bred/.test(m.tekst));
+    paastand('en snuplass på 5,5 m meldes ikke', !meldt(5.5));
+    paastand('  heller ikke en stor plass på 12 m', !meldt(12));
+    paastand('men en tastefeil på 55 m blir meldt', meldt(55));
+    /* Og den skal fortsatt REGNES, ikke kastes – tallet er brukerens valg. */
+    const stor = medBredde(55).profiler.find(p => Math.abs(p.s - 100) < 1e-6);
+    sjekk('  og plassen regnes likevel med',
+      stor.halvbreddeVenstre + stor.halvbreddeHoyre, KLASSISK.vegbredde + 55, 0.01);
+  }
+
+  /* EN GRENSE SOM GJØR TALLET STØRRE ER IKKE EN GRENSE.
+     `beregningsbredde` sier hvor langt ut regnestykket skal telle. To feil satt
+     i den samtidig:
+
+     1) `flateVed` brukte den AVKORTEDE foten til å avgjøre «bygd skråning eller
+        rå bakke». Klippet grensen foten, begynte flaten å svare «rå bakke» inne
+        i skråningen man faktisk bygger, og fyllingen VOKSTE når grensen ble
+        strammet: 52,59 m²/lm uten grense, 52,98 med 2 m, 54,41 med 1 m.
+     2) Med masseutskifting ble integrasjonsområdet utvidet til trauet UTEN å
+        respektere grensen, så den bet ikke i det hele tatt: 70,44 m²/lm uansett,
+        mens rapporten samtidig meldte «avkortet». */
+  {
+    const medGrense = (bb, utskifting) => M.beregnTverrprofil({
+      linje: linjeP, terreng: { z: () => 100 },
+      mal: Object.assign({}, KLASSISK, { utskifting, beregningsbredde: bb }),
+      fjell: new M.Fjellmodell({ standarddybde: 4, punkter: [] }),
+      s: 50, vegnivaa: 102, utvidelse: 0, integrasjonssteg: 0.02
+    });
+    for (const utskifting of [false, true]) {
+      const navn = utskifting ? 'med utskifting' : 'uten utskifting';
+      const v = [0, 5, 3, 2, 1].map(bb => medGrense(bb, utskifting).areal.fylling);
+      let stiger = false;
+      for (let i = 1; i < v.length; i++) if (v[i] > v[i - 1] + 1e-6) stiger = true;
+      paastand(`${navn}: fyllingen vokser ALDRI når grensen strammes`, !stiger,
+        v.map(x => x.toFixed(2)).join(' → '));
+      paastand(`  og grensen biter i det hele tatt`,
+        v[v.length - 1] < v[0] - 0.5,
+        `${v[0].toFixed(2)} uten grense mot ${v[v.length - 1].toFixed(2)} med 1 m`);
+    }
+  }
+
+  /* NORMALENS BREDDEKRAV STÅR IKKE UTENFOR INNGANGSKONTROLLEN.
+     `ekstraBredde` er et objekt, og `klem` går over enkeltfelt – så ingen av de
+     tre nøklene ble sett på. Et komma i stedet for punktum i `tillegg` slo av
+     hele kravet uten et ord: 307,5 m³ mindre fylling, null merknader. */
+  {
+    const medEkstra = (eb) => M.beregnMasser({
+      linje: linjeP, profil: new Vertikalprofil([{ s: 0, z: 104, k: 0 }, { s: 200, z: 104, k: 0 }]),
+      terreng: { z: () => 100 }, mal: Object.assign({}, KLASSISK, { ekstraBredde: eb }),
+      fjell: new M.Fjellmodell({ standarddybde: 9, punkter: [] }),
+      profilAvstand: 10, bakkefaktor: 1, integrasjonssteg: 0.1
+    });
+    const god = medEkstra({ fyllingshoyde: 2, stigning: 0.14, tillegg: 0.5 });
+    for (const [navn, eb] of [
+      ['komma i tillegget', { fyllingshoyde: 2, stigning: 0.14, tillegg: '0,5' }],
+      ['NaN i tillegget', { fyllingshoyde: 2, stigning: 0.14, tillegg: NaN }],
+      ['tull i fyllingshøyden', { fyllingshoyde: 'x', stigning: 0.14, tillegg: 0.5 }]
+    ]) {
+      const r = medEkstra(eb);
+      sjekk(`${navn} faller tilbake på standarden`, r.sum.fylling, god.sum.fylling, 0.5);
+      paastand(`  og det sies fra om det`,
+        (r.merknader || []).some(m => m.type === 'inngang'));
+    }
+  }
+
+  /* RESTEN UNDER TRAUET MÅLES FRA DEN BUNNEN SOM FAKTISK GRAVES.
+     Her sto avstanden fra GRENSEPLANET ned til fjellet. Men er renskedybden
+     større enn `maksUtskifting`, graves det dypere enn grensen uansett – og da
+     er det ingen rest igjen, selv om formelen meldte en. */
+  {
+    const pr = M.beregnTverrprofil({
+      linje: linjeP, terreng: { z: () => 100 },
+      mal: Object.assign({}, KLASSISK, { utskifting: true, maksUtskifting: 0.30,
+        renskDybde: 0.50 }),
+      fjell: new M.Fjellmodell({ standarddybde: 2.0, punkter: [] }),
+      s: 50, vegnivaa: 100, utvidelse: 0, integrasjonssteg: 0.02
+    });
+    const g = pr.geometri;
+    const botnMidt = g.rensk.reduce((b, q) => Math.abs(q[0]) < Math.abs(b[0]) ? q : b, g.rensk[0])[1];
+    const fjellMidt = g.fjell.reduce((b, q) => Math.abs(q[0]) < Math.abs(b[0]) ? q : b, g.fjell[0])[1];
+    sjekk('resten er avstanden fra den gravde bunnen ned til fjellet',
+      pr.utskiftingRest, botnMidt - fjellMidt, 0.02);
+  }
+
   /* INGEN PLASS SKAL IKKE ENDRE NOE. Tomme og ugyldige lister må gå stille
      igjennom – en plass uten bredde eller lengde er ikke en plass. */
   {
@@ -2872,7 +2971,14 @@ console.log('\n6e. Snuplass og møteplass – vegen blir bredere på et stykke')
       ['uten bredde', [{ s: 100, lengde: 20, bredde: 0, form: 'rektangel' }]],
       ['uten lengde', [{ s: 100, lengde: 0, bredde: 4, form: 'rektangel' }]],
       ['uten stasjon', [{ lengde: 20, bredde: 4 }]],
-      ['bare tull', [null, undefined, {}]]
+      ['bare tull', [null, undefined, {}]],
+      /* `> 0` ER IKKE NOK: `Infinity > 0` er sant, så en uendelig bredde slapp
+         gjennom filteret og ga NaN i bærelaget – et helt svar uten tall.
+         `1e400` er den samme verdien, og den er lett å få inn fra et felt. */
+      ['uendelig bredde', [{ s: 100, lengde: 20, bredde: Infinity }]],
+      ['1e400 i bredden', [{ s: 100, lengde: 20, bredde: 1e400 }]],
+      ['uendelig lengde', [{ s: 100, lengde: Infinity, bredde: 5 }]],
+      ['NaN i bredden', [{ s: 100, lengde: 20, bredde: NaN }]]
     ]) sjekk(`${hva} endrer ingenting`, lagP(kjorP(p, 0)), fasit, 1e-9);
   }
 

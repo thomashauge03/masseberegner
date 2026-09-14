@@ -318,8 +318,13 @@ function plassInnkjoring(p, overgang) {
 }
 
 function plassUtvidelse(plasser, lengdeLinje, overgang) {
-  const gyldige = (plasser || []).filter(p => p && isFinite(p.s)
-    && p.lengde > 0 && p.bredde > 0);
+  /* `> 0` ER IKKE NOK: `Infinity > 0` er sant.
+     En bredde på `Infinity` – eller `1e400`, som blir det samme – slapp gjennom
+     filteret og ga NaN i bærelaget, altså et helt svar uten tall. Kravet er at
+     tallet er ENDELIG og positivt, ikke bare positivt. */
+  const endeligPositiv = v => typeof v === 'number' && Number.isFinite(v) && v > 0;
+  const gyldige = (plasser || []).filter(p => p && Number.isFinite(p.s)
+    && endeligPositiv(p.lengde) && endeligPositiv(p.bredde));
   /* Samme FORM uten plasser som med. Her sto `() => 0`, altså et tall der
      resten av fila venter `{sym, v, h}` – og `Math.max(sym, undefined)` er NaN,
      som `JSON.stringify` viser som `null`. Hele utvidelsen ble NaN så snart
@@ -384,7 +389,9 @@ function plassUtvidelse(plasser, lengdeLinje, overgang) {
 function plassKanter(plasser, lengdeLinje, overgang, grovt) {
   const ut = [];
   for (const p of (plasser || [])) {
-    if (!p || !isFinite(p.s) || !(p.lengde > 0) || !(p.bredde > 0)) continue;
+    // samme krav som i plassUtvidelse: ENDELIG og positiv, ikke bare positiv
+    if (!p || !Number.isFinite(p.s) || !(p.lengde > 0) || !(p.bredde > 0)
+      || !Number.isFinite(p.lengde) || !Number.isFinite(p.bredde)) continue;
     const halv = p.lengde / 2;
     const midt = lengdeLinje <= p.lengde ? lengdeLinje / 2
       : Math.min(Math.max(p.s, halv), lengdeLinje - halv);
@@ -685,7 +692,9 @@ function beregnTverrprofil(o) {
      når en snuplass er lagt ut til én av dem. */
   const tUtskiftingV = hbV + skulder + groftBredde;
   const tUtskiftingH = hbH + skulder + groftBredde;
-  const tUtskifting = Math.max(tUtskiftingV, tUtskiftingH);
+  /* `tUtskifting` som ETT felles tall ble liggende igjen da trauet ble delt per
+     side, og hadde ingen lesere. En variabel ingen bruker er en invitasjon til
+     å bruke den – og her ville det betydd å speile den brede siden. */
   const maksUt = Math.max(0, mal.maksUtskifting || 0);
   /* ET TRAU HAR IKKE LODDRETTE VEGGER.
      Her sto veggen som et loddrett sprang ved vegkroppens kant. Da står den
@@ -737,7 +746,16 @@ function beregnTverrprofil(o) {
   /* Der veggen møter den vanlige renskebunnen. Utenfor dette punktet er trauet
      ikke lenger dypere enn en vanlig avdekking, og der er det ingen utskifting.
      Løses ved halvering: terrenget kan skråne, så det finnes ingen formel. */
+  /* HURTIGLAGRET PER SIDE. Funksjonen halverer seg fram i 40 runder, og den ble
+     kalt TOLV ganger per tverrprofil - av integrasjonsgrensene, renskegrensene,
+     to knekkpunktlister og resultatobjektet. Svaret er det samme hver gang:
+     terrenget og trauet endrer seg ikke inne i ett profil. */
+  const _vmBuffer = {};
   const veggMoeter = (side) => {
+    if (_vmBuffer[side] !== undefined) return _vmBuffer[side];
+    return (_vmBuffer[side] = _veggMoeter(side));
+  };
+  const _veggMoeter = (side) => {
     const bunn = side < 0 ? tUtskiftBunnV : tUtskiftBunnH;
     if (!mal.utskifting || utHelning <= 0) return bunn;
     const dypere = (t) => utskiftBotn(t) < terr(t) - 1e-9;
@@ -759,9 +777,15 @@ function beregnTverrprofil(o) {
      skal ned til fjell, så det som ligger igjen der er ikke en rest. */
   const restUnderTrauet = (t) => {
     if (!mal.utskifting || maksUt <= 0 || Math.abs(t) > bunnVed(t)) return 0;
-    const zr = terrRå(t);
-    if (!isFinite(zr)) return 0;
-    return Math.max(0, (zr - maksUt) - fjellflate(t));
+    /* MÅLT FRA DEN BUNNEN SOM FAKTISK GRAVES, ikke fra grenseplanet.
+       Her sto `(terreng − maksUtskifting) − fjell`, altså avstanden fra
+       GRENSEN ned til fjellet. Men bunnen ligger ikke alltid på grensen: er
+       renskedybden større enn `maksUtskifting`, graves det dypere enn grensen
+       uansett, og da er det ingen rest igjen selv om formelen melder en.
+       Resten er det som ligger mellom den gravde bunnen og fjellet. */
+    const botn = utskiftBotn(t);
+    if (!isFinite(botn)) return 0;
+    return Math.max(0, botn - fjellflate(t));
   };
 
   // --- Bygg jordarbeidsflaten for hver side --------------------------
@@ -923,12 +947,21 @@ function beregnTverrprofil(o) {
      skråningen - er det bakken selv: der er det ikke bygget noe, så gropa
      graves og bakken legges tilbake slik den lå.
 
-     Grensen er `tV`/`tH`, ikke `tFot`. Det ble prøvd med foten, og det traff
-     ikke: målt kalles flaten på t = -8,175 mens venstre fot står på 7,421, så
-     «utenfor foten» slo inn 6 259 ganger midt inne i et helt vanlig profil og
-     tok skjæringen på alle 18 kurveprofilene til null. */
+     Grensen er FOTEN, og den må være den UKLIPPEDE. Det ble først prøvd med
+     `tFot` uten fortegn, og det traff ikke: `tFot` er avstand utover, mens `t`
+     er fortegnsbestemt, så «utenfor foten» slo inn 6 259 ganger midt inne i et
+     helt vanlig profil og tok skjæringen på alle 18 kurveprofilene til null.
+     Løsningen på DET var fortegnet, ikke å bytte til `tV`/`tH`.
+
+     `tV`/`tH` er nemlig foten KLIPPET av `beregningsbredde`, og det er en helt
+     annen ting: hvor langt brukeren vil telle. Med den som grense begynte
+     flaten å svare «rå bakke» inne i skråningen man faktisk bygger, og da vokste
+     fyllingen når grensen ble STRAMMET – målt 52,59 m²/lm uten grense, 52,98
+     med 2 m og 54,41 med 1 m. En grense som gjør tallet større er ikke en
+     grense. Hvor skråningen slutter er en fysisk egenskap ved profilet. */
+  const fotV = -sider[-1].tFot, fotH = sider[1].tFot;
   const flateVed = (t) =>
-    (mal.utskifting && (t < tV - 1e-9 || t > tH + 1e-9)) ? terr(t) : jordflate(t);
+    (mal.utskifting && (t < fotV - 1e-9 || t > fotH + 1e-9)) ? terr(t) : jordflate(t);
 
   // --- Integrer arealene --------------------------------------------
   /* Er det satt en beregningsbredde, stopper regnestykket der selv om
@@ -1000,6 +1033,15 @@ function beregnTverrprofil(o) {
   if (mal.utskifting) {
     tI0 = Math.min(tI0, -veggMoeter(-1));
     tI1 = Math.max(tI1, veggMoeter(1));
+    /* MEN BEREGNINGSBREDDEN GJELDER FORTSATT.
+       Utvidelsen over gjorde trauet til det ytterste punktet, og da spilte det
+       ingen rolle hva brukeren hadde satt som grense: målt med grensen på 1 m
+       ga utskifting AV 12,30 → 9,27 m²/lm fylling, mens utskifting PÅ ga 70,44
+       uansett – samtidig som rapporten meldte «avkortet». En grense som ikke
+       avkorter noe, men som sier at den gjør det, er verre enn ingen grense.
+       Geometrien tegnes fortsatt helt ut; det er TELLINGEN som stopper her. */
+    tI0 = Math.max(tI0, -grenseV);
+    tI1 = Math.min(tI1, grenseH);
   }
   const nJevn = Math.min(4000, Math.max(4, Math.ceil((tI1 - tI0) / dt)));
   for (let i = 0; i <= nJevn; i++) brekk.add(tI0 + (tI1 - tI0) * i / nJevn);
@@ -1440,7 +1482,7 @@ function erTall(v) {
   return typeof v === 'number' && Number.isFinite(v);
 }
 
-function rettInngang(mal, faktorer, fjell, dS, bf) {
+function rettInngang(mal, faktorer, fjell, dS, bf, plasser) {
   const merknader = [];
   const klem = (obj, grenser, hva) => {
     for (const felt of Object.keys(grenser)) {
@@ -1529,6 +1571,61 @@ function rettInngang(mal, faktorer, fjell, dS, bf) {
     }
   }
 
+  /* SNUPLASSENE ER OGSÅ INNGANGSDATA.
+     Hver plass har sin egen bredde, lengde og innkjøring, og de går rett inn i
+     vegbredden uten å passere noen grense. En plass som er skrevet feil – 55 i
+     stedet for 5,5, en tastefeil som koster ett tegn – ga en veg på 59,5 m uten
+     et ord. Ved 500 m kom det merknader fra geometrien, men ved 50 m ingen.
+
+     Det SPERRES ikke: en stor plass er en gyldig ting å ville ha, og hvor stor
+     den kan være vet ikke programmet. Men den skal sies fra om. Tjue meter er
+     bredere enn noen snuplass på en skogsbilveg, og et rundt tall å kjenne
+     igjen en desimalfeil på. */
+  const plassMerknad = (plasser, vegbredde) => {
+    for (const p of (plasser || [])) {
+      if (!p || !erTall(p.bredde) || !erTall(p.lengde)) continue;
+      const samlet = vegbredde + p.bredde;
+      if (samlet > 20) {
+        merknader.push({
+          s: erTall(p.s) ? p.s : 0, type: 'inngang',
+          tekst: `${p.navn || 'Snuplassen'} gjør vegen ${kom(samlet, 1)} m bred `
+            + `(${kom(p.bredde, 1)} m bredere enn ${kom(vegbredde, 1)} m) – `
+            + 'kontroller at det er riktig'
+        });
+      }
+    }
+  };
+  plassMerknad(plasser, mal.vegbredde);
+
+  /* NORMALENS BREDDEKRAV STO HELT UTENFOR INNGANGSKONTROLLEN.
+     `ekstraBredde` er et objekt – `{fyllingshoyde, stigning, tillegg}` – og
+     `klem` går over enkeltfelt, så ingen av de tre ble sett på. Et komma i
+     stedet for punktum i `tillegg` slo av hele kravet uten et ord: målt på en
+     veg 4 m over terrenget ga `'0,5'` 307,5 m³ mindre fylling enn `0.5`, og
+     null merknader. De to andre svikter likt – en ugyldig `fyllingshoyde`
+     gjør at kravet enten aldri eller alltid slår inn. */
+  if (mal.ekstraBredde && typeof mal.ekstraBredde === 'object') {
+    const e = mal.ekstraBredde;
+    const std = StandardMal.ekstraBredde || {};
+    for (const [felt, navn, lav, hoy] of [
+      ['tillegg', 'Normalens ekstra bredde', 0, 5],
+      ['fyllingshoyde', 'Fyllingshøyde for ekstra bredde', 0, 30],
+      ['stigning', 'Stigning for ekstra bredde', 0, 1]
+    ]) {
+      if (e[felt] === undefined) continue;        // ikke oppgitt: standarden gjelder
+      if (!erTall(e[felt])) {
+        e[felt] = std[felt];
+        merknader.push({ s: 0, type: 'inngang',
+          tekst: `${navn} er ikke et tall – bruker ${std[felt]}` });
+      } else if (e[felt] < lav || e[felt] > hoy) {
+        const v = e[felt];
+        e[felt] = Math.min(hoy, Math.max(lav, v));
+        merknader.push({ s: 0, type: 'inngang',
+          tekst: `${navn} var ${v} – utenfor ${lav} til ${hoy}, regnet med ${e[felt]}` });
+      }
+    }
+  }
+
   /* Profilavstanden er den farligste av dem alle: null eller negativ gir en
      løkke som aldri kommer ut, og fana henger. */
   let dSut = dS;
@@ -1564,7 +1661,7 @@ function beregnMasser(o) {
      som ikke svarte til det som sto i skjemaet. */
   const vakt = rettInngang(mal, faktorer, o.fjell,
     o.profilAvstand == null ? 5 : o.profilAvstand,
-    o.bakkefaktor == null ? 1 : o.bakkefaktor);
+    o.bakkefaktor == null ? 1 : o.bakkefaktor, o.plasser);
   const dS = vakt.dS;
   const bf = vakt.bf;
   const arealFaktor = bf;          // ett vannrett mal i tverrsnittet

@@ -322,9 +322,16 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
     const pr = res && res.profiler
       && res.profiler.find(q => Math.abs(q.s - this.kamS) < this._profilsteg(res));
     if (this.ferd === 'gaa') {
-      // en halv meter utenfor asfaltkanten: man får stå på skulderen
-      const b = (pr && pr.halvbredde) ? pr.halvbredde + 0.5 : 3;
-      return { lav: -b, hoy: b };
+      /* En halv meter utenfor asfaltkanten: man far staa paa skulderen.
+         PER SIDE - med gjennomsnittet ble grensa speilet, saa man ble sluppet
+         ut paa skraaningen paa den smale sida og stoppet inne paa vegen paa den
+         breie. Malt med en 6 m snuplass til hoegre: grensa laa paa 5,75 m der
+         vegkanten er 2,25 og 8,25. */
+      const gV = (pr && pr.halvbreddeVenstre != null) ? pr.halvbreddeVenstre
+        : ((pr && pr.halvbredde) || 2.5);
+      const gH = (pr && pr.halvbreddeHoyre != null) ? pr.halvbreddeHoyre
+        : ((pr && pr.halvbredde) || 2.5);
+      return { lav: -(gV + 0.5), hoy: gH + 0.5 };
     }
     if (!pr) return { lav: -30, hoy: 30 };
     return { lav: pr.fotVenstre - 0.8 * this.kontekst, hoy: pr.fotHoyre + 0.8 * this.kontekst };

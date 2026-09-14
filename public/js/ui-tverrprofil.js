@@ -186,9 +186,15 @@ const Tverrprofil = {
        da ble det blå kappet ved kanten av lerretet i stedet for å slutte der
        gravingen slutter. Man kunne ikke se hvor den endte, som er nettopp det
        tallet man skal lese av. */
-    const tTrau = pr.utskiftingHalvbredde || 0;
-    const tMin = Math.min(pr.fotVenstre, -tTrau) - 1.5;
-    const tMax = Math.max(pr.fotHoyre, tTrau) + 1.5;
+    /* PER SIDE. Med fellestallet brukt begge veier ble bildet like breitt paa
+       den smale sida som paa den breie - malt 27,5 m vindu der inngrepet gaar
+       fra -5,02 til 10,93 - og vegen stod ikke midt i bildet. */
+    const vTrau = pr.utskiftingHalvbreddeVenstre != null
+      ? pr.utskiftingHalvbreddeVenstre : (pr.utskiftingHalvbredde || 0);
+    const hTrau = pr.utskiftingHalvbreddeHoyre != null
+      ? pr.utskiftingHalvbreddeHoyre : (pr.utskiftingHalvbredde || 0);
+    const tMin = Math.min(pr.fotVenstre, -vTrau) - 1.5;
+    const tMax = Math.max(pr.fotHoyre, hTrau) + 1.5;
     const zSlakk = Math.max(0.35, (zMax - zMin) * 0.10);
     zMin -= zSlakk; zMax += zSlakk;
 
@@ -453,7 +459,15 @@ const Tverrprofil = {
     /* Utenfor snittet finnes det ingen avlesning. Uten dette gjentok den
        verdien fra ytterste punkt sa langt ut man dro musen, og et tall som
        star stille nar man beveger seg ser ut som en malt verdi. */
-    const utenfor = t < pr.fotVenstre - 1e-6 || t > pr.fotHoyre + 1e-6;
+    /* SAA LANGT TEGNINGEN GAAR, ikke bare til skraaningsfoten.
+       Med masseutskifting gaar trauet forbi foten - og der er det TEGNET noe.
+       Avlesningen sa likevel "utenfor inngrepet" midt inne i det blaa: malt med
+       foten paa 5,02 m og geometrien til 10,50 m sa den ingenting fra 5,02 og
+       utover, nettopp der man vil vite hvor dypt trauet er. */
+    const gT0 = terr.length ? terr[0][0] : pr.fotVenstre;
+    const gT1 = terr.length ? terr[terr.length - 1][0] : pr.fotHoyre;
+    const utenfor = t < Math.min(pr.fotVenstre, gT0) - 1e-6
+      || t > Math.max(pr.fotHoyre, gT1) + 1e-6;
     /* Hull i terrengmodellen star ikke i listene i det hele tatt - de blir
        hoppet over nar snittet regnes. `_hoydeVed` interpolerer da rett over
        hullet og finner pa en høyde som ser like troverdig ut som de andre.
