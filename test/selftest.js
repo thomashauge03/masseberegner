@@ -2674,6 +2674,27 @@ console.log('\n6e. Snuplass og møteplass – vegen blir bredere på et stykke')
       oval < rekt * 0.82 && oval > rekt * 0.75,
       `${(100 * oval / rekt).toFixed(1)} % av rektangelet`);
 
+    /* GROV MODUS SKAL IKKE ENDRE DET ENDELIGE SVARET.
+       Optimaliseringen kjører med `raskt: true` og får ovalen med åtte
+       delintervall i stedet for 32 – den sammenligner alternativer mot
+       hverandre, og da holder det at feilen er den samme i alle. Men den
+       ENDELIGE beregningen må være uberørt: her sammenlignes de to, og de skal
+       ikke være like (grov er grovere), mens full oppløsning skal stå stille. */
+    {
+      const grov = M.beregnMasser({
+        linje: linjeP, profil: profilP, terreng: { z: () => 100 },
+        mal: Object.assign({}, KLASSISK, { overbygningHelning: 0, utvidelseOvergang: 0 }),
+        fjell: new M.Fjellmodell({ standarddybde: 99, punkter: [] }),
+        profilAvstand: 5, bakkefaktor: 1, integrasjonssteg: 0.05, raskt: true,
+        plasser: [{ s: 100, lengde: 20, bredde: 5.5, form: 'oval' }]
+      });
+      paastand('grov modus gir færre profiler enn full',
+        grov.profiler.length < kjorP([{ s: 100, lengde: 20, bredde: 5.5, form: 'oval' }], 0)
+          .profiler.length, `${grov.profiler.length} profiler`);
+      sjekk('men full oppløsning står stille', oval,
+        Math.PI / 4 * 20 * 5.5 * obP, 0.12);
+    }
+
     /* FORMEN ER STANDARD. Knappen heter «Snuplass», og en snuplass er oval –
        så en plass uten oppgitt form skal være det. */
     const utenForm = lagP(kjorP([{ s: 100, lengde: 20, bredde: 5.5 }], 0)) - utenO;

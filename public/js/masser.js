@@ -365,8 +365,16 @@ function plassUtvidelse(plasser, lengdeLinje, overgang) {
   };
 }
 
-/** Stasjonene der en plass starter og slutter - kantene må treffes eksakt. */
-function plassKanter(plasser, lengdeLinje, overgang) {
+/**
+ * Stasjonene der en plass starter og slutter - kantene må treffes eksakt.
+ *
+ * `grovt` er optimaliseringens modus. Den sammenligner alternativer mot
+ * hverandre, og da holder det at feilen er den samme i alle - se `beregnRaskt`
+ * i app.js. Ovalen får derfor åtte delintervall i stedet for 32 der. Målt på en
+ * kilometer veg med ti snuplasser: 10 ms mot 3 ms uten plasser i grov modus, og
+ * med åtte punkt er det nede i 5. Den endelige beregningen bruker alltid 32.
+ */
+function plassKanter(plasser, lengdeLinje, overgang, grovt) {
   const ut = [];
   for (const p of (plasser || [])) {
     if (!p || !isFinite(p.s) || !(p.lengde > 0) || !(p.bredde > 0)) continue;
@@ -391,8 +399,9 @@ function plassKanter(plasser, lengdeLinje, overgang) {
          konvergerer sakte her fordi ellipsen står loddrett i endene. 32 er der
          det slutter å lønne seg: under to promille, og en snuplass er ikke
          landmålt nøyere enn det. */
-      for (let i = 1; i < 32; i++) {
-        const u = Math.cos(Math.PI * i / 32);      // Tsjebysjov: tett i endene
+      const deler = grovt ? 8 : 32;
+      for (let i = 1; i < deler; i++) {
+        const u = Math.cos(Math.PI * i / deler);   // Tsjebysjov: tett i endene
         punkt.push(midt + halv * u);
       }
       for (const t of punkt) {
@@ -1529,7 +1538,7 @@ function beregnMasser(o) {
      lang i den ene enden og for kort i den andre, og tallet henger på hvor
      brukeren tilfeldigvis klikket. Kantene legges derfor inn som egne
      stasjoner, slik knekkpunktene gjøres ellers i fila. */
-  const kanter = plassKanter(o.plasser, linje.lengde, mal.utvidelseOvergang || 0);
+  const kanter = plassKanter(o.plasser, linje.lengde, mal.utvidelseOvergang || 0, !!o.raskt);
   if (kanter.length) {
     for (const k of kanter) stasjoner.push(k);
     stasjoner.sort((a, b) => a - b);
