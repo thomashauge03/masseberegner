@@ -129,6 +129,33 @@ const Tomteprofil = {
     const flate = (t.omrissBetyr === 'yttergrense' && app._innerflate) ? app._innerflate : p;
     const kantFor = i => (t.kanter && t.kanter[i]) || {};
 
+    /* TRAUET LESES AV BEREGNINGEN, IKKE REGNET OM IGJEN.
+       Hver rute i `res.rutenett` bærer `zTrau` og `utskift` – og kommentaren
+       der de legges inn (tomtmasser.js:611-616) sier rett ut at de ble tatt med
+       for at tegningen skal kunne vise trauet. Ingen leste dem.
+
+       Utslaget var stygt: slås masseutskifting på, males HELE tomta grønn som
+       fylling. Cellefeltet `d` måles fra trau-bunnen (tomtmasser.js:522), så
+       med fjellet tre meter nede er `d` negativ overalt. Målt på en 40 × 30 m
+       tomt, flat mark, fjell 3 m nede: 4 585 m³ masseutskifting gravd ut, og
+       beregningen melder 0 m³ skjæring og 4 454 m³ fylling. En grop blir til
+       en oppfylling på skjermen.
+
+       Å regne trauet på nytt her ville vært en andre sannhet om det samme.
+       Oppslaget er derfor en ren indeks på beregningens egne ruter. */
+    const rute = Math.max(1, mal.rutestorrelse || 1);
+    let trauKart = null;
+    const rn = app.resultat && app.resultat.rutenett;
+    if (Array.isArray(rn) && rn.length) {
+      trauKart = new Map();
+      for (const c of rn) {
+        if (c.zTrau == null) continue;
+        trauKart.set(Math.round(c.x / rute) + ',' + Math.round(c.y / rute), c);
+      }
+    }
+    const trauVed = (x, y) => (trauKart
+      ? trauKart.get(Math.round(x / rute) + ',' + Math.round(y / rute)) || null : null);
+
     const punkt = [];
     const steg = Math.max(0.5, (2 * rekke) / 400);
     for (let d = -rekke; d <= rekke; d += steg) {
@@ -184,7 +211,14 @@ const Tomteprofil = {
       /* Jordarbeidsflaten er én sammenhengende strek: planum inne i tomta,
          skraning utenfor. Tegnes de hver for seg, blir det et hopp i kanten. */
       const zJord = inne ? (zN == null ? null : zN - ob) : zSkraning;
-      punkt.push({ d, zT: Number.isFinite(zT) ? zT : null, zF, zN, zJord, inne });
+      /* Trauet fra beregningens egen rute. `utskift` er hvor mye som skiftes ut
+         nettopp der, så en rute der fjellet ligger i dagen skilles fra en der
+         det graves fire meter – se tomtmasser.js:611-617. */
+      const c = trauVed(x, y);
+      const zTrau = c && Number.isFinite(c.zTrau) ? c.zTrau : null;
+      const utskift = c && Number.isFinite(c.utskift) ? c.utskift : 0;
+      punkt.push({ d, zT: Number.isFinite(zT) ? zT : null, zF, zN, zJord, inne,
+        zTrau, utskift });
     }
     return { punkt, ob, retning: grader, senter, tMin, tMaks, skyv };
   },
@@ -251,6 +285,45 @@ const Tomteprofil = {
     const gyldig = q => q.zT != null && q.zJord != null;
     bane(q => gyldig(q) && q.zT > q.zJord, Farger.skjaeringFlate);
     bane(q => gyldig(q) && q.zT < q.zJord, Farger.fyllingFlate);
+
+    /* MASSEUTSKIFTINGEN MÅ SYNES – DET ER DEN SOM KOSTER MEST.
+       Slås den på, males hele tomta grønn som fylling, fordi cellefeltet `d`
+       måles fra bunnen i trauet. Målt på en 40 × 30 m tomt, flat mark, fjell
+       3 m nede: 4 585 m³ gravd ut, og skjermen sa 0 m³ skjæring og 4 454 m³
+       fylling. Gropa fantes ikke i bildet i det hele tatt.
+
+       Vegen fikk den blå markeringen; tomta fikk den aldri. Her er den: flaten
+       mellom den avdekkede bakken og bunnen i trauet, i samme blå som vegen
+       bruker, med bunnlinja trukket opp. Den tegnes FØR overbygningen og
+       strekene, så den ligger under dem og ikke over. */
+    const harTrau = s.punkt.some(q => q.utskift > 0.02 && q.zTrau != null);
+    if (harTrau) {
+      const topp = q => (q.zTrau != null && q.utskift > 0.02
+        ? q.zTrau + q.utskift : null);
+      g.fillStyle = Farger.utskiftingFlate;
+      let i = 0;
+      while (i < s.punkt.length) {
+        while (i < s.punkt.length && topp(s.punkt[i]) == null) i++;
+        const start = i;
+        while (i < s.punkt.length && topp(s.punkt[i]) != null) i++;
+        if (i - start < 2) continue;
+        g.beginPath();
+        for (let k = start; k < i; k++) g.lineTo(X(s.punkt[k].d), Y(topp(s.punkt[k])));
+        for (let k = i - 1; k >= start; k--) g.lineTo(X(s.punkt[k].d), Y(s.punkt[k].zTrau));
+        g.closePath(); g.fill();
+      }
+      /* Bunnen i trauet er den linja graveren skal ned til. Den tegnes tydelig,
+         som på vegen – uten den ser flaten ut som en skygge. */
+      g.strokeStyle = Farger.utskifting; g.lineWidth = 1.8;
+      g.beginPath();
+      let nede = true;
+      for (const q of s.punkt) {
+        if (!(q.utskift > 0.02) || q.zTrau == null) { nede = true; continue; }
+        const px = X(q.d), py = Y(q.zTrau);
+        if (nede) { g.moveTo(px, py); nede = false; } else g.lineTo(px, py);
+      }
+      g.stroke();
+    }
 
     /* OVERBYGNINGEN ER EN KROPP, IKKE LUFT.
        Dette er det brukeren så: «på tomt føler streken flyr over». Den hvite
@@ -335,6 +408,11 @@ const Tomteprofil = {
       ['Ferdig nivå', 'strek', Farger.veg],
       ['Planum', 'stiplet', Farger.planum]];
     if (s.ob > 0) poster.push(['Overbygning', 'flate', Farger.baerelag]);
+    /* Bare når det faktisk skiftes ut masse. En post om en farge som ikke er
+       brukt er en opplysning om noe annet enn det man ser på. */
+    if (s.punkt.some(q => q.utskift > 0.02 && q.zTrau != null)) {
+      poster.push(['Masseutskifting', 'flate', Farger.utskiftingFlate]);
+    }
     poster.push(['Skjæring', 'flate', Farger.skjaeringFlate],
       ['Fylling', 'flate', Farger.fyllingFlate],
       ['Fjell', 'stiplet', Farger.fjell]);
@@ -444,7 +522,9 @@ const Tomteprofil = {
     const marg = { v: 52, h: 12, o: 14, u: 26 };
     let minZ = Infinity, maksZ = -Infinity;
     for (const q of s.punkt) {
-      for (const v of [q.zT, q.zF, q.zN, q.zJord]) {
+      /* Trauet må med i høydevinduet, ellers tegnes en fire meter dyp grop
+         utenfor bildet og man ser bare at noe blått forsvinner nedover. */
+      for (const v of [q.zT, q.zF, q.zN, q.zJord, q.zTrau]) {
         if (v != null && Number.isFinite(v)) { minZ = Math.min(minZ, v); maksZ = Math.max(maksZ, v); }
       }
     }

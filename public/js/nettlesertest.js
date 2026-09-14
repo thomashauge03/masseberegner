@@ -4000,6 +4000,40 @@ const Nettlesertest = {
       this.sjekk('terrenget tegnes sist, så det aldri blir dekket',
         lange.length > 0 && lange[lange.length - 1].farge === Farger.terreng,
         lange.map(t => t.farge).join(', '));
+
+      /* EN GROP SKAL IKKE SE UT SOM EN OPPFYLLING.
+         Slås masseutskifting på, males hele tomta grønn, fordi cellefeltet `d`
+         måles fra bunnen i trauet. Målt på en 40 × 30 m tomt, flat mark, fjell
+         3 m nede: 4 585 m³ gravd ut, og skjermen sa 0 m³ skjæring og 4 454 m³
+         fylling. Vegen fikk den blå markeringen; tomta fikk den aldri. */
+      app.P.mal.frostsikring = 0;                 // tilbake til standardmalen
+      app.P.mal.utskifting = true;
+      app.P.fjell.standarddybde = 3;
+      app._terrengnokkel = '';
+      await app.beregnTomt();
+      await this.vent(200);
+      tegnOgMaal();
+      const s3 = Tomteprofil.snitt();
+      const omr3 = Tomteprofil._omrade(s3, c.canvas.clientWidth, c.canvas.clientHeight);
+      const dype = s3.punkt.filter(p2 => p2.inne && p2.utskift > 1 && p2.zTrau != null);
+      this.sjekk('tomta har et trau å vise', dype.length > 3,
+        dype.length + ' punkt med utskifting');
+      if (dype.length > 3) {
+        const q3 = dype[Math.floor(dype.length / 2)];
+        const x3 = omr3.X(q3.d);
+        const blaa = fylt.filter(f => f.farge === Farger.utskiftingFlate)
+          .map(f => kryss(f, x3)).filter(Boolean);
+        this.sjekk('masseutskiftingen er merket, ikke usynlig', blaa.length > 0,
+          blaa.length ? '' : 'ingen flate i utskiftingsfargen');
+        if (blaa.length) {
+          this.naer('  og bunnen ligger på trauet beregningen gravde',
+            omr3.zVed(Math.max(...blaa.map(b => b.hi))), q3.zTrau, 0.03);
+          this.naer('  og toppen på den avdekkede bakken',
+            omr3.zVed(Math.min(...blaa.map(b => b.lo))), q3.zTrau + q3.utskift, 0.03);
+        }
+        this.sjekk('  og tegnforklaringen sier hva den blå flaten er',
+          tekst.some(t => /Masseutskifting/.test(t)), tekst.join(' | '));
+      }
     } catch (e) {
       this.sjekk('overbygningsprøven kom seg gjennom', false,
         e.message + ' — ' + (e.stack || '').split('\n')[1]);
