@@ -1900,6 +1900,75 @@ console.log('\n32. Skulderen – hylla lagene står på');
     `hylle ${hylle0.toFixed(2)} m`);
 }
 
+/* ==================================================================
+   33. TELEFARLIG GRUNN UTEN FROSTSIKRING
+
+   En tomt med finsand, silt eller leire under planum og 0,0 m frostsikring ble
+   regnet ferdig uten ett ord. Det er den tomta som hiver seg om vinteren og
+   sprekker opp om vaaren, og det er ikke noe man ser paa tallene.
+
+   MERKNADEN OPPGIR INGEN DYBDE, og det er med vilje. Dimensjonerende
+   frostmengde F10 for stedet og den frostfrie dybden den gir, leses av en kurve
+   i N200 – den er ikke lest her, og et tall som SER presist ut er verre enn
+   ingen tall i et program som regner pris paa jobber.
+
+   Proeven krever begge veier: at den kommer naar den skal, og at den TIER naar
+   den ikke skal. Et varsel som alltid staar der, blir lest som bakgrunnsstoey.
+   ================================================================== */
+console.log('\n33. Telefarlig grunn uten frostsikring');
+{
+  const rektF = [{ x: 0, y: 0 }, { x: 30, y: 0 }, { x: 30, y: 20 }, { x: 0, y: 20 }];
+  const kjorF = (over) => T.beregnTomtemasser({
+    tomt: { punkter: rektF, kanter: [], nivaa: { modus: 'flat', kote: 99 } },
+    mal: Object.assign({}, Tomt.StandardTomtemal, {
+      matjordDybde: 0, renskDybde: 0, utskifting: false,
+      frostsikring: 0, maksSokebredde: 60, rutestorrelse: 1
+    }, over),
+    terreng: { z: () => 100 },
+    fjell: new M.Fjellmodell({ standarddybde: 6 }),
+    rutestorrelse: 1, bakkefaktor: 1
+  });
+  const harFrost = r => (r.merknader || []).some(q => q.type === 'frost');
+  const frostTekst = r => ((r.merknader || []).find(q => q.type === 'frost') || {}).tekst || '';
+
+  paastand('silt uten frostsikring blir meldt', harFrost(kjorF({ losmassetype: 'silt' })));
+  paastand('leire uten frostsikring blir meldt', harFrost(kjorF({ losmassetype: 'leire' })));
+
+  /* OG DEN MAA TIE NAAR DEN SKAL. Morene er standardvalget – en merknad der
+     ville kommet paa nesten hvert eneste prosjekt. */
+  for (const j of ['stein', 'grus', 'sand', 'morene']) {
+    paastand(`${j} gir ingen frostmerknad – ellers staar varselet alltid der`,
+      !harFrost(kjorF({ losmassetype: j })));
+  }
+  paastand('og silt MED frostsikring sier ingenting',
+    !harFrost(kjorF({ losmassetype: 'silt', frostsikring: 0.6 })));
+
+  /* Ligger tomta paa fjell – all loesmasse skiftet ut ned til berg – er det
+     ingenting aa hive paa. Her er fjellet 1 m nede og grensen 4 m, saa alt
+     under planum blir tatt. */
+  const paaFjell = T.beregnTomtemasser({
+    tomt: { punkter: rektF, kanter: [], nivaa: { modus: 'flat', kote: 99 } },
+    mal: Object.assign({}, Tomt.StandardTomtemal, {
+      losmassetype: 'leire', matjordDybde: 0, renskDybde: 0,
+      utskifting: true, maksUtskifting: 4, frostsikring: 0,
+      maksSokebredde: 60, rutestorrelse: 1
+    }),
+    terreng: { z: () => 100 },
+    fjell: new M.Fjellmodell({ standarddybde: 1 }),
+    rutestorrelse: 1, bakkefaktor: 1
+  });
+  paastand('en tomt som staar paa fjell faar ingen frostmerknad', !harFrost(paaFjell));
+
+  /* TEKSTEN SKAL IKKE LOVE MER ENN VI VET. Ingen dybde, ingen F10-verdi – bare
+     metoden og hvor den staar. Ett tall i merknaden ville blitt lest som en
+     fasit, og det er nettopp det den ikke er. */
+  const t33 = frostTekst(kjorF({ losmassetype: 'silt' }));
+  paastand('merknaden viser til N200 og F10', /N200/.test(t33) && /F10/.test(t33));
+  paastand('  og sier at kornkurven avgjoer, ikke navnet', /kornkurven/.test(t33));
+  paastand('  og oppgir INGEN frostdybde i meter',
+    !/\d[,.]\d\s*m\b/.test(t33) && !/\bT3–T4\s*=/.test(t33));
+}
+
 /* ------------------------------------------------------------------ */
 console.log(`\n${ok} tester ok, ${feil} feil`);
 process.exit(feil ? 1 : 0);

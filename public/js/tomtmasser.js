@@ -1055,6 +1055,44 @@ function beregnTomtemasser(o) {
         + `grensen på ${kom(maksUtskift, 1)} m – der blir inntil `
         + `${kom(utskiftingRest, 1)} m løsmasse liggende igjen under trauet` });
   }
+  /* TELEFARLIG GRUNN UTEN FROSTSIKRING SKAL IKKE FÅ GRØNT LYS.
+     En tomt med finsand, silt eller leire under planum og 0,0 m frostsikring
+     ble regnet ferdig uten ett ord. Det er den tomta som hiver seg om vinteren
+     og sprekker opp om våren, og det er ikke noe man ser på tallene.
+
+     HVA SOM STÅR HER, OG HVA SOM IKKE GJØR DET.
+     Statens vegvesen N200 krever frostsikring når undergrunnen er telefarlig i
+     klasse T3 eller T4. Klassen bestemmes av KORNKURVEN – hvor stor andel som
+     er under 20 µm – ikke av navnet på jordarten. En morene kan være alt fra T1
+     til T4. Derfor sier merknaden at det MÅ SJEKKES, ikke at det er telefarlig.
+
+     Og den oppgir ingen dybde. Dimensjonerende frostmengde F10 for stedet og
+     den frostfrie dybden den gir, leses av en kurve i N200 – den har jeg ikke
+     lest, og et tall som SER presist ut er verre enn ingen tall i et program
+     som regner pris på jobber. Brukeren setter frostsikringen selv, og
+     merknaden sier hvor han finner grunnlaget.
+
+     Ligger tomta på fjell – all løsmasse skiftet ut ned til berg – er det
+     ingenting å hive på, og da sies det ingenting. */
+  /* MORENE ER IKKE MED, OG DET ER ET VALG.
+     En morene kan være alt fra T1 til T4 – det avgjøres av kornkurven. Men
+     morene er også STANDARDVALGET i malen, så en merknad på den ville kommet på
+     nesten hvert eneste prosjekt. Et varsel som alltid står der, blir lest som
+     bakgrunnsstøy, og da er det verdiløst den dagen det gjelder. Finsand, silt
+     og leire er derimot telefarlige i de aller fleste tilfeller, og der er
+     merknaden verdt plassen sin. */
+  const TELEFARLIGE = { silt: 'finsand og silt', leire: 'leire' };
+  const jord = TELEFARLIGE[mal.losmassetype];
+  const paaFjell = utskifting && forDyptTilFjell <= 0;
+  if (jord && !paaFjell && !(mal.frostsikring > 0.01)) {
+    merknader.push({ type: 'frost',
+      tekst: `Grunnen er satt til ${jord}, og frostsikringen står på 0. Slike `
+        + 'masser er ofte telefarlige (klasse T3–T4), og da krever N200 '
+        + 'frostsikring. Klassen avgjøres av kornkurven, ikke av navnet – få den '
+        + 'sjekket. Tykkelsen finner du ved å slå opp dimensjonerende frostmengde '
+        + 'F10 for stedet og lese av frostfri dybde i N200 kapittel 52; sett den '
+        + 'inn i feltet «Frostsikring» under Tomtemal.' });
+  }
   /* TEK17 § 8-3: en nivaforskjell pa mer enn 0,5 m mot hardt underlag, eller
      3,0 m mot mykt terreng, skal sikres. Det er ikke et volum, men det er noe
      som ma prises - og det er lettere a se det na enn pa befaring. */

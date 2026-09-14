@@ -5426,6 +5426,19 @@ const App = {
       ['los', 'utskiftingHelning', 'Helning på trauveggen', 0, 5, 0.1],
       ['m', 'renskDybde', 'Rensk mot fjell (utenfor tomta)', 0, 1, 0.05],
       ['m', 'frostsikring', 'Frostsikring', 0, 2, 0.05],
+      /* PROGRAMMET SLÅR IKKE OPP FROSTDYBDEN, OG SIER DET.
+         Metoden står i N200: finn dimensjonerende frostmengde F10 for stedet og
+         les frostfri dybde av kurven der. Selve kurven har jeg ikke lest, og et
+         tall som SER presist ut er verre enn ingen tall i et program som regner
+         pris på jobber. Derfor: teksten forklarer hvor tallet hentes, og
+         brukeren setter det selv. Står det 0 på telefarlig grunn, sier
+         beregningen fra – se merknaden `frost` i tomtmasser.js. */
+      ['notis', 'Frostsikringen slås ikke opp av programmet. Tykkelsen finner du '
+        + 'ved å slå opp dimensjonerende frostmengde <b>F10</b> for stedet og lese '
+        + 'frostfri dybde i <b>N200 kapittel 52</b>. Frostsikring kreves når '
+        + 'undergrunnen er telefarlig i klasse T3–T4, og klassen avgjøres av '
+        + 'kornkurven – ikke av navnet på løsmassen. Står dette på 0 der grunnen '
+        + 'kan være telefarlig, kommer det en merknad i masseoppsettet.'],
       ['m', 'forsterkningslag', 'Forsterkningslag', 0, 2, 0.05],
       ['m', 'baerelagTykkelse', 'Bærelag', 0, 1, 0.05],
       ['m', 'avrettingslag', 'Avretting', 0, 0.5, 0.01],
@@ -5457,6 +5470,7 @@ const App = {
       + 'skråningen havner nøyaktig på grensa.</p>';
     for (const rad of F) {
       if (rad[0] === 'h3') { ut += `<h3>${rad[1]}</h3>`; continue; }
+      if (rad[0] === 'notis') { ut += `<p class="notis">${rad[1]}</p>`; continue; }
       /* Av/på hører ikke i et tallfelt. Ble masseutskiftingen skrudd av med
          «0», var det ikke til å se forskjell på «ikke skift ut» og «skift ut
          helt ned, uten grense» – to motsatte svar med samme tall. */
