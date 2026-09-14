@@ -451,11 +451,18 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
       if (!geo || !geo.jord || geo.jord.length < 2) { utenGeo++; continue; }
 
       const hb = pr.halvbredde;
+      /* Vegbaandet maa staa paa de EKTE kantene. Med gjennomsnittet la det 3,00 m
+         feil paa BEGGE kanter ved en ensidig snuplass. */
+      const hbVv = pr.halvbreddeVenstre != null ? pr.halvbreddeVenstre : hb;
+      const hbHh = pr.halvbreddeHoyre != null ? pr.halvbreddeHoyre : hb;
       const tV = pr.fotVenstre, tH = pr.fotHoyre;
       /* Trauveggen går forbi foten når fjellet ligger grunt – se `TRAU`. Er
          den innenfor, faller båndet sammen med foten og koster ingenting. */
-      const tTrau = pr.utskiftingHalvbredde || 0;
-      const tTrauV = Math.min(tV, -tTrau), tTrauH = Math.max(tH, tTrau);
+      const tTrV = pr.utskiftingHalvbreddeVenstre != null
+        ? pr.utskiftingHalvbreddeVenstre : (pr.utskiftingHalvbredde || 0);
+      const tTrH = pr.utskiftingHalvbreddeHoyre != null
+        ? pr.utskiftingHalvbreddeHoyre : (pr.utskiftingHalvbredde || 0);
+      const tTrauV = Math.min(tV, -tTrV), tTrauH = Math.max(tH, tTrH);
       const bleik = pr.manglerData || pr.avkortet
         || (pr.sider && ((pr.sider[-1] && pr.sider[-1].truffet === false)
           || (pr.sider[1] && pr.sider[1].truffet === false)));
@@ -476,7 +483,8 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
              på: målt 0,750 m²/lm borte på verste profil, 31 % av snittet.
              Ett punkt legges derfor nøyaktig på kanten, og resten fordeles
              utover derfra – samme grep som knekkpunktene i integrasjonen. */
-          const sk = Math.max(0, Math.min(pr.skulderbredde || 0, Math.max(0, tH - hb) - 1e-6));
+          const sk = Math.max(0, Math.min(pr.skulderbredde || 0,
+            Math.max(0, tH - hbHh) - 1e-6, Math.max(0, -tV - hbVv) - 1e-6));
           const utover = (fra, til, u) => {
             if (sk <= 1e-9) return fra + (til - fra) * u;
             const uSk = 1 / (this.FOT_H - this.KANT_H);     // første steget
@@ -490,11 +498,11 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
             t = tTrauV + (tV - tTrauV) * (c / this.FOT_V);
           } else if (c <= this.KANT_V) {
             const u = 1 - (c - this.FOT_V) / (this.KANT_V - this.FOT_V);  // 1 ved foten
-            t = -utover(hb, -tV, u);
+            t = -utover(hbVv, -tV, u);
           } else if (c < this.KANT_H) {
-            t = -hb + 2 * hb * ((c - this.KANT_V) / (this.KANT_H - this.KANT_V));
+            t = -hbVv + (hbVv + hbHh) * ((c - this.KANT_V) / (this.KANT_H - this.KANT_V));
           } else if (c <= this.FOT_H) {
-            t = utover(hb, tH, (c - this.KANT_H) / (this.FOT_H - this.KANT_H));
+            t = utover(hbHh, tH, (c - this.KANT_H) / (this.FOT_H - this.KANT_H));
           } else {
             // utenfor høyre fot
             t = tH + (tTrauH - tH) * ((c - this.FOT_H) / (this.KOL - 1 - this.FOT_H));

@@ -2588,6 +2588,72 @@ console.log('\n6e. Snuplass og møteplass – vegen blir bredere på et stykke')
       sjekk(`  ${navn}: samlet bredde er den samme uansett side`, b.sum, 6, 1e-9);
     }
 
+    /* HVER SIDE TAR DET BREDESTE KRAVET DER – IKKE SUMMEN.
+       Denne prøven kjørte bare på flat mark, der kurveutvidelsen og normalens
+       tillegg begge er null. Da er alle tre sidene like brede, og hullet var
+       usynlig: den ensidige grenen LA plassen oppå den symmetriske utvidelsen i
+       stedet for å konkurrere med den. Målt med kurveutvidelse 1 m og en 6 m
+       plass: 10,50 m samlet midt på, 11,50 m til høyre – samme plass, to
+       vegbredder. Prøven var skrevet for nettopp denne invarianten og kunne
+       ikke feile på den.
+
+       Riktig regel: `hb(side) = vegbredde/2 + max(sym/2, plass på den siden)`.
+       Sidene kan derfor godt bli ULIKT brede – den siden uten snuplass trenger
+       fortsatt kurvens utvidelse – men ingen av dem er en sum. */
+    {
+      const kant = (u) => {
+        const p = M.beregnTverrprofil({
+          linje: linjeP, terreng: { z: () => 100 },
+          mal: Object.assign({}, KLASSISK, { overbygningHelning: 0 }),
+          fjell: new M.Fjellmodell({ standarddybde: 99, punkter: [] }),
+          s: 100, vegnivaa: 100, utvidelse: u, integrasjonssteg: 0.05
+        });
+        return { v: p.halvbreddeVenstre, h: p.halvbreddeHoyre };
+      };
+      const hb0 = M.StandardMal.vegbredde / 2;
+      const mKurve = kant({ sym: 1, v: 0, h: 6 });
+      sjekk('plassen konkurrerer med kurven, den legges ikke oppå',
+        mKurve.h, hb0 + 6, 1e-9);
+      sjekk('  og den andre siden beholder kurvens egen utvidelse',
+        mKurve.v, hb0 + 0.5, 1e-9);
+      /* En plass SMALERE enn kurven skal ikke gjøre noe i det hele tatt. */
+      sjekk('en ensidig plass smalere enn kurven endrer ingenting',
+        kant({ sym: 4, v: 0, h: 1 }).h, hb0 + 2, 1e-9);
+
+      /* NORMALENS TILLEGG ER ET MINSTEKRAV OG LEGGES PÅ, uansett hvorfor vegen
+         ellers er bred. Her ble det lagt i samme kanal som kurven og dermed
+         spist opp av en snuplass: målt 5,50 m plassbidrag med og uten at
+         normalen krevde 0,5 m ekstra. */
+      const medTil = kant({ sym: 0, v: 0, h: 6, tillegg: 0.5 });
+      sjekk('normalens tillegg legges PÅ plassen', medTil.h, hb0 + 6 + 0.25, 1e-9);
+      sjekk('  også på siden uten plass', medTil.v, hb0 + 0.25, 1e-9);
+      sjekk('  og en plass midt på får det samme',
+        kant({ sym: 6, v: 0, h: 0, tillegg: 0.5 }).h, hb0 + 3 + 0.25, 1e-9);
+    }
+
+    /* INNKJØRINGEN MÅLES PER SIDE, ikke på halve bredden.
+       En ensidig plass legger HELE bredden ut til én side, så `bredde / 2` ga
+       dobbelt så bratt flare som lovet – målt 1:2,5 der koden sier minst 1:5. */
+    {
+      const flare2 = (side) => {
+        const r = kjorP([{ s: 100, lengde: 20, bredde: 6, side, form: 'rektangel' }], 0);
+        let verst = 0;
+        const p = r.profiler;
+        for (let i = 1; i < p.length; i++) {
+          const dh = Math.max(Math.abs(p[i].halvbreddeVenstre - p[i - 1].halvbreddeVenstre),
+            Math.abs(p[i].halvbreddeHoyre - p[i - 1].halvbreddeHoyre));
+          const ds = p[i].s - p[i - 1].s;
+          if (ds > 1e-6 && dh / ds > verst) verst = dh / ds;
+        }
+        return verst;
+      };
+      for (const side of ['sentrum', 'venstre', 'hoyre']) {
+        const f = flare2(side);
+        paastand(`innkjøringen er minst 1:5 også for side «${side}»`,
+          f <= 1 / 5 + 1e-9, `1:${(1 / f).toFixed(2)}`);
+      }
+    }
+
     /* PÅ FLAT MARK GIR DE SAMME KUBIKK – det er bare plasseringen som skiller.
        Gjør de ikke det, er noe galt med fordelingen og ikke med terrenget. */
     const lag3 = side => lagP(kjorP([{ s: 100, lengde: 20, bredde: 6, side, innkjoring: 0 }], 0));
@@ -2721,6 +2787,79 @@ console.log('\n6e. Snuplass og møteplass – vegen blir bredere på et stykke')
         M.StandardMal.vegbredde / 2 + 6, 0.01);
       sjekk('  uten å røre den andre', h.halvbreddeVenstre,
         M.StandardMal.vegbredde / 2, 0.01);
+    }
+  }
+
+  /* TRAUET MELDES PER SIDE, IKKE SOM ETT MAKSTALL.
+     `utskiftingHalvbredde` var ett tall – maksimum av de to sidene – og
+     tegningen malte den bredden på BEGGE. Målt med en 6 m snuplass til høyre:
+     6,05 m vanlig avdekking ble malt som trau på venstre side. */
+  {
+    const pr = M.beregnTverrprofil({
+      linje: linjeP, terreng: { z: () => 100 },
+      mal: Object.assign({}, KLASSISK, { utskifting: true, maksUtskifting: 4,
+        overbygningHelning: 0 }),
+      fjell: new M.Fjellmodell({ standarddybde: 1.5, punkter: [] }),
+      s: 100, vegnivaa: 100, utvidelse: { sym: 0, v: 0, h: 6 }, integrasjonssteg: 0.05
+    });
+    paastand('trauet er bredere på snuplassiden',
+      pr.utskiftingHalvbreddeHoyre > pr.utskiftingHalvbreddeVenstre + 5.9,
+      `${pr.utskiftingHalvbreddeVenstre.toFixed(2)} mot ${pr.utskiftingHalvbreddeHoyre.toFixed(2)}`);
+    sjekk('  og forskjellen er nøyaktig plassens bredde',
+      pr.utskiftingHalvbreddeHoyre - pr.utskiftingHalvbreddeVenstre, 6, 0.01);
+    sjekk('  fellestallet er det ytterste av de to',
+      pr.utskiftingHalvbredde, pr.utskiftingHalvbreddeHoyre, 1e-9);
+  }
+
+  /* MAKSUTSLAG MÅLES FRA SIDENS EGEN VEGKANT.
+     Her ble gjennomsnittet trukket fra en ensidig skråningsfot, som gir både
+     falsk alarm og tapt alarm. Med en plass ut til høyre står venstre vegkant
+     der den alltid har stått, og utslaget der er uendret. */
+  {
+    const utslag = (plasser) => {
+      const r = M.beregnMasser({
+        linje: linjeP, profil: profilP, terreng: { z: (x, y) => 100 + 0.05 * y },
+        mal: Object.assign({}, KLASSISK, { overbygningHelning: 0, maksUtslag: 6 }),
+        fjell: new M.Fjellmodell({ standarddybde: 99, punkter: [] }),
+        profilAvstand: 5, bakkefaktor: 1, integrasjonssteg: 0.05, plasser
+      });
+      return (r.merknader || []).filter(m => m.type === 'utslag').length;
+    };
+    const u0 = utslag(null);
+    const u1 = utslag([{ s: 100, lengde: 20, bredde: 6, side: 'hoyre',
+      form: 'rektangel', innkjoring: 5 }]);
+    paastand('en plass til høyre gir ikke falsk utslagsalarm til venstre',
+      u1 <= u0 + 6, `${u0} merknader uten plass, ${u1} med`);
+  }
+
+  /* HELNINGSFELTENE MÅ VALIDERES.
+     `overbygningHelning: '1,5'` – et komma i stedet for punktum, som er lett å
+     skrive – ga skulder NaN, fylling 0,00 m³ og bærelag NaN, uten et ord.
+     Nå rettes verdien og det sies fra, slik alle andre malfelt gjør. */
+  {
+    const medHelning = (v) => M.beregnMasser({
+      linje: linjeP, profil: new Vertikalprofil([{ s: 0, z: 102, k: 0 }, { s: 200, z: 102, k: 0 }]),
+      terreng: { z: () => 100 }, mal: Object.assign({}, KLASSISK, { overbygningHelning: v }),
+      fjell: new M.Fjellmodell({ standarddybde: 99, punkter: [] }),
+      profilAvstand: 10, bakkefaktor: 1, integrasjonssteg: 0.1
+    });
+    const god = medHelning(1.5);
+    for (const [navn, v] of [['komma-streng', '1,5'], ['NaN', NaN]]) {
+      const r = medHelning(v);
+      paastand(`${navn} gir tall, ikke NaN`,
+        isFinite(r.sum.fylling) && isFinite(r.sum.baerelag) && r.sum.baerelag > 0,
+        `fylling ${r.sum.fylling.toFixed(0)}, bærelag ${r.sum.baerelag.toFixed(0)}`);
+      paastand(`  og det sies fra om ${navn}`,
+        (r.merknader || []).some(m => m.type === 'inngang'));
+      sjekk('  og den faller tilbake på standardverdien',
+        r.sum.baerelag, god.sum.baerelag, 0.01);
+    }
+    for (const [navn, v, venta] of [['for liten', -3, 0], ['for stor', 99, 5]]) {
+      const r = medHelning(v);
+      paastand(`${navn} verdi klemmes til ${venta} og meldes`,
+        isFinite(r.sum.baerelag)
+        && (r.merknader || []).some(m => m.type === 'inngang'),
+        `bærelag ${r.sum.baerelag.toFixed(0)}`);
     }
   }
 

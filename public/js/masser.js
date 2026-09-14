@@ -305,9 +305,16 @@ function plassInnkjoring(p, overgang) {
      `utvidelseOvergang` 15 ble flaren 1:5,5 per side, og med veiklassene som
      setter den til 5 – se veiklasser.js – ble den 1:1,8. Det er ikke en
      innkjøring, det er en kant.
-     Derfor: minst vegens egen overgang, og minst 1:5 for den halve bredden
-     hver side skal ut. Bredere plass gir lengre innkjøring, slik det må. */
-  return Math.max(overgang || 0, (p.bredde / 2) * PLASS_FLARE);
+     Derfor: minst vegens egen overgang, og minst 1:5 for det som faktisk går ut
+     PER SIDE. Bredere plass gir lengre innkjøring, slik det må.
+
+     OG «PER SIDE» ER IKKE ALLTID HALVE BREDDEN. Her sto `bredde / 2`, som
+     stemmer for en plass midt på vegen. En ensidig plass legger HELE bredden på
+     én side, og da ble flaren dobbelt så bratt som lovet: målt 1:2,5 der koden
+     sier minst 1:5. */
+  const ensidig = p.side === 'venstre' || p.side === 'hoyre';
+  const utPerSide = ensidig ? p.bredde : p.bredde / 2;
+  return Math.max(overgang || 0, utPerSide * PLASS_FLARE);
 }
 
 function plassUtvidelse(plasser, lengdeLinje, overgang) {
@@ -479,15 +486,20 @@ function lagUtvidelsesprofil(linje, mal, stasjoner, ekstra, plasser) {
      OG DE KONKURRERER MED KURVEN, de legges ikke oppå: ligger snuplassen i en
      sving, er bredden den BREDESTE av de to, ikke summen. To grunner til å
      være bred er ikke dobbelt så bred veg. */
-  // Normalen krever ekstra bredde i bratte bakker og pa høye fyllinger
-  if (ekstra) for (let i = 0; i < ut.length; i++) if (ekstra[i]) ut[i] += ekstra[i];
+  /* Til slutt settes tallet sammen med plassene til `{sym, v, h, tillegg}`,
+     formen tverrsnittet leser. Kurveutvidelsen og normalens tillegg er alltid
+     symmetriske; bare plassene kan være ensidige.
 
-  /* Til slutt settes tallet sammen med plassene til `{sym, v, h}`, formen
-     tverrsnittet leser. Kurveutvidelsen og normalens tillegg er alltid
-     symmetriske; bare plassene kan være ensidige. */
+     NORMALENS TILLEGG HOLDES FOR SEG. Her ble det lagt inn i `sym` FØR
+     maksimeringen, og da spiste en snuplass det opp: en plass på 5,5 m ga
+     samme bredde enten normalen krevde 0,5 m ekstra eller ikke. Det er et
+     minstekravstillegg – en veg som må være bredere fordi den ligger høyt, må
+     det uansett hvorfor den ellers er bred – så det legges på til slutt, i sin
+     egen kanal. */
   return ut.map((sym, i) => {
     const p = plass(stasjoner[i]);
-    return { sym: Math.max(sym, p.sym), v: p.v, h: p.h };
+    return { sym: Math.max(sym, p.sym), v: p.v, h: p.h,
+      tillegg: (ekstra && ekstra[i]) ? ekstra[i] : 0 };
   });
 }
 
@@ -571,10 +583,23 @@ function beregnTverrprofil(o) {
      egen side. Tallformen beholdes fordi den er det alle andre kall bruker, og
      fordi en symmetrisk veg ikke skal måtte vite om dette. */
   const uObj = (utvidelse && typeof utvidelse === 'object')
-    ? utvidelse : { sym: utvidelse || 0, v: 0, h: 0 };
+    ? utvidelse : { sym: utvidelse || 0, v: 0, h: 0, tillegg: 0 };
   const uSym = uObj.sym || 0;
-  const hbV = (mal.vegbredde + uSym) / 2 + (uObj.v || 0);
-  const hbH = (mal.vegbredde + uSym) / 2 + (uObj.h || 0);
+  const uTil = uObj.tillegg || 0;
+  /* SIDENE KONKURRERER, DE LEGGES IKKE OPPÅ HVERANDRE.
+     Her sto `(vegbredde + sym)/2 + v` – en ren SUM. Da stablet en ensidig
+     snuplass seg oppå kurveutvidelsen, og samlet vegbredde ble stille avhengig
+     av hvilken SIDE plassen sto på: målt med kurveutvidelse 1 m og en 6 m
+     plass ga «midt på» 10,50 m og «høyre» 11,50 m. Det er den samme regelen
+     koden allerede skriver ned to steder – «to grunner til å være bred er ikke
+     dobbelt så bred veg» – bare at den ensidige grenen ikke fulgte den.
+
+     `tillegg` er normalens 0,5 m på høy fylling og i bratt bakke. Den er et
+     MINSTEKRAVSTILLEGG og skal legges på til slutt, ikke konkurrere: en veg som
+     må være bredere fordi den ligger høyt, må det uansett hvorfor den ellers
+     er bred. */
+  const hbV = mal.vegbredde / 2 + Math.max(uSym / 2, uObj.v || 0) + uTil / 2;
+  const hbH = mal.vegbredde / 2 + Math.max(uSym / 2, uObj.h || 0) + uTil / 2;
   /* Den gamle `hb` er nå gjennomsnittet. Den brukes bare der bredden er ment
      som «hvor bred er vegen omtrent» – aldri som kant. Hver kant har sin. */
   const hb = (hbV + hbH) / 2;
@@ -1275,6 +1300,17 @@ function beregnTverrprofil(o) {
        stedet, blir flankene kappet bort, og de er en tredel av volumet.
        `utskiftingBunnHalvbredde` er der bunnen slutter og veggen begynner.
        Begge er null når utskiftingen er av, for da finnes det ikke noe trau. */
+    /* PER SIDE, fordi trauet følger vegkroppen og den er ikke like brei til
+       begge sider når en snuplass er lagt ut til én av dem. Her sto ETT tall –
+       maksimum av de to – og tegningen malte da hele den bredden på BEGGE
+       sider: målt med en 6 m snuplass til høyre ble 6,05 m vanlig avdekking
+       malt som trau på venstre side.
+       Fellestallene står igjen som det ytterste av de to, for alt som bare
+       spør «hvor langt ut rekker inngrepet». */
+    utskiftingHalvbreddeVenstre: mal.utskifting ? veggMoeter(-1) : 0,
+    utskiftingHalvbreddeHoyre: mal.utskifting ? veggMoeter(1) : 0,
+    utskiftingBunnHalvbreddeVenstre: mal.utskifting ? tUtskiftBunnV : 0,
+    utskiftingBunnHalvbreddeHoyre: mal.utskifting ? tUtskiftBunnH : 0,
     utskiftingHalvbredde: mal.utskifting
       ? Math.max(veggMoeter(-1), veggMoeter(1)) : 0,
     utskiftingBunnHalvbredde: mal.utskifting ? tUtskiftBunn : 0,
@@ -1356,6 +1392,14 @@ const MALGRENSER = {
   renskDybde: [0, 3, 'Renskedybde'],
   renskUtenfor: [0, 20, 'Rensk utenfor'],
   maksUtskifting: [0, 15, 'Største utskiftingsdybde'],
+  /* Uten disse nullet en ikke-numerisk verdi hele jordarbeidet uten et ord:
+     `overbygningHelning: '1,5'` – et komma i stedet for punktum – ga skulder
+     NaN, fylling 0,00 m³ og bærelag NaN, og ingen inngangsmerknad. */
+  overbygningHelning: [0, 5, 'Helning på vegkroppens kant'],
+  utskiftingHelning: [0, 5, 'Helning på trauveggen'],
+  utskiftingUtenfor: [0, 20, 'Trauets bunn utenfor vegkroppen'],
+  plassLengde: [1, 500, 'Lengde på snuplass'],
+  plassBredde: [0, 50, 'Bredde på snuplass'],
   tverrfall: [0, 0.3, 'Tverrfall'],
   maksSokebredde: [1, 500, 'Søkebredde'],
   beregningsbredde: [0, 500, 'Beregningsbredde']
@@ -1838,7 +1882,9 @@ function beregnMasser(o) {
       });
     }
     if (mal.maksUtslag > 0) {
-      const utslag = Math.max(-pr.fotVenstre, pr.fotHoyre) - pr.halvbredde;
+      const hbV2 = pr.halvbreddeVenstre != null ? pr.halvbreddeVenstre : pr.halvbredde;
+      const hbH2 = pr.halvbreddeHoyre != null ? pr.halvbreddeHoyre : pr.halvbredde;
+      const utslag = Math.max(-pr.fotVenstre - hbV2, pr.fotHoyre - hbH2);
       if (utslag > mal.maksUtslag) {
         merknader.push({
           s: pr.s, type: 'utslag', verdi: utslag, enhet: 'm', vaerst: 'stor',

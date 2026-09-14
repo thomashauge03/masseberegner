@@ -4505,7 +4505,9 @@ const App = {
           k += (pr.maksSkjaering - mal.maksSkjaeringsdybde) * 600 * perMeter;
         }
         if (mal.maksUtslag > 0) {
-          const utslag = Math.max(-pr.fotVenstre, pr.fotHoyre) - pr.halvbredde;
+          const hbV2 = pr.halvbreddeVenstre != null ? pr.halvbreddeVenstre : pr.halvbredde;
+          const hbH2 = pr.halvbreddeHoyre != null ? pr.halvbreddeHoyre : pr.halvbredde;
+          const utslag = Math.max(-pr.fotVenstre - hbV2, pr.fotHoyre - hbH2);
           if (utslag > mal.maksUtslag) k += (utslag - mal.maksUtslag) * 400 * perMeter;
         }
         if (pr.advarsel) k += 10000 * perMeter;   // skraningen fant ikke terrenget

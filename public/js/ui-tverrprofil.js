@@ -247,7 +247,13 @@ const Tverrprofil = {
     const trau = (pr.geometri.rensk && pr.geometri.rensk.length === terr.length)
       ? pr.geometri.rensk : terr;
 
-    const tU = pr.utskiftingHalvbredde || 0;
+    /* Per side: trauet foelger vegkroppen, og den er ikke like brei til begge
+       sider naar en snuplass er lagt ut til en av dem. Med ett felles tall ble
+       6,05 m vanlig avdekking malt som trau paa den smale sida. */
+    const tUv = pr.utskiftingHalvbreddeVenstre != null
+      ? pr.utskiftingHalvbreddeVenstre : (pr.utskiftingHalvbredde || 0);
+    const tUh = pr.utskiftingHalvbreddeHoyre != null
+      ? pr.utskiftingHalvbreddeHoyre : (pr.utskiftingHalvbredde || 0);
 
     /* Flaten mellom trau-bunnen og jordarbeidsflaten deles i to:
        ligger jordarbeidsflaten under trauet skal det graves (skjæring),
@@ -290,9 +296,9 @@ const Tverrprofil = {
       bane(terr.concat(trau.slice().reverse()), true); c.clip();
       c.fillStyle = Farger.rensk;
       c.fillRect(m.v, m.o, B - m.h - m.v, H - m.u - m.o);
-      if (tU > 0) {
+      if (tUv > 0 || tUh > 0) {
         c.fillStyle = Farger.utskiftingFlate;
-        c.fillRect(px(-tU), m.o, Math.max(1, px(tU) - px(-tU)), H - m.u - m.o);
+        c.fillRect(px(-tUv), m.o, Math.max(1, px(tUh) - px(-tUv)), H - m.u - m.o);
       }
       c.restore();
     }
@@ -313,8 +319,8 @@ const Tverrprofil = {
          hele veien ut til der veggen møter renskebunnen, ikke bare bunnen.
          Klipper man til bunnen, blir flankene borte, og de er en tredel av
          volumet. */
-      if (tU > 0) {
-        const inne = trau.filter(([t]) => Math.abs(t) <= tU + 1e-9);
+      if (tUv > 0 || tUh > 0) {
+        const inne = trau.filter(([t]) => t >= -tUv - 1e-9 && t <= tUh + 1e-9);
         if (inne.length > 1) {
           c.strokeStyle = Farger.utskifting; c.lineWidth = 1.6; c.setLineDash([]);
           bane(inne); c.stroke();
@@ -371,9 +377,14 @@ const Tverrprofil = {
     /* Malsetting. Breddemalet ligger rett over vegoverflaten, som er hvit -
        derfor med bakgrunn under, ellers forsvinner det. */
     c.font = '10px system-ui'; c.textAlign = 'center'; c.textBaseline = 'bottom';
-    this._merkelapp(c, `${(mal.vegbredde + pr.utvidelse).toFixed(2)} m`, px(0), py(pr.vegnivaa) - 5);
+    /* Maalet strekes mellom de EKTE kantene, ikke symmetrisk om senterlinja.
+       Med en ensidig snuplass sto streken 3 m for langt inne paa den ene sida og
+       3 m ute i lufta paa den andre, mens tallet over var riktig. */
+    const mV = pr.halvbreddeVenstre != null ? pr.halvbreddeVenstre : hb;
+    const mH = pr.halvbreddeHoyre != null ? pr.halvbreddeHoyre : hb;
+    this._merkelapp(c, `${(mV + mH).toFixed(2)} m`, px((mH - mV) / 2), py(pr.vegnivaa) - 5);
     c.strokeStyle = Farger.blekk; c.lineWidth = 1;
-    c.beginPath(); c.moveTo(px(-hb), py(pr.vegnivaa) - 3); c.lineTo(px(hb), py(pr.vegnivaa) - 3); c.stroke();
+    c.beginPath(); c.moveTo(px(-mV), py(pr.vegnivaa) - 3); c.lineTo(px(mH), py(pr.vegnivaa) - 3); c.stroke();
 
     // tegnforklaring
     /* Tegnforklaringen viser hver post slik den faktisk er tegnet - strek,
@@ -385,7 +396,7 @@ const Tverrprofil = {
     const forklaring = [
       ['Terreng', 'strek', Farger.terreng],
       ['Bunn i trauet', 'stipla', Farger.rensk],
-      ...(tU > 0 && pr.areal && pr.areal.utskifting > 0.01
+      ...((tUv > 0 || tUh > 0) && pr.areal && pr.areal.utskifting > 0.01
         ? [['Skiftes ut', 'flate', Farger.utskiftingFlate]] : []),
       ['Planum/skråning', 'strek', Farger.planum],
       ['Skjæring', 'flate', Farger.skjaeringFlate],

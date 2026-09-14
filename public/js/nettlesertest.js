@@ -4041,9 +4041,15 @@ const Nettlesertest = {
           if (tmaks > tmin) modell = Math.max(modell, tmaks - tmin);
           const pr = App.resultat.profiler.find(p => Math.abs(p.s - g.s[j]) < 1e-9);
           if (pr) {
-            const tU = pr.utskiftingHalvbredde || 0;
+            /* PER SIDE, som modellen selv. Her sto det symmetriske makstallet
+               brukt paa BEGGE sider, og fasiten ble da bredere enn inngrepet
+               faktisk er naar trauet er ulikt breitt til hoegre og venstre. */
+            const tUv = pr.utskiftingHalvbreddeVenstre != null
+              ? pr.utskiftingHalvbreddeVenstre : (pr.utskiftingHalvbredde || 0);
+            const tUh = pr.utskiftingHalvbreddeHoyre != null
+              ? pr.utskiftingHalvbreddeHoyre : (pr.utskiftingHalvbredde || 0);
             fasit = Math.max(fasit,
-              Math.max(pr.fotHoyre, tU) - Math.min(pr.fotVenstre, -tU));
+              Math.max(pr.fotHoyre, tUh) - Math.min(pr.fotVenstre, -tUv));
           }
         }
         this.naer('bredeste inngrep i modellen er profilens eget inngrep', modell, fasit, 0.02);
