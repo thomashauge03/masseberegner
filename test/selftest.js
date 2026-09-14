@@ -1153,7 +1153,11 @@ console.log('\n4a. Feil som er funnet og rettet');
   const kortKurve = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 100, y: 0, r: 12 }, { x: 100, y: 100, r: 0 }]);
   const stasjonerGrovt = [];
   for (let s = 0; s <= kortKurve.lengde; s += 20) stasjonerGrovt.push(s);
-  const utv = M.lagUtvidelsesprofil(kortKurve, KLASSISK, stasjonerGrovt, null);
+  /* `lagUtvidelsesprofil` gir `{sym, v, h}` per stasjon: den symmetriske delen,
+     og det som bare hører til venstre eller høyre. Kurveutvidelsen er alltid
+     symmetrisk – bare en snuplass kan være ensidig. */
+  const utv = M.lagUtvidelsesprofil(kortKurve, KLASSISK, stasjonerGrovt, null)
+    .map(u => u.sym);
   paastand('kort kurve mellom to profiler far likevel utvidelse',
     Math.max(...utv) > 0, `største utvidelse ${Math.max(...utv).toFixed(2)} m`);
 
@@ -2474,7 +2478,7 @@ console.log('\n6e. Snuplass og møteplass – vegen blir bredere på et stykke')
     [195, 20, 4, 'og så nær slutten']
   ]) {
     sjekk(`snuplass ${hva}: ${L} × ${B} m`,
-      lagP(kjorP([{ s, lengde: L, bredde: B, innkjoring: 0 }], 0)) - utenP, L * B * obP, 0.02);
+      lagP(kjorP([{ s, lengde: L, bredde: B, innkjoring: 0, form: 'rektangel' }], 0)) - utenP, L * B * obP, 0.02);
   }
 
   /* KANTENE MÅ VÆRE EGNE STASJONER.
@@ -2484,7 +2488,7 @@ console.log('\n6e. Snuplass og møteplass – vegen blir bredere på et stykke')
      hele mellomrommet. Målt før kantstasjonene: 70,0 m³ mot 56,0 håndregnet,
      25 % for mye, og plassen stakk 5 m ut i hver ende av der den var satt. */
   {
-    const r = kjorP([{ s: 100, lengde: 20, bredde: 4, innkjoring: 0 }], 0);
+    const r = kjorP([{ s: 100, lengde: 20, bredde: 4, innkjoring: 0, form: 'rektangel' }], 0);
     const med = r.profiler.filter(p => p.utvidelse > 1e-9).map(p => p.s);
     sjekk('plassen begynner nøyaktig der den er satt', Math.min(...med), 90, 1e-6);
     sjekk('  og slutter nøyaktig der den slutter', Math.max(...med), 110, 1e-6);
@@ -2497,7 +2501,7 @@ console.log('\n6e. Snuplass og møteplass – vegen blir bredere på et stykke')
      ikke ha et sprang i vegkanten, så plassen trappes inn og ut med vegens egen
      `utvidelseOvergang` – samme mekanisme som kurveutvidelsen bruker. */
   {
-    const d = lagP(kjorP([{ s: 100, lengde: 20, bredde: 4 }], 15)) - lagP(kjorP(null, 15));
+    const d = lagP(kjorP([{ s: 100, lengde: 20, bredde: 4, form: 'rektangel' }], 15)) - lagP(kjorP(null, 15));
     sjekk('med avtrapping: rektangelet pluss to trekantramper',
       d, (20 * 4 + 2 * (15 * 4 / 2)) * obP, 0.05);
   }
@@ -2522,18 +2526,18 @@ console.log('\n6e. Snuplass og møteplass – vegen blir bredere på et stykke')
       return verst;
     };
     for (const [ov, B] of [[15, 5.5], [5, 5.5], [5, 10], [0, 8]]) {
-      const f = flare(kjorP([{ s: 100, lengde: 20, bredde: B }], ov));
+      const f = flare(kjorP([{ s: 100, lengde: 20, bredde: B, form: 'rektangel' }], ov));
       paastand(`overgang ${ov} m, plass ${B} m: aldri brattere enn 1:5 per side`,
         f <= 1 / 5 + 1e-9, `1:${(1 / f).toFixed(1)}`);
     }
     /* Og en SMAL utvidelse skal fortsatt bruke vegens egen overgang – den er
        slakkere enn 1:5, og da er det den som gjelder. */
-    const smalF = flare(kjorP([{ s: 100, lengde: 20, bredde: 2 }], 15));
+    const smalF = flare(kjorP([{ s: 100, lengde: 20, bredde: 2, form: 'rektangel' }], 15));
     sjekk('en smal plass bruker vegens egen overgang', 1 / smalF, 15, 0.2);
 
     /* Men den som VIL ha skarp kant, skal få den. `innkjoring: 0` er et valg,
        ikke en mangel – derfor skiller koden mellom «ikke oppgitt» og «null». */
-    const skarp = flare(kjorP([{ s: 100, lengde: 20, bredde: 4, innkjoring: 0 }], 15));
+    const skarp = flare(kjorP([{ s: 100, lengde: 20, bredde: 4, innkjoring: 0, form: 'rektangel' }], 15));
     paastand('men innkjoring 0 gir skarp kant for den som ber om det',
       skarp > 1, `1:${(1 / skarp).toFixed(2)}`);
   }
@@ -2553,13 +2557,150 @@ console.log('\n6e. Snuplass og møteplass – vegen blir bredere på et stykke')
     });
     const iSvingen = kjorS(null).profiler.reduce((b, p) => Math.max(b, p.utvidelse), 0);
     paastand('kurven gir utvidelse i utgangspunktet', iSvingen > 0.2, `${iSvingen.toFixed(2)} m`);
-    const smal = kjorS([{ s: 110, lengde: 20, bredde: iSvingen / 2 }]);
-    const bred = kjorS([{ s: 110, lengde: 20, bredde: iSvingen * 3 }]);
+    const smal = kjorS([{ s: 110, lengde: 20, bredde: iSvingen / 2, form: 'rektangel' }]);
+    const bred = kjorS([{ s: 110, lengde: 20, bredde: iSvingen * 3, form: 'rektangel' }]);
     const maks = r => r.profiler.reduce((b, p) => Math.max(b, p.utvidelse), 0);
     sjekk('en plass SMALERE enn kurvens utvidelse endrer ingenting',
       maks(smal), iSvingen, 1e-9);
     sjekk('  og en bredere plass gjelder, men bare sin egen bredde',
       maks(bred), iSvingen * 3, 1e-9);
+  }
+
+  /* SIDEN ER HELE POENGET.
+     En snuplass legges ut til den siden det ER plass på. Var bredden alltid
+     symmetrisk om senterlinja, ville halve plassen havnet på feil side – og i
+     sidehelling er det ikke bare et bilde, det er kubikken. */
+  {
+    const bredder = (side) => {
+      const r = kjorP([{ s: 100, lengde: 20, bredde: 6, side, innkjoring: 0 }], 0);
+      const p = r.profiler.find(q => q.s === 100);
+      return { v: p.halvbreddeVenstre, h: p.halvbreddeHoyre, sum: p.utvidelse };
+    };
+    const hb0 = M.StandardMal.vegbredde / 2;
+    const midt = bredder('sentrum'), v = bredder('venstre'), h = bredder('hoyre');
+    sjekk('sentrum deler utvidelsen likt', midt.v - midt.h, 0, 1e-9);
+    sjekk('  og legger halvparten på hver side', midt.v, hb0 + 3, 1e-9);
+    sjekk('venstre legger ALT til venstre', v.v, hb0 + 6, 1e-9);
+    sjekk('  og rører ikke høyre side', v.h, hb0, 1e-9);
+    sjekk('høyre legger ALT til høyre', h.h, hb0 + 6, 1e-9);
+    sjekk('  og rører ikke venstre side', h.v, hb0, 1e-9);
+    for (const [navn, b] of [['sentrum', midt], ['venstre', v], ['høyre', h]]) {
+      sjekk(`  ${navn}: samlet bredde er den samme uansett side`, b.sum, 6, 1e-9);
+    }
+
+    /* PÅ FLAT MARK GIR DE SAMME KUBIKK – det er bare plasseringen som skiller.
+       Gjør de ikke det, er noe galt med fordelingen og ikke med terrenget. */
+    const lag3 = side => lagP(kjorP([{ s: 100, lengde: 20, bredde: 6, side, innkjoring: 0 }], 0));
+    sjekk('på flat mark koster alle tre det samme', lag3('venstre'), lag3('sentrum'), 0.01);
+    sjekk('  også høyre', lag3('hoyre'), lag3('sentrum'), 0.01);
+
+    /* I SIDEHELLING SKILLER DE SEG, og det er hele grunnen til å velge.
+       Terrenget faller mot venstre her (høyre normal peker mot synkende y), så
+       en plass ut til høyre går OPPOVER og koster skjæring, mens en ut til
+       venstre går nedover og koster fylling. Målt: +609 m³ skjæring mot høyre,
+       +164 m³ fylling mot venstre – fire ganger forskjell i det som dominerer. */
+    const skraatt = { z: (x, y) => 100 - y * 0.3 };
+    const iHelling = plasser => M.beregnMasser({
+      linje: linjeP, profil: profilP, terreng: skraatt,
+      mal: Object.assign({}, KLASSISK, { overbygningHelning: 0 }),
+      fjell: new M.Fjellmodell({ standarddybde: 99, punkter: [] }),
+      profilAvstand: 5, bakkefaktor: 1, integrasjonssteg: 0.05, plasser
+    }).sum;
+    const u0 = iHelling(null);
+    const pV = iHelling([{ s: 100, lengde: 20, bredde: 6, side: 'venstre', innkjoring: 0, form: 'rektangel' }]);
+    const pH = iHelling([{ s: 100, lengde: 20, bredde: 6, side: 'hoyre', innkjoring: 0, form: 'rektangel' }]);
+    paastand('i sidehelling koster oppsiden skjæring',
+      pH.skjaering - u0.skjaering > 100,
+      `+${(pH.skjaering - u0.skjaering).toFixed(0)} m³`);
+    paastand('  og nedsiden koster fylling i stedet',
+      pV.fylling - u0.fylling > 100 && pV.skjaering - u0.skjaering < 10,
+      `fylling +${(pV.fylling - u0.fylling).toFixed(0)}, `
+      + `skjæring +${(pV.skjaering - u0.skjaering).toFixed(0)} m³`);
+    paastand('  så de to sidene er IKKE det samme regnestykket',
+      Math.abs((pH.skjaering + pH.fylling) - (pV.skjaering + pV.fylling)) > 100,
+      `${(pH.skjaering + pH.fylling).toFixed(0)} mot ${(pV.skjaering + pV.fylling).toFixed(0)} m³`);
+
+    /* TRAUET FØLGER DEN BREDE SIDEN, DET SPEILER DEN IKKE.
+       Trauet ligger under vegkroppen. Speilet det den brede siden, ville det
+       gravd like langt ut på siden der det ikke bygges noe. */
+    const medTrau = side => M.beregnMasser({
+      linje: linjeP, profil: profilP, terreng: { z: () => 100 },
+      mal: Object.assign({}, KLASSISK, { utskifting: true, maksUtskifting: 4,
+        overbygningHelning: 0 }),
+      fjell: new M.Fjellmodell({ standarddybde: 1.5, punkter: [] }),
+      profilAvstand: 5, bakkefaktor: 1, integrasjonssteg: 0.05,
+      plasser: [{ s: 100, lengde: 20, bredde: 6, side, innkjoring: 0 }]
+    });
+    /* Målt i geometrien, ikke i et tall som kunne vært riktig ved et uhell:
+       hvor langt ut på HVER side trauet faktisk er dypere enn vanlig rensk. */
+    const trauUt = (side, teikn) => {
+      const g = medTrau(side).geometriFor(100).geometri;
+      let ytterst = 0;
+      for (const [t, z] of g.rensk) {
+        if (teikn * t <= 0) continue;
+        const terr = g.terreng.reduce((b, q) =>
+          Math.abs(q[0] - t) < Math.abs(b[0] - t) ? q : b, g.terreng[0])[1];
+        if (terr - z > KLASSISK.renskDybde + 0.01 && Math.abs(t) > ytterst) ytterst = Math.abs(t);
+      }
+      return ytterst;
+    };
+    const midtV = trauUt('sentrum', -1), midtH = trauUt('sentrum', 1);
+    sjekk('sentrum: trauet er like langt ut til begge sider', midtV, midtH, 0.05);
+    sjekk('høyre: trauet følger den brede siden', trauUt('hoyre', 1), midtH + 3, 0.05);
+    sjekk('  og speiler den IKKE til den tomme siden', trauUt('hoyre', -1), midtV - 3, 0.05);
+    /* Og volumet er det samme: like stor vegkropp, bare annerledes plassert.
+       Speilet trauet den brede siden, ville det gravd seks meter ekstra på en
+       side det ikke bygges noe, i full trauhøyde. */
+    sjekk('  og utskiftingen koster det samme på flat mark',
+      medTrau('hoyre').sum.utskifting, medTrau('sentrum').sum.utskifting, 0.5);
+  }
+
+  /* EN SNUPLASS ER OVAL, IKKE FIRKANTET.
+     Vegen buler ut, er bredest på midten, og kommer inn igjen. Arealet under en
+     halv ellipse er π/4 av rektangelet – 79 % – så formen er ikke pynt, den er
+     kubikk. En møteplass er derimot rett, med innkjøring i hver ende, og begge
+     må finnes. */
+  {
+    const utenO = lagP(kjorP(null, 0));
+    const rekt = lagP(kjorP([{ s: 100, lengde: 20, bredde: 5.5,
+      form: 'rektangel', innkjoring: 0 }], 0)) - utenO;
+    const oval = lagP(kjorP([{ s: 100, lengde: 20, bredde: 5.5, form: 'oval' }], 0)) - utenO;
+    sjekk('rektangelet er lengden ganger bredden', rekt, 20 * 5.5 * obP, 0.02);
+    /* Toleransen er den målte diskretiseringsfeilen, ikke en slark: trapesregelen
+       konvergerer sakte mot en ellipse fordi den står loddrett i endene. Med de
+       32 delintervallene koden bruker, ligger den 0,15 % under fasiten. */
+    sjekk('og ovalen er π/4 av det', oval, Math.PI / 4 * 20 * 5.5 * obP, 0.12);
+    paastand('  altså merkbart mindre enn rektangelet',
+      oval < rekt * 0.82 && oval > rekt * 0.75,
+      `${(100 * oval / rekt).toFixed(1)} % av rektangelet`);
+
+    /* FORMEN ER STANDARD. Knappen heter «Snuplass», og en snuplass er oval –
+       så en plass uten oppgitt form skal være det. */
+    const utenForm = lagP(kjorP([{ s: 100, lengde: 20, bredde: 5.5 }], 0)) - utenO;
+    sjekk('en plass uten oppgitt form er oval', utenForm, oval, 1e-9);
+
+    /* OVALEN TRAPPER SEG SELV – den skal ikke ha innkjøring i tillegg, ellers
+       blir den lengre enn den er satt til. */
+    {
+      const r = kjorP([{ s: 100, lengde: 20, bredde: 5.5, form: 'oval' }], 15);
+      const med = r.profiler.filter(q => q.utvidelse > 1e-6).map(q => q.s);
+      paastand('ovalen holder seg innenfor sin egen lengde',
+        Math.min(...med) >= 90 - 1e-6 && Math.max(...med) <= 110 + 1e-6,
+        `${Math.min(...med)} til ${Math.max(...med)}`);
+      const midt = r.profiler.find(q => Math.abs(q.s - 100) < 1e-6);
+      sjekk('  og er bredest nøyaktig på midten', midt.utvidelse, 5.5, 0.01);
+    }
+
+    /* OG DEN KAN VÆRE ENSIDIG, som alt annet. En oval snuplass ut til én side
+       er nettopp den figuren man kjører rundt på. */
+    {
+      const h = kjorP([{ s: 100, lengde: 20, bredde: 6, form: 'oval', side: 'hoyre' }], 0)
+        .profiler.find(q => Math.abs(q.s - 100) < 1e-6);
+      sjekk('en oval kan legges ut til én side', h.halvbreddeHoyre,
+        M.StandardMal.vegbredde / 2 + 6, 0.01);
+      sjekk('  uten å røre den andre', h.halvbreddeVenstre,
+        M.StandardMal.vegbredde / 2, 0.01);
+    }
   }
 
   /* INGEN PLASS SKAL IKKE ENDRE NOE. Tomme og ugyldige lister må gå stille
@@ -2568,8 +2709,8 @@ console.log('\n6e. Snuplass og møteplass – vegen blir bredere på et stykke')
     const fasit = lagP(kjorP(null, 0));
     for (const [hva, p] of [
       ['tom liste', []],
-      ['uten bredde', [{ s: 100, lengde: 20, bredde: 0 }]],
-      ['uten lengde', [{ s: 100, lengde: 0, bredde: 4 }]],
+      ['uten bredde', [{ s: 100, lengde: 20, bredde: 0, form: 'rektangel' }]],
+      ['uten lengde', [{ s: 100, lengde: 0, bredde: 4, form: 'rektangel' }]],
       ['uten stasjon', [{ lengde: 20, bredde: 4 }]],
       ['bare tull', [null, undefined, {}]]
     ]) sjekk(`${hva} endrer ingenting`, lagP(kjorP(p, 0)), fasit, 1e-9);
@@ -2585,7 +2726,7 @@ console.log('\n6e. Snuplass og møteplass – vegen blir bredere på et stykke')
       fjell: new M.Fjellmodell({ standarddybde: 99, punkter: [] }),
       profilAvstand: 5, bakkefaktor: 1, integrasjonssteg: 0.05, plasser
     });
-    const u = kjorH(null).sum, m = kjorH([{ s: 100, lengde: 20, bredde: 6 }]).sum;
+    const u = kjorH(null).sum, m = kjorH([{ s: 100, lengde: 20, bredde: 6, form: 'rektangel' }]).sum;
     paastand('en plass i sidehelling koster både skjæring og fylling',
       m.skjaering > u.skjaering + 1 && m.fylling > u.fylling + 1,
       `skjæring ${u.skjaering.toFixed(0)}→${m.skjaering.toFixed(0)}, `

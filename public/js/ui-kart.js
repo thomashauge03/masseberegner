@@ -97,6 +97,7 @@ const Kart = {
   lag: {},
   ipMarkorer: [],
   fjellMarkorer: [],
+  plassMarkorer: [],
   modus: 'rediger',
   app: null,
 
@@ -1419,6 +1420,50 @@ const Kart = {
       });
       this.fjellMarkorer.push(m);
     });
+
+    /* SNUPLASSENE SKAL SES DER DE ER.
+       Vegen blir bredere av seg selv – omrisset tegnes fra `halvbreddeVenstre`
+       og `halvbreddeHoyre` – men uten et merke er det umulig å se OM en bule er
+       en snuplass man har satt, eller bare en kurveutvidelse. Merket står på
+       stasjonen man klikket, og bærer navnet og målene. */
+    this.plassMarkorer.forEach(m => this.kart.removeLayer(m));
+    this.plassMarkorer = [];
+    if (app.linje && app.linje.lengde > 0) {
+      (P.plasser || []).forEach((pl, i) => {
+        if (!pl || !isFinite(pl.s)) return;
+        const s = Math.min(Math.max(pl.s, 0), app.linje.lengde);
+        const pt = app.linje.punktVed(s);
+        const ll = Geo.fraUtm(pt.x, pt.y, app.sone);
+        const m = L.marker([ll.lat, ll.lon], {
+          icon: L.divIcon({ className: '', iconSize: [15, 15], iconAnchor: [7.5, 7.5],
+            html: '<div class="plass-markor" title="Snuplass"></div>' })
+        }).addTo(this.kart);
+        m.bindPopup(() => {
+          const d = document.createElement('div');
+          const side = pl.side === 'venstre' ? 'ut til venstre'
+            : pl.side === 'hoyre' ? 'ut til høyre' : 'midt på vegen';
+          const form = pl.form === 'rektangel' ? 'rett' : 'oval';
+          d.innerHTML = `<b>${escapeHtml(pl.navn || 'Snuplass')}</b><br>`
+            + `Profil ${Rapport.tall(pl.s, 0)} · ${form}, ${side}<br>`
+            + `${Rapport.tall(pl.lengde, 0)} m lang, `
+            + `${Rapport.tall(pl.bredde, 1)} m bredere `
+            + `(${Rapport.tall((P.mal.vegbredde || 0) + pl.bredde, 1)} m veg)<br>`
+            + '<small>Endres i listen under Mal</small><br>';
+          const b = document.createElement('button');
+          b.className = 'knapp'; b.textContent = 'Slett';
+          b.onclick = () => {
+            app.merk('slettet snuplass');
+            P.plasser.splice(i, 1);
+            this.kart.closePopup();
+            app.plasserTilSkjema();
+            app.planlegg(30);
+          };
+          d.appendChild(b);
+          return d;
+        });
+        this.plassMarkorer.push(m);
+      });
+    }
   },
 
   tegnLinjeRask() {
@@ -1446,8 +1491,9 @@ const Kart = {
     for (const pr of res.profiler) {
       const pv = app.linje.punktMedAvvik(pr.s, pr.fotVenstre);
       const ph = app.linje.punktMedAvvik(pr.s, pr.fotHoyre);
-      const kv = app.linje.punktMedAvvik(pr.s, -pr.halvbredde);
-      const kh = app.linje.punktMedAvvik(pr.s, pr.halvbredde);
+      // hver kant sin egen halvbredde - vegen er breiere til én side ved snuplass
+      const kv = app.linje.punktMedAvvik(pr.s, -(pr.halvbreddeVenstre != null ? pr.halvbreddeVenstre : pr.halvbredde));
+      const kh = app.linje.punktMedAvvik(pr.s, (pr.halvbreddeHoyre != null ? pr.halvbreddeHoyre : pr.halvbredde));
       const c = q => { const ll = Geo.fraUtm(q.x, q.y, app.sone); return [ll.lat, ll.lon]; };
       v.push(c(pv)); h.push(c(ph)); vk1.push(c(kv)); vk2.push(c(kh));
     }

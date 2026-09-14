@@ -505,14 +505,16 @@ ${this.sprengningsrader(res)}
     const mal = res.mal;
     for (const p of res.profiler) {
       if (steg > 0 && Math.abs(p.s % steg) > 1e-6 && p.s !== res.profiler[res.profiler.length - 1].s) continue;
-      const vk = app.linje.punktMedAvvik(p.s, -p.halvbredde);
-      const hk = app.linje.punktMedAvvik(p.s, p.halvbredde);
+      const hbV = p.halvbreddeVenstre != null ? p.halvbreddeVenstre : p.halvbredde;
+      const hbH = p.halvbreddeHoyre != null ? p.halvbreddeHoyre : p.halvbredde;
+      const vk = app.linje.punktMedAvvik(p.s, -hbV);
+      const hk = app.linje.punktMedAvvik(p.s, hbH);
       const fall = app.fallVed ? app.fallVed(p.s) : { venstre: mal.tverrfall, hoyre: mal.tverrfall };
       rader.push({
         s: p.s, n: p.y, o: p.x, z: p.vegnivaa,
         terreng: p.terrengSenter,
-        vkN: vk.y, vkO: vk.x, vkZ: p.vegnivaa - fall.venstre * p.halvbredde,
-        hkN: hk.y, hkO: hk.x, hkZ: p.vegnivaa - fall.hoyre * p.halvbredde
+        vkN: vk.y, vkO: vk.x, vkZ: p.vegnivaa - fall.venstre * hbV,
+        hkN: hk.y, hkO: hk.x, hkZ: p.vegnivaa - fall.hoyre * hbH
       });
     }
     return rader;

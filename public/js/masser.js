@@ -313,29 +313,55 @@ function plassInnkjoring(p, overgang) {
 function plassUtvidelse(plasser, lengdeLinje, overgang) {
   const gyldige = (plasser || []).filter(p => p && isFinite(p.s)
     && p.lengde > 0 && p.bredde > 0);
-  if (!gyldige.length) return () => 0;
+  /* Samme FORM uten plasser som med. Her sto `() => 0`, altså et tall der
+     resten av fila venter `{sym, v, h}` – og `Math.max(sym, undefined)` er NaN,
+     som `JSON.stringify` viser som `null`. Hele utvidelsen ble NaN så snart
+     ingen plasser var satt ut, altså i de aller fleste prosjekter. */
+  if (!gyldige.length) return () => ({ sym: 0, v: 0, h: 0 });
   const omraader = gyldige.map(p => {
     const halv = p.lengde / 2;
     /* Midten klemmes inn slik at hele plassen ligger på vegen. Er vegen
        kortere enn plassen, dekker den hele vegen. */
     const midt = lengdeLinje <= p.lengde ? lengdeLinje / 2
       : Math.min(Math.max(p.s, halv), lengdeLinje - halv);
-    return { fra: midt - halv, til: midt + halv, bredde: p.bredde,
+    return { fra: midt - halv, til: midt + halv, halv, midt, bredde: p.bredde,
+      side: p.side === 'venstre' || p.side === 'hoyre' ? p.side : 'sentrum',
+      /* OVAL ELLER RETT.
+         En snuplass ser som regel ut som en oval: vegen buler ut, er bredest på
+         midten, og kommer inn igjen. En møteplass er rett, med en innkjøring i
+         hver ende. De to er forskjellige figurer og ulike kubikk - en oval tar
+         π/4 av rektangelet, altså 79 % - så formen er et valg, ikke en pynt. */
+      form: p.form === 'rektangel' ? 'rektangel' : 'oval',
       inn: plassInnkjoring(p, overgang) };
   });
+  /* Returnerer `{sym, v, h}`: den symmetriske delen, og det som bare hører til
+     venstre eller høyre side. En plass med `side: 'sentrum'` deles likt; en med
+     'venstre' eller 'hoyre' legges bare dit. Det er hele grunnen til å kunne
+     velge side – en snuplass legges ut der det ER plass. */
   return s => {
-    let b = 0;
+    const ut = { sym: 0, v: 0, h: 0 };
     for (const o of omraader) {
-      let v;
-      if (s >= o.fra - 1e-9 && s <= o.til + 1e-9) v = o.bredde;
+      let b;
+      if (o.form === 'oval') {
+        /* Halv ellipse over hele lengden: bredest på midten, null i endene.
+           Da er omrisset en ekte oval i plan, og den trenger ingen egen
+           innkjøring - den trapper seg selv inn. */
+        const u = o.halv > 1e-9 ? (s - o.midt) / o.halv : 2;
+        b = Math.abs(u) >= 1 ? 0 : o.bredde * Math.sqrt(1 - u * u);
+      } else if (s >= o.fra - 1e-9 && s <= o.til + 1e-9) b = o.bredde;
       else {
         // lineær innkjøring ut fra kanten, ned til null
-        const ut = s < o.fra ? o.fra - s : s - o.til;
-        v = o.inn > 1e-9 ? o.bredde * Math.max(0, 1 - ut / o.inn) : 0;
+        const avstand = s < o.fra ? o.fra - s : s - o.til;
+        b = o.inn > 1e-9 ? o.bredde * Math.max(0, 1 - avstand / o.inn) : 0;
       }
-      if (v > b) b = v;
+      if (b <= 0) continue;
+      /* Flere plasser som overlapper konkurrerer per side, de legges ikke
+         sammen: to snuplasser oppå hverandre er ikke dobbelt så bred veg. */
+      if (o.side === 'venstre') { if (b > ut.v) ut.v = b; }
+      else if (o.side === 'hoyre') { if (b > ut.h) ut.h = b; }
+      else if (b > ut.sym) ut.sym = b;
     }
-    return b;
+    return ut;
   };
 }
 
@@ -352,6 +378,28 @@ function plassKanter(plasser, lengdeLinje, overgang) {
        ut over nabostrekkene i stedet for å ligge der plassen er. */
     const inn = plassInnkjoring(p, overgang);
     const punkt = [midt - halv, midt + halv];
+    if (p.form !== 'rektangel') {
+      /* EN OVAL MÅ HA NOK PUNKT TIL Å VÆRE RUND.
+         Volumet regnes med gjennomsnittlig endeareal mellom profiler, altså
+         rette linjer imellom. Med bare endene og det jevne rutenettet blir en
+         20 m oval en firkant med avskårne hjørner, og arealet blir for lite.
+         Punktene legges tettere mot endene, der kurven svinger mest.
+
+         ANTALLET ER MÅLT, IKKE VALGT. Arealet under en ellipse er π/4 av
+         rektangelet, og det er fasiten. Med 12 delintervall lå volumet 1,14 %
+         under, med 20 0,38 %, med 32 0,15 % og med 48 0,07 %. Trapesregelen
+         konvergerer sakte her fordi ellipsen står loddrett i endene. 32 er der
+         det slutter å lønne seg: under to promille, og en snuplass er ikke
+         landmålt nøyere enn det. */
+      for (let i = 1; i < 32; i++) {
+        const u = Math.cos(Math.PI * i / 32);      // Tsjebysjov: tett i endene
+        punkt.push(midt + halv * u);
+      }
+      for (const t of punkt) {
+        if (t > 1e-9 && t < lengdeLinje - 1e-9) ut.push(+t.toFixed(4));
+      }
+      continue;                    // ovalen trapper seg selv - ingen innkjøring
+    }
     if (inn > 1e-9) punkt.push(midt - halv - inn, midt + halv + inn);
     else {
       /* UTEN AVTRAPPING SKAL KANTEN VÆRE SKARP.
@@ -422,13 +470,16 @@ function lagUtvidelsesprofil(linje, mal, stasjoner, ekstra, plasser) {
      OG DE KONKURRERER MED KURVEN, de legges ikke oppå: ligger snuplassen i en
      sving, er bredden den BREDESTE av de to, ikke summen. To grunner til å
      være bred er ikke dobbelt så bred veg. */
-  for (let i = 0; i < ut.length; i++) {
-    const p = plass(stasjoner[i]);
-    if (p > ut[i]) ut[i] = p;
-  }
   // Normalen krever ekstra bredde i bratte bakker og pa høye fyllinger
   if (ekstra) for (let i = 0; i < ut.length; i++) if (ekstra[i]) ut[i] += ekstra[i];
-  return ut;
+
+  /* Til slutt settes tallet sammen med plassene til `{sym, v, h}`, formen
+     tverrsnittet leser. Kurveutvidelsen og normalens tillegg er alltid
+     symmetriske; bare plassene kan være ensidige. */
+  return ut.map((sym, i) => {
+    const p = plass(stasjoner[i]);
+    return { sym: Math.max(sym, p.sym), v: p.v, h: p.h };
+  });
 }
 
 /**
@@ -501,7 +552,23 @@ function beregnTverrprofil(o) {
     return typeof v === 'number' && isFinite(v) ? v : NaN;
   };
 
-  const hb = (mal.vegbredde + utvidelse) / 2;
+  /* VEGEN ER IKKE ALLTID LIKE BRED TIL BEGGE SIDER.
+     En snuplass legges ut til den siden det er plass på – det er hele poenget
+     med å velge side. Derfor har tverrsnittet to halvbredder, ikke én.
+
+     `utvidelse` kan komme som et tall (symmetrisk, slik det alltid har vært)
+     eller som `{sym, v, h}`: `sym` deles likt på begge sider slik kurve-
+     utvidelsen og normalens tillegg skal, mens `v` og `h` legges bare på sin
+     egen side. Tallformen beholdes fordi den er det alle andre kall bruker, og
+     fordi en symmetrisk veg ikke skal måtte vite om dette. */
+  const uObj = (utvidelse && typeof utvidelse === 'object')
+    ? utvidelse : { sym: utvidelse || 0, v: 0, h: 0 };
+  const uSym = uObj.sym || 0;
+  const hbV = (mal.vegbredde + uSym) / 2 + (uObj.v || 0);
+  const hbH = (mal.vegbredde + uSym) / 2 + (uObj.h || 0);
+  /* Den gamle `hb` er nå gjennomsnittet. Den brukes bare der bredden er ment
+     som «hvor bred er vegen omtrent» – aldri som kant. Hver kant har sin. */
+  const hb = (hbV + hbH) / 2;
   const ob = mal.slitelagTykkelse + mal.baerelagTykkelse;
   const rensk = mal.renskDybde;
 
@@ -533,7 +600,7 @@ function beregnTverrprofil(o) {
      oppmalt tverrsnitt kan treffes og kurver kan doseres ensidig. */
   const fall = o.tverrfall || { venstre: mal.tverrfall, hoyre: mal.tverrfall };
   const vegflate = t => {
-    const tt = Math.max(-hb, Math.min(hb, t));
+    const tt = Math.max(-hbV, Math.min(hbH, t));
     return vegnivaa - (tt < 0 ? fall.venstre * -tt : fall.hoyre * tt);
   };
 
@@ -580,7 +647,11 @@ function beregnTverrprofil(o) {
   const skulder = ob * obHelning;
   /* Vegkroppen er bredere i planum enn oppe på vegen, og det er vegkroppen
      trauet skal ligge under – skulderen skal stå på fast grunn den også. */
-  const tUtskifting = hb + skulder + groftBredde;
+  /* Trauet ligger under VEGKROPPEN, og den er ikke like brei til begge sider
+     når en snuplass er lagt ut til én av dem. */
+  const tUtskiftingV = hbV + skulder + groftBredde;
+  const tUtskiftingH = hbH + skulder + groftBredde;
+  const tUtskifting = Math.max(tUtskiftingV, tUtskiftingH);
   const maksUt = Math.max(0, mal.maksUtskifting || 0);
   /* ET TRAU HAR IKKE LODDRETTE VEGGER.
      Her sto veggen som et loddrett sprang ved vegkroppens kant. Da står den
@@ -595,7 +666,16 @@ function beregnTverrprofil(o) {
      ikke noe man kunne latt være: det er den som gjør at kanten holder. */
   const utUtenfor = Math.max(0, mal.utskiftingUtenfor || 0);
   const utHelning = Math.max(0, mal.utskiftingHelning || 0);
-  const tUtskiftBunn = tUtskifting + utUtenfor;
+  /* TRAUET FØLGER DEN BREDE SIDEN, DET SPEILER DEN IKKE.
+     Her sto én halvbredde brukt mot `Math.abs(t)`. Legges en snuplass ut til
+     høyre, ville trauet gått like langt ut til VENSTRE – og der er det ingen
+     veg å bære. Med en 5,5 m snuplass blir det fem og en halv meter utgraving
+     på den siden det ikke bygges noe, i full trauhøyde.
+     `bunnVed(t)` gir derfor den halvbredden som gjelder på den siden man står. */
+  const tUtskiftBunnV = tUtskiftingV + utUtenfor;
+  const tUtskiftBunnH = tUtskiftingH + utUtenfor;
+  const bunnVed = (t) => (t < 0 ? tUtskiftBunnV : tUtskiftBunnH);
+  const tUtskiftBunn = Math.max(tUtskiftBunnV, tUtskiftBunnH);
   /* Bunnen slik den ville vært uten vegg – fjellet, eller grensa. */
   const trauBunnRett = (t) => {
     const zr = terrRå(t);
@@ -606,16 +686,17 @@ function beregnTverrprofil(o) {
   const utskiftBotn = !mal.utskifting ? terr : (t) => {
     const grunn = terr(t);
     const at = Math.abs(t);
-    if (at <= tUtskiftBunn) {
+    const bunn = bunnVed(t);
+    if (at <= bunn) {
       const b = trauBunnRett(t);
       return isFinite(b) ? Math.min(grunn, b) : NaN;
     }
     if (utHelning <= 0) return grunn;          // loddrett vegg: ingenting utenfor
     /* Skråningen stiger fra bunnen ved VEGGFOTEN, ikke fra det lokale
        trauet – det er den ene sammenhengende flaten graveren følger. */
-    const bFot = trauBunnRett((t < 0 ? -1 : 1) * tUtskiftBunn);
+    const bFot = trauBunnRett((t < 0 ? -1 : 1) * bunn);
     if (!isFinite(bFot)) return grunn;
-    const zVegg = bFot + (at - tUtskiftBunn) / utHelning;
+    const zVegg = bFot + (at - bunn) / utHelning;
     const b = trauBunnRett(t);
     return Math.min(grunn, isFinite(b) ? Math.max(b, zVegg) : zVegg);
   };
@@ -623,13 +704,14 @@ function beregnTverrprofil(o) {
      ikke lenger dypere enn en vanlig avdekking, og der er det ingen utskifting.
      Løses ved halvering: terrenget kan skråne, så det finnes ingen formel. */
   const veggMoeter = (side) => {
-    if (!mal.utskifting || utHelning <= 0) return tUtskiftBunn;
+    const bunn = side < 0 ? tUtskiftBunnV : tUtskiftBunnH;
+    if (!mal.utskifting || utHelning <= 0) return bunn;
     const dypere = (t) => utskiftBotn(t) < terr(t) - 1e-9;
-    let lav = tUtskiftBunn, hoy = tUtskiftBunn;
+    let lav = bunn, hoy = bunn;
     /* Finn først et punkt der veggen ER oppe. Rekkevidden kan ikke bli
        uendelig: dypeste mulige trau er `maksUt`, eller hele veien til fjell. */
     const rekkevidde = Math.max(1, (maksUt > 0 ? maksUt : 50) * utHelning) + 1;
-    hoy = tUtskiftBunn + rekkevidde;
+    hoy = bunn + rekkevidde;
     if (dypere(side * hoy)) return hoy;
     for (let i = 0; i < 40; i++) {
       const m = (lav + hoy) / 2;
@@ -642,7 +724,7 @@ function beregnTverrprofil(o) {
      Gjelder bunnen, ikke veggen: under skråningen er det ikke meningen at man
      skal ned til fjell, så det som ligger igjen der er ikke en rest. */
   const restUnderTrauet = (t) => {
-    if (!mal.utskifting || maksUt <= 0 || Math.abs(t) > tUtskiftBunn) return 0;
+    if (!mal.utskifting || maksUt <= 0 || Math.abs(t) > bunnVed(t)) return 0;
     const zr = terrRå(t);
     if (!isFinite(zr)) return 0;
     return Math.max(0, (zr - maksUt) - fjellflate(t));
@@ -651,10 +733,13 @@ function beregnTverrprofil(o) {
   // --- Bygg jordarbeidsflaten for hver side --------------------------
   const sider = {};
   for (const side of [-1, 1]) {
-    const zKant = vegflate(side * hb);
+    /* Sin egen halvbredde: vegkanten ligger ikke like langt ute pa begge sider
+       nar en snuplass er lagt ut til den ene. */
+    const hbSide = side < 0 ? hbV : hbH;
+    const zKant = vegflate(side * hbSide);
     const planumKant = zKant - ob;
-    const hbS = hb + skulder;                  // ytterkant av skulderen
-    const tKant = terr(side * hb);
+    const hbS = hbSide + skulder;              // ytterkant av skulderen
+    const tKant = terr(side * hbSide);
     const knekk = [];  // {t (positiv utover), z} - jordarbeidsflaten
     let type, tFot;
 
@@ -675,7 +760,7 @@ function beregnTverrprofil(o) {
       const t2 = t1 + mal.grofteBunn * grofteAndel;
       /* Skulderen først, så grøfta. Sto grøfta rett i vegkanten, hadde
          vegkroppen ingenting å stå på ute ved kanten. */
-      knekk.push({ t: hb, z: planumKant });
+      knekk.push({ t: hbSide, z: planumKant });
       if (skulder > 1e-9) knekk.push({ t: hbS, z: planumKant });
       knekk.push({ t: t1, z: zGroft });
       knekk.push({ t: t2, z: zGroft });
@@ -723,7 +808,7 @@ function beregnTverrprofil(o) {
     } else {
       /* --- Fylling: skraning ned til terreng --- */
       type = 'fylling';
-      knekk.push({ t: hb, z: planumKant });
+      knekk.push({ t: hbSide, z: planumKant });
       // skulderen: hyllen vegkroppens skrå kant står på
       if (skulder > 1e-9) knekk.push({ t: hbS, z: planumKant });
       /* Skraningen starter i planum, ikke i veikanten. Overbygningen er en
@@ -776,7 +861,7 @@ function beregnTverrprofil(o) {
   function jordflate(t) {
     const side = t < 0 ? -1 : 1;
     const at = Math.abs(t);
-    if (at <= hb) return vegflate(t) - ob;      // planum under vegen
+    if (t >= -hbV && t <= hbH) return vegflate(t) - ob;   // planum under vegen
     const k = sider[side].knekk;
     for (let i = 0; i < k.length - 1; i++) {
       if (at >= k[i].t && at <= k[i + 1].t) {
@@ -814,11 +899,12 @@ function beregnTverrprofil(o) {
   // --- Integrer arealene --------------------------------------------
   /* Er det satt en beregningsbredde, stopper regnestykket der selv om
      skraningen fortsetter. Det som ligger utenfor blir ikke talt med. */
-  const grense = mal.beregningsbredde > 0 ? hb + mal.beregningsbredde : Infinity;
-  const avkortetV = sider[-1].tFot > grense;
-  const avkortetH = sider[1].tFot > grense;
-  const tV = -Math.min(sider[-1].tFot, grense);
-  const tH = Math.min(sider[1].tFot, grense);
+  const grenseV = mal.beregningsbredde > 0 ? hbV + mal.beregningsbredde : Infinity;
+  const grenseH = mal.beregningsbredde > 0 ? hbH + mal.beregningsbredde : Infinity;
+  const avkortetV = sider[-1].tFot > grenseV;
+  const avkortetH = sider[1].tFot > grenseH;
+  const tV = -Math.min(sider[-1].tFot, grenseV);
+  const tH = Math.min(sider[1].tFot, grenseH);
   let arealSkjaering = 0, arealFylling = 0, arealSkjaeringFjell = 0;
   let vSkjaering = 0, vFylling = 0, vSkjaeringFjell = 0; // kurvevektet
   let maksSkjaering = 0, maksFylling = 0;
@@ -839,7 +925,7 @@ function beregnTverrprofil(o) {
   // i malen, slik at resultatet ikke henger pa hvor fint man deler opp.
   const brekk = new Set([tV, tH]);
   for (const side of [-1, 1]) for (const k of sider[side].knekk) brekk.add(side * k.t);
-  for (const b of [-hb - 1e-7, -hb + 1e-7, hb - 1e-7, hb + 1e-7, 0]) brekk.add(b);
+  for (const b of [-hbV - 1e-7, -hbV + 1e-7, hbH - 1e-7, hbH + 1e-7, 0]) brekk.add(b);
   /* TRAUVEGGEN ER ET SPRANG, OG DET MÅ TREFFES NØYAKTIG.
      Under vegkroppen ligger bunnen på fjellet, utenfor på renskebunnen – og
      mellom dem står en loddrett vegg. Uten et knekkpunkt på hver side av den
@@ -856,13 +942,14 @@ function beregnTverrprofil(o) {
      vanlige renskebunnen. Faller de mellom to integrasjonspunkt, blir
      spranget smurt utover den ruta det tilfeldigvis lander i. */
   if (mal.utskifting) {
-    const kanter = [tUtskiftBunn];
+    /* Per side, ikke speilet: veggen står ulikt langt ute når vegkroppen er
+       breiere til den ene siden. */
     for (const side of [-1, 1]) {
+      const bunn = side < 0 ? tUtskiftBunnV : tUtskiftBunnH;
+      const kanter = [bunn];
       const møte = veggMoeter(side);
-      if (møte > tUtskiftBunn + 1e-6) kanter.push(møte);
-    }
-    for (const k of kanter) {
-      for (const s of [-1, 1]) { brekk.add(s * k - 1e-7); brekk.add(s * k + 1e-7); }
+      if (møte > bunn + 1e-6) kanter.push(møte);
+      for (const k of kanter) { brekk.add(side * k - 1e-7); brekk.add(side * k + 1e-7); }
     }
   }
   /* Taket er det som skiller en tung beregning fra et program som dør. Bredde
@@ -1007,8 +1094,8 @@ function beregnTverrprofil(o) {
 
   // Vegoverflaten til tegning
   if (geometri) {
-    for (let t = -hb; t <= hb + 1e-9; t += Math.max(0.1, (2 * hb) / 40)) geometri.veg.push([t, vegflate(t)]);
-    geometri.veg.push([hb, vegflate(hb)]);
+    for (let t = -hbV; t <= hbH + 1e-9; t += Math.max(0.1, (hbV + hbH) / 40)) geometri.veg.push([t, vegflate(t)]);
+    geometri.veg.push([hbH, vegflate(hbH)]);
   }
 
   /* --- Rensk og overbygning -----------------------------------------
@@ -1079,14 +1166,15 @@ function beregnTverrprofil(o) {
     if (mal.utskifting) {
       /* Både veggfoten og der veggen møter renskebunnen – med skrå vegg er det
          to sprang per side, ikke ett. */
-      const grenser = [tUtskiftBunn];
       for (const side of [-1, 1]) {
+        const bunn = side < 0 ? tUtskiftBunnV : tUtskiftBunnH;
+        const grenser = [bunn];
         const møte = veggMoeter(side);
-        if (møte > tUtskiftBunn + 1e-6) grenser.push(møte);
-      }
-      for (const g of grenser) for (const s of [-1, 1]) {
-        const b = s * g;
-        if (b > tR0 && b < tR1) { kanter.add(b - 1e-9); kanter.add(b + 1e-9); }
+        if (møte > bunn + 1e-6) grenser.push(møte);
+        for (const g of grenser) {
+          const b = side * g;
+          if (b > tR0 && b < tR1) { kanter.add(b - 1e-9); kanter.add(b + 1e-9); }
+        }
       }
     }
     const deler = [...kanter].sort((a, b) => a - b);
@@ -1126,8 +1214,10 @@ function beregnTverrprofil(o) {
      bærelaget som gar helt opp til veinivaet. Uten dette ble den øverste
      desimeteren av skuldrene gravd ut, men aldri fylt igjen med noe: 50 til
      100 kubikk per kilometer som ikke sto pa noen post. */
-  const bredde = mal.vegbredde + utvidelse;
-  const slitebredde = Math.min(mal.slitelagBredde + utvidelse, bredde);
+  /* Bredden er kant til kant, uansett hvordan utvidelsen er fordelt. */
+  const bredde = hbV + hbH;
+  const samletUtvidelse = bredde - mal.vegbredde;
+  const slitebredde = Math.min(mal.slitelagBredde + samletUtvidelse, bredde);
   const arealSlitelag = mal.slitelagTykkelse * slitebredde;
   /* VEGKROPPEN HAR SKRÅ KANT, IKKE LODDRETT.
      Her sto `tykkelse · bredde` for hvert lag – to rektangler som endte i en
@@ -1151,8 +1241,15 @@ function beregnTverrprofil(o) {
     radius: linje.radiusVed(s),
     vegnivaa,
     terrengSenter: terrRå(0),
-    utvidelse,
+    /* Den SAMLEDE utvidelsen, uansett fordeling. En symmetrisk veg gir samme
+       tall som før; en ensidig snuplass gir hele tillegget her. */
+    utvidelse: samletUtvidelse,
+    /* `halvbredde` er gjennomsnittet og sier bare «hvor bred er vegen omtrent».
+       Skal du tegne en KANT, bruk sidens egen - de er ikke like når en snuplass
+       er lagt ut til én side. */
     halvbredde: hb,
+    halvbreddeVenstre: hbV,
+    halvbreddeHoyre: hbH,
     fjelldybde,
     // bredden og dybden av selve sprengningen i dette snittet
     fjellbredde: breddeFjell,

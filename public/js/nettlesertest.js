@@ -3833,9 +3833,11 @@ const Nettlesertest = {
       /* 17.4 Fotavtrykket er selve leveransen: modellens bredeste inngrep skal
          være profilens eget inngrep, ikke en tilfeldig ytterkolonne.
 
-         MERK: fasiten er foten alene. Trauet med skrå vegg kan gå FORBI foten,
-         og de rutene er ikke i modellen – se den kjente feilen i «modellen
-         omslutter masser.js sine areal». */
+         INNGREPET ER IKKE BARE SKRÅNINGEN. Her sto foten alene som fasit. Med
+         masseutskifting har trauet skrå vegg og går forbi foten – målt med
+         fjellet to meter nede står foten på 5,02 m mens trauet slutter på 7,50.
+         Det er GRAVD der ute, så det hører med i fotavtrykket; det er ikke en
+         tilfeldig ytterkolonne. Fasiten er derfor det ytterste av de to. */
       {
         let modell = 0, fasit = 0;
         for (let j = 0; j < g.nh; j++) {
@@ -3847,9 +3849,13 @@ const Nettlesertest = {
           }
           if (tmaks > tmin) modell = Math.max(modell, tmaks - tmin);
           const pr = App.resultat.profiler.find(p => Math.abs(p.s - g.s[j]) < 1e-9);
-          if (pr) fasit = Math.max(fasit, pr.fotHoyre - pr.fotVenstre);
+          if (pr) {
+            const tU = pr.utskiftingHalvbredde || 0;
+            fasit = Math.max(fasit,
+              Math.max(pr.fotHoyre, tU) - Math.min(pr.fotVenstre, -tU));
+          }
         }
-        this.naer('bredeste inngrep i modellen er profilens egen fot', modell, fasit, 0.02);
+        this.naer('bredeste inngrep i modellen er profilens eget inngrep', modell, fasit, 0.02);
       }
 
       /* 17.5 Velger man et vindu, skal det FØLGE snittet – ellers viser de to

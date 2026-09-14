@@ -51,15 +51,32 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
     grenser: true, andre: false },
 
   /* Kolonneskjemaet. Likt i hver rad, så en kolonne alltid betyr det samme:
-     foten er kolonne 0 og SISTE, vegkantene 27 og 35, senterlinja 31. Da blir
-     fot, vegkant og senterlinje eksakte sammenhengende kanter i modellen, og
-     overleggsstrekene er bare kolonneindekser.
+     foten er kolonne FOT_V og FOT_H, vegkantene KANT_V og KANT_H, senterlinja
+     SENTER. Da blir fot, vegkant og senterlinje eksakte sammenhengende kanter i
+     modellen, og overleggsstrekene er bare kolonneindekser.
      En felles absolutt t-akse ble prøvd og forkastet: den gir en SAGTANNET
      skråningsfot, fordi rasteriseringen hopper over firkanter der et hjørne
      mangler. På en tomt er det en halv rute i utkanten. På en veg er fotlinja
      selve leveransen, og et fotavtrykk som er systematisk for smalt er en
      stille løgn. */
-  KANT_V: 27, KANT_H: 35, SENTER: 31, KOL: 63,
+  /* TRAUET LIGGER UTENFOR FOTEN, OG DET ER OGSÅ GRAVD.
+     Med masseutskifting har trauet skrå vegg og går forbi skråningsfoten –
+     målt med fjellet to meter nede står foten på 5,02 m mens trauet slutter på
+     7,50. Nettet spente fot til fot, så de ytterste to og en halv meteren lå
+     utenfor modellen: prøven «modellen omslutter masser.js sine areal» meldte
+     0,769 m²/lm borte på verste profil, 44 %.
+
+     Det ble først prøvd å flytte `tV`/`tH` ut til trauet. Da flyttet fotlinja
+     seg med: kolonne `FOT_V` og `FOT_H` TEGNES som skråningsfot i rødt, og de
+     ville pekt på trauveggen i stedet. Fotavtrykket er selve leveransen, så en
+     fotlinje som ligger et annet sted enn foten er verre enn et hull.
+
+     Derfor har trauet fått sitt eget bånd UTENFOR foten – `TRAU` kolonner på
+     hver side. Da beholder hver kolonne sin betydning: foten er fortsatt en
+     fast kolonne, vegkantene og senterlinja likeså. Er trauet smalere enn
+     foten, faller båndet sammen med foten og koster ingenting. */
+  TRAU: 4,
+  FOT_V: 4, KANT_V: 31, SENTER: 35, KANT_H: 39, FOT_H: 66, KOL: 71,
 
   init(app) {
     this.app = app;
@@ -435,6 +452,10 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
 
       const hb = pr.halvbredde;
       const tV = pr.fotVenstre, tH = pr.fotHoyre;
+      /* Trauveggen går forbi foten når fjellet ligger grunt – se `TRAU`. Er
+         den innenfor, faller båndet sammen med foten og koster ingenting. */
+      const tTrau = pr.utskiftingHalvbredde || 0;
+      const tTrauV = Math.min(tV, -tTrau), tTrauH = Math.max(tH, tTrau);
       const bleik = pr.manglerData || pr.avkortet
         || (pr.sider && ((pr.sider[-1] && pr.sider[-1].truffet === false)
           || (pr.sider[1] && pr.sider[1].truffet === false)));
@@ -458,18 +479,26 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
           const sk = Math.max(0, Math.min(pr.skulderbredde || 0, Math.max(0, tH - hb) - 1e-6));
           const utover = (fra, til, u) => {
             if (sk <= 1e-9) return fra + (til - fra) * u;
-            const uSk = 1 / (this.KOL - 1 - this.KANT_H);   // første steget
+            const uSk = 1 / (this.FOT_H - this.KANT_H);     // første steget
             const kant = fra + sk;
             return u <= uSk ? fra + sk * (u / uSk)
               : kant + (til - kant) * ((u - uSk) / (1 - uSk));
           };
           const c = i - kn;
-          if (c <= this.KANT_V) {
-            const u = 1 - c / this.KANT_V;                  // 1 ytterst, 0 ved vegkanten
+          if (c < this.FOT_V) {
+            // utenfor venstre fot: trauveggen, som også er gravd
+            t = tTrauV + (tV - tTrauV) * (c / this.FOT_V);
+          } else if (c <= this.KANT_V) {
+            const u = 1 - (c - this.FOT_V) / (this.KANT_V - this.FOT_V);  // 1 ved foten
             t = -utover(hb, -tV, u);
-          } else if (c >= this.KANT_H) {
-            t = utover(hb, tH, (c - this.KANT_H) / (this.KOL - 1 - this.KANT_H));
-          } else t = -hb + 2 * hb * ((c - this.KANT_V) / (this.KANT_H - this.KANT_V));
+          } else if (c < this.KANT_H) {
+            t = -hb + 2 * hb * ((c - this.KANT_V) / (this.KANT_H - this.KANT_V));
+          } else if (c <= this.FOT_H) {
+            t = utover(hb, tH, (c - this.KANT_H) / (this.FOT_H - this.KANT_H));
+          } else {
+            // utenfor høyre fot
+            t = tH + (tTrauH - tH) * ((c - this.FOT_H) / (this.KOL - 1 - this.FOT_H));
+          }
         }
         tAkse[k] = t;
         const p = app.linje.punktMedAvvik(pr.s, t);
@@ -640,8 +669,10 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
       this._verdensstrek(k, punkt);
     };
     const kn = g.kn;
-    kol(kn, Farger.skjaering, 1.6);                          // venstre fot
-    kol(g.nb - 1 - kn, Farger.skjaering, 1.6);               // høyre fot
+    /* Fotlinja tegnes pa sin EGEN kolonne, ikke pa ytterste gravkolonne.
+       Trauet ligger utenfor foten - se TRAU - sa ytterste kolonne er trauveggen. */
+    kol(kn + this.FOT_V, Farger.skjaering, 1.6);             // venstre fot
+    kol(kn + this.FOT_H, Farger.skjaering, 1.6);             // høyre fot
     kol(kn + this.KANT_V, Farger.veg, 1.4);                  // venstre vegkant
     kol(kn + this.KANT_H, Farger.veg, 1.4);                  // høyre vegkant
     kol(kn + this.SENTER, Farger.blekk, 1.8);                // senterlinja

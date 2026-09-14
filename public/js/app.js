@@ -5127,12 +5127,33 @@ const App = {
          som skjer når vegbredden endres – og et felt man må regne om er et
          felt man skriver feil i. Totalen vises ved siden av, som opplysning. */
       const total = (this.P.mal.vegbredde || 0) + (p.bredde || 0);
+      const side = p.side === 'venstre' || p.side === 'hoyre' ? p.side : 'sentrum';
+      const form = p.form === 'rektangel' ? 'rektangel' : 'oval';
+      const valgt = (a, b) => a === b ? ' selected' : '';
       rad.innerHTML = `<input type="text" class="plassnavn" value="${escapeHtml(p.navn || 'Snuplass')}" spellcheck="false">
         <label>prof</label><input type="number" step="1" class="plasss" value="${p.s}">
         <label>lengde</label><input type="number" step="1" min="1" class="plassl" value="${p.lengde}">
         <label>bredere</label><input type="number" step="0.5" min="0.5" class="plassb" value="${p.bredde}">
+        <select class="plassside" title="Hvilken side vegen utvides til">
+          <option value="sentrum"${valgt(side, 'sentrum')}>midt på</option>
+          <option value="venstre"${valgt(side, 'venstre')}>venstre</option>
+          <option value="hoyre"${valgt(side, 'hoyre')}>høyre</option></select>
+        <select class="plassform" title="Oval buler ut og inn igjen. Rett er en møteplass med innkjøring i hver ende.">
+          <option value="oval"${valgt(form, 'oval')}>oval</option>
+          <option value="rektangel"${valgt(form, 'rektangel')}>rett</option></select>
         <small class="plasstotal">= ${Rapport.tall(total, 1)} m veg</small>
         <button title="Slett">×</button>`;
+      const velg = (velger, felt) => {
+        const e = rad.querySelector(velger);
+        e.onchange = () => {
+          this.merk('endret snuplass');
+          p[felt] = e.value;
+          this.plasserTilSkjema();
+          this.planlegg(30);
+        };
+      };
+      velg('.plassside', 'side');
+      velg('.plassform', 'form');
       const navn = rad.querySelector('.plassnavn');
       const [fs, fl, fb] = [rad.querySelector('.plasss'),
         rad.querySelector('.plassl'), rad.querySelector('.plassb')];
@@ -5267,9 +5288,9 @@ const App = {
     const h = document.getElementById('tp_hoyre');
     if (!v || !pr) return;
     const fall = this.fallVed(pr.s);
-    v.value = (pr.vegnivaa - fall.venstre * pr.halvbredde).toFixed(3);
+    v.value = (pr.vegnivaa - fall.venstre * (pr.halvbreddeVenstre != null ? pr.halvbreddeVenstre : pr.halvbredde)).toFixed(3);
     c.value = pr.vegnivaa.toFixed(3);
-    h.value = (pr.vegnivaa - fall.hoyre * pr.halvbredde).toFixed(3);
+    h.value = (pr.vegnivaa - fall.hoyre * (pr.halvbreddeHoyre != null ? pr.halvbreddeHoyre : pr.halvbredde)).toFixed(3);
     const egen = (this.P.tverrfall || []).some(t => Math.abs(t.s - pr.s) < 1e-6);
     v.classList.toggle('overstyrt', egen);
     h.classList.toggle('overstyrt', egen);
@@ -5298,7 +5319,13 @@ const App = {
 
     const fall = this.fallVed(pr.s);
     const nytt = { s: pr.s, venstre: fall.venstre, hoyre: fall.hoyre };
-    const helning = (pr.vegnivaa - verdi) / pr.halvbredde;
+    /* Sidens EGEN halvbredde: vegen er ikke like brei til begge sider når en
+       snuplass er lagt ut til den ene, og et fall regnet mot feil bredde gir
+       feil kanthøyde tilbake. */
+    const hbSide = hvor === 'venstre'
+      ? (pr.halvbreddeVenstre != null ? pr.halvbreddeVenstre : pr.halvbredde)
+      : (pr.halvbreddeHoyre != null ? pr.halvbreddeHoyre : pr.halvbredde);
+    const helning = (pr.vegnivaa - verdi) / hbSide;
     if (hvor === 'venstre') nytt.venstre = helning; else nytt.hoyre = helning;
 
     const i = this.P.tverrfall.findIndex(t => Math.abs(t.s - pr.s) < 1e-6);

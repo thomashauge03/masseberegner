@@ -47,13 +47,16 @@ const Eksport = {
     const ut = [];
     for (const p of res.profiler) {
       const fall = app.fallVed(p.s);
-      const vk = app.linje.punktMedAvvik(p.s, -p.halvbredde);
-      const hk = app.linje.punktMedAvvik(p.s, p.halvbredde);
+      // hver kant sin egen halvbredde - vegen er breiere til én side ved snuplass
+      const hbV = p.halvbreddeVenstre != null ? p.halvbreddeVenstre : p.halvbredde;
+      const hbH = p.halvbreddeHoyre != null ? p.halvbreddeHoyre : p.halvbredde;
+      const vk = app.linje.punktMedAvvik(p.s, -hbV);
+      const hk = app.linje.punktMedAvvik(p.s, hbH);
       ut.push({
         s: p.s,
         senter: { n: p.y, o: p.x, z: p.vegnivaa },
-        venstre: { n: vk.y, o: vk.x, z: p.vegnivaa - fall.venstre * p.halvbredde },
-        hoyre: { n: hk.y, o: hk.x, z: p.vegnivaa - fall.hoyre * p.halvbredde },
+        venstre: { n: vk.y, o: vk.x, z: p.vegnivaa - fall.venstre * hbV },
+        hoyre: { n: hk.y, o: hk.x, z: p.vegnivaa - fall.hoyre * hbH },
         terreng: p.terrengSenter
       });
     }

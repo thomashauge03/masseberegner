@@ -654,7 +654,17 @@ body {
 .plassrad .plassnavn { flex: 1 1 100%; min-width: 90px; }
 .plassrad label { color: var(--blekk-svak); font-size: 11px; }
 .plassrad input[type="number"] { width: 52px; flex: 0 0 auto; }
+.plassrad select {
+  background: var(--flate-opp); border: 2px solid var(--kant); color: var(--blekk);
+  font-size: 11px; font-family: var(--skrift); padding: 1px 2px;
+}
 .plassrad .plasstotal { color: var(--blekk-svak); margin-left: auto; }
+/* Merket i kartet: en oval, fordi det er det en snuplass er. */
+.plass-markor {
+  width: 15px; height: 11px; margin-top: 2px; border-radius: 50%;
+  background: var(--data-veg, #fafafa); border: 2px solid var(--raud, #ef2b36);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, .45);
+}
 .plassrad button { background: none; border: none; color: var(--raud); cursor: pointer; font-size: 15px; font-weight: 700; }
 
 /* ── høgdetabell ───────────────────────────────────────── */
