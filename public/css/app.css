@@ -1240,6 +1240,24 @@ html[data-peker="grov"] .nokkeltal .verdi { font-size: 15px; }
    ganger mens man leser lista. */
 .anleggspanel .rad [data-slett] { color: var(--blekk-svak); }
 .anleggspanel .rad [data-slett]:hover { color: var(--hm-raud); }
+/* Byggenummeret. Et lite skilt foran navnet, ikke en overskrift – det skal
+   kunne leses i forbifarten og ellers holde kjeft. */
+.anleggspanel .anleggsnr {
+  flex: 0 0 auto; min-width: 16px; text-align: center;
+  font-size: 11px; font-weight: 700; color: var(--blekk-svak);
+  background: var(--flate-opp); border: 1px solid var(--kant);
+  border-radius: 3px; padding: 0 3px; line-height: 15px;
+}
+.anleggspanel .rad.aktiv .anleggsnr { color: var(--blekk); border-color: var(--blekk-svak); }
+/* Pilene er små og dempet til man peker på dem: de brukes sjelden, men når de
+   trengs, er det etter at man har lest nummeret ved siden av. */
+.anleggspanel .rad [data-opp], .anleggspanel .rad [data-ned] {
+  color: var(--blekk-svak); font-size: 12px; padding: 0 2px;
+}
+.anleggspanel .rad [data-opp]:hover, .anleggspanel .rad [data-ned]:hover { color: var(--blekk); }
+.anleggspanel .rad [data-opp][disabled], .anleggspanel .rad [data-ned][disabled] {
+  opacity: 0.25; cursor: default;
+}
 .anleggspanel .kartknapper { gap: 3px; }
 
 /* NAVNET PÅ DE ANDRE ANLEGGENE, midt i det de hører til.
@@ -1277,3 +1295,29 @@ html[data-peker="grov"] .nokkeltal .verdi { font-size: 15px; }
 .velgknapper { display: flex; gap: 8px; justify-content: center; }
 .velgknapper .knapp { min-width: 104px; font-size: 14px; padding: 9px 14px; }
 .velgnotis { margin-top: 10px; font-size: 11.5px; color: var(--blekk-svak); }
+
+/* ── hele prosjektet på Masser-fanen ───────────────────── */
+/* Radene er ett anlegg hver, i BYGGEREKKEFØLGE. Nummeret er det samme skiltet
+   som i anleggslista, så de to kan leses mot hverandre uten å telle. */
+.prosjekthode {
+  display: flex; gap: 6px; align-items: baseline;
+  font-size: 10px; color: var(--blekk-svak); text-transform: uppercase;
+  letter-spacing: .04em; padding: 2px 0 4px; border-bottom: 1px solid var(--kant);
+}
+.prosjekthode > span:first-child { flex: 1; }
+.prosjektrader { display: flex; flex-direction: column; }
+.prosjektrad {
+  display: flex; gap: 6px; align-items: baseline;
+  padding: 3px 0; font-size: 12px; border-bottom: 1px solid var(--kant);
+}
+.prosjektrad.aktiv { font-weight: 700; }
+.prosjektrad .pnavn { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prosjektrad .ptall, .prosjekthode .ptall { flex: 0 0 58px; text-align: right; font-variant-numeric: tabular-nums; }
+/* Fradraget står for seg selv og i en annen farge: det er ikke en kostnad, det
+   er noe et annet anlegg alt har tatt. */
+.prosjektrad .pdelt, .prosjekthode .pdelt {
+  flex: 0 0 52px; text-align: right; font-variant-numeric: tabular-nums;
+  color: var(--blekk-svak);
+}
+.prosjektrad .pstatus { flex: 0 0 auto; font-size: 11px; color: var(--blekk-svak); font-style: italic; }
+.sumrad.delt .verdi { color: var(--blekk-svak); }

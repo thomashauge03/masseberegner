@@ -1194,13 +1194,28 @@ const App = {
       ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
     panel.innerHTML = '<div class="kartlagtittel">Anlegg i prosjektet</div>'
       + '<div class="listeboks anleggsliste">'
-      + this.P.anlegg.map(a => `<div class="rad${a.id === this.P.aktivt ? ' aktiv' : ''}">`
+      /* NUMMERET ER BYGGEREKKEFØLGEN, IKKE PYNT.
+         Anlegg nr. 1 graver i rå mark; nr. 2 graver mot det nr. 1 har gjort
+         ferdig – se `_bygdFoer`. Den felles massen hører til den som tar den
+         først, så rekkefølgen avgjør hvilket anlegg som betaler for hva.
+         Derfor står tallet foran navnet, og derfor er pilene her: uten dem
+         lovet merknaden «Endrer du rekkefølgen, endrer tallene seg» en knapp
+         som ikke fantes. */
+      + this.P.anlegg.map((a, i) => `<div class="rad${a.id === this.P.aktivt ? ' aktiv' : ''}">`
+        + `<span class="anleggsnr" title="Bygges som nummer ${i + 1}">${i + 1}</span>`
         + `<button class="minilenke anleggsnavn" data-bytt="${a.id}" title="Bytt til dette anlegget">`
         + this.anleggsmerke(a) + ' ' + esc(a.navn || a.type) + '</button>'
+        + `<button data-opp="${a.id}" title="Bygg dette tidligere"${i === 0 ? ' disabled' : ''}>↑</button>`
+        + `<button data-ned="${a.id}" title="Bygg dette senere"${i === this.P.anlegg.length - 1 ? ' disabled' : ''}>↓</button>`
         + `<button data-navn="${a.id}" title="Gi nytt navn">✎</button>`
         + `<button data-slett="${a.id}" title="Slett dette anlegget">×</button>`
         + '</div>').join('')
       + '</div>'
+      + (this.P.anlegg.length > 1
+        ? '<p class="notis">Nummeret er rekkefølgen de bygges i. Det første møter rå '
+          + 'mark, det neste møter det forrige ferdig – så der to anlegg overlapper, '
+          + 'hører massen til det som graver den først.</p>'
+        : '')
       + '<div class="kartlagtittel">Legg til</div>'
       + '<div class="kartknapper">'
       + '<button class="kartknapp" data-nytt="veg">▬ Ny veg</button>'
@@ -1218,6 +1233,49 @@ const App = {
     for (const b of panel.querySelectorAll('[data-slett]')) {
       b.onclick = () => this.slettAnlegg(b.dataset.slett);
     }
+    for (const b of panel.querySelectorAll('[data-opp]')) {
+      b.onclick = () => this.flyttAnlegg(b.dataset.opp, -1);
+    }
+    for (const b of panel.querySelectorAll('[data-ned]')) {
+      b.onclick = () => this.flyttAnlegg(b.dataset.ned, 1);
+    }
+  },
+
+  /**
+   * Flytter et anlegg i BYGGEREKKEFØLGEN.
+   *
+   * Rekkefølgen er ikke en sortering av en liste – den er regnestykket. Hvert
+   * anlegg graver mot dem som står foran det (`_bygdFoer`), så et anlegg som
+   * flyttes opp møter rå mark der det før møtte naboen ferdig. Målt på to
+   * tomter med 15 × 30 m felles: 6 695 m³ den ene veien, 6 445 den andre.
+   *
+   * Derfor må ALLE tallene kastes, ikke bare det aktive anleggets: naboflatene
+   * er hurtiglagret per anlegg, og de lagrede summene bærer et stempel på
+   * forutsetningene de ble regnet under. Uten dette ville lista vist en ny
+   * rekkefølge over gamle tall, og summen sett like ferdig ut som før.
+   */
+  flyttAnlegg(id, retning) {
+    if (!this.P || !Array.isArray(this.P.anlegg)) return;
+    const i = this.P.anlegg.findIndex(a => a.id === id);
+    const j = i + retning;
+    if (i < 0 || j < 0 || j >= this.P.anlegg.length) return;
+    this.merk('endret byggerekkefølge');
+    const a = this.P.anlegg[i];
+    this.P.anlegg[i] = this.P.anlegg[j];
+    this.P.anlegg[j] = a;
+    /* Alle anlegg fra og med den laveste av de to har fått nye naboer foran
+       seg. Enklere og tryggere å kaste alt enn å resonnere om hvem: et tall
+       som står igjen fra en annen rekkefølge ser like riktig ut som ett som
+       stemmer. */
+    this._ferdigflater = null;
+    for (const x of this.P.anlegg) {
+      Object.defineProperty(x, '_forutsetning',
+        { value: null, writable: true, enumerable: false, configurable: true });
+    }
+    this.visAnleggsvelger();
+    this.tegnAlt();
+    if (this.erTomt()) this.tomtEndret(); else this.planlegg(30);
+    this.status(`«${a.navn || a.type}» bygges nå som nummer ${j + 1} – tallene regnes om`);
   },
 
   _lukkAnleggspanel() {
@@ -1602,6 +1660,7 @@ const App = {
        prosjektsum() svarte 31 165 m³ mens topplinja sto på 9 340. */
     this.huskAnleggstall();
     this.visNokkeltal();
+    this.visProsjektmasser();
     Tomteprofil.tegn();
     Tomt3d.tegn();
     Kart.tegnTomtefarger();
@@ -2015,6 +2074,12 @@ const App = {
     if (r._anlegg && r._anlegg !== a.id) return;
     sett('_sum', Object.assign({}, r.sum));
     sett('_balanse', Object.assign({}, r.balanse || {}));
+    /* DEN DELTE MASSEN HØRER TIL ANLEGGET SOM SLAPP Å TA DEN.
+       `naboTok` er hvor mye de som bygges FØR dette allerede har gravd bort –
+       se `naboOverlapp`. Den lagres her sammen med tallene, slik at prosjektets
+       samlede tall kan vise den uten å regne hvert anlegg om igjen. Uten den
+       er fradraget usynlig: summen blir bare mindre, og ingenting sier hvorfor. */
+    sett('_naboTok', r.naboTok ? Object.assign({}, r.naboTok) : null);
     sett('_forutsetning', this.forutsetningsnokkel());
   },
 
@@ -2065,18 +2130,49 @@ const App = {
     const naa = this.forutsetningsnokkel();
     const med = bare ? new Set(bare) : null;
     const ut = { skjaering: 0, fylling: 0, skjaeringFjell: 0,
-      manglerTotalt: 0, tilDeponi: 0, balanse: 0, antall: 0, uregnet: 0, gamle: 0 };
+      manglerTotalt: 0, tilDeponi: 0, balanse: 0, antall: 0, uregnet: 0, gamle: 0,
+      /* DELT MARK: det de som bygges FØR har gravd bort, og som dette anlegget
+         derfor slipper. Massen er verken borte eller talt to ganger – den
+         ligger på det anlegget som tar den først. Uten linja er fradraget
+         usynlig: summen blir bare mindre enn hvert anlegg for seg, og
+         ingenting sier hvorfor. `rader` bærer hvert anlegg for seg, i den
+         rekkefølgen de bygges. */
+      delt: { skjaering: 0, fylling: 0, rensk: 0 }, deltNoe: false, rader: [] };
+    let nr = 0;
     for (const a of this.P.anlegg) {
+      nr++;
       if (med && !med.has(a.id)) continue;
       const erAktivt = a.id === this.P.aktivt && this.resultat && this.resultat.sum;
       const s = erAktivt ? this.resultat.sum : a._sum;
       const b = erAktivt ? (this.resultat.balanse || {}) : (a._balanse || {});
-      if (!s) { ut.uregnet++; continue; }
+      const tok = erAktivt ? this.resultat.naboTok : a._naboTok;
+      if (!s) {
+        ut.uregnet++;
+        ut.rader.push({ nr, id: a.id, navn: a.navn || a.type, type: a.type,
+          aktivt: a.id === this.P.aktivt, status: 'uregnet' });
+        continue;
+      }
       /* Regnet under andre forutsetninger enn de som gjelder nå? Da teller det
          ikke med – en for lav sum er verre enn en sum som sier at den mangler
          noe, for den ser like ferdig ut som en riktig. */
-      if (!erAktivt && a._forutsetning !== naa) { ut.gamle++; continue; }
+      if (!erAktivt && a._forutsetning !== naa) {
+        ut.gamle++;
+        ut.rader.push({ nr, id: a.id, navn: a.navn || a.type, type: a.type,
+          aktivt: a.id === this.P.aktivt, status: 'gamle' });
+        continue;
+      }
       ut.antall++;
+      if (tok && tok.noe) {
+        ut.deltNoe = true;
+        ut.delt.skjaering += tok.skjaering || 0;
+        ut.delt.fylling += tok.fylling || 0;
+        ut.delt.rensk += tok.rensk || 0;
+      }
+      ut.rader.push({ nr, id: a.id, navn: a.navn || a.type, type: a.type,
+        aktivt: a.id === this.P.aktivt, status: 'ok',
+        skjaering: s.skjaering || 0, fylling: s.fylling || 0,
+        skjaeringFjell: s.skjaeringFjell || 0,
+        delt: tok && tok.noe ? (tok.skjaering || 0) + (tok.fylling || 0) : 0 });
       ut.skjaering += s.skjaering || 0;
       ut.fylling += s.fylling || 0;
       ut.skjaeringFjell += s.skjaeringFjell || 0;
@@ -2094,6 +2190,84 @@ const App = {
       ut.balanse += (b.balanse || 0);
     }
     return ut;
+  },
+
+  /**
+   * HELE PROSJEKTET, MED DEN DELTE MASSEN SYNLIG.
+   *
+   * Med to anlegg som overlapper er summen mindre enn anleggene hver for seg,
+   * og det er riktig – den felles marka skal graves én gang. Men uten en linje
+   * som sier det, er fradraget usynlig: tallet blir bare mindre, og den som
+   * skal gi en pris ser ikke hvorfor.
+   *
+   * Tre linjer det går an å lese i én slurk:
+   *     Hvert anlegg for seg
+   *     Delt mark – tatt av den som bygger først
+   *     Prosjektet slik det bygges
+   *
+   * Radene over står i BYGGEREKKEFØLGE, med nummeret foran, fordi det er
+   * rekkefølgen som avgjør hvem som tar den delte massen – se `flyttAnlegg`.
+   */
+  visProsjektmasser() {
+    const e = document.getElementById('prosjektmasser');
+    if (!e) return;
+    if (!this.P || !Array.isArray(this.P.anlegg) || this.P.anlegg.length < 2) {
+      e.innerHTML = ''; return;
+    }
+    const p = this.prosjektsum();
+    if (!p) { e.innerHTML = ''; return; }
+    const t = (v, d = 0) => Rapport.tall(v, d);
+    const esc = s => String(s).replace(/[&<>"]/g, c =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const rad = (navn, verdi, klasse, tittel) =>
+      `<div class="sumrad${klasse ? ' ' + klasse : ''}"${tittel ? ` title="${esc(tittel)}"` : ''}>`
+      + `<span>${navn}</span><span class="verdi">${verdi}</span></div>`;
+
+    let ut = '<h3>Hele prosjektet</h3>';
+    ut += '<div class="prosjekthode"><span></span>'
+      + '<span class="ptall">skjæring</span><span class="ptall">fylling</span>'
+      + '<span class="pdelt">delt</span></div>';
+    ut += '<div class="prosjektrader">';
+    for (const r of p.rader) {
+      const merke = r.type === 'tomt' ? '⬟' : '▬';
+      if (r.status !== 'ok') {
+        ut += `<div class="prosjektrad${r.aktivt ? ' aktiv' : ''}">`
+          + `<span class="anleggsnr">${r.nr}</span>`
+          + `<span class="pnavn">${merke} ${esc(r.navn)}</span>`
+          + `<span class="pstatus">${r.status === 'uregnet' ? 'ikke regnet ennå'
+            : 'regnet under andre forutsetninger'}</span></div>`;
+        continue;
+      }
+      ut += `<div class="prosjektrad${r.aktivt ? ' aktiv' : ''}">`
+        + `<span class="anleggsnr" title="Bygges som nummer ${r.nr}">${r.nr}</span>`
+        + `<span class="pnavn">${merke} ${esc(r.navn)}</span>`
+        + `<span class="ptall" title="Skjæring">${t(r.skjaering)}</span>`
+        + `<span class="ptall" title="Fylling">${t(r.fylling)}</span>`
+        + (r.delt > 0.5
+          ? `<span class="pdelt" title="Tatt av et anlegg som bygges før dette">−${t(r.delt)}</span>`
+          : '<span class="pdelt"></span>')
+        + '</div>';
+    }
+    ut += '</div>';
+
+    /* DE TRE LINJENE. «Hvert anlegg for seg» er det som gjør den delte massen
+       synlig – uten den er fradraget et tall uten et tall å trekkes fra. */
+    const deltSum = (p.delt.skjaering || 0) + (p.delt.fylling || 0);
+    if (p.deltNoe && deltSum > 0.5) {
+      ut += rad('Hvert anlegg for seg', t(p.skjaering + p.fylling + deltSum) + ' m³', '',
+        'Summen hvis hvert anlegg hadde blitt gravd fra rå mark, uten å ta hensyn til de andre');
+      ut += rad('Delt mark – tatt av den som bygger først', '− ' + t(deltSum) + ' m³', 'delt',
+        'Massen er verken borte eller talt to ganger. Den ligger på det anlegget '
+        + 'som graver den først – bytt rekkefølge, og den flytter seg.');
+      ut += rad('Prosjektet slik det bygges', t(p.skjaering + p.fylling) + ' m³', 'sumrad-sum');
+    } else {
+      ut += rad('Prosjektet i alt', t(p.skjaering + p.fylling) + ' m³', 'sumrad-sum');
+    }
+    if (p.uregnet || p.gamle) {
+      ut += `<p class="notis">${p.uregnet + p.gamle} av ${this.P.anlegg.length} anlegg `
+        + 'er ikke med i summen. Bytt til dem så de blir regnet.</p>';
+    }
+    e.innerHTML = ut;
   },
 
   visNokkeltal() {
@@ -2520,6 +2694,7 @@ const App = {
     Rapport.visSammendrag(this.resultat);
     this.huskAnleggstall();
     this.visNokkeltal();
+    this.visProsjektmasser();
     Kart.tegnResultat(this.resultat);
     Lengdeprofil.tegn();
     this.settTverrStasjon(this.tverrStasjon);
@@ -2890,6 +3065,7 @@ const App = {
         this.visTomtemasser();
         this.huskAnleggstall();
         this.visNokkeltal();
+    this.visProsjektmasser();
         this.status('⚠ Ikke plass til skråningene innenfor grensa – prøv mur eller sprengt vegg på de bratteste sidene');
         return this.resultat;
       }
@@ -5505,12 +5681,39 @@ const App = {
     }
     this.visFane(this.erTomt() ? 'tomtemal' : 'mal');
     /* Etter fanebyttet har boksen først fått en høyde på neste bilde. Rulles
-       det før det, ruller man i et felt som ennå er null høyt. */
+       det før det, ruller man i et felt som ennå er null høyt.
+
+       ÉN RULLING ER IKKE NOK, OG DET ER MÅLT.
+       Panelet åpnes ved å bytte en klasse på ruten. Bredden endrer seg, kartet
+       får `invalidateSize` 60 ms senere, og beregningen som starter i samme
+       klikk skriver nye tall inn i panelet. Hver av dem flytter innholdet etter
+       at rullingen er gjort, og da står raden et annet sted enn der den ble
+       satt. Utslaget var ikke at den bommet litt: feltet klemmer scrollTop til
+       null når innholdet kortes ned, og raden lå 1 634 px nede i et vindu på
+       1 000. Det skjedde ikke hver gang – prøven var grønn i én kjøring og rød
+       i den neste, som er den verste formen.
+
+       Derfor rettes rullingen opp igjen når layouten har satt seg, men BARE
+       hvis raden faktisk har havnet utenfor. Ellers ville en rulling brukeren
+       selv har gjort i mellomtiden blitt overstyrt. */
+    const settRad = () => (nr != null ? boks.querySelectorAll('.plassrad')[nr] : null);
+    const rull = (tving) => {
+      const rad = settRad();
+      const mal = rad || boks;
+      if (!mal || !mal.getBoundingClientRect) return;
+      const r = mal.getBoundingClientRect();
+      const utenfor = r.height <= 0 || r.top < 0 || r.bottom > window.innerHeight;
+      if (tving || utenfor) mal.scrollIntoView({ block: 'center' });
+    };
     requestAnimationFrame(() => {
-      const rad = nr != null ? boks.querySelectorAll('.plassrad')[nr] : null;
-      (rad || boks).scrollIntoView({ block: 'center' });
+      rull(true);
+      const rad = settRad();
       const navn = rad && rad.querySelector('.plassnavn');
       if (navn) { navn.focus(); navn.select(); }
+      /* Neste bilde, og igjen etter at kartet har fått sin nye størrelse. */
+      requestAnimationFrame(() => rull(false));
+      setTimeout(() => rull(false), 120);
+      setTimeout(() => rull(false), 400);
     });
   },
 

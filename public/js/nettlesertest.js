@@ -102,7 +102,7 @@ const Nettlesertest = {
       'veiklasser', 'tverrprofil', 'grenser', 'eksport', 'linjeredigering',
       'autolagring', 'overskriving', 'tverrsnittAvlesning', 'pdfrapport',
       'pdfavlesning', 'rapport', 'paneler', 'flereAnlegg', 'tverrsnittEnsidig',
-      'snuplassBlirSynlig', 'naboOverlapping', 'anleggsrekkefolge', 'anleggsmerking',
+      'snuplassBlirSynlig', 'naboOverlapping', 'anleggsrekkefolge', 'anleggsmerking', 'prosjektmasserOgRekkefolge',
       'grensesnittbredder', 'panelhoder',
       'tomt', 'tomteksport', 'tomterydding', 'tomtsnittOverbygning',
       'tomt3d', 'veg3d', 'kartlag',
@@ -1581,6 +1581,141 @@ const Nettlesertest = {
       app.resultat = null;
       app._terrengnokkel = null;
       app.visAnleggsvelger();
+    }
+  },
+
+  /**
+   * REKKEFØLGEN SKAL KUNNE STYRES, OG DEN DELTE MASSEN SKAL SYNES.
+   *
+   * Regnestykket brukte rekkefølgen allerede, og merknaden lovet at «endrer du
+   * rekkefølgen, endrer tallene seg» – men det fantes ingen knapp, og summen
+   * sa ikke med ett ord at noe var trukket fra. Med to overlappende tomter blir
+   * prosjektsummen mindre enn anleggene hver for seg, og det er riktig: den
+   * felles marka graves én gang. Uten en linje som sier det, er fradraget
+   * usynlig.
+   *
+   * Prøven krever begge deler: at pilene faktisk flytter massen fra det ene
+   * anlegget til det andre, og at kortet viser tre linjer som går opp.
+   */
+  async prosjektmasserOgRekkefolge() {
+    const app = App;
+    const foer = JSON.stringify(app.P);
+    const gz = Terreng.prototype.z, gd = Terreng.prototype.dekning, gl = Terreng.prototype.lastOmraade;
+    try {
+      const x0 = 430000, y0 = 6460000;
+      Terreng.prototype.z = function (x, y) { return 100 - (y - y0) * 0.12; };
+      Terreng.prototype.dekning = function () { return 1; };
+      Terreng.prototype.lastOmraade = async function () { return true; };
+      const rute = (xa, xb) => [[xa, 0], [xb, 0], [xb, 30], [xa, 30]].map(([dx, dy]) => {
+        const q = Geo.fraUtm(x0 + dx, y0 + dy, app.sone);
+        return { lat: q.lat, lon: q.lon };
+      });
+      const lagTomt = (id, navn, xa, xb, kote) => ({ id, type: 'tomt', navn, ip: [], vip: [],
+        tverrfall: [], plasser: [],
+        mal: Object.assign({}, Tomt.StandardTomtemal, { utskifting: false }),
+        tomt: Object.assign(Tomt.nyTomt(), { punkter: rute(xa, xb), kanter: [],
+          nivaa: { modus: 'flat', kote } }) });
+      app.P.anlegg = [lagTomt('pA', 'Tomt A', 0, 40, 97), lagTomt('pB', 'Tomt B', 25, 65, 95)];
+      app.P.aktivt = 'pA';
+      app.klargjorProsjekt(app.P);
+      app._ferdigflater = null;
+      app._terrengnokkel = '';
+      const regnAlle = async () => {
+        for (const a of app.P.anlegg) {
+          app.P.aktivt = a.id;
+          app._ferdigflater = null;
+          await app.beregnTomt();
+          await this.vent(120);
+        }
+        app.visProsjektmasser();
+        return app.prosjektsum();
+      };
+
+      const p1 = await regnAlle();
+      this.sjekk('begge anleggene er med i prosjektsummen', p1 && p1.antall === 2,
+        p1 ? `${p1.antall} regnet, ${p1.uregnet} uregnet, ${p1.gamle} gamle` : 'ingen sum');
+      if (!p1 || p1.antall !== 2) return;
+
+      this.sjekk('radene står i byggerekkefølge, med nummer',
+        p1.rader.length === 2 && p1.rader[0].nr === 1 && p1.rader[1].nr === 2
+        && p1.rader[0].navn === 'Tomt A',
+        p1.rader.map(r => r.nr + ' ' + r.navn).join(', '));
+
+      /* Den FØRSTE møter rå mark og deler ingenting. Den andre møter den
+         første ferdig, og der ligger fradraget. */
+      this.sjekk('den første deler ingenting – den graver i rå mark',
+        !(p1.rader[0].delt > 0.5), p1.rader[0].delt + ' m³');
+      this.sjekk('  og den andre har et fradrag å vise for seg',
+        p1.rader[1].delt > 50, p1.rader[1].delt.toFixed(0) + ' m³');
+
+      /* DE TRE LINJENE MÅ GÅ OPP. Uten dette kunne kortet vist tre tall som
+         hver for seg ser rimelige ut og ikke er det samme regnestykket. */
+      const deltSum = (p1.delt.skjaering || 0) + (p1.delt.fylling || 0);
+      const hvert = p1.skjaering + p1.fylling + deltSum;
+      this.naer('hvert anlegg for seg minus delt mark er prosjektet',
+        hvert - deltSum, p1.skjaering + p1.fylling, 0.5);
+
+      const kort = document.getElementById('prosjektmasser');
+      const tekst = kort ? (kort.innerText || '') : '';
+      this.sjekk('kortet «Hele prosjektet» står på Masser-fanen',
+        /Hele prosjektet/i.test(tekst), tekst.slice(0, 60));
+      this.sjekk('  og sier at massen er tatt av den som bygger først',
+        /Delt mark/i.test(tekst) && /bygger først/i.test(tekst), tekst.slice(0, 200));
+
+      /* PILENE MÅ FLYTTE MASSEN, IKKE BARE RADENE. Dette er kjernen: bytter
+         man rekkefølge, skal fradraget havne på det andre anlegget. */
+      const deltFoer = p1.rader[1].delt;
+      app.flyttAnlegg('pB', -1);
+      /* TALLENE MÅ KASTES I DET REKKEFØLGEN ENDRES – ikke først når noe
+         tilfeldigvis regnes om igjen.
+
+         Dette måtte skjerpes: den første utgaven av prøven regnet alle anlegg
+         på nytt rett etter flyttingen, og da gikk den like fint med en
+         `flyttAnlegg` som bare byttet om to rader og lot de gamle tallene stå.
+         Den kunne altså ikke feile for det den fantes for. Nå leses summen FØR
+         noe regnes om: minst ett anlegg må da være merket som regnet under
+         andre forutsetninger, ellers står lista med en ny rekkefølge over tall
+         fra den gamle – og de ser like ferdige ut. */
+      const mellom = app.prosjektsum();
+      this.sjekk('  og tallene merkes som utdaterte med én gang',
+        mellom && (mellom.gamle > 0 || mellom.uregnet > 0),
+        mellom ? `${mellom.antall} regnet, ${mellom.gamle} gamle, ${mellom.uregnet} uregnet`
+          : 'ingen sum');
+      await this.vent(120);
+      const p2 = await regnAlle();
+      this.sjekk('pilen flytter anlegget i byggerekkefølgen',
+        p2 && p2.rader[0].navn === 'Tomt B' && p2.rader[0].nr === 1,
+        p2 ? p2.rader.map(r => r.nr + ' ' + r.navn).join(', ') : 'ingen sum');
+      if (!p2 || p2.antall !== 2) return;
+      this.sjekk('  og fradraget flytter seg med den',
+        !(p2.rader[0].delt > 0.5) && p2.rader[1].delt > 50,
+        `${p2.rader[0].navn} ${p2.rader[0].delt.toFixed(0)}, `
+        + `${p2.rader[1].navn} ${p2.rader[1].delt.toFixed(0)} m³`);
+      const deltEtter = p2.rader[1].delt;
+      this.sjekk('  og det er et ANNET tall – rekkefølgen er et valg',
+        Math.abs(deltEtter - deltFoer) > 20,
+        `${deltFoer.toFixed(0)} mot ${deltEtter.toFixed(0)} m³`);
+
+      /* Med ett anlegg skal kortet være borte. En overskrift over en tom tabell
+         er verre enn ingen overskrift. */
+      app.P.anlegg = [app.P.anlegg[0]];
+      app.P.aktivt = app.P.anlegg[0].id;
+      app.klargjorProsjekt(app.P);
+      app.visProsjektmasser();
+      this.sjekk('med ett anlegg er kortet borte',
+        !document.getElementById('prosjektmasser').innerHTML.trim());
+    } catch (e) {
+      this.sjekk('prosjektmasseprøven kom seg gjennom', false,
+        e.message + ' — ' + (e.stack || '').split('\n')[1]);
+    } finally {
+      Terreng.prototype.z = gz; Terreng.prototype.dekning = gd; Terreng.prototype.lastOmraade = gl;
+      app.P = JSON.parse(foer);
+      app.klargjorProsjekt(app.P);
+      app._ferdigflater = null;
+      app.resultat = null;
+      app._terrengnokkel = null;
+      app.visAnleggsvelger();
+      app.visProsjektmasser();
     }
   },
 
