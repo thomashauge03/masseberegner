@@ -1,25 +1,22 @@
 'use strict';
 /* Kan P.ip / P.vip / P.mal bli vinduer inn i det aktive anlegget, slik at de 212
-   oppslagene i koden star uendret - og uten at speilingen havner i JSON-fila? */
+   oppslagene i koden star uendret - og uten at speilingen havner i JSON-fila?
 
-function klargjor(P) {
-  if (!P.anlegg) {                       // gammel fil: pakk inn som ett veganlegg
-    P.anlegg = [{ id: 'a1', type: 'veg', navn: P.navn, ip: P.ip, vip: P.vip, mal: P.mal }];
-    P.aktivt = 'a1';
-    P.versjon = 2;
-    delete P.ip; delete P.vip; delete P.mal;
-  }
-  const aktivt = () => P.anlegg.find(a => a.id === P.aktivt) || P.anlegg[0];
-  for (const felt of ['ip', 'vip', 'mal', 'tomt']) {
-    Object.defineProperty(P, felt, {
-      configurable: true,
-      enumerable: false,                 // holdes utenfor JSON.stringify
-      get() { return aktivt()[felt]; },
-      set(v) { aktivt()[felt] = v; }
-    });
-  }
-  return P;
-}
+   DENNE FILA PRØVDE EN KOPI, IKKE PROGRAMMET.
+   Her sto en egen `klargjor()` – en avskrift av aksessor-logikken i app.js –
+   og fila hadde ikke ett eneste `require`. Den lastet altså ikke én linje av
+   programmet. Avskriften var dessuten to felt på etterskudd: den hadde
+   `['ip', 'vip', 'mal', 'tomt']` mens programmet hadde fått `tverrfall` og
+   `plasser` i tillegg.
+
+   Målt: med hele aksessor-mekanismen revet ut av app.js – `for (const felt of
+   [])` – meldte denne fila fortsatt «24 ok, 0 feil». Tjuefire grønne hakk som
+   ikke kunne bli røde uansett hva som skjedde med koden.
+
+   Logikken ligger nå i `public/js/prosjektform.js`, og prøven laster den. */
+const path = require('path');
+const Prosjektform = require(path.join(__dirname, '..', 'public', 'js', 'prosjektform.js'));
+const klargjor = P => Prosjektform.klargjor(P);
 
 let feil = 0, ok = 0;
 const sjekk = (navn, sant, detalj) => {
@@ -92,6 +89,71 @@ const b = klargjor(JSON.parse(JSON.stringify(to)));
 sjekk('like prosjekter gir lik tekst', JSON.stringify(a) === JSON.stringify(b));
 b.ip.push(9);
 sjekk('en endring gir ulik tekst', JSON.stringify(a) !== JSON.stringify(b));
+
+/* ==================================================================
+   7. HVERT FELT I LISTA ER ET EKTE VINDU
+
+   Prøvene over dekker `ip`, `vip`, `mal` og `tomt` – nøyaktig de fire den
+   gamle avskriften hadde. `tverrfall` og `plasser` kom til senere, og ingen
+   prøvde dem: det var derfor avskriften kunne drive fra programmet uten at noe
+   sa fra.
+
+   Denne bolken går gjennom `Prosjektform.FELT` i stedet for en liste skrevet av
+   for hånd. Da kan ikke et nytt felt legges til uten å bli prøvd – lista er den
+   samme som koden bruker, ikke en kopi av den.
+   ================================================================== */
+console.log('\n7. Hvert felt i lista er et ekte vindu');
+{
+  /* LØKKA UNDER GÅR OVER DEN SAMME LISTA SOM KODEN BRUKER, og det er med vilje:
+     den prøver at hvert felt OPPFØRER SEG som et vindu. Men nettopp derfor kan
+     den ikke se at et felt er FJERNET – da faller det bare ut av løkka, og
+     prøven blir grønn på et program som har mistet et vindu.
+
+     Derfor står forventningen her, som en SPESIFIKASJON og ikke som en avskrift
+     av implementasjonen. Forskjellen er hva den sier: lista i koden sier «slik
+     er det gjort», denne sier «dette trenger programmet». Faller et av dem bort,
+     skal noen ta stilling til det – ikke oppdage det på en tomt.
+
+     Målt: uten `plasser` i koden fanger denne raden det; løkka alene gjorde det
+     ikke. */
+  const MAA_FINNAST = ['ip', 'vip', 'mal', 'tomt', 'tverrfall', 'plasser'];
+  const har = new Set(Prosjektform.FELT || []);
+  const mangler = MAA_FINNAST.filter(f => !har.has(f));
+  sjekk('alle feltene programmet trenger er vinduer', mangler.length === 0,
+    mangler.length ? 'mangler: ' + mangler.join(', ') : '');
+
+  for (const felt of Prosjektform.FELT) {
+    const P = klargjor({
+      navn: 'to anlegg',
+      anlegg: [
+        { id: 'v1', type: 'veg', navn: 'Veg', ip: [], vip: [], mal: {} },
+        { id: 't1', type: 'tomt', navn: 'Tomt', ip: [], vip: [], mal: {}, tomt: { punkter: [] } }
+      ],
+      aktivt: 'v1'
+    });
+
+    /* LESE: feltet skal hente fra det anlegget som er oppe, ikke fra noe annet. */
+    const merke = { _merke: felt };
+    P.anlegg[0][felt] = merke;
+    sjekk(`«${felt}» leses fra det aktive anlegget`, P[felt] === merke,
+      String(P[felt] && P[felt]._merke));
+
+    /* SKRIVE: en tilordning skal lande i anlegget, ikke på prosjektet. */
+    const nytt = { _merke: felt + '-nytt' };
+    P[felt] = nytt;
+    sjekk(`  og en tilordning lander i anlegget`, P.anlegg[0][felt] === nytt);
+
+    /* BYTTE ANLEGG: feltet skal følge med til det nye. */
+    P.aktivt = 't1';
+    sjekk(`  og feltet følger anleggsbyttet`, P[felt] !== nytt,
+      `fikk fortsatt ${P[felt] && P[felt]._merke}`);
+
+    /* IKKE I FILA: speilingen skal aldri havne i JSON. */
+    const tekst = JSON.stringify(P);
+    sjekk(`  og «${felt}» står ikke på toppnivå i fila`,
+      !new RegExp('^\\{[^{]*"' + felt + '"').test(tekst), tekst.slice(0, 70));
+  }
+}
 
 console.log('\n' + ok + ' ok, ' + feil + ' feil');
 process.exit(feil ? 1 : 0);
