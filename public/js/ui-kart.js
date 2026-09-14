@@ -446,6 +446,7 @@ const Kart = {
     if (p('verktoyTomt')) p('verktoyTomt').onclick = () => this.settModus('tegnTomt');
     p('verktoyFlytt').onclick = () => this.settModus('rediger');
     p('verktoySondering').onclick = () => this.settModus('sondering');
+    p('verktoyPlass').onclick = () => this.settModus('plass');
     if (p('verktoyMaal')) p('verktoyMaal').onclick = () => this.settModus('maal');
     if (p('verktoyMaalTom')) p('verktoyMaalTom').onclick = () => this.tomMaal();
     if (p('modusVeg')) p('modusVeg').onclick = () => this.app.settModus('veg');
@@ -551,7 +552,7 @@ const Kart = {
   settModus(m) {
     this.modus = m;
     for (const [id, navn] of [['verktoyTegn', 'tegn'], ['verktoyFlytt', 'rediger'],
-      ['verktoySondering', 'sondering'], ['verktoyTomt', 'tegnTomt'],
+      ['verktoySondering', 'sondering'], ['verktoyPlass', 'plass'], ['verktoyTomt', 'tegnTomt'],
       ['verktoyMaal', 'maal']]) {
       const el = document.getElementById(id);
       if (el) el.classList.toggle('aktiv', navn === m);
@@ -822,6 +823,30 @@ const Kart = {
       this.app.tomthoydeTilSkjema();
       this.app.beregnTomt();
       this.app.status('Sluket er satt – flaten faller mot det punktet');
+    } else if (this.modus === 'plass') {
+      /* PUNKTET BLIR EN STASJON, IKKE EN KOORDINAT.
+         En snuplass hører til et sted PÅ vegen. Lagret man klikket som x/y,
+         ville plassen blitt liggende igjen i terrenget neste gang linja ble
+         flyttet – og da lå den ikke på vegen lenger. `projiser` gir stasjonen
+         på nærmeste punkt, og det er den som lagres. */
+      if (!this.app.linje || !(this.app.linje.lengde > 0)) {
+        this.app.status('Tegn veglinjen først – en snuplass ligger på vegen');
+        return;
+      }
+      const utm = Geo.tilUtm(e.latlng.lat, e.latlng.lng, this.app.sone);
+      const tr = this.app.linje.projiser(utm.x, utm.y);
+      this.app.merk('ny snuplass');
+      this.app.P.plasser.push({
+        s: +tr.s.toFixed(2),
+        lengde: this.app.P.mal.plassLengde != null ? this.app.P.mal.plassLengde : 20,
+        bredde: this.app.P.mal.plassBredde != null ? this.app.P.mal.plassBredde : 5.5,
+        navn: 'Snuplass'
+      });
+      this.settModus('rediger');
+      this.app.plasserTilSkjema();
+      this.app.planlegg(30);
+      this.app.status(`Snuplass lagt inn ved profil ${tr.s.toFixed(0)} – `
+        + 'lengde og bredde kan endres i listen under Mal');
     } else if (this.modus === 'sondering') {
       this.app.merk('ny fjellobservasjon');
       const punkt = { lat: e.latlng.lat, lon: e.latlng.lng, dybde: P.fjell.standarddybde };

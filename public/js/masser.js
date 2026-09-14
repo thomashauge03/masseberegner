@@ -100,6 +100,11 @@ const StandardMal = {
   breddeIKurve: [[10, 14, 5.5, 6.0], [15, 19, 5.0, 5.5], [20, 29, 5.0, 5.0],
   [30, 39, 4.5, 5.0], [40, 49, 4.5, 4.5], [50, 59, 4.0, 4.5]],
   utvidelseOvergang: 15,     // hvor langt breddeutvidelsen jevnes ut
+  /* Forvalget når man setter ut en snuplass. Normaler for landbruksveier gir
+     møteplasser rundt 20 m lengde og en samlet bredde på 8-10 m – altså 4-5 m
+     mer enn en 4,5 m veg. Tallene kan endres på hver enkelt plass. */
+  plassLengde: 20,
+  plassBredde: 5.5,
   utflatingForKurve: 10,     // hvor langt stigningen flates ut før kurven
 
   /* Største stigning: [radius til og med, med lass, uten lass] */
@@ -268,8 +273,107 @@ function effektivRadius(linje, mal, s) {
   return minste;
 }
 
+/**
+ * Plassene brukeren har satt ut: snuplasser og møteplasser.
+ *
+ * En snuplass er ikke noe eget anlegg - det er vegen som er bredere på et
+ * stykke. Derfor er den en UTVIDELSE, akkurat som den kurver får, og da følger
+ * alt annet med av seg selv: masser, tverrsnitt, 3D, rapport og eksport leser
+ * allerede `utvidelse`, og ingen av dem trenger å vite at det står en snuplass
+ * der.
+ *
+ * Punktet brukeren setter er MIDTEN av plassen. Ligger det så nær enden at
+ * plassen ikke får plass, flyttes midten inn - ellers ville en snuplass satt
+ * ytterst på vegen blitt halvert i stillhet, og det er nettopp der man setter
+ * dem.
+ *
+ * @param {Array} plasser  [{s, lengde, bredde}] - bredde er SAMLET tillegg
+ * @returns {function(number): number} utvidelsen i en gitt stasjon
+ */
+/** Minste innkjøringslengde: flaten flarer aldri brattere enn 1:5 per side. */
+const PLASS_FLARE = 5;
+
+/** Innkjøringslengden til én plass – egen verdi, eller den utregnede. */
+function plassInnkjoring(p, overgang) {
+  if (p && p.innkjoring != null && isFinite(p.innkjoring) && p.innkjoring >= 0) {
+    return p.innkjoring;
+  }
+  /* HVER PLASS TRENGER SIN EGEN INNKJØRING.
+     Kurveutvidelsen trappes av over `utvidelseOvergang`, en FAST lengde. Det
+     går bra for en kurve, som utvider vegen med en meter eller to. En snuplass
+     tar vegen fra 4,5 til 10 m, og da blir den faste lengden en vegg: målt med
+     `utvidelseOvergang` 15 ble flaren 1:5,5 per side, og med veiklassene som
+     setter den til 5 – se veiklasser.js – ble den 1:1,8. Det er ikke en
+     innkjøring, det er en kant.
+     Derfor: minst vegens egen overgang, og minst 1:5 for den halve bredden
+     hver side skal ut. Bredere plass gir lengre innkjøring, slik det må. */
+  return Math.max(overgang || 0, (p.bredde / 2) * PLASS_FLARE);
+}
+
+function plassUtvidelse(plasser, lengdeLinje, overgang) {
+  const gyldige = (plasser || []).filter(p => p && isFinite(p.s)
+    && p.lengde > 0 && p.bredde > 0);
+  if (!gyldige.length) return () => 0;
+  const omraader = gyldige.map(p => {
+    const halv = p.lengde / 2;
+    /* Midten klemmes inn slik at hele plassen ligger på vegen. Er vegen
+       kortere enn plassen, dekker den hele vegen. */
+    const midt = lengdeLinje <= p.lengde ? lengdeLinje / 2
+      : Math.min(Math.max(p.s, halv), lengdeLinje - halv);
+    return { fra: midt - halv, til: midt + halv, bredde: p.bredde,
+      inn: plassInnkjoring(p, overgang) };
+  });
+  return s => {
+    let b = 0;
+    for (const o of omraader) {
+      let v;
+      if (s >= o.fra - 1e-9 && s <= o.til + 1e-9) v = o.bredde;
+      else {
+        // lineær innkjøring ut fra kanten, ned til null
+        const ut = s < o.fra ? o.fra - s : s - o.til;
+        v = o.inn > 1e-9 ? o.bredde * Math.max(0, 1 - ut / o.inn) : 0;
+      }
+      if (v > b) b = v;
+    }
+    return b;
+  };
+}
+
+/** Stasjonene der en plass starter og slutter - kantene må treffes eksakt. */
+function plassKanter(plasser, lengdeLinje, overgang) {
+  const ut = [];
+  for (const p of (plasser || [])) {
+    if (!p || !isFinite(p.s) || !(p.lengde > 0) || !(p.bredde > 0)) continue;
+    const halv = p.lengde / 2;
+    const midt = lengdeLinje <= p.lengde ? lengdeLinje / 2
+      : Math.min(Math.max(p.s, halv), lengdeLinje - halv);
+    /* Selve kantene, og der avtrappingen er ferdig. Uten disse faller en kort
+       plass mellom to profiler i det jevne rutenettet, og volumet blir smurt
+       ut over nabostrekkene i stedet for å ligge der plassen er. */
+    const inn = plassInnkjoring(p, overgang);
+    const punkt = [midt - halv, midt + halv];
+    if (inn > 1e-9) punkt.push(midt - halv - inn, midt + halv + inn);
+    else {
+      /* UTEN AVTRAPPING SKAL KANTEN VÆRE SKARP.
+         Volumet regnes med gjennomsnittlig endeareal, så står nærmeste profil
+         utenfor plassen fem meter unna med null utvidelse, rampes bredden ned
+         over de fem meterne - og plassen blir en trapes i stedet for et
+         rektangel. Målt på en 20 m plass med 4 m utvidelse: 70,0 m³ overbygning
+         mot 56,0 håndregnet, 25 % for mye, og plassen stakk 5 m ut i hver ende
+         av der den var satt.
+         En millimeter utenfor hver kant holder: strekket er for kort til å bety
+         noe i volum, og bredden er nede på null før nabostasjonen. */
+      punkt.push(midt - halv - 0.001, midt + halv + 0.001);
+    }
+    for (const t of punkt) {
+      if (t > 1e-9 && t < lengdeLinje - 1e-9) ut.push(+t.toFixed(4));
+    }
+  }
+  return ut;
+}
+
 /** Breddeutvidelse med jevn overgang inn og ut av kurven. */
-function lagUtvidelsesprofil(linje, mal, stasjoner, ekstra) {
+function lagUtvidelsesprofil(linje, mal, stasjoner, ekstra, plasser) {
   /* Utvidelsen ma leses av over hele strekket profilet representerer, ikke
      bare i det ene punktet. En kurve som er kortere enn profilavstanden kan
      ellers falle mellom to profiler, og da fikk den ingen utvidelse i det
@@ -279,6 +383,7 @@ function lagUtvidelsesprofil(linje, mal, stasjoner, ekstra) {
     const dreining = kurve ? Math.abs(kurve.avbøy) * 180 / Math.PI : 45;
     return utvidelseFraRadius(mal, linje.radiusVed(s), dreining);
   };
+  const plass = plassUtvidelse(plasser, linje.lengde, mal.utvidelseOvergang);
   const grunn = stasjoner.map((s, i) => {
     const før = i > 0 ? (s - stasjoner[i - 1]) / 2 : 0;
     const etter = i + 1 < stasjoner.length ? (stasjoner[i + 1] - s) / 2 : 0;
@@ -308,6 +413,18 @@ function lagUtvidelsesprofil(linje, mal, stasjoner, ekstra) {
       }
       ut[i] = best;
     }
+  }
+  /* PLASSENE LEGGES PÅ ETTER KURVENS AVTRAPPING, fordi de har sin egen.
+     Kurveutvidelsen trappes over `utvidelseOvergang`; en snuplass over en
+     lengde som følger av hvor bred den er – se `plassInnkjoring`. To ulike
+     rater lar seg ikke kjøre gjennom den ene vindusløkka over.
+
+     OG DE KONKURRERER MED KURVEN, de legges ikke oppå: ligger snuplassen i en
+     sving, er bredden den BREDESTE av de to, ikke summen. To grunner til å
+     være bred er ikke dobbelt så bred veg. */
+  for (let i = 0; i < ut.length; i++) {
+    const p = plass(stasjoner[i]);
+    if (p > ut[i]) ut[i] = p;
   }
   // Normalen krever ekstra bredde i bratte bakker og pa høye fyllinger
   if (ekstra) for (let i = 0; i < ut.length; i++) if (ekstra[i]) ut[i] += ekstra[i];
@@ -1307,6 +1424,26 @@ function beregnMasser(o) {
   for (let s = 0; s < linje.lengde - 1e-6; s += dS) stasjoner.push(+s.toFixed(4));
   stasjoner.push(+linje.lengde.toFixed(4));
 
+  /* EN SNUPLASS SKAL LIGGE DER DEN ER SATT, IKKE DER RUTENETTET TILFELDIGVIS
+     FALLER. Stasjonene er et jevnt rutenett - standard hver femte meter - og en
+     plass på femten meter har kanter som nesten aldri lander på det nettet.
+     Volumet regnes med gjennomsnittlig endeareal mellom profiler, så en kant
+     mellom to profiler blir smurt ut over hele mellomrommet: plassen blir for
+     lang i den ene enden og for kort i den andre, og tallet henger på hvor
+     brukeren tilfeldigvis klikket. Kantene legges derfor inn som egne
+     stasjoner, slik knekkpunktene gjøres ellers i fila. */
+  const kanter = plassKanter(o.plasser, linje.lengde, mal.utvidelseOvergang || 0);
+  if (kanter.length) {
+    for (const k of kanter) stasjoner.push(k);
+    stasjoner.sort((a, b) => a - b);
+    /* To profiler på samme sted gir et strekk uten lengde. Det koster ingenting
+       i volum, men `geometriFor` velger naboer med halveringssøk og en dublett
+       gjør søket tvetydig. */
+    for (let i = stasjoner.length - 1; i > 0; i--) {
+      if (stasjoner[i] - stasjoner[i - 1] < 1e-6) stasjoner.splice(i, 1);
+    }
+  }
+
   /* Over denne grensen slippes tegningsgeometrien, og det ene snittet som
      skal vises regnes om igjen ved behov. Uten det sprakk minnet ved rundt
      20 000 profiler - en 21 km lang veg med profil hver meter.
@@ -1324,7 +1461,7 @@ function beregnMasser(o) {
   });
   const kjørProfiler = utvidelser => stasjoner.map((s, i) => ettProfil(s, utvidelser[i]));
 
-  let utvidelser = lagUtvidelsesprofil(linje, mal, stasjoner);
+  let utvidelser = lagUtvidelsesprofil(linje, mal, stasjoner, null, o.plasser);
   let profiler = kjørProfiler(utvidelser);
 
   /* Normalen krever 0,5 m ekstra bredde der veien ligger pa høy fylling
@@ -1338,7 +1475,7 @@ function beregnMasser(o) {
       return (brattNok || høyNok) ? ekstra.tillegg : 0;
     });
     if (paslag.some(v => v > 0)) {
-      utvidelser = lagUtvidelsesprofil(linje, mal, stasjoner, paslag);
+      utvidelser = lagUtvidelsesprofil(linje, mal, stasjoner, paslag, o.plasser);
       profiler = kjørProfiler(utvidelser);
     }
   }

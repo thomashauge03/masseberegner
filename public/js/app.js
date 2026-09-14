@@ -319,8 +319,13 @@ const App = {
     }
     delete P.tverrfall;
 
+    /* Snuplasser og møteplasser hører til ANLEGGET, av samme grunn som
+       tverrfallslista over: to veger i samme prosjekt har hver sine, og en
+       stasjon på den ene er et helt annet sted i terrenget enn på den andre. */
+    for (const a of P.anlegg) if (!Array.isArray(a.plasser)) a.plasser = [];
+
     const aktivt = () => P.anlegg.find(a => a.id === P.aktivt) || P.anlegg[0];
-    for (const felt of ['ip', 'vip', 'mal', 'tomt', 'tverrfall']) {
+    for (const felt of ['ip', 'vip', 'mal', 'tomt', 'tverrfall', 'plasser']) {
       delete P[felt];                       // fjern verdien fra den gamle forma
       Object.defineProperty(P, felt, {
         configurable: true,
@@ -2128,6 +2133,7 @@ const App = {
       linje: this.linje, profil: this.vprofil, terreng: this.prosjektterreng(),
       mal: this.P.mal, fjell: this.fjellmodell, faktorer: this.P.faktorer,
       tverrfallOverstyring: this.P.tverrfall,
+      plasser: this.P.plasser,
       profilAvstand: this.P.profilAvstand, bakkefaktor: this.bakkefaktor()
     });
     this.resultat.mal.profilAvstand = this.P.profilAvstand;
@@ -2260,6 +2266,7 @@ const App = {
       linje: this.linje, profil: this.vprofil, terreng: this.prosjektterreng(),
       mal: this.P.mal, fjell, faktorer: this.P.faktorer,
       tverrfallOverstyring: this.P.tverrfall,
+      plasser: this.P.plasser,
       profilAvstand: this.P.profilAvstand,
       bakkefaktor: this.bakkefaktor()
     });
@@ -2339,6 +2346,7 @@ const App = {
       linje: linje || this.linje, profil: vp, terreng: this.prosjektterreng(),
       mal: this.P.mal, fjell: this.fjellmodell, faktorer: this.P.faktorer,
       tverrfallOverstyring: this.P.tverrfall,
+      plasser: this.P.plasser,
       /* Grovere enn den endelige beregningen. Optimaliseringen sammenligner
          alternativer mot hverandre, og da holder det at feilen er den samme
          i alle - den forsvinner i sammenligningen. Den endelige beregningen
@@ -4490,6 +4498,7 @@ const App = {
     sett('g_rekkevidde', g.rekkevidde);
     this.visStrekninger();
     this.visSonderinger();
+    this.plasserTilSkjema();
   },
 
   /**
@@ -5091,6 +5100,64 @@ const App = {
       c.onchange = () => { st.dybde = parseFloat(c.value) || 0; this.grunnEndret(); };
       tr.querySelector('button').onclick = () => { this.P.fjell.strekninger.splice(i, 1); this.visStrekninger(); this.grunnEndret(); };
       tb.appendChild(tr);
+    });
+  },
+
+  /**
+   * Snuplassene og møteplassene som er satt ut.
+   *
+   * Lista er anleggets egen – to veger i samme prosjekt har hver sine, og en
+   * stasjon på den ene er et helt annet sted i terrenget enn på den andre.
+   */
+  plasserTilSkjema() {
+    const boks = document.getElementById('plassliste');
+    if (!boks) return;
+    const liste = this.P && this.P.plasser;
+    if (!Array.isArray(liste) || !liste.length) {
+      boks.innerHTML = '<span class="tomtekst">Ingen satt ut. '
+        + 'Velg «⬒ Snuplass» i kartet og klikk der den skal stå.</span>';
+      return;
+    }
+    boks.innerHTML = '';
+    liste.forEach((p, i) => {
+      const rad = document.createElement('div');
+      rad.className = 'rad plassrad';
+      /* Bredden er TILLEGGET til vegbredden, ikke totalbredden. Sto totalen
+         her, måtte brukeren trekke fra vegbredden i hodet for å skjønne hva
+         som skjer når vegbredden endres – og et felt man må regne om er et
+         felt man skriver feil i. Totalen vises ved siden av, som opplysning. */
+      const total = (this.P.mal.vegbredde || 0) + (p.bredde || 0);
+      rad.innerHTML = `<input type="text" class="plassnavn" value="${escapeHtml(p.navn || 'Snuplass')}" spellcheck="false">
+        <label>prof</label><input type="number" step="1" class="plasss" value="${p.s}">
+        <label>lengde</label><input type="number" step="1" min="1" class="plassl" value="${p.lengde}">
+        <label>bredere</label><input type="number" step="0.5" min="0.5" class="plassb" value="${p.bredde}">
+        <small class="plasstotal">= ${Rapport.tall(total, 1)} m veg</small>
+        <button title="Slett">×</button>`;
+      const navn = rad.querySelector('.plassnavn');
+      const [fs, fl, fb] = [rad.querySelector('.plasss'),
+        rad.querySelector('.plassl'), rad.querySelector('.plassb')];
+      navn.onchange = () => { this.merk('endret snuplass'); p.navn = navn.value; };
+      /* Et tomt eller ugyldig felt må ikke skrive NaN inn i plassen. Da ville
+         `isFinite(p.s)` slått den av i stillhet, og snuplassen forsvunnet fra
+         regnestykket uten at noe sa fra. Verdien som sto der beholdes. */
+      const tall = (felt, navn2, minste) => {
+        const v = parseFloat(felt.value);
+        if (!isFinite(v) || v < minste) { felt.value = p[navn2]; return; }
+        this.merk('endret snuplass');
+        p[navn2] = v;
+        this.plasserTilSkjema();
+        this.planlegg(30);
+      };
+      fs.onchange = () => tall(fs, 's', 0);
+      fl.onchange = () => tall(fl, 'lengde', 0.5);
+      fb.onchange = () => tall(fb, 'bredde', 0.1);
+      rad.querySelector('button').onclick = () => {
+        this.merk('slettet snuplass');
+        this.P.plasser.splice(i, 1);
+        this.plasserTilSkjema();
+        this.planlegg(30);
+      };
+      boks.appendChild(rad);
     });
   },
 

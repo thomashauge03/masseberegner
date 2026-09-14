@@ -99,6 +99,11 @@
         <button id="verktoyTomt" class="verktoyknapp skjult" title="Klikk rundt tomta i kartet. Dobbeltklikk for å lukke den.">⬟ Tegn tomt</button>
         <button id="verktoyFlytt" class="verktoyknapp aktiv" title="Flytt og rediger punkt">✥ Rediger</button>
         <button id="verktoySondering" class="verktoyknapp" title="Registrer observert dybde til fjell">⛏ Fjellpunkt</button>
+        <!-- SNUPLASSEN ER IKKE ET EGET ANLEGG. Den er vegen som er bredere på
+             et stykke, så den legges inn som et punkt på linja og blir en
+             utvidelse - da følger masser, tverrsnitt, 3D og rapport med av seg
+             selv. -->
+        <button id="verktoyPlass" class="verktoyknapp" title="Klikk på vegen der du vil ha snuplass eller møteplass">⬒ Snuplass</button>
         <!-- MÅLESTREKENE ER Å SIKTE, IKKE Å PROSJEKTERE.
              «Treffer vegen mellom de to husene?», «er det femti meter til
              bekken?» – spørsmål man ellers svarer på ved å tegne en linje man
@@ -538,6 +543,13 @@
       <div class="felt"><label>Renskedybde (utenfor vegkroppen)</label><input type="number" id="m_renskDybde" step="0.05" value="0.20" min="0" max="3"><span>m</span></div>
       <div class="felt"><label>Rensk utenfor skråning</label><input type="number" id="m_renskUtenfor" step="0.1" value="1.0" min="0" max="20"><span>m</span></div>
       <div class="felt"><label>Overgang breddeutvidelse</label><input type="number" id="m_utvidelseOvergang" step="1" value="15" min="0" max="100"><span>m</span></div>
+
+      <h3>Snuplasser og møteplasser</h3>
+      <p class="notis">En snuplass er ikke et eget anlegg – det er vegen som er bredere på et
+        stykke. Derfor blir den regnet med i vegens masser av seg selv: skjæring, fylling,
+        rensk, bærelag og slitelag følger den bredere vegen.
+        Trykk <b>⬒ Snuplass</b> i kartet og klikk der den skal stå.</p>
+      <div id="plassliste" class="minitabell"></div>
 
       <h3>Krav fra veiklassen</h3>
       <p class="notis">Minste totale veibredde i kurver, og største stigning med og uten lass.

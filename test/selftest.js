@@ -2441,6 +2441,161 @@ console.log('\n6d. Kurvereglene fra normalen');
 }
 
 /* ------------------------------------------------------------------ */
+console.log('\n6e. Snuplass og møteplass – vegen blir bredere på et stykke');
+{
+  /* EN SNUPLASS ER IKKE ET EGET ANLEGG. Det er vegen som er bredere på et
+     stykke, så den er en UTVIDELSE akkurat som den kurver får. Da følger alt
+     annet med av seg selv: masser, tverrsnitt, 3D, rapport og eksport leser
+     allerede `utvidelse`, og ingen av dem trenger å vite at det står en
+     snuplass der.
+
+     Punktet brukeren setter er MIDTEN. Ligger det for nær enden, flyttes midten
+     inn så hele plassen får plass - ellers ville en snuplass satt ytterst på
+     vegen blitt halvert i stillhet, og det er nettopp der man setter dem. */
+  const linjeP = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 200, y: 0, r: 0 }]);
+  const profilP = new Vertikalprofil([{ s: 0, z: 100, k: 0 }, { s: 200, z: 100, k: 0 }]);
+  const obP = M.StandardMal.slitelagTykkelse + M.StandardMal.baerelagTykkelse;
+  const kjorP = (plasser, overgang, m2) => M.beregnMasser({
+    linje: linjeP, profil: profilP, terreng: { z: () => 100 },
+    mal: Object.assign({}, KLASSISK, { overbygningHelning: 0,
+      utvidelseOvergang: overgang }, m2 || {}),
+    fjell: new M.Fjellmodell({ standarddybde: 99, punkter: [] }),
+    profilAvstand: 5, bakkefaktor: 1, integrasjonssteg: 0.05, plasser
+  });
+  const lagP = r => r.sum.baerelag + r.sum.slitelag;
+
+  /* UTEN AVTRAPPING ER PLASSEN ET REKTANGEL, og overbygningen er lengden ganger
+     bredden ganger tykkelsen. Ikke noe mer. */
+  const utenP = lagP(kjorP(null, 0));
+  for (const [s, L, B, hva] of [
+    [100, 20, 4, 'midt på vegen'],
+    [97, 13, 3, 'med kanter som IKKE lander på rutenettet'],
+    [7, 20, 4, 'så nær starten at midten må klemmes inn'],
+    [195, 20, 4, 'og så nær slutten']
+  ]) {
+    sjekk(`snuplass ${hva}: ${L} × ${B} m`,
+      lagP(kjorP([{ s, lengde: L, bredde: B, innkjoring: 0 }], 0)) - utenP, L * B * obP, 0.02);
+  }
+
+  /* KANTENE MÅ VÆRE EGNE STASJONER.
+     Stasjonene er et jevnt rutenett – hver femte meter – og en plass på femten
+     meter har kanter som nesten aldri lander på det. Volumet regnes med
+     gjennomsnittlig endeareal, så en kant mellom to profiler rampes ut over
+     hele mellomrommet. Målt før kantstasjonene: 70,0 m³ mot 56,0 håndregnet,
+     25 % for mye, og plassen stakk 5 m ut i hver ende av der den var satt. */
+  {
+    const r = kjorP([{ s: 100, lengde: 20, bredde: 4, innkjoring: 0 }], 0);
+    const med = r.profiler.filter(p => p.utvidelse > 1e-9).map(p => p.s);
+    sjekk('plassen begynner nøyaktig der den er satt', Math.min(...med), 90, 1e-6);
+    sjekk('  og slutter nøyaktig der den slutter', Math.max(...med), 110, 1e-6);
+    paastand('  og bredden er den bestilte, ikke en rampe',
+      med.every(s => Math.abs(r.profiler.find(p => p.s === s).utvidelse - 4) < 1e-9),
+      `${med.length} profiler`);
+  }
+
+  /* MED AVTRAPPING KOMMER RAMPENE I TILLEGG, og de er trekanter. En veg kan
+     ikke ha et sprang i vegkanten, så plassen trappes inn og ut med vegens egen
+     `utvidelseOvergang` – samme mekanisme som kurveutvidelsen bruker. */
+  {
+    const d = lagP(kjorP([{ s: 100, lengde: 20, bredde: 4 }], 15)) - lagP(kjorP(null, 15));
+    sjekk('med avtrapping: rektangelet pluss to trekantramper',
+      d, (20 * 4 + 2 * (15 * 4 / 2)) * obP, 0.05);
+  }
+
+  /* INNKJØRINGEN KAN IKKE VÆRE EN VEGG.
+     Kurveutvidelsen trappes av over `utvidelseOvergang` – en FAST lengde. Det
+     går bra for en kurve, som utvider vegen med en meter eller to. En snuplass
+     tar vegen fra 4,5 til 10 m, og da blir den faste lengden en kant: målt med
+     overgang 15 ble flaren 1:5,5 per side, og med veiklassene som setter den
+     til 5 ble den 1:1,8. Man kjører ikke inn på en 1:1,8.
+     Derfor har hver plass sin egen innkjøring: minst vegens overgang, og minst
+     1:5 for den halve bredden hver side skal ut. */
+  {
+    const flare = r => {
+      let verst = 0;
+      const p = r.profiler;
+      for (let i = 1; i < p.length; i++) {
+        const dh = Math.abs(p[i].halvbredde - p[i - 1].halvbredde);
+        const ds = p[i].s - p[i - 1].s;
+        if (ds > 1e-6 && dh / ds > verst) verst = dh / ds;
+      }
+      return verst;
+    };
+    for (const [ov, B] of [[15, 5.5], [5, 5.5], [5, 10], [0, 8]]) {
+      const f = flare(kjorP([{ s: 100, lengde: 20, bredde: B }], ov));
+      paastand(`overgang ${ov} m, plass ${B} m: aldri brattere enn 1:5 per side`,
+        f <= 1 / 5 + 1e-9, `1:${(1 / f).toFixed(1)}`);
+    }
+    /* Og en SMAL utvidelse skal fortsatt bruke vegens egen overgang – den er
+       slakkere enn 1:5, og da er det den som gjelder. */
+    const smalF = flare(kjorP([{ s: 100, lengde: 20, bredde: 2 }], 15));
+    sjekk('en smal plass bruker vegens egen overgang', 1 / smalF, 15, 0.2);
+
+    /* Men den som VIL ha skarp kant, skal få den. `innkjoring: 0` er et valg,
+       ikke en mangel – derfor skiller koden mellom «ikke oppgitt» og «null». */
+    const skarp = flare(kjorP([{ s: 100, lengde: 20, bredde: 4, innkjoring: 0 }], 15));
+    paastand('men innkjoring 0 gir skarp kant for den som ber om det',
+      skarp > 1, `1:${(1 / skarp).toFixed(2)}`);
+  }
+
+  /* TO GRUNNER TIL Å VÆRE BRED ER IKKE DOBBELT SÅ BRED VEG.
+     Ligger snuplassen i en sving, skal bredden være den BREDESTE av de to, ikke
+     summen. Legges de oppå hverandre, får en snuplass i en krapp kurve en
+     vegbredde ingen har bedt om. */
+  {
+    const sving = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 100, y: 0, r: 25 },
+      { x: 200, y: 60, r: 0 }]);
+    const kjorS = plasser => M.beregnMasser({
+      linje: sving, profil: new Vertikalprofil([{ s: 0, z: 100, k: 0 }, { s: 220, z: 100, k: 0 }]),
+      terreng: { z: () => 100 }, mal: Object.assign({}, KLASSISK, { overbygningHelning: 0 }),
+      fjell: new M.Fjellmodell({ standarddybde: 99, punkter: [] }),
+      profilAvstand: 5, bakkefaktor: 1, integrasjonssteg: 0.1, plasser
+    });
+    const iSvingen = kjorS(null).profiler.reduce((b, p) => Math.max(b, p.utvidelse), 0);
+    paastand('kurven gir utvidelse i utgangspunktet', iSvingen > 0.2, `${iSvingen.toFixed(2)} m`);
+    const smal = kjorS([{ s: 110, lengde: 20, bredde: iSvingen / 2 }]);
+    const bred = kjorS([{ s: 110, lengde: 20, bredde: iSvingen * 3 }]);
+    const maks = r => r.profiler.reduce((b, p) => Math.max(b, p.utvidelse), 0);
+    sjekk('en plass SMALERE enn kurvens utvidelse endrer ingenting',
+      maks(smal), iSvingen, 1e-9);
+    sjekk('  og en bredere plass gjelder, men bare sin egen bredde',
+      maks(bred), iSvingen * 3, 1e-9);
+  }
+
+  /* INGEN PLASS SKAL IKKE ENDRE NOE. Tomme og ugyldige lister må gå stille
+     igjennom – en plass uten bredde eller lengde er ikke en plass. */
+  {
+    const fasit = lagP(kjorP(null, 0));
+    for (const [hva, p] of [
+      ['tom liste', []],
+      ['uten bredde', [{ s: 100, lengde: 20, bredde: 0 }]],
+      ['uten lengde', [{ s: 100, lengde: 0, bredde: 4 }]],
+      ['uten stasjon', [{ lengde: 20, bredde: 4 }]],
+      ['bare tull', [null, undefined, {}]]
+    ]) sjekk(`${hva} endrer ingenting`, lagP(kjorP(p, 0)), fasit, 1e-9);
+  }
+
+  /* PLASSEN SKAL KOSTE NOE Å BYGGE. Den er ikke bare bredere asfalt – det skal
+     graves og fylles for den også, og rensken følger fotavtrykket. */
+  {
+    const skraatt = { z: (x, y) => 100 - y * 0.25 };     // sidehelling 1:4
+    const kjorH = plasser => M.beregnMasser({
+      linje: linjeP, profil: profilP, terreng: skraatt,
+      mal: Object.assign({}, KLASSISK, { overbygningHelning: 0 }),
+      fjell: new M.Fjellmodell({ standarddybde: 99, punkter: [] }),
+      profilAvstand: 5, bakkefaktor: 1, integrasjonssteg: 0.05, plasser
+    });
+    const u = kjorH(null).sum, m = kjorH([{ s: 100, lengde: 20, bredde: 6 }]).sum;
+    paastand('en plass i sidehelling koster både skjæring og fylling',
+      m.skjaering > u.skjaering + 1 && m.fylling > u.fylling + 1,
+      `skjæring ${u.skjaering.toFixed(0)}→${m.skjaering.toFixed(0)}, `
+      + `fylling ${u.fylling.toFixed(0)}→${m.fylling.toFixed(0)}`);
+    paastand('  og rensken følger det bredere fotavtrykket',
+      m.rensk > u.rensk + 1, `${u.rensk.toFixed(0)}→${m.rensk.toFixed(0)}`);
+  }
+}
+
+/* ------------------------------------------------------------------ */
 console.log('\n6c. Avlesning av PDF');
 {
   const Pdf = require(path.join(__dirname, '..', 'public', 'js', 'pdfimport.js'));

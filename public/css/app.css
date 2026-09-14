@@ -644,6 +644,19 @@ body {
 .listeboks .rad { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0; border-bottom: 1px solid var(--kant); }
 .listeboks .rad button { background: none; border: none; color: var(--raud); cursor: pointer; font-weight: 700; }
 
+/* ── snuplasser ────────────────────────────────────────── */
+/* Én plass per rad, og den brytes når panelet er smalt – tre tallfelt og et
+   navn får ikke plass på én linje i et sidepanel på 280 px. */
+.plassrad {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px;
+  padding: 5px 0; border-bottom: 1px solid var(--kant); font-size: 12px;
+}
+.plassrad .plassnavn { flex: 1 1 100%; min-width: 90px; }
+.plassrad label { color: var(--blekk-svak); font-size: 11px; }
+.plassrad input[type="number"] { width: 52px; flex: 0 0 auto; }
+.plassrad .plasstotal { color: var(--blekk-svak); margin-left: auto; }
+.plassrad button { background: none; border: none; color: var(--raud); cursor: pointer; font-size: 15px; font-weight: 700; }
+
 /* ── høgdetabell ───────────────────────────────────────── */
 /* ── veiklasse ─────────────────────────────────────────── */
 .klasseboks {
