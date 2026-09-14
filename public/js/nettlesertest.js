@@ -5391,10 +5391,49 @@ const Nettlesertest = {
         Veg3d.kamT = 0;
         Veg3d.kamYaw += 90;                       // se rett ut fra vegen
         for (let i = 0; i < 25; i++) gaaF(['w', 'shift'], 1);
+        /* HVER RETNING MOT SIN EGEN GRENSE.
+           Her sto `Math.abs(kamT) <= grG.hoy` for BEGGE retninger. Det holdt så
+           lenge vegen var like brei til begge sider, men gågrensa følger nå
+           vegkanten per side – en snuplass kan ligge ut til den ene. Med
+           høyre-grensa brukt mot venstre retning måler prøven noe annet enn den
+           sier, og den ville sluppet gjennom en grense som var 3,25 m for vid
+           til venstre. */
         this.sjekk('går man rett ut fra vegen, stopper man ved kanten',
-          Math.abs(Veg3d.kamT) <= grG.hoy + 0.01, 'avvik ' + Veg3d.kamT.toFixed(2) + ' m');
+          Veg3d.kamT >= grG.lav - 0.01 && Veg3d.kamT <= grG.hoy + 0.01,
+          `t = ${Veg3d.kamT.toFixed(2)} m, grense ${grG.lav.toFixed(2)} … ${grG.hoy.toFixed(2)}`);
         this.sjekk('  og man er fortsatt på vegen',
           Number.isFinite(Veg3d._gulv(Veg3d._sisteGitter, Veg3d.kamS, Veg3d.kamT)));
+
+        /* GRENSA MÅ VITE HVILKEN SIDE SNUPLASSEN LIGGER PÅ.
+           Den leste gjennomsnittet av de to halvbreddene, og da ble den
+           speilet: målt med en 5,5 m snuplass til høyre lå grensa på ±5,75 der
+           vegkanten er −2,50 og +8,00. Man ble sluppet 3,25 m ut på skråningen
+           på den smale sida – utenfor hele inngrepet – og stoppet 2,25 m FØR
+           snuplassen på den breie, så den var utilgjengelig til fots.
+           Å flytte den samme plassen fra høyre til venstre endret ikke grensa
+           med en eneste meter. */
+        {
+          const pr9 = App.resultat && App.resultat.profiler
+            && App.resultat.profiler[Math.floor(App.resultat.profiler.length / 2)];
+          if (pr9 && pr9.halvbreddeVenstre != null) {
+            /* Profilet må ligge på `kamS` – `_sidegrense` finner det med
+               `Math.abs(q.s - kamS) < _profilsteg`, og bommer den, faller den
+               tilbake på 2,5 m og prøven måler ingenting. */
+            const falsk = (v, h) => Veg3d._sidegrense({
+              profiler: [Object.assign({}, pr9, { s: Veg3d.kamS,
+                halvbredde: (v + h) / 2,
+                halvbreddeVenstre: v, halvbreddeHoyre: h })]
+            });
+            const hoyre = falsk(2.5, 8.0), venstre = falsk(8.0, 2.5);
+            this.naer('gågrensa følger høyre vegkant når plassen ligger der',
+              hoyre.hoy, 8.5, 0.01);
+            this.naer('  og venstre kant står der den skal', hoyre.lav, -3.0, 0.01);
+            this.sjekk('  og speilvendt plass gir speilvendt grense',
+              Math.abs(venstre.lav + hoyre.hoy) < 0.01
+              && Math.abs(venstre.hoy - (-hoyre.lav)) < 0.01,
+              `${venstre.lav.toFixed(2)} … ${venstre.hoy.toFixed(2)}`);
+          }
+        }
 
         /* Q og E hever ikke når man går – de LETTER. Å heve seg i det stille
            med føttene på bakken ville gjort øyehøyden til en løgn. */
