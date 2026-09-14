@@ -26,6 +26,21 @@ const Nettlesertest = {
   },
   vent(ms) { return new Promise(r => setTimeout(r, ms)); },
 
+  /** Kjører en prøve med en frist. Blir den ikke ferdig, kastes det – en
+      prøve som henger skal melde fra, ikke bli stille. */
+  medFrist(gjor, ms = 60000) {
+    let tid;
+    const frist = new Promise((_, avvis) => {
+      tid = setTimeout(() => {
+        const e = new Error(`ble aldri ferdig – over ${Math.round(ms / 1000)} sekunder`);
+        e.hengte = true;
+        avvis(e);
+      }, ms);
+    });
+    return Promise.race([Promise.resolve().then(gjor), frist])
+      .finally(() => clearTimeout(tid));
+  },
+
   /* Prosjektfila lagrer anlegg, ikke løse felt. Leser man fila rett - som
      provene under gjør nar de kontrollerer at lagringen faktisk skrev noe -
      ma man ga veien om anlegget. */
@@ -69,41 +84,35 @@ const Nettlesertest = {
     const foerProsjekt = App.P ? JSON.stringify(App.P) : null;
     const foerNavn = App.P ? App.P.navn : null;
 
-    try {
-      await this.modulene();
-      await this.lagring();
-      await this.tegneLinje();
-      await this.profilverktoy();
-      await this.hoyder();
-      await this.veiklasser();
-      await this.tverrprofil();
-      await this.grenser();
-      await this.eksport();
-      await this.linjeredigering();
-      await this.autolagring();
-      await this.overskriving();
-      await this.tverrsnittAvlesning();
-      await this.pdfrapport();
-      await this.pdfavlesning();
-      await this.rapport();
-      await this.paneler();
-      await this.flereAnlegg();
-      await this.tverrsnittEnsidig();
-      await this.naboOverlapping();
-      await this.grensesnittbredder();
-      await this.panelhoder();
-      await this.tomt();
-      await this.tomteksport();
-      await this.tomterydding();
-      await this.tomt3d();
-      await this.veg3d();
-      await this.kartlag();
-      await this.lovlighet();
-      await this.framdrift();
-      await this.gamleFilerOgUtskifting();
-      await this.opprydding();
-    } catch (e) {
-      this.sjekk('testen kom seg gjennom uten å kaste', false, e.message + ' — ' + (e.stack || '').split('\n')[1]);
+    /* HVER PRØVE STÅR FOR SEG, OG INGEN FÅR LOV TIL Å BLI HENGENDE.
+       To ting sto galt her før:
+
+       1. Alle prøvene lå i ett try. Kastet den tiende, ble de tjue etter den
+          aldri kjørt – og rapporten sa «alt ok» om det lille som rakk å kjøre.
+          Nå får hver prøve sin egen fangst, så et kast koster én rød linje og
+          ikke resten av gjennomgangen.
+
+       2. Ingenting stoppet en prøve som aldri ble ferdig. Autolagringsprøven
+          kunne bli stående på et «Skrive over det?» som ventet på et klikk som
+          aldri kom, og da kom det ingen rapport i det hele tatt – bare en side
+          som så ferdig ut. En prøve som henger er en feil, og skal meldes som
+          en feil. Da stopper vi også resten: den hengende prøven kjører videre
+          i bakgrunnen og ville rotet i prosjektet under dem som kom etter. */
+    const proever = ['modulene', 'lagring', 'tegneLinje', 'profilverktoy', 'hoyder',
+      'veiklasser', 'tverrprofil', 'grenser', 'eksport', 'linjeredigering',
+      'autolagring', 'overskriving', 'tverrsnittAvlesning', 'pdfrapport',
+      'pdfavlesning', 'rapport', 'paneler', 'flereAnlegg', 'tverrsnittEnsidig',
+      'snuplassBlirSynlig', 'naboOverlapping', 'grensesnittbredder', 'panelhoder',
+      'tomt', 'tomteksport', 'tomterydding', 'tomt3d', 'veg3d', 'kartlag',
+      'lovlighet', 'framdrift', 'gamleFilerOgUtskifting', 'opprydding'];
+    for (const navn of proever) {
+      try {
+        await this.medFrist(() => this[navn]());
+      } catch (e) {
+        this.sjekk(`prøven «${navn}» kom seg gjennom uten å kaste`, false,
+          e.message + (e.hengte ? '' : ' — ' + (e.stack || '').split('\n')[1]));
+        if (e.hengte) break;
+      }
     }
 
     window.onerror = gammelFeil;
@@ -597,11 +606,42 @@ const Nettlesertest = {
     const gammeltNavn = App.P.navn;
     const felt = document.getElementById('prosjektnavn');
     const gammeltFelt = felt.value;
+
+    /* EN PRØVE SKAL ALDRI KUNNE BLI STÅENDE OG VENTE PÅ ET SVAR.
+       `App.lagre()` spør «Skrive over det?» når navnet finnes fra før, og det
+       spørsmålet er en dialog som venter på et klikk. Ble prøveprosjektet
+       liggende igjen – og det ble det hver gang en kjøring ble avbrutt – sto
+       hele suiten bom fast der ved neste kjøring: ingen feilmelding, ingen
+       rapport, bare en test som aldri ble ferdig. Det er verre enn en rød
+       prøve, for det ser ut som om ingenting er galt.
+
+       Derfor to ting: dialogen svares av prøven selv, og prosjektet ryddes
+       bort i `finally` – også når noe kaster underveis. */
+    const gammelBekreft = App.bekreft;
+    const forRadius = App.P.ip[1].r;
+    App.bekreft = () => Promise.resolve(true);
+    try {
+      await this.autolagringInnmat(navn, forRadius);
+    } finally {
+      App.bekreft = gammelBekreft;
+      App.P.ip[1].r = forRadius;
+      App.P.navn = gammeltNavn;
+      felt.value = gammeltFelt;
+      try { await Lager.slett(navn); } catch (e) { /* da far det staa */ }
+      App._lagretSom = JSON.stringify(App.P);
+      App.linjeEndret();
+    }
+    this.sjekk('testprosjektet er ryddet bort', !(await Lager.hent(navn)));
+  },
+
+  /** Selve innmaten i autolagringsprøven – skilt ut så opprydningen over
+      alltid kjører, uansett hva som skjer her inne. */
+  async autolagringInnmat(navn, forRadius) {
+    const felt = document.getElementById('prosjektnavn');
     felt.value = navn;
     await App.lagre();
     this.sjekk('rett etter lagring er alt lagret', !App.harUlagret());
 
-    const forRadius = App.P.ip[1].r;
     App.merk('prøve: autolagring');
     App.P.ip[1].r = (forRadius || 0) + 15;
     App.linjeEndret();
@@ -630,15 +670,6 @@ const Nettlesertest = {
     App.autolagringPause++;
     this.sjekk('et prosjekt uten navn lagres ikke av seg selv',
       !(await Lager.hent('Nytt prosjekt')));
-
-    // rydd opp
-    App.P.ip[1].r = forRadius;
-    App.P.navn = gammeltNavn;
-    felt.value = gammeltFelt;
-    await Lager.slett(navn);
-    App._lagretSom = JSON.stringify(App.P);
-    App.linjeEndret();
-    this.sjekk('testprosjektet er ryddet bort', !(await Lager.hent(navn)));
   },
 
   /* ---------------- ingenting skal skrives over i stillhet ---------------- */
@@ -647,6 +678,11 @@ const Nettlesertest = {
     const annet = 'Massekalk prøve annet';
     const gammeltFelt = document.getElementById('prosjektnavn').value;
     const gammeltAapnet = App._aapnetSom;
+    /* Samme grunn som i autolagringsprøven: prosjektet ma bort selv om noe
+       kaster underveis, og `App.bekreft` ma tilbake. Sto den igjen som «svar
+       alltid nei», sa resten av suiten stille sluttet a lagre. */
+    const bekreftVedStart = App.bekreft;
+    try {
 
     await Lager.lagre(annet, { navn: annet, ip: [{ lat: 58, lon: 7, r: 0 }, { lat: 58.001, lon: 7.001, r: 0 }], vip: [] });
 
@@ -680,12 +716,14 @@ const Nettlesertest = {
     this.sjekk('såing av demoprosjektet rører ikke det som finnes',
       JSON.stringify(førSaaing) === JSON.stringify(etterSaaing));
 
-    // rydd opp
-    App.P.ip[0].r = (App.P.ip[0].r || 1) - 1;
-    document.getElementById('prosjektnavn').value = gammeltFelt;
-    App.P.navn = gammeltFelt;
-    App._aapnetSom = gammeltAapnet;
-    await Lager.slett(annet);
+    } finally {
+      App.bekreft = bekreftVedStart;
+      App.P.ip[0].r = (App.P.ip[0].r || 1) - 1;
+      document.getElementById('prosjektnavn').value = gammeltFelt;
+      App.P.navn = gammeltFelt;
+      App._aapnetSom = gammeltAapnet;
+      try { await Lager.slett(annet); } catch (e) { /* da far det staa */ }
+    }
     this.sjekk('prøveprosjektet er ryddet bort', !(await Lager.hent(annet)));
   },
 
@@ -1141,6 +1179,97 @@ const Nettlesertest = {
         e.message + ' — ' + (e.stack || '').split('\n')[1]);
     } finally {
       Terreng.prototype.z = gz; Terreng.prototype.dekning = gd; Terreng.prototype.lastOmraade = gl;
+      app.P = JSON.parse(foer);
+      app.klargjorProsjekt(app.P);
+      app._ferdigflater = null;
+      app.resultat = null;
+      app._terrengnokkel = null;
+      app.visAnleggsvelger();
+    }
+  },
+
+  /**
+   * En innstilling man ikke finner, finnes ikke.
+   *
+   * Man setter ut en snuplass ved å klikke i KARTET, og så lå tallene som
+   * styrer den bak et sidepanel som kunne være lukket, en fane man måtte velge,
+   * og fire skjermer med rulling. Målt i et 578 px bredt vindu: panelet sto på
+   * `display: none`, og med det åpent lå lista 1 389 px ned i et felt på 322 px
+   * – 53 % av veien gjennom Mal-fanen, forbi fem overskrifter og 34 felt.
+   *
+   * Prøven gjør det brukeren gjør – ett klikk på vegen – og krever at lista
+   * står framme etterpå.
+   */
+  async snuplassBlirSynlig() {
+    const app = App;
+    const foer = JSON.stringify(app.P);
+    const gz = Terreng.prototype.z, gd = Terreng.prototype.dekning, gl = Terreng.prototype.lastOmraade;
+    const ruteEl = document.querySelector('.rute');
+    const ruteKlasse = ruteEl ? ruteEl.className : null;
+    try {
+      Terreng.prototype.z = function () { return 100; };
+      Terreng.prototype.dekning = function () { return 1; };
+      Terreng.prototype.lastOmraade = async function () { return true; };
+      const pkt = (x, y) => {
+        const q = Geo.fraUtm(430000 + x, 6460000 + y, app.sone);
+        return { lat: q.lat, lon: q.lon };
+      };
+      app.P.anlegg = [{ id: 'v1', type: 'veg', navn: 'V', tverrfall: [], plasser: [],
+        mal: Object.assign({}, StandardMal),
+        ip: [Object.assign(pkt(0, 0), { r: 0 }), Object.assign(pkt(200, 0), { r: 0 })],
+        vip: [{ s: 0, z: 100, k: 0 }, { s: 200, z: 100, k: 0 }] }];
+      app.P.aktivt = 'v1';
+      app.klargjorProsjekt(app.P);
+      app._ferdigflater = null;
+      app._terrengnokkel = '';
+      app.byggLinje();
+      app.vprofil = new Vertikalprofil(app.P.vip);
+      await app.oppdater();
+
+      /* Start fra det VERSTE utgangspunktet: panelet lukket og en annen fane
+         framme. Det er slik man faktisk sitter når man tegner i kartet. */
+      const panel = document.querySelector('.panel.sidepanel');
+      if (panel && getComputedStyle(panel).display !== 'none' && ruteEl) {
+        const smal = window.matchMedia('(max-width: 1000px)').matches;
+        ruteEl.classList.toggle(smal ? 'med-side' : 'uten-side');
+      }
+      app.visFane('masser');
+      await this.vent(120);
+      this.sjekk('utgangspunktet er et lukket panel og en annen fane',
+        !panel || getComputedStyle(panel).display === 'none',
+        panel ? getComputedStyle(panel).display : 'intet panel');
+
+      // ett klikk på vegen, slik brukeren gjør det
+      Kart.settModus('plass');
+      const midt = app.linje.punktVed(app.linje.lengde / 2);
+      const ll = Geo.fraUtm(midt.x, midt.y, app.sone);
+      Kart.klikk({ latlng: { lat: ll.lat, lng: ll.lon } });
+      await this.vent(700);
+
+      this.sjekk('snuplassen ble lagt inn', (app.P.plasser || []).length === 1,
+        (app.P.plasser || []).length + ' i lista');
+      this.sjekk('  og sidepanelet åpnet seg',
+        !!panel && getComputedStyle(panel).display !== 'none');
+      this.sjekk('  og malfanen kom fram',
+        (document.querySelector('.faneinnhold.aktiv') || {}).id === 'fane-mal',
+        (document.querySelector('.faneinnhold.aktiv') || {}).id || 'ingen');
+      const rad = document.querySelector('#plassliste .plassrad');
+      this.sjekk('  og raden er tegnet', !!rad);
+      if (rad) {
+        const r = rad.getBoundingClientRect();
+        this.sjekk('  og den står INNENFOR skjermen, ikke tusen piksler ned',
+          r.height > 0 && r.top >= 0 && r.bottom <= window.innerHeight + 1,
+          `y ${Math.round(r.top)}–${Math.round(r.bottom)} av ${window.innerHeight}`);
+        this.sjekk('  og markøren står i navnefeltet, klar til å skrive',
+          document.activeElement === rad.querySelector('.plassnavn'),
+          document.activeElement ? document.activeElement.className : 'ingen');
+      }
+    } catch (e) {
+      this.sjekk('snuplass-synligheten kom seg gjennom', false,
+        e.message + ' — ' + (e.stack || '').split('\n')[1]);
+    } finally {
+      Terreng.prototype.z = gz; Terreng.prototype.dekning = gd; Terreng.prototype.lastOmraade = gl;
+      if (ruteEl && ruteKlasse != null) ruteEl.className = ruteKlasse;
       app.P = JSON.parse(foer);
       app.klargjorProsjekt(app.P);
       app._ferdigflater = null;

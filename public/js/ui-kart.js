@@ -845,6 +845,10 @@ const Kart = {
       });
       this.settModus('rediger');
       this.app.plasserTilSkjema();
+      /* Foer brukeren til tallene som styrer plassen han nettopp satte ut.
+         Uten dette ligger de bak et lukket panel, en fane og fire skjermer
+         rulling - se App.visPlassliste. */
+      this.app.visPlassliste(this.app.P.plasser.length - 1);
       this.app.planlegg(30);
       this.app.status(`Snuplass lagt inn ved profil ${tr.s.toFixed(0)} – `
         + 'lengde og bredde kan endres i listen under Mal');

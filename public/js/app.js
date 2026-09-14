@@ -5374,6 +5374,43 @@ const App = {
   },
 
   /**
+   * Vis fram snuplasslista, uansett hvor gjemt den er.
+   *
+   * Man setter ut en snuplass ved å klikke i KARTET, og så ligger tallene som
+   * styrer den bak et sidepanel som kan være lukket, en fane man må velge, og
+   * fire skjermer med rulling. Målt i et 578 px bredt vindu: panelet sto på
+   * `display: none`, og med det åpent lå lista 1 389 px ned i et felt på 322 px
+   * – 53 % av veien gjennom Mal-fanen, forbi fem overskrifter og 34 felt.
+   *
+   * En innstilling man ikke finner, finnes ikke. Derfor føres man dit når man
+   * har satt ut en plass: panelet åpnes, fanen velges, lista rulles fram, og
+   * navnefeltet får markøren så man kan skrive med én gang.
+   */
+  visPlassliste(nr) {
+    const boks = document.getElementById('plassliste');
+    if (!boks) return;
+    /* Sidepanelet er skjult med en klasse på ruten, og hvilken klasse det er
+       avhenger av vindusbredden – se `knappSidepanel`. Samme regel her, ellers
+       åpnes det ikke på smale skjermer, som er nettopp der det er lukket. */
+    const rute = document.querySelector('.rute');
+    const panel = document.querySelector('.panel.sidepanel');
+    if (rute && panel && getComputedStyle(panel).display === 'none') {
+      const smal = window.matchMedia('(max-width: 1000px)').matches;
+      rute.classList.toggle(smal ? 'med-side' : 'uten-side');
+      if (Kart.kart) setTimeout(() => Kart.kart.invalidateSize(), 60);
+    }
+    this.visFane(this.erTomt() ? 'tomtemal' : 'mal');
+    /* Etter fanebyttet har boksen først fått en høyde på neste bilde. Rulles
+       det før det, ruller man i et felt som ennå er null høyt. */
+    requestAnimationFrame(() => {
+      const rad = nr != null ? boks.querySelectorAll('.plassrad')[nr] : null;
+      (rad || boks).scrollIntoView({ block: 'center' });
+      const navn = rad && rad.querySelector('.plassnavn');
+      if (navn) { navn.focus(); navn.select(); }
+    });
+  },
+
+  /**
    * Snuplassene og møteplassene som er satt ut.
    *
    * Lista er anleggets egen – to veger i samme prosjekt har hver sine, og en

@@ -654,9 +654,15 @@ body {
 .plassrad .plassnavn { flex: 1 1 100%; min-width: 90px; }
 .plassrad label { color: var(--blekk-svak); font-size: 11px; }
 .plassrad input[type="number"] { width: 52px; flex: 0 0 auto; }
+/* ET NEDTREKK MÅ KUNNE VISE SITT EGET LENGSTE VALG.
+   Uten bunnbredde her klemte flex de to nedtrekkene ned til 31 og 13 piksler
+   innvendig, mot 37 og 20 som «venstre» og «oval» trenger. Da sto det «ven…»
+   og «ov…» i felt man skal lese svaret sitt av. De får heller bryte ned på
+   egen linje i et smalt panel – raden bryter jo allerede. */
 .plassrad select {
   background: var(--flate-opp); border: 2px solid var(--kant); color: var(--blekk);
   font-size: 11px; font-family: var(--skrift); padding: 1px 2px;
+  flex: 0 0 auto; min-width: 88px;
 }
 .plassrad .plasstotal { color: var(--blekk-svak); margin-left: auto; }
 /* Merket i kartet: en oval, fordi det er det en snuplass er. */
