@@ -104,7 +104,8 @@ const Nettlesertest = {
       'pdfavlesning', 'rapport', 'paneler', 'flereAnlegg', 'tverrsnittEnsidig',
       'snuplassBlirSynlig', 'naboOverlapping', 'anleggsrekkefolge',
       'grensesnittbredder', 'panelhoder',
-      'tomt', 'tomteksport', 'tomterydding', 'tomt3d', 'veg3d', 'kartlag',
+      'tomt', 'tomteksport', 'tomterydding', 'tomtsnittOverbygning',
+      'tomt3d', 'veg3d', 'kartlag',
       'lovlighet', 'framdrift', 'gamleFilerOgUtskifting', 'opprydding'];
     for (const navn of proever) {
       try {
@@ -3837,6 +3838,183 @@ const Nettlesertest = {
    * fortegnet i projeksjonen er snudd. Da ser modellen helt troverdig ut, den
    * viser bare skjæring der det er fylling.
    */
+  /**
+   * DEN HVITE STREKEN SKAL IKKE FLY.
+   *
+   * Brukeren sa det slik: «se her på tomt føler streken flyr over». Ferdig
+   * nivå-streken lå over toppen av det som var farget, med et svart gap under
+   * seg. Målt på en flat tomt kote 97 med standardmalen: toppen av den grønne
+   * fyllingen på y = 189, den hvite streken på y = 178 – elleve piksler, som er
+   * nøyaktig de 0,55 m overbygning som ingenting tegnet.
+   *
+   * Prøven leser av LERRETET, ikke koden: den fanger fyllbanene, skjærer dem
+   * med en loddrett linje midt inne på tomta, og regner pikslene tilbake til
+   * meter med snittets egen skala. Fasiten er `zN` og `zJord` fra snittet, som
+   * kommer en annen vei enn tegningen gjør.
+   */
+  async tomtsnittOverbygning() {
+    const app = App;
+    const foer = JSON.stringify(app.P);
+    const gz = Terreng.prototype.z, gd = Terreng.prototype.dekning, gl = Terreng.prototype.lastOmraade;
+    const c = document.getElementById('tomtprofil').getContext('2d');
+    const gB = c.beginPath.bind(c), gM = c.moveTo.bind(c), gL = c.lineTo.bind(c);
+    const gS = c.stroke.bind(c), gF = c.fill.bind(c), gT = c.fillText.bind(c);
+    try {
+      const x0 = 430000, y0 = 6460000;
+      Terreng.prototype.z = function (x, y) { return 100 - (y - y0) * 0.18; };
+      Terreng.prototype.dekning = function () { return 1; };
+      Terreng.prototype.lastOmraade = async function () { return true; };
+      const pkt = (dx, dy) => {
+        const q = Geo.fraUtm(x0 + dx, y0 + dy, app.sone);
+        return { lat: q.lat, lon: q.lon };
+      };
+      app.P.anlegg = [{ id: 'tsnitt', type: 'tomt', navn: 'Tomta', ip: [], vip: [],
+        tverrfall: [], plasser: [],
+        mal: Object.assign({}, Tomt.StandardTomtemal),
+        tomt: Object.assign(Tomt.nyTomt(), {
+          punkter: [[0, 0], [40, 0], [40, 30], [0, 30]].map(([a, b]) => pkt(a, b)),
+          kanter: [], nivaa: { modus: 'flat', kote: 97 } }) }];
+      app.P.aktivt = 'tsnitt';
+      app.klargjorProsjekt(app.P);
+      app._ferdigflater = null;
+      app._terrengnokkel = '';
+      /* ARBEIDSBILDET MÅ FAKTISK STÅ I TOMTEMODUS.
+         Uten dette er lerretet skjult, `clientWidth` er null, og `tegn()`
+         maler ingenting – prøven ville da målt et tomt lerret og meldt at
+         båndet manglet, uansett hvor riktig koden var. Derfor står det en
+         påstand om selve lerretet under, før noe annet måles. */
+      app.visAnleggsvelger();
+      await app.beregnTomt();
+      await this.vent(200);
+      this.sjekk('tomtsnittet har et lerret å tegne på',
+        c.canvas.clientWidth > 50 && c.canvas.clientHeight > 40,
+        `${c.canvas.clientWidth} × ${c.canvas.clientHeight} px`);
+      if (!(c.canvas.clientWidth > 50 && c.canvas.clientHeight > 40)) return;
+
+      /* Fang det som males. `bane()` i tomtsnittet starter fyllbaner med
+         `lineTo` rett etter `beginPath()` – uten moveTo – så moveTo/lineTo
+         alene blander fyll og strek. Derfor hookes beginPath også. */
+      let bane = [], fylt = [], strekt = [], tekst = [];
+      const mal = () => {
+        c.beginPath = function () { bane = []; return gB(); };
+        c.moveTo = function (x, y) { bane.push([x, y]); return gM(x, y); };
+        c.lineTo = function (x, y) { bane.push([x, y]); return gL(x, y); };
+        c.fill = function () { if (bane.length > 2) fylt.push({ farge: c.fillStyle, p: bane.slice() }); return gF(); };
+        c.stroke = function () { if (bane.length > 1) strekt.push({ farge: c.strokeStyle, p: bane.slice() }); return gS(); };
+        c.fillText = function (t, x, y) { tekst.push(String(t)); return gT(t, x, y); };
+      };
+      const av = () => { c.beginPath = gB; c.moveTo = gM; c.lineTo = gL; c.fill = gF; c.stroke = gS; c.fillText = gT; };
+      const tegnOgMaal = () => {
+        bane = []; fylt = []; strekt = []; tekst = [];
+        mal();
+        let kastet = null;
+        try { Tomteprofil.tegn(); } catch (e) { kastet = e.message; } finally { av(); }
+        return kastet;
+      };
+
+      const kastet = tegnOgMaal();
+      this.sjekk('tomtsnittet tegner uten å kaste', !kastet, kastet || '');
+      if (kastet) return;
+
+      const s = Tomteprofil.snitt();
+      const omr = Tomteprofil._omrade(s, c.canvas.clientWidth, c.canvas.clientHeight);
+      const inne = s.punkt.filter(q => q.inne && q.zN != null && q.zJord != null);
+      this.sjekk('tomta finnes i snittet', inne.length > 4, inne.length + ' punkt');
+      this.sjekk('  og den har en overbygning å tegne', s.ob > 0.2, s.ob + ' m');
+      if (!(inne.length > 4 && s.ob > 0.2)) return;
+
+      /* Skjær alle bånd-flatene med en loddrett linje midt inne på tomta. */
+      const kryss = (f, x) => {
+        let lo = Infinity, hi = -Infinity;
+        for (let i = 0; i < f.p.length; i++) {
+          const a = f.p[i], b = f.p[(i + 1) % f.p.length];
+          if ((a[0] - x) * (b[0] - x) <= 0 && a[0] !== b[0]) {
+            const y = a[1] + (x - a[0]) / (b[0] - a[0]) * (b[1] - a[1]);
+            if (y < lo) lo = y; if (y > hi) hi = y;
+          }
+        }
+        return lo < hi ? { lo, hi } : null;
+      };
+      const erBand = f => f.farge === Farger.baerelag || f.farge === Farger.slitelag;
+      const bandVed = x => {
+        const d = fylt.filter(erBand).map(f => kryss(f, x)).filter(Boolean);
+        return d.length ? { topp: Math.min(...d.map(q => q.lo)), bunn: Math.max(...d.map(q => q.hi)) } : null;
+      };
+
+      const q = inne[Math.floor(inne.length / 2)];
+      const b = bandVed(omr.X(q.d));
+      this.sjekk('overbygningen er tegnet som en kropp, ikke som luft', !!b,
+        b ? '' : 'ingen flate i bærelags- eller slitelagsfargen');
+      if (b) {
+        /* DEN SOM FEILET FØR: toppen lå på planum, 0,55 m under den hvite. */
+        this.naer('  og fargen når helt opp til den hvite streken',
+          omr.zVed(b.topp), q.zN, 0.02);
+        this.naer('  og bunnen står på planum', omr.zVed(b.bunn), q.zJord, 0.02);
+        this.naer('  så kroppen er nøyaktig overbygningen tjukk',
+          omr.zVed(b.topp) - omr.zVed(b.bunn), s.ob, 0.01);
+      }
+
+      /* INGEN OVERBYGNING DER DET IKKE BYGGES. Et bånd skrevet som
+         `zJord … zJord + ob` ville fulgt skråningen hele veien utover – zJord
+         er én sammenhengende strek, planum inne og skråning utenfor – og malt
+         dekke oppå masse som er bokført som fylling. */
+      const ute = s.punkt.filter(p2 => !p2.inne && p2.zJord != null);
+      const langtUte = ute[Math.max(0, ute.length - 2)];
+      if (langtUte) {
+        this.sjekk('  og ingen overbygning der det ikke bygges',
+          !bandVed(omr.X(langtUte.d)),
+          'bånd ved d = ' + langtUte.d.toFixed(1));
+      }
+
+      /* FØLGER MALEN, IKKE ET FAST TALL. Den eneste påstanden som fanger at
+         noen kopierer vegens todelte `slitelag + bærelag` i stedet for tomtas
+         femdelte sum – to tall som begge «ser riktige ut». */
+      const tjukn1 = b ? omr.zVed(b.topp) - omr.zVed(b.bunn) : 0;
+      const ob1 = s.ob;
+      app.P.mal.frostsikring = (app.P.mal.frostsikring || 0) + 0.65;
+      await app.beregnTomt();
+      await this.vent(150);
+      tegnOgMaal();
+      const s2 = Tomteprofil.snitt();
+      const omr2 = Tomteprofil._omrade(s2, c.canvas.clientWidth, c.canvas.clientHeight);
+      const inne2 = s2.punkt.filter(p2 => p2.inne && p2.zN != null);
+      const q2 = inne2[Math.floor(inne2.length / 2)];
+      const b2 = q2 ? bandVed(omr2.X(q2.d)) : null;
+      if (b && b2) {
+        this.naer('  og kroppen følger malen, ikke et fast tall',
+          (omr2.zVed(b2.topp) - omr2.zVed(b2.bunn)) - tjukn1, s2.ob - ob1, 0.02);
+      } else {
+        this.sjekk('  og kroppen følger malen, ikke et fast tall', false,
+          'fant ikke båndet etter at malen ble endret');
+      }
+
+      /* Tegnforklaringen skal vise det som faktisk er på lerretet. */
+      const alt = tekst.join(' | ');
+      this.sjekk('tegnforklaringen nevner overbygningen', /Overbygning/.test(alt), alt);
+      this.sjekk('  og de to største flatene, skjæring og fylling',
+        /Skjæring/.test(alt) && /Fylling/.test(alt), alt);
+
+      /* Terrenget er streken man orienterer seg etter – den skal ikke bli
+         liggende under planum og ferdig nivå der de møtes. */
+      const lange = strekt.filter(t => t.p.length > 3);
+      this.sjekk('terrenget tegnes sist, så det aldri blir dekket',
+        lange.length > 0 && lange[lange.length - 1].farge === Farger.terreng,
+        lange.map(t => t.farge).join(', '));
+    } catch (e) {
+      this.sjekk('overbygningsprøven kom seg gjennom', false,
+        e.message + ' — ' + (e.stack || '').split('\n')[1]);
+    } finally {
+      c.beginPath = gB; c.moveTo = gM; c.lineTo = gL; c.fill = gF; c.stroke = gS; c.fillText = gT;
+      Terreng.prototype.z = gz; Terreng.prototype.dekning = gd; Terreng.prototype.lastOmraade = gl;
+      app.P = JSON.parse(foer);
+      app.klargjorProsjekt(app.P);
+      app._ferdigflater = null;
+      app.resultat = null;
+      app._terrengnokkel = null;
+      app.visAnleggsvelger();
+    }
+  },
+
   async tomt3d() {
     const foer = JSON.stringify(App.P);
     const gz = Terreng.prototype.z, gd = Terreng.prototype.dekning, gl = Terreng.prototype.lastOmraade;

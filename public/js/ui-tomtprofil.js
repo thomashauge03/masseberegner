@@ -75,7 +75,17 @@ const Tomteprofil = {
          Retningen tas fra kantens utoverrettede normal, sa snittet peker ut av
          tomta. Peker den innover, ser man skraningen speilvendt - og det er
          akkurat den forvekslingen som gjør at man tror utslaget gar feil vei. */
-      const k = Tomt.kanter(p)[+this.retning.slice(4)];
+      /* SLÅ OPP PÅ NUMMER, IKKE PÅ PLASS I LISTA.
+         `Tomt.kanter` hopper over kanter med lengde null – derfor bærer hvert
+         element sitt eget `nr` (tomt.js:356). Med ett dobbeltklikket hjørne er
+         plass og nummer ikke lenger det samme: «vinkelrett på side 5» la seg
+         på side 6, og på den siste ble `k` undefined, så snittet falt stille
+         tilbake til fallretningen mens etiketten fortsatt sa «Vinkelrett på
+         kant 6». Kartet gjør det riktig (ui-kart.js setter 'kant' + k.nr), og
+         app.js har en hel kommentarblokk om nettopp denne forvekslingen –
+         profilen var det ene stedet rettelsen ikke var gjort. */
+      const kNr = +this.retning.slice(4);
+      const k = Tomt.kanter(p).find(q => q.nr === kNr);
       if (k) grader = ((Math.atan2(k.nx, k.ny) * 180 / Math.PI) % 360 + 360) % 360;
     }
     const rad = grader * Math.PI / 180;
@@ -108,8 +118,10 @@ const Tomteprofil = {
     const fjell = app.fjellmodellIUtm();   // sonderingene ma vaere i UTM, se app.js
     const nivaa = app.tomtenivaaIUtm(t);
     const mal = app.P.mal;
-    const ob = (mal.slitelagTykkelse || 0) + (mal.baerelagTykkelse || 0)
-      + (mal.forsterkningslag || 0) + (mal.frostsikring || 0) + (mal.avrettingslag || 0);
+    /* ÉN KILDE TIL OVERBYGNINGEN. Her sto den fjerde kopien av den samme
+       summen. Kommer et lag til i malen, blir en av kopiene stående igjen med
+       fire ledd – og da tegner snittet et annet planum enn det volumet regner. */
+    const ob = app.overbygningstykkelse();
 
     /* Er tomta tegnet som yttergrense, er det den INNRYKKEDE flaten som skal
        planeres. Snittet ma vise den, ellers ser man en flate som ikke skal
@@ -240,6 +252,53 @@ const Tomteprofil = {
     bane(q => gyldig(q) && q.zT > q.zJord, Farger.skjaeringFlate);
     bane(q => gyldig(q) && q.zT < q.zJord, Farger.fyllingFlate);
 
+    /* OVERBYGNINGEN ER EN KROPP, IKKE LUFT.
+       Dette er det brukeren så: «på tomt føler streken flyr over». Den hvite
+       ferdig nivå-streken svevde over toppen av det som var farget, med et
+       svart gap under seg. Målt på en flat tomt kote 97 med standardmalen:
+       toppen av den grønne fyllingen lå på y = 189, den hvite streken på
+       y = 178 – elleve piksler, som er nøyaktig de 0,55 m overbygning.
+
+       Gapet var ekte nok: fargeflatene går fra terrenget ned til PLANUM, og
+       over planum ligger overbygningen, som ingenting tegnet. Vegsnittet har
+       aldri hatt problemet – det fyller vegkroppen mellom planum og
+       vegoverflaten (ui-tverrprofil.js:341-373). Tomta gjorde det ikke.
+
+       To bånd, som vegen: hele kroppen i bærelagsfargen og slitelaget øverst i
+       sin egen. Da kjenner den som har lært å lese vegsnittet dette igjen uten
+       å lære noe nytt, og ingen ny farge må holdes i synk.
+
+       BARE INNE PÅ TOMTA. Volumet bokfører i tillegg en skrå kant som stikker
+       `ob · overbygningHelning` utenfor omrisset (tomtmasser.js:668-692) – men
+       skråningen under den starter på selve tomtekanten, uten skulder
+       (tomtmasser.js:406-424). Vegen har skulderen (masser.js:86), tomta har
+       den ikke. Å tegne kilen der ville vist en kropp som henger utover en
+       skråning som allerede faller bort under den. Den motsigelsen ligger i
+       MOTOREN, ikke i tegningen, og skal avgjøres der – ikke skjules her. */
+    if (s.ob > 0) {
+      const kropp = (topp, bunn, farge) => {
+        g.fillStyle = farge;
+        let i = 0;
+        while (i < s.punkt.length) {
+          while (i < s.punkt.length && !(topp(s.punkt[i]) > bunn(s.punkt[i]))) i++;
+          const start = i;
+          while (i < s.punkt.length && topp(s.punkt[i]) > bunn(s.punkt[i])) i++;
+          if (i - start < 2) continue;
+          g.beginPath();
+          for (let k = start; k < i; k++) g.lineTo(X(s.punkt[k].d), Y(topp(s.punkt[k])));
+          for (let k = i - 1; k >= start; k--) g.lineTo(X(s.punkt[k].d), Y(bunn(s.punkt[k])));
+          g.closePath(); g.fill();
+        }
+      };
+      /* Slitelaget kan ikke være tykkere enn hele kroppen – en mal der noen har
+         satt slitelaget høyere enn summen ville ellers malt det nedover forbi
+         planum, altså tegnet dekke der det skal graves. */
+      const sl = Math.min(Math.max(this.app.P.mal.slitelagTykkelse || 0, 0), s.ob);
+      const inne = q => q.inne && q.zN != null && q.zJord != null;
+      kropp(q => (inne(q) ? q.zN - sl : null), q => (inne(q) ? q.zJord : null), Farger.baerelag);
+      if (sl > 0) kropp(q => (inne(q) ? q.zN : null), q => (inne(q) ? q.zN - sl : null), Farger.slitelag);
+    }
+
     const strek = (velg, farge, tykk, stiplet) => {
       g.strokeStyle = farge; g.lineWidth = tykk;
       g.setLineDash(stiplet ? [4, 4] : []);
@@ -253,22 +312,44 @@ const Tomteprofil = {
       }
       g.stroke(); g.setLineDash([]);
     };
+    /* TERRENGET TEGNES SIST. Det er streken man orienterer seg etter – den
+       sier hvor bakken ligger nå – og den sto først, så planum og ferdig nivå
+       la seg oppå den der de møtes. */
     strek(q => q.zF, Farger.fjell, 1.2, true);          // fjelloverflaten
-    strek(q => q.zT, Farger.terreng, 1.6, false);        // terrenget
     strek(q => q.zJord, Farger.planum, 1.4, true);   // planum inne, skråning utenfor
     strek(q => q.zN, Farger.veg, 2.4, false);         // ferdig nivå
+    strek(q => q.zT, Farger.terreng, 1.6, false);        // terrenget
 
     // tegnforklaring
     g.font = '10px system-ui, sans-serif';
     g.textAlign = 'left';
+    /* FORKLARINGEN SKAL VISE HVER POST SLIK DEN FAKTISK ER TEGNET.
+       Her sto fire poster, alle som en heldekkende rute. To av dem – Planum og
+       Fjell – tegnes stiplet, så ruta løy om formen. Og de to STØRSTE tingene
+       på lerretet, skjæringen og fyllingen, sto ikke i forklaringen i det hele
+       tatt. Overbygningen er ny og hører med, men bare når det finnes en: en
+       post om en farge som ikke er brukt er en opplysning om noe annet enn det
+       man ser på. */
     let x = marg.v;
-    for (const [navn, farge] of [['Ferdig nivå', Farger.veg],
-      ['Planum', Farger.planum], ['Terreng', Farger.terreng],
-      ['Fjell', Farger.fjell]]) {
-      g.fillStyle = farge; g.fillRect(x, h - 14, 10, 3);
+    const poster = [['Terreng', 'strek', Farger.terreng],
+      ['Ferdig nivå', 'strek', Farger.veg],
+      ['Planum', 'stiplet', Farger.planum]];
+    if (s.ob > 0) poster.push(['Overbygning', 'flate', Farger.baerelag]);
+    poster.push(['Skjæring', 'flate', Farger.skjaeringFlate],
+      ['Fylling', 'flate', Farger.fyllingFlate],
+      ['Fjell', 'stiplet', Farger.fjell]);
+    for (const [navn, form, farge] of poster) {
+      if (form === 'flate') {
+        g.fillStyle = farge; g.fillRect(x, h - 17, 10, 8);
+      } else {
+        g.strokeStyle = farge; g.lineWidth = form === 'stiplet' ? 1.4 : 1.8;
+        g.setLineDash(form === 'stiplet' ? [3, 3] : []);
+        g.beginPath(); g.moveTo(x, h - 12.5); g.lineTo(x + 10, h - 12.5); g.stroke();
+        g.setLineDash([]);
+      }
       g.fillStyle = Farger.blekkSvak;
       g.fillText(navn, x + 14, h - 10);
-      x += g.measureText(navn).width + 34;
+      x += g.measureText(navn).width + 30;
     }
     g.textAlign = 'right';
     const hvor = /^kant\d+$/.test(this.retning)
