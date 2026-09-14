@@ -645,13 +645,41 @@ const App = {
         }
         return NaN;
       };
+      /* KOLONNENE UTENFOR VEGEN LEGGES PÅ PROFILETS EGNE KNEKKPUNKT.
+         Her sto seks jevne steg fra vegkanten ut til foten. Jordarbeidsflaten
+         har knekk der skulderen slutter, der grøftas innerskråning treffer
+         bunnen, og der bunnen slutter – og et jevnt steg skjærer hjørnene av
+         dem. Målt mot 3D-modellens eget gitter: 0,363 m avvik langs HELE vegen
+         ved skulderkanten, og 0,229 m ved grøfta.
+
+         `sider[side].knekk` er den samme lista masser.js marsjerte ut, med t
+         målt utover fra senterlinjen. De tre første etter vegkanten er nettopp
+         skulderen og grøfta; resten av kolonnene fordeles utover til foten,
+         der flaten uansett er rett. */
+      const ute = {};
+      for (const side of [-1, 1]) {
+        const kant = side < 0 ? hbV : hbH;
+        const fot = side < 0 ? -tV : tH;
+        const kn = (pr.sider && pr.sider[side] && pr.sider[side].knekk) || [];
+        const rad = [kant];
+        for (const q of kn) {
+          if (rad.length >= 4) break;
+          if (q.t > rad[rad.length - 1] + 1e-6 && q.t < fot - 1e-6) rad.push(q.t);
+        }
+        while (rad.length < 6) {
+          const sist = rad[rad.length - 1];
+          rad.push(sist + (fot - sist) / (7 - rad.length));
+        }
+        rad.push(fot);
+        ute[side] = rad;
+      }
       for (let i = 0; i < nb; i++) {
         const k = j * nb + i;
         /* Fast kolonneskjema: 0 = venstre fot, 6 og 18 = vegkantene,
            24 = høyre fot. Da blir fot og vegkant sammenhengende kanter. */
         let t;
-        if (i <= 6) t = tV + (-hbV - tV) * (i / 6);
-        else if (i >= 18) t = hbH + (tH - hbH) * ((i - 18) / 6);
+        if (i <= 6) t = -ute[-1][6 - i];
+        else if (i >= 18) t = ute[1][i - 18];
         else t = -hbV + (hbV + hbH) * ((i - 6) / 12);
         const p = linje.punktMedAvvik(pr.s, t);
         wx[k] = p.x; wy[k] = p.y;

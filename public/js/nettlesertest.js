@@ -1141,6 +1141,55 @@ const Nettlesertest = {
         mv && uv ? `${uv.sum.fylling.toFixed(0)} → ${mv.sum.fylling.toFixed(0)} m³` : '');
       this.sjekk('  og overlappingen mot vegen er tallfestet',
         !!(mv && mv.naboTok && mv.naboTok.noe));
+
+      /* VEGFLATEN MÅ VÆRE LIKE GOD SOM 3D-MODELLENS EGEN.
+         Flaten bygges av 25 kolonner, 3D-modellen av 71. Det er grovere, og
+         spørsmålet er om det betyr noe for tomta som graver fra den.
+
+         Kolonnene utenfor vegen ligger på profilets EGNE knekkpunkt – skulderen
+         og grøfta – ikke på jevne steg. Med jevne steg ble hjørnene skåret av:
+         målt 0,363 m avvik langs hele vegen ved skulderkanten og 0,229 m ved
+         grøfta. Med knekkpunktene er verste avvik 0,012 m, og et rent
+         fyllingsprofil er eksakt.
+
+         Prøven sammenligner de to flatene punkt for punkt. Faller noen tilbake
+         til jevne steg, slår det ut her. */
+      app.P.anlegg = [vegen]; app.P.aktivt = 'v1';
+      app.klargjorProsjekt(app.P);
+      app._ferdigflater = null; app._terrengnokkel = '';
+      app.byggLinje(); app.vprofil = new Vertikalprofil(app.P.vip);
+      await app.oppdater();
+      app.P.aktivt = 'x';                    // så vegen regnes som NABO
+      const minFlate = app.ferdigflateForVeg(vegen);
+      app.P.aktivt = 'v1';
+      Veg3d.aktiver(true);
+      await this.vent(500);
+      const g3 = Veg3d._gitter(1);
+      const treDFlate = g3 ? app.ferdigflateAv(g3, 1) : null;
+      Veg3d.aktiver(false);
+      this.sjekk('begge vegflatene lot seg bygge', !!(minFlate && treDFlate));
+      if (minFlate && treDFlate) {
+        let n = 0, verst = 0, baareEin = 0;
+        const x0 = Math.min(minFlate.minX, treDFlate.minX);
+        const x1 = Math.max(minFlate.maksX, treDFlate.maksX);
+        const y0 = Math.min(minFlate.minY, treDFlate.minY);
+        const y1 = Math.max(minFlate.maksY, treDFlate.maksY);
+        for (let y = y0; y <= y1; y += 1) {
+          for (let x = x0; x <= x1; x += 1) {
+            const a = minFlate.ved(x, y), b = treDFlate.ved(x, y);
+            const ha = Number.isFinite(a), hb2 = Number.isFinite(b);
+            if (ha && hb2) { n++; verst = Math.max(verst, Math.abs(a - b)); }
+            else if (ha || hb2) baareEin++;
+          }
+        }
+        this.sjekk('det ble sammenlignet noe i det hele tatt', n > 500, n + ' ruter');
+        this.sjekk('vegflaten treffer 3D-modellens innen en centimeter',
+          verst < 0.02, 'verst ' + verst.toFixed(4) + ' m');
+        /* Og fotavtrykket må dekke det samme – en flate som stopper for tidlig
+           lar nabotomta grave fra rå mark der vegen faktisk ligger. */
+        this.sjekk('  og dekker det samme fotavtrykket',
+          baareEin < n * 0.02, baareEin + ' ruter bare i den ene av ' + n);
+      }
     } catch (e) {
       this.sjekk('nabo-overlappingen kom seg gjennom', false,
         e.message + ' — ' + (e.stack || '').split('\n')[1]);
