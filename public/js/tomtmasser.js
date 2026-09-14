@@ -334,6 +334,10 @@ function beregnTomtemasser(o) {
 
   const senter = tyngdepunktAv(p);
   const { ferdig, planum, overbygning } = nivaaFunksjon(o.tomt, mal, senter);
+  /* Hylla lagene står på – se der `skulder` brukes i sideløkka. Samme
+     regnestykke som vegen, `masser.js:688`. */
+  const skulder = overbygning * Math.max(0, mal.overbygningHelning === undefined
+    ? (mal.fylling || 0) : mal.overbygningHelning);
   if (!Number.isFinite(ferdig(senter.x, senter.y))) {
     merknader.push({ type: 'tomt', tekst: 'Ferdig nivå er ikke satt – velg en kote først' });
     return tom;
@@ -420,9 +424,26 @@ function beregnTomtemasser(o) {
            brattet skråning som traff bakken, mens volumet regnet den slake som
            aldri kom fram - to svar på samme spørsmål. */
         const tvunget = tvungetVed(felt, naer.kant, naer.u);
+        /* SKULDEREN: HYLLA LAGENE STÅR PÅ.
+           Her startet skråningen i selve tomtekanten, `naer.d = 0`. Samtidig
+           bokfører overbygningen nedenfor en SKRÅ kant som stikker
+           `overbygning · overbygningHelning` utenfor omrisset – 0,83 m med
+           standardmalen – regnet over et planum som er vannrett så langt ut.
+           De to var uenige: volumet betalte for en kile som hang utover en
+           skråning som allerede falt bort under den.
+
+           Vegen har aldri hatt problemet. `masser.js:688` har
+           `skulder = ob * obHelning`, og planum går den lengden forbi vegkanten
+           før grøfta eller skråningen tar over – med begrunnelsen at kanten
+           ellers blir «en loddrett vegg som ingen post dekker». Tomta manglet
+           den ene linja.
+
+           Samme tall i skjæring og fylling, av samme grunn som på vegen: et
+           sprang mellom de to ville dratt kanten mot den ene siden. */
+        const dUt = Math.max(0, naer.d - skulder);
         zPlanum = skjaerer
-          ? skraningsflate(naer.d, zKant, zFjell, kant, mal, tvunget)
-          : fyllingsflate(naer.d, zKant, kant, mal, tvunget);
+          ? skraningsflate(dUt, zKant, zFjell, kant, mal, tvunget)
+          : fyllingsflate(dUt, zKant, kant, mal, tvunget);
         if (!Number.isFinite(zPlanum)) continue;           // apen kant
         /* Utenfor tomta teller cella bare til skråningen har møtt terrenget.
            MEN TRAUET GÅR FORBI FOTEN, og de cellene skal fortsatt med: der

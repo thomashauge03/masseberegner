@@ -1809,6 +1809,97 @@ console.log('\n31. Masseutskifting – alt under tomta ned til fjell');
     }).merknader || []).some(m => m.type === 'utskifting'));
 }
 
+/* ==================================================================
+   32. SKULDEREN: HYLLA LAGENE STÅR PÅ
+
+   Overbygningen bokfører en SKRÅ kant som stikker `ob · overbygningHelning`
+   utenfor omrisset – 0,825 m med malen under – regnet over et planum som er
+   vannrett så langt ut (se `lagVolum` i tomtmasser.js). Men skråningen startet
+   i selve tomtekanten. De to var uenige: volumet betalte for en kile som hang
+   utover en skråning som allerede falt bort under den.
+
+   Vegen har aldri hatt problemet – `masser.js:688` gir planum en skulder på
+   nøyaktig det samme målet, med begrunnelsen at kanten ellers blir «en loddrett
+   vegg som ingen post dekker».
+
+   INGEN AV PRØVENE OVER KAN SE DETTE. `grunnmal()` nuller alle fem lagene, så
+   `ob = 0` og skulderen er null i hver eneste av dem. Derfor står denne
+   seksjonen for seg, med en ekte overbygning.
+
+   Målt utslag på tomta under: 3 197 → 3 488 m³ skjæring, +291 m³.
+   ================================================================== */
+console.log('\n32. Skulderen – hylla lagene står på');
+{
+  const malS = () => Object.assign({}, Tomt.StandardTomtemal, {
+    matjordDybde: 0, renskDybde: 0, utskifting: false, overberg: 0,
+    slitelagTykkelse: 0.05, baerelagTykkelse: 0.10, forsterkningslag: 0.40,
+    avrettingslag: 0, frostsikring: 0, overbygningHelning: 1.5,
+    skjaeringLosmasse: 1.5, skjaeringFjell: 0.2, fylling: 2.0,
+    maksSokebredde: 60, rutestorrelse: 1, minAvstandTilBerg: 0
+  });
+  const ob = 0.55, obH = 1.5, skulder = ob * obH;          // 0,825 m
+  const rekt = [{ x: 0, y: 0 }, { x: 40, y: 0 }, { x: 40, y: 30 }, { x: 0, y: 30 }];
+  const kjor = (m) => T.beregnTomtemasser({
+    tomt: { punkter: rekt, kanter: [], nivaa: { modus: 'flat', kote: 97 } },
+    mal: m, terreng: { z: (x, y) => 100 - y * 0.10 },
+    fjell: new M.Fjellmodell({ standarddybde: 5 }),
+    rutestorrelse: 1, bakkefaktor: 1
+  });
+  const res = kjor(malS());
+
+  sjekk('overbygningen er den vi regner skulderen av',
+    res.sum.slitelag / res.areal, 0.05, 0.004);
+
+  /* PLANUM ER VANNRETT UT TIL SKULDEREN, OG FALLER FØRST DERETTER.
+     Dette er selve påstanden. Uten skulderen faller planum allerede ved
+     tomtekanten, og den første prøven under slår ut. */
+  const ute = (res.rutenett || []).filter(c => !c.inne && c.zPlanum != null);
+  const avstand = c => T.naermestePaOmriss(rekt, c.x, c.y).d;
+  const paaHylla = ute.filter(c => avstand(c) > 0.15 && avstand(c) < skulder - 0.15);
+  const utafor = ute.filter(c => avstand(c) > skulder + 1.0 && avstand(c) < skulder + 3.0);
+  paastand('det finnes celler både på hylla og utenfor den',
+    paaHylla.length > 5 && utafor.length > 5,
+    `${paaHylla.length} på hylla, ${utafor.length} utenfor`);
+
+  /* Kanten av tomta ligger på planum = 97 − 0,55 = 96,45 hele veien rundt,
+     for tomta er flat. Hylla skal ligge på nøyaktig det nivået. */
+  const planumKant = 97 - ob;
+  let verstHylle = 0;
+  for (const c of paaHylla) verstHylle = Math.max(verstHylle, Math.abs(c.zPlanum - planumKant));
+  sjekk('planum er vannrett ut til skulderen', verstHylle, 0, 0.01);
+
+  /* Og utenfor hylla SKAL den forlate nivået – ellers har vi bare flyttet
+     feilen lenger ut. Retningen er ikke gitt: tomta her ligger i SKJÆRING, og
+     da stiger skråningen bort fra tomta. Ligger den i fylling, faller den.
+     Kravet er at hylla tar slutt, ikke hvilken vei. */
+  let minstUtslag = Infinity;
+  for (const c of utafor) minstUtslag = Math.min(minstUtslag, Math.abs(c.zPlanum - planumKant));
+  paastand('og slutter der – skråningen tar over', minstUtslag > 0.2,
+    `minste utslag utenfor hylla: ${minstUtslag.toFixed(2)} m`);
+
+  /* Skulderen skal FØLGE overbygningen, ikke være et fast tall. Doble lagene,
+     og hylla skal bli dobbelt så brei. Dette fanger en skulder som er skrevet
+     av fra vegens `slitelag + bærelag` i stedet for tomtas femdelte sum. */
+  const m2 = Object.assign(malS(), { forsterkningslag: 0.95 });   // ob 0,55 → 1,10
+  const res2 = kjor(m2);
+  const ute2 = (res2.rutenett || []).filter(c => !c.inne && c.zPlanum != null);
+  const kant2 = 97 - 1.10;
+  const hylle2 = ute2.filter(c => Math.abs(c.zPlanum - kant2) < 0.01)
+    .reduce((m, c) => Math.max(m, avstand(c)), 0);
+  const hylle1 = paaHylla.reduce((m, c) => Math.max(m, avstand(c)), 0);
+  paastand('skulderen følger overbygningen, ikke et fast tall',
+    hylle2 > hylle1 + 0.5,
+    `${hylle1.toFixed(2)} m med ob 0,55 mot ${hylle2.toFixed(2)} m med ob 1,10`);
+
+  /* Og helningen null skal gi skulder null – da er alt som før. */
+  const res0 = kjor(Object.assign(malS(), { overbygningHelning: 0 }));
+  const ute0 = (res0.rutenett || []).filter(c => !c.inne && c.zPlanum != null);
+  const hylle0 = ute0.filter(c => Math.abs(c.zPlanum - planumKant) < 0.01)
+    .reduce((m, c) => Math.max(m, avstand(c)), 0);
+  paastand('helning null gir ingen skulder', hylle0 < 0.6,
+    `hylle ${hylle0.toFixed(2)} m`);
+}
+
 /* ------------------------------------------------------------------ */
 console.log(`\n${ok} tester ok, ${feil} feil`);
 process.exit(feil ? 1 : 0);
