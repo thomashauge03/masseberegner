@@ -88,6 +88,7 @@ const Nettlesertest = {
       await this.rapport();
       await this.paneler();
       await this.flereAnlegg();
+      await this.tverrsnittEnsidig();
       await this.naboOverlapping();
       await this.grensesnittbredder();
       await this.panelhoder();
@@ -1049,6 +1050,106 @@ const Nettlesertest = {
    * rettingen: 7 176 m³ skjæring på tomt 2 enten naboen fantes eller ikke.
    * Verre enn tallet: svaret var avhengig av hvilke paneler man hadde klikket.
    */
+  /**
+   * Tverrsnittet skal tegne den vegen som er REGNET, ikke en symmetrisk en.
+   *
+   * Med en ensidig snuplass er vegen ikke lik bred til begge sider. Breddemålet
+   * over vegen ble likevel streket symmetrisk om senterlinja: 3 m for langt
+   * inne på den ene sida og 3 m ut i lufta på den andre, mens TALLET over
+   * streken var riktig. Et mål som peker på feil sted er verre enn intet mål.
+   *
+   * Prøven leser av hva som FAKTISK blir tegnet – den fanger `moveTo`/`lineTo`
+   * på lerretet – i stedet for å stole på at koden ser riktig ut.
+   */
+  async tverrsnittEnsidig() {
+    const app = App;
+    const foer = JSON.stringify(app.P);
+    const gz = Terreng.prototype.z, gd = Terreng.prototype.dekning, gl = Terreng.prototype.lastOmraade;
+    try {
+      Terreng.prototype.z = function () { return 100; };
+      Terreng.prototype.dekning = function () { return 1; };
+      Terreng.prototype.lastOmraade = async function () { return true; };
+      const pkt = (x, y) => {
+        const q = Geo.fraUtm(430000 + x, 6460000 + y, app.sone);
+        return { lat: q.lat, lon: q.lon };
+      };
+      app.P.anlegg = [{ id: 'v1', type: 'veg', navn: 'V', tverrfall: [],
+        plasser: [{ s: 100, lengde: 20, bredde: 6, side: 'hoyre',
+          form: 'rektangel', innkjoring: 0 }],
+        mal: Object.assign({}, StandardMal, { utskifting: false }),
+        ip: [Object.assign(pkt(0, 0), { r: 0 }), Object.assign(pkt(200, 0), { r: 0 })],
+        vip: [{ s: 0, z: 100, k: 0 }, { s: 200, z: 100, k: 0 }] }];
+      app.P.aktivt = 'v1';
+      app.klargjorProsjekt(app.P);
+      app._ferdigflater = null;
+      app._terrengnokkel = '';
+      app.byggLinje();
+      app.vprofil = new Vertikalprofil(app.P.vip);
+      await app.oppdater();
+
+      const pr = app.resultat.profiler.find(p => Math.abs(p.s - 100) < 3);
+      this.sjekk('vegen er ensidig utvidet i det hele tatt',
+        pr && pr.halvbreddeHoyre > pr.halvbreddeVenstre + 5,
+        pr ? `${pr.halvbreddeVenstre.toFixed(2)} / ${pr.halvbreddeHoyre.toFixed(2)}` : 'ingen profil');
+      if (!pr) return;
+
+      /* Fang det som tegnes. `_kart` gir omregningen fra meter til piksler. */
+      const c = document.getElementById('tverrprofil').getContext('2d');
+      const gmlMove = c.moveTo.bind(c), gmlLine = c.lineTo.bind(c), gmlFill = c.fillText.bind(c);
+      const strek = [], tekst = [];
+      let siste = null;
+      c.moveTo = function (x, y) { siste = [x, y]; return gmlMove(x, y); };
+      c.lineTo = function (x, y) { if (siste) strek.push([siste, [x, y]]); siste = [x, y]; return gmlLine(x, y); };
+      c.fillText = function (t, x, y) { tekst.push({ t, x }); return gmlFill(t, x, y); };
+      let kastet = null;
+      try { Tverrprofil.vis(pr); Tverrprofil.tegn(); }
+      catch (e) { kastet = e.message; }
+      finally { c.moveTo = gmlMove; c.lineTo = gmlLine; c.fillText = gmlFill; }
+
+      /* AT DET IKKE KASTER ER EN PÅSTAND, ikke en forutsetning. Omdøpingen av
+         `tU` til `tUv`/`tUh` lot tre bruksteder stå igjen, og tverrsnittet
+         kastet «tU is not defined» ved hvert eneste forsøk på å tegne. */
+      this.sjekk('tverrsnittet tegner uten å kaste', !kastet, kastet || '');
+      if (kastet) return;
+
+      const k = Tverrprofil._kart;
+      const iMeter = px => (px - k.px(0)) / (k.px(1) - k.px(0));
+      const vegY = k.py(pr.vegnivaa) - 3;
+      /* Breddemålet er den vannrette streken tre piksler over vegoverflaten.
+         Den er ett enkelt strekk fra kant til kant; vegoverflaten selv tegnes
+         som mange korte biter, så den lengste er målet. */
+      const vannrette = strek
+        .filter(([a, b]) => Math.abs(a[1] - vegY) < 0.6 && Math.abs(b[1] - vegY) < 0.6)
+        .map(([a, b]) => ({ fra: iMeter(a[0]), til: iMeter(b[0]) }))
+        .sort((a, b) => Math.abs(b.til - b.fra) - Math.abs(a.til - a.fra));
+      const maal = vannrette[0];
+      this.sjekk('breddemålet er tegnet', !!maal);
+      if (maal) {
+        this.naer('  og starter på den venstre vegkanten', maal.fra, -pr.halvbreddeVenstre, 0.05);
+        this.naer('  og slutter på den høyre', maal.til, pr.halvbreddeHoyre, 0.05);
+      }
+      const etikett = tekst.find(q => / m$/.test(q.t) && /^\d/.test(q.t));
+      this.sjekk('  og tallet over står der', !!etikett, etikett ? etikett.t : 'ingen');
+      if (etikett) {
+        this.naer('  og sier den samme bredden som streken',
+          parseFloat(etikett.t), pr.halvbreddeVenstre + pr.halvbreddeHoyre, 0.02);
+        this.naer('  og står midt over den, ikke over senterlinja',
+          iMeter(etikett.x), (pr.halvbreddeHoyre - pr.halvbreddeVenstre) / 2, 0.05);
+      }
+    } catch (e) {
+      this.sjekk('det ensidige tverrsnittet kom seg gjennom', false,
+        e.message + ' — ' + (e.stack || '').split('\n')[1]);
+    } finally {
+      Terreng.prototype.z = gz; Terreng.prototype.dekning = gd; Terreng.prototype.lastOmraade = gl;
+      app.P = JSON.parse(foer);
+      app.klargjorProsjekt(app.P);
+      app._ferdigflater = null;
+      app.resultat = null;
+      app._terrengnokkel = null;
+      app.visAnleggsvelger();
+    }
+  },
+
   async naboOverlapping() {
     const app = App;
     const foer = JSON.stringify(app.P);
