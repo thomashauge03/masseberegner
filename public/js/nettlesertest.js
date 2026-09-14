@@ -1101,6 +1101,46 @@ const Nettlesertest = {
 
       /* Uten nabo skal det verken regnes en ekstra gang eller meldes noe. */
       this.sjekk('en tomt uten nabo melder ingen overlapping', !utan.naboTok);
+
+      /* OG EN VEG ER OGSÅ TERRENG NÅR DEN ER FERDIG.
+         En veg som har gravd seg ned gjennom tomta har allerede tatt massen
+         der. Uten dette gravde tomta fra lia som lå der før vegen, og den
+         samme kubikken sto på begge. Vegen hadde ingen flatebygger i det hele
+         tatt før – bare tomter hadde det. */
+      const pkt = (x, y) => {
+        const q = Geo.fraUtm(430000 + x, 6460000 + y, app.sone);
+        return { lat: q.lat, lon: q.lon };
+      };
+      const vegen = { id: 'v1', type: 'veg', navn: 'Vegen', tverrfall: [], plasser: [],
+        mal: Object.assign({}, StandardMal, { utskifting: false }),
+        ip: [Object.assign(pkt(-30, 20), { r: 0 }), Object.assign(pkt(70, 20), { r: 0 })],
+        vip: [{ s: 0, z: 94, k: 0 }, { s: 100, z: 94, k: 0 }] };
+      const tomta = { id: 't1', type: 'tomt', navn: 'Tomta', ip: [], vip: [],
+        tverrfall: [], plasser: [],
+        mal: Object.assign({}, Tomt.StandardTomtemal, { utskifting: false }),
+        tomt: Object.assign(Tomt.nyTomt(), {
+          punkter: [[0, 0], [40, 0], [40, 40], [0, 40]].map(([x, y]) => pkt(x, y)),
+          kanter: [], nivaa: { modus: 'flat', kote: 97 } }) };
+      const medVeg = async (ta) => {
+        app.P.anlegg = ta ? [vegen, tomta] : [tomta];
+        app.P.aktivt = 't1';
+        app.klargjorProsjekt(app.P);
+        app._ferdigflater = null;
+        app._terrengnokkel = '';
+        await app.beregnTomt();
+        return app.resultat;
+      };
+      const mv = await medVeg(true), uv = await medVeg(false);
+      this.sjekk('en ferdig VEG er også terreng for tomta ved siden av',
+        mv && uv && mv.sum.skjaering < uv.sum.skjaering - 500,
+        mv && uv ? `${mv.sum.skjaering.toFixed(0)} mot ${uv.sum.skjaering.toFixed(0)} m³` : '');
+      /* Vegen har gravd seg NED, så tomta over den må fylle – bakken der er
+         lavere enn den var. Det er den andre halvparten av det samme. */
+      this.sjekk('  og der vegen har gravd, må tomta fylle',
+        mv && uv && mv.sum.fylling > uv.sum.fylling + 100,
+        mv && uv ? `${uv.sum.fylling.toFixed(0)} → ${mv.sum.fylling.toFixed(0)} m³` : '');
+      this.sjekk('  og overlappingen mot vegen er tallfestet',
+        !!(mv && mv.naboTok && mv.naboTok.noe));
     } catch (e) {
       this.sjekk('nabo-overlappingen kom seg gjennom', false,
         e.message + ' — ' + (e.stack || '').split('\n')[1]);

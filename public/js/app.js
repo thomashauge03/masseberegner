@@ -578,17 +578,104 @@ const App = {
     };
   },
 
+  /**
+   * Den ferdige flaten til en VEG, regnet uten å gå veien om 3D.
+   *
+   * Samme sak som `ferdigflateForTomt`, og av samme grunn: en veg som er ferdig
+   * bygd er det TERRENGET nabotomta skal grave fra. Uten dette gravde tomta ved
+   * siden av fra lia som lå der før vegen, og den samme kubikken sto på begge
+   * regnestykkene – med mindre man tilfeldigvis hadde åpnet 3D først.
+   *
+   * Gitteret bygges av profilene: én rad per profil, og på tvers fra
+   * skråningsfot til skråningsfot. Høyden er vegoverflaten inne på vegen og
+   * jordarbeidsflaten utenfor – det er den flaten man står på etterpå.
+   * Rasteriseringen gjør `ferdigflateAv`, som allerede finnes og er prøvd.
+   */
+  ferdigflateForVeg(a) {
+    if (!a || a.type === 'tomt' || !this.terreng) return null;
+    if (!Array.isArray(a.ip) || a.ip.length < 2
+      || !Array.isArray(a.vip) || a.vip.length < 2) return null;
+    let res, linje;
+    try {
+      /* Egen linje for naboen, ikke `this.linje` – den tilhører det ANLEGGET
+         som står oppe. Sonen er prosjektets, se `byggLinje`. */
+      linje = new Linjeforing(a.ip.map(q => {
+        const u = Geo.tilUtm(q.lat, q.lon, this.sone);
+        return { x: u.x, y: u.y, r: q.r || 0 };
+      }));
+      if (!linje || !(linje.lengde > 0)) return null;
+      res = beregnMasser({
+        linje, profil: new Vertikalprofil(a.vip),
+        terreng: this.terreng,             // rå bakke – se `ferdigflateForTomt`
+        mal: a.mal, fjell: this.fjellmodellIUtm(), faktorer: this.P.faktorer,
+        tverrfallOverstyring: a.tverrfall, plasser: a.plasser,
+        profilAvstand: this.P.profilAvstand, bakkefaktor: this.bakkefaktor()
+      });
+    } catch (e) { return null; }
+    if (!res || !res.profiler || res.profiler.length < 2) return null;
+
+    /* TVERS: foten på hver side, vegkantene, og jevnt imellom. Knekkpunktene
+       må være noder, ellers blir skråningsfoten sagtannet – og fotavtrykket er
+       det nabotomta faktisk skal grave fra. */
+    const KOL = 25;
+    const rader = res.profiler;
+    const nb = KOL, nh = rader.length;
+    const n = nb * nh;
+    if (n > 4e6) return null;
+    const wx = new Float64Array(n), wy = new Float64Array(n);
+    const z = new Float32Array(n);
+    const finnes = new Uint8Array(n), harGrav = new Uint8Array(n);
+    for (let j = 0; j < nh; j++) {
+      const pr = rader[j];
+      const geo = pr.geometri || (res.geometriFor ? res.geometriFor(pr.s).geometri : null);
+      if (!geo || !geo.jord || geo.jord.length < 2) continue;
+      const hbV = pr.halvbreddeVenstre != null ? pr.halvbreddeVenstre : pr.halvbredde;
+      const hbH = pr.halvbreddeHoyre != null ? pr.halvbreddeHoyre : pr.halvbredde;
+      const tV = pr.fotVenstre, tH = pr.fotHoyre;
+      const hoyde = (liste, t) => {
+        if (!liste || !liste.length) return NaN;
+        if (t <= liste[0][0]) return liste[0][1];
+        if (t >= liste[liste.length - 1][0]) return liste[liste.length - 1][1];
+        for (let i = 0; i < liste.length - 1; i++) {
+          if (t >= liste[i][0] && t <= liste[i + 1][0]) {
+            const d = liste[i + 1][0] - liste[i][0];
+            if (d < 1e-9) return liste[i][1];
+            return liste[i][1] + (t - liste[i][0]) / d * (liste[i + 1][1] - liste[i][1]);
+          }
+        }
+        return NaN;
+      };
+      for (let i = 0; i < nb; i++) {
+        const k = j * nb + i;
+        /* Fast kolonneskjema: 0 = venstre fot, 6 og 18 = vegkantene,
+           24 = høyre fot. Da blir fot og vegkant sammenhengende kanter. */
+        let t;
+        if (i <= 6) t = tV + (-hbV - tV) * (i / 6);
+        else if (i >= 18) t = hbH + (tH - hbH) * ((i - 18) / 6);
+        else t = -hbV + (hbV + hbH) * ((i - 6) / 12);
+        const p = linje.punktMedAvvik(pr.s, t);
+        wx[k] = p.x; wy[k] = p.y;
+        // vegoverflaten inne på vegen, jordarbeidsflaten utenfor
+        const zz = (t >= -hbV && t <= hbH && geo.veg && geo.veg.length > 1)
+          ? hoyde(geo.veg, t) : hoyde(geo.jord, t);
+        if (!Number.isFinite(zz)) continue;
+        z[k] = zz; finnes[k] = 1; harGrav[k] = 1;
+      }
+    }
+    return this.ferdigflateAv({ wx, wy, zEtter: z, finnes, harGrav, nb, nh }, 1);
+  },
+
   /** Naboenes ferdige flater, bygget om nødvendig og hurtiglagret. */
   _naboflater() {
     const f = this._ryddFerdigflater() || new Map();
     if (!this.P || !Array.isArray(this.P.anlegg)) return f;
     const T = (typeof Tegner3d !== 'undefined') ? Tegner3d : null;
     for (const a of this.P.anlegg) {
-      if (a.id === this.P.aktivt || f.has(a.id) || a.type !== 'tomt') continue;
+      if (a.id === this.P.aktivt || f.has(a.id)) continue;
       /* Bygges ÉN gang per tilstand. `prosjektterreng` kalles inne i
          massebalansens halveringssøk – uten hurtiglageret ville hele naboen
          blitt regnet om for hver eneste prøvekote. */
-      const flate = this.ferdigflateForTomt(a);
+      const flate = a.type === 'tomt' ? this.ferdigflateForTomt(a) : this.ferdigflateForVeg(a);
       if (!flate) continue;
       if (T && T._fullnokkel) flate.nokkel = T._fullnokkel(a);
       if (!this._ferdigflater) this._ferdigflater = new Map();
