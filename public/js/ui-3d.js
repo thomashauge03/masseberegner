@@ -1507,9 +1507,24 @@ const Tegner3d = {
        anlegg legger sin egen bakke til, så det neste ikke tegner den om igjen.
        Se `_terrengmasker` – regnestykket henger på gitrene, ikke på bildet. */
     const masker = this._terrengmasker(g, gitre);
+    /* BAKGRUNNEN MÅ INN UNDER SAMME TIDSBUDSJETT SOM ALT ANNET.
+       Det aktive gitteret desimeres etter piksler per celle, og faller i
+       oppløsning mens man drar – se `tegn`. Bakgrunnen gjorde ingen av
+       delene: de fulle nabogitrene kommer fra `_gitter(1)` og ble tegnet node
+       for node uansett hvor lite de dekket og uansett hvor tungt bildet var.
+       Målt på seks anlegg med full detalj: 123 094 nabonoder, 102,9 ms per
+       bilde – ti i sekundet – MENS fartskvaliteten samtidig gjorde det
+       aktive anlegget grovere. Verste kombinasjon: full pris, dårligere bilde.
+       Steget her deler nabonodene ned mot et tak, og taket strammes mens man
+       drar. Skisser ligger langt under taket og røres ikke: målt 37 122 noder
+       på fem naboer, som gir steg 1. */
+    let noder = 0;
+    for (const bg of gitre) noder += bg.nb * bg.nh;
+    const tak = (this._drar || this._farer) ? 18000 : 45000;
+    const steg = Math.max(1, Math.round(Math.sqrt(noder / tak)));
     for (const bg of gitre) {
       if (bg.full && bg.eier) {
-        this._tegnFulltAnlegg(bg, rb, rh, kam, pal, masker.get(bg) || null);
+        this._tegnFulltAnlegg(bg, rb, rh, kam, pal, masker.get(bg) || null, steg);
         continue;
       }
       const farge = (k00, k10, k01, k11, zz) => {
@@ -1518,7 +1533,7 @@ const Tegner3d = {
         const b2 = Math.min(255, rgb[2] * ly);
         return (255 << 24) | (b2 << 16) | (g2 << 8) | r;
       };
-      this._raster(bg, bg.z, farge, this._piksler, this._dyp, null, rb, rh, kam, null);
+      this._raster(bg, bg.z, farge, this._piksler, this._dyp, null, rb, rh, kam, null, steg);
     }
   },
 
@@ -1537,7 +1552,7 @@ const Tegner3d = {
    * rutenett, fyldig – lånes med. `vegbane` og `overbygning` gjør det ikke:
    * de finnes bare hos den ene, og en tomt har ingen vegbane å slå av.
    */
-  _tegnFulltAnlegg(bg, rb, rh, kam, pal, krevTerreng) {
+  _tegnFulltAnlegg(bg, rb, rh, kam, pal, krevTerreng, steg) {
     const eier = bg.eier;
     const g = bg;
     const foer = {
@@ -1638,13 +1653,13 @@ const Tegner3d = {
           /* `id` er alltid null for et naboanlegg: museavlesningen skal svare
              om det man ARBEIDER med, ikke om noe man bare ser. */
           this._raster(g, lag.hoyde, lag.farge, this._piksler, this._dyp, null,
-            rb, rh, kam, krev);
+            rb, rh, kam, krev, steg);
           continue;
         }
         const boks = this._skjermboks(g, lag.hoyde, kam, rb, rh, krev);
         if (boks.x1 < boks.x0) continue;                 // helt utenfor bildet
         this._toemBoks(boks, rb);
-        this._raster(g, lag.hoyde, lag.farge, this._lag2, this._dyp2, null, rb, rh, kam, krev);
+        this._raster(g, lag.hoyde, lag.farge, this._lag2, this._dyp2, null, rb, rh, kam, krev, steg);
         const styrke = lag.blanding;
         const p = this._piksler, d1 = this._dyp, d2 = this._dyp2, l2 = this._lag2;
         for (let y = boks.y0; y <= boks.y1; y++) {
@@ -1743,17 +1758,32 @@ const Tegner3d = {
    * skjæringscelle ved siden av en fyllingscelle fått en rødgrønn overgang som
    * ser ut som en tredje tilstand.
    */
-  _raster(g, hoyde, farge, ut, dyp, id, b, h, kam, krev) {
+  _raster(g, hoyde, farge, ut, dyp, id, b, h, kam, krev, steg) {
     const nb = g.nb, nh = g.nh;
+    /* STEGET BRUKES BARE AV BAKGRUNNEN – se `_tegnBakgrunn`.
+       Uten argument er `s` 1, og da blir `rader` nøyaktig 0…nh-1 og `kol`
+       0…nb-1. Både projiseringen under og celleløkka lenger nede er da de
+       samme som før, indeks for indeks. */
+    const s = Math.max(1, steg | 0);
+    /* SISTE RAD OG KOLONNE MÅ MED SELV OM STEGET IKKE TREFFER DEM.
+       Uten dem mister flaten en strimmel langs to av kantene, og bredden på
+       strimmelen er hele steget. En nabotomt ville blitt synlig mindre enn
+       hun er – og det er nettopp naboens utstrekning man ser på den for. */
+    const rader = [], kol = [];
+    for (let j = 0; j < nh - 1; j += s) rader.push(j);
+    rader.push(nh - 1);
+    for (let i = 0; i < nb - 1; i += s) kol.push(i);
+    kol.push(nb - 1);
     // projiser hver node én gang, ikke fire ganger per celle
     const rx = this._rx || (this._rx = []);
     const sy = this._sy || (this._sy = []);
     const pw = this._pw || (this._pw = []);
     const n = nb * nh;
     if (rx.length < n) { rx.length = n; sy.length = n; pw.length = n; }
-    for (let j = 0; j < nh; j++) {
-      for (let i = 0; i < nb; i++) {
-        const k = j * nb + i;
+    for (let jj = 0; jj < rader.length; jj++) {
+      const base = rader[jj] * nb;
+      for (let ii = 0; ii < kol.length; ii++) {
+        const k = base + kol[ii];
         if (!g.finnes[k]) { pw[k] = NaN; continue; }
         const q = kam.punkt(g.wx[k], g.wy[k], hoyde[k]);
         rx[k] = q.rx; sy[k] = q.sy; pw[k] = q.w;
@@ -1845,9 +1875,11 @@ const Tegner3d = {
       }
     };
 
-    for (let j = 0; j < nh - 1; j++) {
-      for (let i = 0; i < nb - 1; i++) {
-        const k00 = j * nb + i, k10 = k00 + 1, k01 = k00 + nb, k11 = k01 + 1;
+    for (let jj = 0; jj < rader.length - 1; jj++) {
+      const j0 = rader[jj] * nb, j1 = rader[jj + 1] * nb;
+      for (let ii = 0; ii < kol.length - 1; ii++) {
+        const i0 = kol[ii], i1 = kol[ii + 1];
+        const k00 = j0 + i0, k10 = j0 + i1, k01 = j1 + i0, k11 = j1 + i1;
         /* Rutenettet er ragget i skråningsfoten – der skråningen har møtt
            terrenget, slutter cellene. En firkant der ett hjørne mangler kan
            ikke tegnes, og skal ikke gjettes. */
