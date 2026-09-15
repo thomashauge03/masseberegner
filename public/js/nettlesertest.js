@@ -537,9 +537,26 @@ const Nettlesertest = {
   /* ---------------- 8. grenser ---------------- */
   async grenser() {
     const fritt = App.resultat.sum.skjaering;
-    App.P.mal.beregningsbredde = 3;
+    /* «IKKE MER» ER INGEN PÅSTAND NÅR DET BARE KAN BLI MINDRE.
+       Her sto `beregningsbredde = 3` og `skjaering <= fritt + 1e-6`. En
+       avkorting kan aldri gi mer masse, så påstanden er sann uansett om
+       avkortingen virker i det hele tatt – også om `beregningsbredde` blir
+       ignorert fullstendig.
+
+       Og tallet bet ikke engang: grensa er halvbredde pluss bredden, altså
+       5,25 m med 3, og det er bredere enn inngrepet. Målt på en veg i
+       skjæring: 8 523 m³ fritt, 8 523 med grensa på 3 – null forskjell.
+       Med 0,5 blir grensa 2,75 m, knapt utenfor kjørebanen, og da MÅ den
+       bite så lenge det graves utenfor vegkanten i det hele tatt: målt
+       5 075 m³, altså 40 % mindre. */
+    this.sjekk('det er skjæring å avkorte i det hele tatt', fritt > 1,
+      fritt.toFixed(0) + ' m³');
+    App.P.mal.beregningsbredde = 0.5;
     App.beregn();
-    this.sjekk('avkortet beregning gir ikke mer masse', App.resultat.sum.skjaering <= fritt + 1e-6);
+    const avkortet = App.resultat.sum.skjaering;
+    this.sjekk('avkortet beregning gir MINDRE masse, ikke bare «ikke mer»',
+      avkortet < fritt * 0.95,
+      avkortet.toFixed(0) + ' m³ mot ' + fritt.toFixed(0) + ' m³ fritt');
     App.P.mal.beregningsbredde = 0;
     App.beregn();
     this.naer('uten grense er vi tilbake', App.resultat.sum.skjaering, fritt, 1);
@@ -3581,10 +3598,34 @@ const Nettlesertest = {
                     const d = Tegner3d._dekningsprove(langt, []);
                     this.sjekk('  en scene på fire kilometer får fortsatt en maske',
                       !!d && typeof d.prov === 'function', d ? 'bygd' : 'INGEN');
-                    if (d) {
-                      this.sjekk('    og den svarer på et punkt inne i scenen',
-                        d.prov(2000, 2000) === false || d.prov(2000, 2000) === true,
-                        'svarer');
+                    /* «SVARER TRUE ELLER FALSE» ER INGEN PÅSTAND.
+                       Her sto `d.prov(...) === false || d.prov(...) === true`,
+                       og det er sant for enhver funksjon som gir en boolsk
+                       verdi. En maske som var blitt tusen ganger grovere ville
+                       fortsatt svart, og prøven ville fortsatt vært grønn.
+
+                       Det som betyr noe er OPPLØSNINGEN: masken skal skille
+                       dekt fra udekt på en finere skala enn hele scenen. Her
+                       er bare venstre halvdel av en fire kilometers scene
+                       dekt, og grensa måles hundre meter på hver side av
+                       midten. Målt med rett kode: dekt til 1900, udekt fra
+                       2100. En maske med to kilometers ruter kan ikke svare
+                       riktig på begge. */
+                    const halv = { nb: 3, nh: 2,
+                      wx: new Float64Array([0, 2000, 4000, 0, 2000, 4000]),
+                      wy: new Float64Array([0, 0, 0, 4000, 4000, 4000]),
+                      finnes: new Uint8Array([1, 1, 0, 1, 1, 0]) };
+                    const dh = Tegner3d._dekningsprove(halv, []);
+                    this.sjekk('    og en halvdekt scene får også en maske', !!dh,
+                      dh ? 'bygd' : 'INGEN');
+                    if (dh) {
+                      this.sjekk('    og den kjenner igjen den dekte halvdelen',
+                        dh.prov(1900, 2000) === true, 'x=1900 meldt udekt');
+                      this.sjekk('    og den udekte – masken er ikke grovere enn scenen',
+                        dh.prov(2100, 2000) === false, 'x=2100 meldt dekt');
+                      this.sjekk('    og utenfor scenen er ingenting dekt',
+                        dh.prov(-500, 2000) === false && dh.prov(4500, 2000) === false,
+                        'svarte dekt utenfor');
                     }
                   }
 
@@ -3772,15 +3813,18 @@ const Nettlesertest = {
                     const e6 = App.erTomt() ? Tomt3d : Veg3d;
                     const foerV6 = e6.vindu;
                     const areal = fl => (fl ? (fl.maksX - fl.minX) * (fl.maksY - fl.minY) : 0);
-                    const bygg = () => {
-                      /* Nøyaktig samme forholdsregel som byggFulleAnlegg tar. */
-                      const fv = e6.vindu;
-                      if (e6.vindu) { e6.vindu = 0; e6._gitterFor = null; }
-                      try {
-                        const g6 = e6._gitter(1);
-                        return g6 ? App.ferdigflateAv(g6, 1) : null;
-                      } finally { e6.vindu = fv; e6._gitterFor = null; }
-                    };
+                    /* KALLER PROGRAMMETS EGEN FORHOLDSREGEL, IKKE EN KOPI.
+                       Her sto fire linjer med kommentaren «nøyaktig samme
+                       forholdsregel som byggFulleAnlegg tar». En kopi kan
+                       ikke gå i stykker sammen med originalen: mutasjonsprøve
+                       viste at å slå forholdsregelen AV i `byggFulleAnlegg`
+                       ikke ga én eneste rød prøve, fordi prøven målte sin
+                       egen kopi. Den er nå ett navn – `Tegner3d._utenVindu` –
+                       og prøven kaller det samme som programmet. */
+                    const bygg = () => Tegner3d._utenVindu(e6, () => {
+                      const g6 = e6._gitter(1);
+                      return g6 ? App.ferdigflateAv(g6, 1) : null;
+                    });
                     const utanVindu = (() => {
                       e6.vindu = 0; e6._gitterFor = null;
                       const g6 = e6._gitter(1);
@@ -3795,12 +3839,20 @@ const Nettlesertest = {
                       return g6 ? App.ferdigflateAv(g6, 1) : null;
                     })();
                     e6.vindu = foerV6; e6._gitterFor = null;
+                    /* «ELLER SÅ ER DET INGENTING Å MÅLE» ER EN LUKE UT.
+                       Begge påstandene sto med `areal(utanVindu) === 0 ||`
+                       foran seg. Ble oppsettet aldri til en flate, var de
+                       grønne uten å ha målt noe – og nettopp da ville heller
+                       ikke mutasjonen blitt fanget. At det FINNES en flate er
+                       en egen påstand, ikke et forbehold på de andre. */
+                    this.sjekk('  det finnes en ferdigflate å måle vinduet mot',
+                      areal(utanVindu) > 0, Math.round(areal(utanVindu)) + ' m²');
                     this.sjekk('  tverrsnittsvinduet korter ikke ned det de andre regner mot',
-                      areal(utanVindu) === 0 || areal(medVindu) > areal(utanVindu) * 0.9,
+                      areal(medVindu) > areal(utanVindu) * 0.9,
                       Math.round(areal(medVindu)) + ' m² med vindu på, '
                       + Math.round(areal(utanVindu)) + ' m² uten');
                     this.sjekk('    og uten forholdsregelen ville den blitt kortet ned',
-                      areal(utanVindu) === 0 || areal(utan) < areal(utanVindu) * 0.9,
+                      areal(utan) < areal(utanVindu) * 0.9,
                       Math.round(areal(utan)) + ' m² – det er feilen som var der');
                   }
 
@@ -6219,8 +6271,21 @@ const Nettlesertest = {
           foer.del === 0, Math.round(100 * foer.del) + ' % farget');
         this.sjekk('men terrenget står der fortsatt', foer.n > etter.n * 0.5,
           foer.n + ' mot ' + etter.n + ' piksler');
-        this.sjekk('og det står i bildet HVILKEN av de to man ser på',
-          Veg3d.visFoer === true);
+        /* FLAGGET VAR SATT FIRE LINJER OVER – DET VISSTE VI FRA FØR.
+           Her sto `Veg3d.visFoer === true`, og det er nettopp det prøven
+           selv skrev rett ovenfor. Påstanden het «det står i BILDET», og
+           da må den lese bildet. Teksten males med `fillText` på
+           overlegget (ui-3d.js), så den fanges der den faktisk skjer. */
+        {
+          const ov = Veg3d.over.getContext('2d');
+          const gFT = ov.fillText;
+          const malt = [];
+          ov.fillText = function (s, ...r) { malt.push(String(s)); return gFT.apply(this, [s, ...r]); };
+          try { Veg3d.tegn(); await this.vent(120); } finally { ov.fillText = gFT; }
+          this.sjekk('og det står i bildet HVILKEN av de to man ser på',
+            malt.some(t => /^FØR\b/.test(t)),
+            malt.length ? malt.slice(0, 3).join(' | ') : 'ingen tekst malt');
+        }
 
         Veg3d.visFoer = false; Veg3d.tegn();
         await this.vent(180);
@@ -6825,12 +6890,37 @@ const Nettlesertest = {
           knapper7.map(b => b.dataset.fullskjerm).join(','));
         /* Etter en fullskjermendring må innrammingen gjøres om. Flagget er det
            som styrer det, og prøven krever at hendelsen setter det. */
-        Veg3d._skalaSatt = true; Tomt3d._skalaSatt = true;
-        document.dispatchEvent(new Event('fullscreenchange'));
-        await this.vent(220);
-        this.sjekk('en fullskjermendring rammer modellene inn på nytt',
-          Veg3d._skalaSatt === false || Tomt3d._skalaSatt === false,
-          'veg ' + Veg3d._skalaSatt + ', tomt ' + Tomt3d._skalaSatt);
+        /* FLAGGET ETTERPÅ ER FEIL STED Å SE.
+           Her sto `_skalaSatt === false || ...`, og `||` gjorde halve kravet
+           valgfritt. Men å bytte til `&&` er like galt, og det tok én rød
+           kjøring å forstå: handleren setter BEGGE til false (app.js:6775)
+           og tegner så begge (6776) – og `tegn()` setter flagget tilbake til
+           true på den som faktisk RAMMES INN. Målt «veg true, tomt false»
+           betyr altså at vegen ble rammet inn og at tomta ligger skjult og
+           aldri ble tegnet. Begge deler er riktig.
+
+           Det som skal måles er at nullstillingen SKJER, for begge. Derfor
+           fanges skrivingene mens hendelsen går, ikke tilstanden etterpå. */
+        const skriv = { veg: [], tomt: [] };
+        const spion = (obj, boks) => {
+          let v = obj._skalaSatt;
+          Object.defineProperty(obj, '_skalaSatt', {
+            configurable: true,
+            get() { return v; },
+            set(n) { boks.push(n); v = n; }
+          });
+          return () => { delete obj._skalaSatt; obj._skalaSatt = v; };
+        };
+        const avV = spion(Veg3d, skriv.veg), avT = spion(Tomt3d, skriv.tomt);
+        try {
+          Veg3d._skalaSatt = true; Tomt3d._skalaSatt = true;
+          skriv.veg.length = 0; skriv.tomt.length = 0;
+          document.dispatchEvent(new Event('fullscreenchange'));
+          await this.vent(300);
+        } finally { avV(); avT(); }
+        this.sjekk('en fullskjermendring nullstiller innrammingen i BEGGE modellene',
+          skriv.veg.includes(false) && skriv.tomt.includes(false),
+          'veg [' + skriv.veg.join(',') + '], tomt [' + skriv.tomt.join(',') + ']');
         await this.vent(150);
       }
 

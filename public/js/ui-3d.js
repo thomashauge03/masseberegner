@@ -488,6 +488,34 @@ const Tegner3d = {
     return false;
   },
 
+  /**
+   * Kjører `gjer()` med tverrsnittsvinduet AV, og legger det tilbake etterpå.
+   *
+   * STÅR VINDUET PÅ, ER GITTERET BARE ET UTSNITT. Med ±100 m ble bare den
+   * strekningen registrert som «vegen ferdig bygd» for de andre anleggene. En
+   * nabotomt tusen meter unna traff da rå mark og regnet mot lia vegen alt
+   * har gravd bort – mens merknaden likevel sa at den var regnet mot vegens
+   * ferdige nivå. Og flyttet brukeren skyveknappen og trykte igjen, fikk han
+   * et annet tallsett.
+   *
+   * DETTE VAR SKREVET TO GANGER, OG PRØVEN EN TREDJE. Nettlesertesten hadde
+   * sin egen kopi med kommentaren «nøyaktig samme forholdsregel som
+   * byggFulleAnlegg tar» – og en kopi kan ikke gå i stykker sammen med
+   * originalen. Mutasjonsprøve: å slå forholdsregelen av i `byggFulleAnlegg`
+   * ga ikke én rød prøve, fordi prøven målte sin egen kopi. Nå kaller prøven
+   * dette, så den går i stykker sammen med programmet.
+   *
+   * NABOLØKKA I `byggFulleAnlegg` HAR FORTSATT SIN EGEN. Den venter på
+   * `ventPaaResultat` mellom av og på, og denne er synkron: `finally` ville
+   * lagt vinduet tilbake før anlegget var regnet. Å tvinge dem sammen ville
+   * gjort den ene gal for å slippe å skrive fire linjer to ganger.
+   */
+  _utenVindu(eier, gjer) {
+    const foer = eier.vindu;
+    if (eier.vindu) { eier.vindu = 0; eier._gitterFor = null; }
+    try { return gjer(); } finally { eier.vindu = foer; eier._gitterFor = null; }
+  },
+
   async byggFulleAnlegg() {
     /* Kalles på PROTOTYPEN – fra knappen i menyen – og der finnes ingen `app`.
        Den bor på Veg3d og Tomt3d, ikke på Tegner3d. Samme fallback som
@@ -576,9 +604,7 @@ const Tegner3d = {
            vegen alt har gravd bort – mens merknaden likevel sa at den var
            regnet mot vegens ferdige nivå. Og flyttet brukeren skyveknappen og
            trykte igjen, fikk han et annet tallsett. */
-        const foerVinduA = eierA.vindu;
-        if (eierA.vindu) { eierA.vindu = 0; eierA._gitterFor = null; }
-        try {
+        Tegner3d._utenVindu(eierA, () => {
           const gA = eierA._gitter(1);
           if (gA) {
             if (!app._ferdigflater) app._ferdigflater = new Map();
@@ -589,7 +615,7 @@ const Tegner3d = {
             if (fA && aA) { fA.nokkel = this._fullnokkel(aA); app._ferdigflater.set(foer, fA); }
             else app._ferdigflater.delete(foer);
           }
-        } finally { eierA.vindu = foerVinduA; eierA._gitterFor = null; }
+        });
       }
       const runder = 1;                  // se begrunnelsen over
       let i = 0;
