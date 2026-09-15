@@ -951,7 +951,35 @@ const Tegner3d = {
        det samme budsjettet som hovedmodellen tegnes etter. */
     const steg = Math.max(2, Math.ceil(linje.lengde / 400));
     const nh = Math.max(2, Math.floor(linje.lengde / steg) + 1);
-    const nb = 5;
+    /* ================================================================
+       SKISSEN SKAL IKKE SVEVE.
+
+       Her var `nb` fem – bare kjørebanen, og ingenting som bandt den til
+       bakken. En naboveg ble da et smalt bånd som hang i lufta så mange
+       meter over eller under terrenget som den tilfeldigvis lå, og det
+       ser ikke ut som en skisse; det ser ut som en feil.
+
+       TERRENGET ER DER, OG DET KAN SPØRRES GRATIS. Kommentaren om at
+       «terrenget for et anlegg man ikke arbeider med er ikke lastet ned»
+       gjelder at man ikke kan REGNE naboen – men `Terreng.z` svarer NaN
+       der det mangler data, og det aktive anlegget laster med marg rundt
+       seg. En nabo som ligger nær nok til at svevingen synes, er nettopp
+       den som er dekt. Er den ikke det, blir utslaget null, og skissen er
+       akkurat den den var før.
+
+       Skråningen trenger ikke noe søk: utslaget er `høydeforskjell ·
+       helning`, og høyden langs den er en rett linje fra vegkanten ned
+       (eller opp) til terrenget i foten. Fire kolonner per side holder –
+       dette er en skisse, ikke et masseoppsett, og den skal ikke koste som
+       et. Taket på utslaget er malens eget `maksUtslag`, så en enkelt gal
+       terrengverdi ikke drar et vinge på hundre meter ut i bildet.
+       ================================================================ */
+    const terreng = app && app.terreng;
+    const sFyll = Math.max(0.1, mal.fylling || 2);
+    const sSkjaer = Math.max(0.1, mal.skjaeringLosmasse || 2);
+    const maksUt = Math.max(2, Math.min(mal.maksUtslag || 40, 60));
+    const K = 4;
+    const nb = 5 + 2 * K;
     const n = nb * nh;
     /* Float64 for wx/wy. Nordkoordinaten er rundt 6 460 000, og der ligger
        nabotallene i float32 en halv meter fra hverandre – bredere enn halve
@@ -965,14 +993,61 @@ const Tegner3d = {
       const s = Math.min(linje.lengde, j * steg);
       const zs = vp.hoyde(s);
       if (!Number.isFinite(zs)) continue;
+      /* Vegkanten er den samme på begge sider – taktverrfallet er symmetrisk. */
+      const zKant = zs - hb * fall;
+      /* Utslaget på én side: hvor langt ut skråningen når, og hvor mye den
+         faller (negativt) eller stiger (positivt) på veien dit. Null begge
+         deler når terrenget ikke svarer – da står skissen igjen som før. */
+      const hoyde = (t) => {
+        const p = linje.punktMedAvvik(s, t);
+        if (!p || !Number.isFinite(p.x)) return NaN;
+        return terreng.z(p.x, p.y);
+      };
+      /* FOTEN MÅ TREFFE BAKKEN DER FOTEN ER, IKKE DER VEGKANTEN ER.
+         Første utgave regnet utslaget av terrenget ved vegkanten én gang.
+         I hellende lende ligger bakken et annet sted tolv meter lenger ut,
+         og foten bommet – målt 0,50 m under terrenget på en skråning i 2 %
+         fall. Dette er et fikspunkt: utslaget følger av høyden i foten, og
+         høyden i foten følger av utslaget. To runder til tar det ned i
+         centimeter, og hver runde koster ett terrengoppslag. */
+      const utslag = (side) => {
+        if (!terreng) return { L: 0, dz: 0 };
+        let zt = hoyde(side * hb);
+        if (!Number.isFinite(zt)) return { L: 0, dz: 0 };
+        let L = 0, dz = 0;
+        for (let runde = 0; runde < 3; runde++) {
+          const d = zKant - zt;               // positiv: vegen ligger over bakken
+          const hell = d >= 0 ? sFyll : sSkjaer;
+          L = Math.min(maksUt, Math.abs(d) * hell);
+          dz = (d >= 0 ? -1 : 1) * (L / hell);
+          if (runde === 2) break;
+          const neste = hoyde(side * (hb + L));
+          if (!Number.isFinite(neste)) break;
+          zt = neste;
+        }
+        return { L, dz };
+      };
+      const uV = utslag(-1), uH = utslag(1);
       for (let i = 0; i < nb; i++) {
         const k = j * nb + i;
-        const t = -hb + 2 * hb * (i / (nb - 1));
+        let t, zz;
+        if (i < K) {                          // venstre skråning, ytterst først
+          const u = uV.L * (K - i) / K;
+          t = -hb - u;
+          zz = zKant + (uV.L > 0 ? uV.dz * (u / uV.L) : 0);
+        } else if (i < K + 5) {               // selve kjørebanen
+          t = -hb + 2 * hb * ((i - K) / 4);
+          // taktverrfall: begge kanter ligger lavere enn senterlinja
+          zz = zs - Math.abs(t) * fall;
+        } else {                              // høyre skråning, innerst først
+          const u = uH.L * (i - (K + 4)) / K;
+          t = hb + u;
+          zz = zKant + (uH.L > 0 ? uH.dz * (u / uH.L) : 0);
+        }
         const p = linje.punktMedAvvik(s, t);
         if (!p || !Number.isFinite(p.x)) continue;
         wx[k] = p.x; wy[k] = p.y;
-        // taktverrfall: begge kanter ligger lavere enn senterlinja
-        z[k] = zs - Math.abs(t) * fall;
+        z[k] = zz;
         finnes[k] = 1;
         if (z[k] < lav) lav = z[k];
         if (z[k] > hoy) hoy = z[k];

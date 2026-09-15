@@ -154,7 +154,7 @@ const Nettlesertest = {
       'autolagring', 'overskriving', 'tverrsnittAvlesning', 'pdfrapport',
       'pdfavlesning', 'rapport', 'paneler', 'flereAnlegg', 'tverrsnittEnsidig',
       'snuplassBlirSynlig', 'naboOverlapping', 'anleggsrekkefolge', 'anleggsmerking', 'prosjektmasserOgRekkefolge', 'vegMellomToTomter',
-      'automatiskeNaboer',
+      'automatiskeNaboer', 'skisseSkraaninger',
       'grensesnittbredder', 'panelhoder',
       'tomt', 'tomteksport', 'tomterydding', 'tomtsnittOverbygning',
       'tomt3d', 'veg3d', 'kartlag',
@@ -1222,6 +1222,106 @@ const Nettlesertest = {
          94 px tekst i en knapp på 89. Feilen var i oppryddingen her, ikke i
          grensesnittet – den slags er den vanskeligste å lete etter.
          `visAnleggsvelger` tegner knappen om OG kaller `visAndreknapp` selv. */
+      app.visAnleggsvelger();
+    }
+  },
+
+  /* ---------------- skissa skal ikkje sveve ----------------
+   *
+   * Eit naboanlegg som ikkje er bygd i full detalj tegnes som ei SKISSE.
+   * Vegskissa var bare kjørebanen – fem punkt tvers over – og ingenting
+   * som bandt henne til bakken. Ein naboveg hang då i lufta så mange meter
+   * over eller under terrenget som han tilfeldigvis låg, og det ser ikkje
+   * ut som ei skisse; det ser ut som ein feil.
+   *
+   * Prøva måler GEOMETRIEN, ikkje biletet: at foten av skråninga lander på
+   * terrenget, og at skissa fell tilbake til kjørebanen aleine når det
+   * ikkje finst terreng å lande på.
+   */
+  async skisseSkraaninger() {
+    const app = App;
+    const foerP = JSON.stringify(app.P);
+    const gz = Terreng.prototype.z, gd = Terreng.prototype.dekning, gl = Terreng.prototype.lastOmraade;
+    const foerTerreng = app.terreng;
+    try {
+      const x0 = 430000, y0 = 6460000;
+      /* HELT FLATT TERRENG, MED VILJE. Da er utslaget et tall man kan regne
+         ut for hånd, og prøven måler koden – ikke terrengmodellen.
+         `app.terreng` settes DIREKTE. `_bakgrunnVeg` spør nettopp den, og på
+         en fersk side finnes den ikke før noe er regnet – første utgaven av
+         prøven stubbet bare `Terreng.prototype` og målte derfor en skisse
+         uten skråninger i det hele tatt. */
+      Terreng.prototype.z = function () { return 100; };
+      Terreng.prototype.dekning = function () { return 1; };
+      Terreng.prototype.lastOmraade = async function () { return true; };
+      app.terreng = { z: () => 100, dekning: () => 1 };
+      const pkt = (dx, dy) => {
+        const q = Geo.fraUtm(x0 + dx, y0 + dy, app.sone);
+        return { lat: q.lat, lon: q.lon };
+      };
+      const mal = Object.assign({}, StandardMal);
+      const anl = { id: 'skisse', type: 'veg', navn: 'Nabovegen', tverrfall: [], plasser: [],
+        mal,
+        ip: [Object.assign(pkt(0, 0), { r: 0 }), Object.assign(pkt(0, 200), { r: 0 })],
+        vip: [{ s: 0, z: 106, k: 0 }, { s: 200, z: 106, k: 0 }] };
+
+      const hb = Math.max(0.5, mal.vegbredde / 2);
+      const zKant = 106 - hb * mal.tverrfall;
+      const ventaL = Math.min(mal.maksUtslag, (zKant - 100) * mal.fylling);
+
+      const g = Veg3d._bakgrunnVeg.call(Veg3d, anl);
+      this.sjekk('skissa av ein naboveg lar seg byggje', !!g, g ? '' : 'ingen geometri');
+      if (!g) return;
+
+      const rad = (gg) => {
+        const j = Math.floor(gg.nh / 2), ut = [];
+        for (let i = 0; i < gg.nb; i++) {
+          const k = j * gg.nb + i;
+          if (gg.finnes[k]) ut.push({ x: gg.wx[k], y: gg.wy[k], z: gg.z[k] });
+        }
+        return ut;
+      };
+      const r = rad(g);
+      const breidde = Math.hypot(r[r.length - 1].x - r[0].x, r[r.length - 1].y - r[0].y);
+
+      this.sjekk('  og ho er breiare enn kjørebanen – skråningane er med',
+        breidde > mal.vegbredde + 1,
+        breidde.toFixed(1) + ' m mot ' + mal.vegbredde + ' m kjørebane');
+      this.naer('  og like brei som kjørebane pluss to utslag',
+        breidde, mal.vegbredde + 2 * ventaL, 0.6);
+      /* DEN EINE PÅSTANDEN SOM FANGAR AT SKRÅNINGA PEIKAR FEIL VEG.
+         Ei skisse som stakk ut i full vegbanehøgd ville passert breidda
+         over – og framleis svevd. */
+      this.naer('  og foten av skråninga lander på terrenget',
+        Math.min(r[0].z, r[r.length - 1].z), 100, 0.05);
+      this.sjekk('  og toppen ligg framleis på vegen',
+        Math.max(...r.map(q => q.z)) > 105.5,
+        'høgste punkt ' + Math.max(...r.map(q => q.z)).toFixed(2));
+
+      /* UTAN TERRENG SKAL HO VERE SOM FØR, IKKJE KASTE.
+         Terrenget for eit anlegg ein ikkje arbeider med treng ikkje vere
+         lasta. Da er utslaget null, og skissa er kjørebanen aleine. */
+      const nullTerreng = { z: () => NaN, dekning: () => 0 };
+      const foer2 = app.terreng;
+      app.terreng = nullTerreng;
+      let g2 = null;
+      try { g2 = Veg3d._bakgrunnVeg.call(Veg3d, anl); } finally { app.terreng = foer2; }
+      this.sjekk('utan terreng lar skissa seg framleis byggje', !!g2,
+        g2 ? '' : 'kasta eller gav ingenting');
+      if (g2) {
+        const r2 = rad(g2);
+        const b2 = Math.hypot(r2[r2.length - 1].x - r2[0].x, r2[r2.length - 1].y - r2[0].y);
+        this.naer('  og er da kjørebanen aleine', b2, mal.vegbredde, 0.1);
+      }
+    } finally {
+      Terreng.prototype.z = gz; Terreng.prototype.dekning = gd;
+      Terreng.prototype.lastOmraade = gl;
+      app.terreng = foerTerreng;
+      app.P = JSON.parse(foerP);
+      app.klargjorProsjekt(app.P);
+      app.resultat = null;
+      app._ferdigflater = null;
+      app._terrengnokkel = null;
       app.visAnleggsvelger();
     }
   },
