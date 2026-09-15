@@ -306,6 +306,34 @@ console.log('\n3b. Innlagte høyder');
   const slakVerst = verst(slakVip, slak.z);
   paastand('i slakt lende holdes grensen mot terrenget', slakVerst.fylling <= 3.05 && slakVerst.skjaering <= 5.05);
   paastand('og stigningskravet holdes samtidig', new Vertikalprofil(slakVip).maksStigning(1) <= 0.2001);
+  /* GRENSEN MÅ PRØVES DER DEN FAKTISK BITER.
+     Påstanden over er navngitt etter `maksOverTerreng: 3` og
+     `maksUnderTerreng: 5`, men i denne slake dalen legger forslaget seg 0,571 m
+     over og 0,197 m under terrenget. Marginen er faktor 5 og faktor 26.
+
+     Målt: med grensene satt fra 0,05 til 100 er svaret NØYAKTIG det samme –
+     0,571 / 0,197 hele veien. Påstanden ville stått grønn med reglene revet ut
+     av koden.
+
+     Og grunnen er verdt å vite: regelen måler mot GLATTET terreng
+     (`lagTerrengoppslag(stasjoner, glattet)` i vertikalprofil.js), mens prøven
+     måler mot det rå. I en slak dal er de to nesten like, og forslaget ligger
+     innenfor uansett. En prøve i slakt lende kan derfor ikke se regelen i det
+     hele tatt.
+
+     Under prøves den der den biter: en dyp, trang dal der forslaget ellers
+     legger seg 13,8 m over bunnen. Målt der: 13,80 m uten grense mot 12,26 m
+     med grense 3 – regelen drar profilen halvannen meter ned. */
+  const djupDal = lagDal(25, 18);
+  const djupUten = verst(foreslaProfil(djupDal.s, djupDal.z, {
+    vipAvstand: 40, maksStigning: 0.2, k: 0
+  }), djupDal.z);
+  const djupMed = verst(foreslaProfil(djupDal.s, djupDal.z, {
+    vipAvstand: 40, maksStigning: 0.2, k: 0, maksOverTerreng: 3, maksUnderTerreng: 5
+  }), djupDal.z);
+  paastand('i dyp dal drar grensen profilen ned mot bakken',
+    djupMed.fylling < djupUten.fylling - 0.5,
+    `uten ${djupUten.fylling.toFixed(2)} m mot med ${djupMed.fylling.toFixed(2)} m`);
 
   /* Trang kløft: her star kravene mot hverandre. Veien kan ikke følge bunnen
      uten a bryte stigningskravet, sa kløften ma brues. Grensen kan da ikke
@@ -1306,12 +1334,40 @@ console.log('\n4k. Merknadene, og masser som brukes om igjen');
   paastand('prøven har både skjæring og fylling',
     midt.sum.skjaering > 50 && midt.sum.fylling > 50,
     `skjæring ${midt.sum.skjaering.toFixed(0)}, fylling ${midt.sum.fylling.toFixed(0)}`);
-  paastand('masse fra skjæringen blir faktisk brukt i fyllingen',
-    b.fyllFraLos + b.fyllFraFjell > 1,
-    `løsmasse ${b.fyllFraLos.toFixed(0)}, fjell ${b.fyllFraFjell.toFixed(0)}`);
+  /* GRENSEN MÅ LIGGE DER SVARET FAKTISK ER.
+     Her sto `> 1`, og målt verdi er 4 864 m³ – en margin på faktor 4 864. Den
+     ville holdt om koden brukte én eneste kubikk av skjæringen og kjøpte
+     resten. Regelen er at det som er tilgjengelig skal brukes SÅ LANGT DET
+     REKKER: er det nok, dekkes hele behovet; er det ikke nok, brukes alt. */
+  sjekk('massen fra skjæringen brukes så langt den rekker',
+    b.fyllFraLos + b.fyllFraFjell, Math.min(b.tilgjengelig, b.fyllingBehov), 1e-6);
+  paastand('  og det er en vesentlig del av fyllingen her, ikke en kubikk',
+    b.fyllFraLos + b.fyllFraFjell > b.fyllingBehov * 0.5,
+    `${(b.fyllFraLos + b.fyllFraFjell).toFixed(0)} av ${b.fyllingBehov.toFixed(0)} m³`);
   paastand('løsmassen brukes før sprengsteinen',
     b.fyllFraLos > 0 && (b.fyllFraLos >= b.brukbarLos - 1e-6 || b.fyllFraFjell < 1e-6),
     `${b.fyllFraLos.toFixed(1)} av ${b.brukbarLos.toFixed(1)} brukbar`);
+  /* BEHOVET MÅ FORANKRES, ELLERS REGNER PÅSTANDEN SEG SELV.
+     Under står identiteten `fyllFraLos + fyllFraFjell + manglerFylling =
+     fyllingBehov`. Den holder for ETHVERT tall, for `manglerFylling` er i
+     masser.js DEFINERT som `fyllingBehov − fyllFraLos − fyllFraFjell`.
+     Venstresiden bygger altså høyresiden opp igjen ledd for ledd.
+
+     Målt: med `fyllingBehov = sum.fylling * 0.5` sto hele selvtesten grønn –
+     576 av 576 – og denne linja skrev til og med ut det halverte tallet og
+     godkjente det: «(2432.1 ≈ 2432.1)». Det samme gjaldt bærelaget.
+
+     Det er ikke et hvilket som helst tall. `manglerFylling` er «Må inn» på
+     skjermen og i tilbudet – kubikken som må kjøpes og kjøres på anlegget.
+     Den kunne halveres uten at én eneste prøve sa fra.
+
+     Derfor ANKERET først: behovet skal være massesummen, som kommer en annen
+     vei gjennom koden. Identiteten står igjen etterpå, for den er fortsatt
+     verdt å ha – den fanger en feil i FORDELINGEN mellom postene. */
+  sjekk('fyllingsbehovet ER fyllingen som skal legges ut',
+    b.fyllingBehov, midt.sum.fylling, 1e-6);
+  sjekk('bærelagsbehovet ER bærelaget som skal inn',
+    b.baerelagBehov, midt.sum.baerelag, 1e-6);
   sjekk('fyllingsbehovet går nøyaktig opp',
     b.fyllFraLos + b.fyllFraFjell + b.manglerFylling, b.fyllingBehov, 1e-6);
   paastand('og ingen post er negativ',
@@ -1327,9 +1383,33 @@ console.log('\n4k. Merknadene, og masser som brukes om igjen');
      nar den er lagt ut og komprimert i fyllingen. Det første tallet brukes til
      transport, det andre til balansen - blandes de, blir svaret feil begge
      veier. */
-  {
-    const f = midt.faktorer, s = midt.sum;
-    const id = (navn, a, b2) => sjekk('  ' + navn, a, b2, 1e-6);
+  /* IDENTITETENE MÅ KJØRES PÅ ET UNDERSKUDD OGSÅ.
+     Blokka under sto bare på `midt`, og `midt` ligger i et terreng som gir
+     kraftig masseoverskudd: fjellFast 7 609 m³ mot et fyllingsbehov på 4 864.
+     Da er BÅDE `manglerFylling` og `manglerBaerelag` null, og identiteten
+     `manglerTotalt = manglerFylling + manglerBaerelag` blir 0 = 0 + 0. Den
+     holder uansett hva koden gjør med de to leddene.
+
+     Målt: med `manglerTotalt: manglerFylling` – altså bærelagsmangelen strøket
+     fra totalen – sto hele selvtesten grønn. «Må inn» på skjermen ville da
+     manglet hele bærelaget som skal kjøpes.
+
+     `mangel` under er det samme regnskapet i et terreng som ikke har masse nok,
+     så de samme identitetene prøves med tall som ikke er null på begge sider. */
+  const mangel = M.beregnMasser({
+    linje: langs, profil: new Vertikalprofil([{ s: 0, z: 112, k: 0 }, { s: 200, z: 134, k: 0 }]),
+    terreng: li, mal: {}, fjell: new M.Fjellmodell({ standarddybde: 40 }),
+    profilAvstand: 5, bakkefaktor: 1
+  });
+  paastand('mangelprøven mangler faktisk masse',
+    mangel.balanse.manglerFylling > 1 && mangel.balanse.manglerBaerelag > 1,
+    `fylling ${mangel.balanse.manglerFylling.toFixed(0)}, `
+    + `bærelag ${mangel.balanse.manglerBaerelag.toFixed(0)}`);
+
+  for (const [hva, res] of [['overskudd', midt], ['underskudd', mangel]]) {
+    const b = res.balanse;
+    const f = res.faktorer, s = res.sum;
+    const id = (navn, a, b2) => sjekk('  ' + hva + ': ' + navn, a, b2, 1e-6);
     id('sprengt løsvolum = fast fjell × sprengningsfaktor',
       b.fjellSprengtLos, b.fjellFast * f.sprengningsfaktor);
     id('fast fjell i regnskapet = skjæring i fjell',
@@ -1726,10 +1806,29 @@ console.log('\n4f. Eksportformatene');
     const flagg = b && b.find(p => p[0] === '70');
     return !!flagg && (Number(flagg[1]) & 1) === 1;
   })());
+  /* GRENSEN MÅ KUNNE SKILLE FLATENE FRA HVERANDRE.
+     Her sto «innenfor 30 m av kote 100», og alle de 60 z-verdiene er 103,800 –
+     terrenget 104 minus renskdybden 0,20. Med en grense på 30 m ville
+     vegnivået (100–110), terrenget (104) og skråningsfoten alle bestått, og
+     påstanden kunne ikke si hvilken av dem fotavtrykket lå på. Den fanget bare
+     «ikke null».
+
+     Fasiten her er hentet fra RESULTATET, ikke fra eksporten: skråningsfoten
+     ligger på `zFotVenstre`/`zFotHoyre` i profilene. Da prøves det eksporten
+     faktisk skal gjøre – legge foten i sin egen kote – med en toleranse som
+     ikke rommer noen av de andre flatene. */
   paastand('DXF legger fotavtrykket i sin egen kote, ikke på null', (() => {
     const b = fotBlokk(Eksport.dxf(app, res));
     const z = b && b.filter(p => p[0] === '30').map(p => Number(p[1]));
-    return !!z && z.length > 4 && z.every(v => Math.abs(v - 100) < 30);
+    if (!z || z.length <= 4) return false;
+    const foter = [];
+    for (const pr of res.profiler) {
+      if (Number.isFinite(pr.zFotVenstre)) foter.push(pr.zFotVenstre);
+      if (Number.isFinite(pr.zFotHoyre)) foter.push(pr.zFotHoyre);
+    }
+    if (!foter.length) return false;
+    const lav = Math.min(...foter) - 0.05, hoy = Math.max(...foter) + 0.05;
+    return z.every(v => v >= lav && v <= hoy);
   })());
 
   const dxf = Eksport.dxf(app, res);
@@ -2199,6 +2298,12 @@ console.log('\n5. Massebalanse');
       profilAvstand: 10, bakkefaktor: 1
     });
     const b = r.balanse;
+    /* ANKERET FØRST – de to under er identiteter som holder for ethvert tall.
+       Se den lange begrunnelsen ved «fyllingsbehovet ER fyllingen» i seksjon 4.
+       Her gjentas de for tre tilfeller, så tre grønne lys hvilte på den samme
+       tautologien. */
+    sjekk(`${navn}: fyllingsbehovet ER fyllingen`, b.fyllingBehov, r.sum.fylling, 1e-6);
+    sjekk(`${navn}: bærelagsbehovet ER bærelaget`, b.baerelagBehov, r.sum.baerelag, 1e-6);
     sjekk(`${navn}: fylling går opp`, b.fyllFraLos + b.fyllFraFjell + b.manglerFylling, b.fyllingBehov, 1e-6);
     sjekk(`${navn}: bærelag går opp`, b.baerelagFraFjell + b.manglerBaerelag, b.baerelagBehov, 1e-6);
     paastand(`${navn}: ingen negative poster`,
