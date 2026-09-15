@@ -1754,12 +1754,67 @@ const Nettlesertest = {
       this.sjekk('  og den andre har et fradrag å vise for seg',
         p1.rader[1].delt > 50, p1.rader[1].delt.toFixed(0) + ' m³');
 
-      /* DE TRE LINJENE MÅ GÅ OPP. Uten dette kunne kortet vist tre tall som
-         hver for seg ser rimelige ut og ikke er det samme regnestykket. */
+      /* DE TRE LINJENE MÅ GÅ OPP – MOT HVERANDRE, IKKE MOT SEG SELV.
+         Her sto en identitet og ikke en prøve: `hvert` ble bygget som
+         skjæring + fylling + deltSum, og påstanden regnet så `hvert - deltSum`
+         mot skjæring + fylling. Det er A + D − D = A, og det holder for enhver
+         D – også D = 0. Verre: den så aldri på kortet i det hele tatt, så
+         `visProsjektmasser` kunne skrevet tre vilkårlige tall på de tre
+         linjene uten at noe her merket det. Nå prøves de tre tingene som
+         faktisk kan være gale:
+           · fradragslinja er summen av fradragene i radene over den
+           · bunnlinja er summen av de samme radene
+           · DE TRE TALLENE PÅ KORTET går opp mot hverandre, og er de samme
+             tallene som `prosjektsum()` kom fram til
+         Oppsettet er to tomter med 15 × 30 m felles felt, kote 97 og 95; den
+         andre slipper noen hundre kubikk, så en linje som skriver feil tall
+         bommer med hundrevis – langt utenfor slingringen. Kortet runder til
+         hele kubikk, så tre avrundinger kan bære 1,5 m³; 2 gir litt luft. */
       const deltSum = (p1.delt.skjaering || 0) + (p1.delt.fylling || 0);
       const hvert = p1.skjaering + p1.fylling + deltSum;
-      this.naer('hvert anlegg for seg minus delt mark er prosjektet',
-        hvert - deltSum, p1.skjaering + p1.fylling, 0.5);
+      const radDelt = p1.rader.reduce((s, r) => s + (r.delt || 0), 0);
+      const radSum = p1.rader.reduce((s, r) =>
+        s + (r.skjaering || 0) + (r.fylling || 0), 0);
+      this.sjekk('fradraget er et virkelig tall, ikke null', deltSum > 50,
+        deltSum.toFixed(1) + ' m³');
+      this.naer('fradragslinja er fradragene i radene over den',
+        deltSum, radDelt, 0.5);
+      this.naer('prosjektsummen er nøyaktig de radene som står over den',
+        p1.skjaering + p1.fylling, radSum, 0.5);
+
+      /* TALLENE LESES FRA KORTET. De to kortpåstandene lenger nede ser bare på
+         overskriftene – «Hele prosjektet», «Delt mark», «bygger først» – og de
+         står like grønne om tallene ved siden av er tatt ut av lufta. Skriver
+         `visProsjektmasser` noe annet enn regnestykket på en av de tre
+         linjene, er det her det melder seg. */
+      const kubikk = el => {
+        const v = el.querySelector('.verdi');
+        return parseFloat(String(v ? v.textContent : '')
+          .replace(/[^0-9,.\-−]/g, '').replace('−', '-').replace(',', '.'));
+      };
+      const sumrader = [...document.querySelectorAll('#prosjektmasser .sumrad')];
+      const finnLinje = navn =>
+        sumrader.find(d => (d.textContent || '').indexOf(navn) >= 0);
+      const lHvert = finnLinje('Hvert anlegg for seg');
+      const lDelt = finnLinje('Delt mark');
+      const lBygges = finnLinje('Prosjektet slik det bygges');
+      this.sjekk('kortet har alle de tre linjene', !!(lHvert && lDelt && lBygges),
+        sumrader.map(d => d.textContent).join(' | ') || 'ingen sumrader');
+      if (lHvert && lDelt && lBygges) {
+        const vHvert = kubikk(lHvert);
+        const vDelt = Math.abs(kubikk(lDelt));
+        const vBygges = kubikk(lBygges);
+        this.naer('  øverste linje er hvert anlegg gravd fra rå mark',
+          vHvert, hvert, 1);
+        this.naer('  fradragslinja er den delte marka', vDelt, deltSum, 1);
+        this.naer('  nederste linje er prosjektet slik det bygges',
+          vBygges, p1.skjaering + p1.fylling, 1);
+        this.naer('hvert anlegg for seg minus delt mark er prosjektet',
+          vHvert - vDelt, vBygges, 2);
+        this.sjekk('  og fradraget gjør en forskjell – linjene er ikke like',
+          vHvert - vBygges > 50,
+          `${vHvert} øverst mot ${vBygges} nederst, m³`);
+      }
 
       const kort = document.getElementById('prosjektmasser');
       const tekst = kort ? (kort.innerText || '') : '';
@@ -2736,15 +2791,99 @@ const Nettlesertest = {
                   eier9.visning = vFoer;
                   this.sjekk('  i «før» ER helflaten terrenget selv',
                     flate9 === f.zT, flate9 === f.zT ? 'samme tabell' : 'en annen tabell');
-                  /* Og da må dempingen la den være. Prøven speiler valget i
-                     `_tegnFulltAnlegg`: er flaten `zT`, skal ingen demping på. */
-                  const erTerreng9 = flate9 === f.zT;
-                  const heilflate9 = true;
+                  /* Å REGNE VALGET UT PÅ NYTT HER VAR INGEN PRØVE.
+                     Her sto en ordrett kopi av ternæren i `_tegnFulltAnlegg`,
+                     og så ble kopien spurt om hva den valgte: `'ingen' ===
+                     'ingen'`. Snudde man rekkefølgen i produksjonskoden –
+                     nettopp feilen avsnittet over advarer mot – sto prøven
+                     grønn, for kopien her var jo ikke snudd.
+                     Nå kjøres `_tegnFulltAnlegg` for alvor, på en tegner med
+                     `_raster` byttet ut, og fargefunksjonen den FAKTISK sender
+                     inn blir avhørt node for node. Fasiten for «udempet»
+                     regnes ikke ut her: den er den samme koden kjørt en gang
+                     til med METNING = 1 og LYSDEMPING = 1, som gjør `_dempet`
+                     til en ren identitet – `((gr + (r - gr)·1)·1 + 0,5) | 0`
+                     er `r` for et heltall. Er de to kjøringene like i en node,
+                     slapp den urørt gjennom. */
                   const bygd9 = f.harGrav || f.harVeg || f.harFerdig || null;
-                  const valgt = !erTerreng9 && heilflate9 && bygd9 ? 'dempetDer'
-                    : erTerreng9 ? 'ingen' : 'dempet';
+                  const tabE9 = f.zEtter || f.zP;
+                  /* Fargen regnes av alle fire hjørnene i cella – se `_lys` –
+                     så en node uten fire gyldige naboer kan ikke prøves. */
+                  const helCelle9 = (tab, k) => Number.isFinite(tab[k])
+                    && Number.isFinite(tab[k + 1]) && Number.isFinite(tab[k + f.nb])
+                    && Number.isFinite(tab[k + f.nb + 1]);
+                  const brukbar9 = k => (k % f.nb) < f.nb - 1 && k < f.nb * (f.nh - 1)
+                    && f.finnes[k] && f.finnes[k + 1] && f.finnes[k + f.nb]
+                    && f.finnes[k + f.nb + 1]
+                    && helCelle9(f.zT, k) && helCelle9(tabE9, k);
+                  const bygde9 = [], urorte9 = [];
+                  for (let k = 0; k < f.nb * f.nh; k++) {
+                    if (bygde9.length >= 40 && urorte9.length >= 40) break;
+                    if (!brukbar9(k)) continue;
+                    const liste = (bygd9 && bygd9[k]) ? bygde9 : urorte9;
+                    if (liste.length < 40) liste.push(k);
+                  }
+                  this.sjekk('    og naboen har både rørt og urørt bakke å prøve på',
+                    bygde9.length > 0 && urorte9.length > 0,
+                    bygde9.length + ' rørte, ' + urorte9.length + ' urørte noder');
+
+                  const kjoer9 = (vis, metning, lysdemping) => {
+                    const fanget = [];
+                    const st = Object.create(Tegner3d);
+                    st.visning = vis;
+                    st.fyldig = eier9.fyldig;
+                    st.lag = Object.assign({}, eier9.lag);
+                    st.METNING = metning;
+                    st.LYSDEMPING = lysdemping;
+                    st._raster = (gg, hoyde, farge) => fanget.push({ hoyde, farge });
+                    /* kam = null: `_lys` hopper da over baksideprøven, og
+                       ingenting annet i helflate-grenen rører kameraet.
+                       Blandingen er 0, så `_skjermboks` og lerretbufferne
+                       nås aldri – bare `_raster`, og den er vår. */
+                    try { st._tegnFulltAnlegg(f, 8, 8, null, null, null); }
+                    catch (e) { return { feil: 'kastet: ' + e.message }; }
+                    return fanget.length === 1 ? fanget[0]
+                      : { feil: fanget.length + ' lag, ventet 1' };
+                  };
+                  /* Største kanalavvik mellom ekte demping og identitetsdemping.
+                     0 betyr at fargefunksjonen ikke dempet disse nodene. En
+                     tekst tilbake betyr at kjøringen ikke gikk, og feller
+                     begge påstandene under. */
+                  const avvik9 = (vis, noder) => {
+                    const a = kjoer9(vis, Tegner3d.METNING, Tegner3d.LYSDEMPING);
+                    const b = kjoer9(vis, 1, 1);
+                    if (a.feil || b.feil) return a.feil || b.feil;
+                    let verst = 0;
+                    for (const k of noder) {
+                      const q1 = a.farge(k, k + 1, k + f.nb, k + f.nb + 1, a.hoyde);
+                      const q2 = b.farge(k, k + 1, k + f.nb, k + f.nb + 1, b.hoyde);
+                      for (let c = 0; c <= 16; c += 8) {
+                        verst = Math.max(verst,
+                          Math.abs(((q1 >> c) & 255) - ((q2 >> c) & 255)));
+                      }
+                    }
+                    return verst;
+                  };
+                  const foerRort9 = avvik9('foer', bygde9);
+                  const foerUrort9 = avvik9('foer', urorte9);
                   this.sjekk('    så «før» dempes ikke i det hele tatt',
-                    valgt === 'ingen', 'valgte: ' + valgt);
+                    foerRort9 === 0 && foerUrort9 === 0,
+                    'fotavtrykket ' + foerRort9 + ', bakken rundt ' + foerUrort9
+                    + ' av 255 – begge må være 0');
+                  /* POSITIV KONTROLL. Uten den kunne påstanden over stå grønn
+                     fordi MÅLINGEN ikke virker – da kom 0 ut uansett hva
+                     produksjonskoden gjorde. I «etter» er flaten noe annet enn
+                     `zT`, og der SKAL `_dempetDer` slå til: fotavtrykket
+                     dempes, den felles bakken ikke. Med terrengflaten #8e8e97
+                     i mørkt tema og lyset bundet til 0,55–1,00 er avviket 15
+                     til 28 av 255 (22–40 i lyst tema), så 8 er en grense ingen
+                     avrunding kan snuble i. */
+                  const etterRort9 = avvik9('etter', bygde9);
+                  const etterUrort9 = avvik9('etter', urorte9);
+                  this.sjekk('    mens «etter» demper fotavtrykket – og bare det',
+                    etterRort9 >= 8 && etterUrort9 === 0,
+                    'fotavtrykket ' + etterRort9 + ', bakken rundt ' + etterUrort9
+                    + ' av 255');
                 }
 
                 /* NABOEN SKAL IKKE VÆRE GROVERE ENN HAN VILLE VÆRT SELV.
@@ -3950,12 +4089,51 @@ const Nettlesertest = {
         await App.beregnTomt();
       }
 
+      /* ================================================================
+         NEKTELSEN MÅ TELLES PÅ NEDLASTINGENE, IKKE PÅ FILNAVNENE
+
+         `filer` har filnavnet som nøkkel, og KOF-navnet er det samme hver
+         gang: Lager.filnavn('__test_eksport') + '.KOF'. Ble eksporten kjørt
+         om igjen, overskrev den nøkkelen sin i stedet for å legge til en ny,
+         så Object.keys(filer).length sto på 8 enten vakta nektet eller skrev
+         hele fila på nytt. Påstanden kunne ikke bli rød. Nå telles KALLENE
+         til Rapport.lastNed – da fanges også en fil som bare overskriver.
+
+         Og så den nektelsen som faktisk KAN skrive en fil: et resultat som
+         ER ferdig regnet, men beskriver noe som ikke lar seg bygge. Der
+         nekter ingen filskriver – kofTomt kaster bare når det ikke finnes
+         ett eneste 05-punkt, og her finnes det over åtte (se «KOF gir ikke
+         to punkt samme navn» over). Den skriver hvert punkt ut, og det er
+         nøyaktig fila som «ser ferdig ut»: den åpner i instrumentet uten en
+         eneste innsigelse. Vakta i kanEksportere er det eneste som stopper
+         den, og ingen prøve har målt den før nå.
+         ================================================================ */
+      const ferdigRes = App.resultat;
+      let nedKall = 0;
+      Rapport.lastNed = (navn, innhold) => { nedKall++; filer[navn] = String(innhold); };
+
       App.resultat = null;
       const foerAntall = Object.keys(filer).length;
       Rapport.eksporter('kof');
-      this.sjekk('uten beregning blir det ingen fil', Object.keys(filer).length === foerAntall);
+      this.sjekk('uten beregning blir det ingen fil',
+        nedKall === 0 && Object.keys(filer).length === foerAntall,
+        nedKall + ' nedlastinger, ' + Object.keys(filer).length + ' filer');
       this.sjekk('og brukeren får vite hvorfor',
         /Ingen beregning/.test(document.getElementById('eksportsvar').textContent));
+
+      /* Ferdig regnet, men ubyggelig: tallene beskriver ikke noe som kan
+         settes ut, og da skal det ikke komme en stikningsfil av dem. */
+      App.resultat = ferdigRes;
+      App.resultat.ubyggelig = { sider: [1], del: 40,
+        tekst: 'Dette lar seg ikke bygge. Skråningen finner ikke bakken.' };
+      nedKall = 0;
+      Rapport.eksporter('kof');
+      this.sjekk('ubyggelig tomt gir heller ingen fil – og den ville blitt skrevet',
+        nedKall === 0, nedKall + ' nedlastinger');
+      this.sjekk('  og begrunnelsen er den ubyggelige, ikke «Eksporterte …»',
+        /lar seg ikke bygge/.test(document.getElementById('eksportsvar').textContent),
+        document.getElementById('eksportsvar').textContent.slice(0, 70));
+      delete App.resultat.ubyggelig;
     } catch (e) {
       this.sjekk('tomteksporten kom seg gjennom', false, e.message + ' — ' + (e.stack || '').split('\n')[1]);
     } finally {
@@ -4549,11 +4727,33 @@ const Nettlesertest = {
            sto på da den startet. Ligger flagget på prototypen, slår man den på
            for tomta og får den på vegen samtidig. */
         Tomt3d.fyldig = false; Veg3d.fyldig = false;
+        /* RETTET. Påstanden sto på hasOwnProperty – rett ETTER at prøven selv
+           hadde skrevet `Tomt3d.fyldig = false; Veg3d.fyldig = false;`. En
+           tilordning til et arvet datafelt LAGER egenskapen på mottakeren, så
+           påstanden var sann fordi prøven nettopp hadde gjort den sann.
+           Den blir stående, for den fanger ett tilfelle de andre ikke gjør:
+           skrives `fyldig` om til en aksessor på Tegner3d, treffer
+           tilordningen setteren og ingen egen egenskap oppstår. Men det
+           påstanden HETER – at de to har hver sin innstilling – måles først av
+           de to under, som leser verdien TILBAKE og prøver BEGGE retninger.
+           Før sto bare den ene: tomt → veg, og uten å lese av at tomta faktisk
+           ble true. Feltet ligger på Tegner3d-prototypen (ui-3d.js, `fyldig:
+           false`); det er tilordningen som skal skygge det per visning. */
         this.sjekk('tomta og vegen har hver sin fyldig-innstilling',
           Object.prototype.hasOwnProperty.call(Tomt3d, 'fyldig')
           && Object.prototype.hasOwnProperty.call(Veg3d, 'fyldig'));
+        /* Vegen først, så tomta står igjen med den verdien resten av blokka
+           trenger. Er flagget delt – ett felt begge skriver til – står tomta
+           på true her, og «veg true, tomt false» kan ikke bli sant. */
+        Veg3d.fyldig = true;
+        this.sjekk('å slå den på for vegen rører ikke tomta',
+          Veg3d.fyldig === true && Tomt3d.fyldig === false,
+          'tomt ' + Tomt3d.fyldig + ' · veg ' + Veg3d.fyldig);
+        Veg3d.fyldig = false;
         Tomt3d.fyldig = true;
-        this.sjekk('å slå den på for tomta rører ikke vegen', Veg3d.fyldig === false);
+        this.sjekk('å slå den på for tomta rører ikke vegen',
+          Tomt3d.fyldig === true && Veg3d.fyldig === false,
+          'tomt ' + Tomt3d.fyldig + ' · veg ' + Veg3d.fyldig);
         Tomt3d.glemFarger();
         const pf = Tomt3d._palett();
         Tomt3d.fyldig = false; Tomt3d.glemFarger();
@@ -5229,10 +5429,61 @@ const Nettlesertest = {
 
       /* 17.9 «Hele vegen» er utgangspunktet, ikke et vindu på hundre meter. */
       {
-        this.sjekk('hele vegen vises som standard', Veg3d.vindu === 0, '±' + Veg3d.vindu + ' m');
+        /* FORVALGET MÅ LESES DER DET STÅR, IKKE AV FELTET PRØVEN SELV HAR SATT.
+           Her sto `Veg3d.vindu === 0` alene. Men 17.5, 189 linjer over, setter
+           nettopp det feltet til 0 for å måle at hele vegen ikke bygges om for
+           hvert dratt i skyveren – så påstanden leste sitt eget oppsett og sto
+           grønn uansett hva ui-veg3d.js har som forvalg. Feilen prøven finnes
+           for er den som står beskrevet over `vindu:` i ui-veg3d.js: der sto det
+           100 – hundre meter til hver side – og da ser man ikke hvor på
+           STREKKET det svulmer ut. Den endringen merket prøven ikke.
+
+           Et overskrevet forvalg er ikke til å hente ut av objektet igjen, så
+           tallet leses fra kilden – den samme fila nettleseren lastet – og måles
+           på tre ting: at det er 0, at velgeren viser samme tall som sitt eget
+           forvalgte alternativ (ellers viser modellen noe annet enn menyen sier
+           idet programmet åpnes), og at et gitter bygd med det tallet faktisk
+           får med hver eneste profil. Går kilden ikke an å lese, er prøven RØD:
+           da kan den ikke måle, og skal ikke melde grønt. */
         const velger = document.getElementById('v3_vindu');
-        this.sjekk('og velgeren står på det samme', velger && velger.value === '0',
-          velger ? velger.value : 'ingen velger');
+        const forvalgt = velger && velger.querySelector('option[selected]');
+        const kilde = document.querySelector('script[src*="ui-veg3d"]');
+        let standard = NaN, kildefeil = '';
+        if (!kilde) kildefeil = 'fant ingen script-tagg for ui-veg3d.js';
+        else {
+          try {
+            const tekst = await (await fetch(kilde.src)).text();
+            const m = tekst.match(/^\s*vindu:\s*(-?[\d.]+)\s*,/m);
+            if (m) standard = parseFloat(m[1]);
+            else kildefeil = 'fant ingen «vindu:» i ' + kilde.src;
+          } catch (e) { kildefeil = 'kom ikke til ' + kilde.src + ': ' + e.message; }
+        }
+        this.sjekk('hele vegen er forvalget i ui-veg3d.js', standard === 0,
+          kildefeil || '±' + standard + ' m');
+        this.sjekk('og velgeren står på det samme',
+          !!velger && parseFloat(velger.value) === standard,
+          (velger ? velger.value : 'ingen velger') + ' mot forvalget ' + standard);
+        this.sjekk('og velgerens eget forvalgte alternativ er det samme',
+          !!forvalgt && parseFloat(forvalgt.value) === standard,
+          (forvalgt ? forvalgt.value : 'ingen option[selected]') + ' mot ' + standard);
+        /* Og tallet skal BETY hele vegen: et gitter bygd med forvalget får med
+           hver profil. Med 100 dekker det bare strekket rundt snittet.
+           `_gitter` rører ikke `_sisteGitter` – bare bufferet – så resten av
+           17.9 måler fortsatt på det bildet som står på skjermen. */
+        const foerVindu = Veg3d.vindu;
+        if (Number.isFinite(standard)) Veg3d.vindu = standard;
+        Veg3d._gitterFor = null;
+        const gStd = Veg3d._gitter(1);
+        this.sjekk('og forvalget gir et gitter med alle profilene',
+          !!gStd && gStd.nh === App.resultat.profiler.length,
+          gStd ? gStd.nh + ' av ' + App.resultat.profiler.length : 'ingen gitter');
+        Veg3d.vindu = foerVindu;
+        Veg3d._gitterFor = null;
+        /* Den gamle påstanden blir stående, men med det navnet den faktisk
+           måler: 17.8 dreier, klikker, zoomer og nullstiller mellom 17.5 og
+           her, og ingen av de grepene har lov til å skru vinduet på igjen. */
+        this.sjekk('og ingenting i navigeringen skrudde vinduet på igjen',
+          Veg3d.vindu === 0, '±' + Veg3d.vindu + ' m');
         const gg = Veg3d._sisteGitter;
         this.sjekk('alle profilene er med', gg.nh === App.resultat.profiler.length,
           gg.nh + ' av ' + App.resultat.profiler.length);
@@ -6252,11 +6503,27 @@ const Nettlesertest = {
           Veg3d._taster = new Set(t); Veg3d._bakkeSteg(dt); Veg3d._taster = new Set();
         };
         App.settTverrStasjon(App.resultat.lengde / 2);
-        Veg3d.settFerd('gaa');
+        /* «SOM STANDARD» ER IKKE DET PRØVEN SELV HAR SATT.
+           Her sto `Veg3d.settFerd('gaa')` to linjer over `Veg3d.ferd === 'gaa'`.
+           Påstanden het «som standard», men den leste sin egen setting: sto det
+           `ferd: 'fly'` i ui-3d.js, var den like grønn. Standarden bor på
+           prototypen – `ferd: 'gaa'` i Tegner3d – og dit skriver ingen:
+           `settFerd` legger feltet på VISNINGEN, ikke på prototypen. Derfor
+           leses standarden der den bor, og visningens eget felt slettes før
+           modusbyttet, så det er standarden `settModus` faktisk leser. Og så
+           måles det den BETYR: en visning som aldri har valgt ferd lander med
+           øyet i 1,7 m, ikke i flyhøyden 2,0 m. */
+        Veg3d.settFerd('gaa');          // rydder kamZ og henter kamT inn på vegen
+        this.sjekk('standarden i visningen er å gå, ikke å fly',
+          Tegner3d.ferd === 'gaa', String(Tegner3d.ferd));
+        delete Veg3d.ferd;              // vekk med settingen – nå gjelder standarden
         Veg3d.settModus('bakken');
         await this.vent(350);
         this.sjekk('man går som standard – ikke svever', Veg3d.ferd === 'gaa', Veg3d.ferd);
         this.naer('og øyet står i en menneskehøyde', Veg3d.kamH, 1.7, 0.001);
+        this.sjekk('  og standarden valgte gåhøyden, ikke flyhøyden 2,0 m',
+          Math.abs(Veg3d.kamH - Tegner3d.OYEHOYDE) < 1e-9 && Tegner3d.OYEHOYDE !== 2.0,
+          Veg3d.kamH + ' m mot øyehøyde ' + Tegner3d.OYEHOYDE + ' m');
 
         /* PÅ VEGEN, IKKE VED SIDEN AV DEN. */
         const grG = Veg3d._sidegrense(App.resultat);
