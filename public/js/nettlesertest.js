@@ -1226,17 +1226,17 @@ const Nettlesertest = {
     }
   },
 
-  /* ---------------- skissa skal ikkje sveve ----------------
+  /* ---------------- skissen skal ikke sveve ----------------
    *
-   * Eit naboanlegg som ikkje er bygd i full detalj tegnes som ei SKISSE.
-   * Vegskissa var bare kjørebanen – fem punkt tvers over – og ingenting
-   * som bandt henne til bakken. Ein naboveg hang då i lufta så mange meter
-   * over eller under terrenget som han tilfeldigvis låg, og det ser ikkje
-   * ut som ei skisse; det ser ut som ein feil.
+   * Et naboanlegg som ikke er bygd i full detalj tegnes som en SKISSE.
+   * Vegskissen var bare kjørebanen – fem punkt tvers over – og ingenting
+   * som bandt den til bakken. En naboveg hang da i lufta så mange meter
+   * over eller under terrenget som den tilfeldigvis lå, og det ser ikke ut
+   * som en skisse; det ser ut som en feil.
    *
-   * Prøva måler GEOMETRIEN, ikkje biletet: at foten av skråninga lander på
-   * terrenget, og at skissa fell tilbake til kjørebanen aleine når det
-   * ikkje finst terreng å lande på.
+   * Prøven måler GEOMETRIEN, ikke bildet: at foten av skråningen lander på
+   * terrenget, og at skissen faller tilbake til kjørebanen alene når det
+   * ikke finnes terreng å lande på.
    */
   async skisseSkraaninger() {
     const app = App;
@@ -1270,7 +1270,7 @@ const Nettlesertest = {
       const ventaL = Math.min(mal.maksUtslag, (zKant - 100) * mal.fylling);
 
       const g = Veg3d._bakgrunnVeg.call(Veg3d, anl);
-      this.sjekk('skissa av ein naboveg lar seg byggje', !!g, g ? '' : 'ingen geometri');
+      this.sjekk('skissen av en naboveg lar seg bygge', !!g, g ? '' : 'ingen geometri');
       if (!g) return;
 
       const rad = (gg) => {
@@ -1282,36 +1282,36 @@ const Nettlesertest = {
         return ut;
       };
       const r = rad(g);
-      const breidde = Math.hypot(r[r.length - 1].x - r[0].x, r[r.length - 1].y - r[0].y);
+      const bredde = Math.hypot(r[r.length - 1].x - r[0].x, r[r.length - 1].y - r[0].y);
 
-      this.sjekk('  og ho er breiare enn kjørebanen – skråningane er med',
-        breidde > mal.vegbredde + 1,
-        breidde.toFixed(1) + ' m mot ' + mal.vegbredde + ' m kjørebane');
-      this.naer('  og like brei som kjørebane pluss to utslag',
-        breidde, mal.vegbredde + 2 * ventaL, 0.6);
-      /* DEN EINE PÅSTANDEN SOM FANGAR AT SKRÅNINGA PEIKAR FEIL VEG.
-         Ei skisse som stakk ut i full vegbanehøgd ville passert breidda
-         over – og framleis svevd. */
-      this.naer('  og foten av skråninga lander på terrenget',
+      this.sjekk('  og den er bredere enn kjørebanen – skråningene er med',
+        bredde > mal.vegbredde + 1,
+        bredde.toFixed(1) + ' m mot ' + mal.vegbredde + ' m kjørebane');
+      this.naer('  og like bred som kjørebane pluss to utslag',
+        bredde, mal.vegbredde + 2 * ventaL, 0.6);
+      /* DEN ENE PÅSTANDEN SOM FANGER AT SKRÅNINGEN PEKER FEIL VEI.
+         En skisse som stakk ut i full vegbanehøyde ville passert bredden
+         over – og fortsatt svevd. */
+      this.naer('  og foten av skråningen lander på terrenget',
         Math.min(r[0].z, r[r.length - 1].z), 100, 0.05);
-      this.sjekk('  og toppen ligg framleis på vegen',
+      this.sjekk('  og toppen ligger fortsatt på vegen',
         Math.max(...r.map(q => q.z)) > 105.5,
-        'høgste punkt ' + Math.max(...r.map(q => q.z)).toFixed(2));
+        'høyeste punkt ' + Math.max(...r.map(q => q.z)).toFixed(2));
 
-      /* UTAN TERRENG SKAL HO VERE SOM FØR, IKKJE KASTE.
-         Terrenget for eit anlegg ein ikkje arbeider med treng ikkje vere
-         lasta. Da er utslaget null, og skissa er kjørebanen aleine. */
+      /* UTEN TERRENG SKAL DEN VÆRE SOM FØR, IKKE KASTE.
+         Terrenget for et anlegg man ikke arbeider med trenger ikke være
+         lastet. Da er utslaget null, og skissen er kjørebanen alene. */
       const nullTerreng = { z: () => NaN, dekning: () => 0 };
       const foer2 = app.terreng;
       app.terreng = nullTerreng;
       let g2 = null;
       try { g2 = Veg3d._bakgrunnVeg.call(Veg3d, anl); } finally { app.terreng = foer2; }
-      this.sjekk('utan terreng lar skissa seg framleis byggje', !!g2,
-        g2 ? '' : 'kasta eller gav ingenting');
+      this.sjekk('uten terreng lar skissen seg fortsatt bygge', !!g2,
+        g2 ? '' : 'kastet eller ga ingenting');
       if (g2) {
         const r2 = rad(g2);
         const b2 = Math.hypot(r2[r2.length - 1].x - r2[0].x, r2[r2.length - 1].y - r2[0].y);
-        this.naer('  og er da kjørebanen aleine', b2, mal.vegbredde, 0.1);
+        this.naer('  og er da kjørebanen alene', b2, mal.vegbredde, 0.1);
       }
     } finally {
       Terreng.prototype.z = gz; Terreng.prototype.dekning = gd;
