@@ -410,7 +410,25 @@ console.log('\n12. Grensene sier fra');
   paastand('for dyp skjæring blir meldt', r.merknader.some(m => m.type === 'skjaering'));
   paastand('for høy bergvegg blir meldt', r.merknader.some(m => m.type === 'vegg'),
     JSON.stringify(r.merknader.map(m => m.type)));
-  paastand('sikringskravet blir meldt', r.merknader.some(m => m.type === 'sikring'));
+  /* PAASTANDEN VAR GROEN AV FEIL GRUNN.
+     Oppsettet setter `minAvstandTilBerg: 0.75` – R761 prosess 22 c),
+     dypsprengning – og paastanden het «sikringskravet blir meldt». Men den
+     merknaden koden gir for DET kravet har typen 'berg' (tomtmasser.js).
+     Typen 'sikring' er TEK17 § 8-3 om nivaaforskjell over 3 m, en helt annen
+     regel – og den fyrte her fordi skjaeringa er 8 m dyp.
+
+     Maalt i nettopp dette oppsettet kommer det fire merknader:
+       skjaering  «Dypeste skjæring er 8,0 m, grensen er 3 m»
+       vegg       «Bergveggen blir 8,0 m høy ...»
+       berg       «600 m² ... mindre enn 0,75 m ... der må det dypsprenges»
+       sikring    «Nivåforskjellen er over 3 m – TEK17 § 8-3 ...»
+     Paastanden traff den siste og trodde den traff den tredje. Naa proevast
+     begge, med navn som seier hvilken regel de gjelder. */
+  paastand('dypsprengningskravet blir meldt (R761 prosess 22)',
+    r.merknader.some(m => m.type === 'berg'),
+    JSON.stringify(r.merknader.map(m => m.type)));
+  paastand('og sikringskravet for nivaaforskjell blir meldt (TEK17 § 8-3)',
+    r.merknader.some(m => m.type === 'sikring'));
 }
 
 /* ------------------------------------------------------------------ */
@@ -621,7 +639,14 @@ console.log('\n19. Overberg er et volum, ikke en flate');
     fjell: new M.Fjellmodell({ standarddybde: 1 }), rutestorrelse: 1, bakkefaktor: 1
   });
   sjekk('overberg står på null som standard', uten.sum.overberg, 0, 1e-9);
-  paastand('og det er med vilje – R761 gir ikke tillegg for overberg', true);
+  /* HER STO `paastand(..., true)` – literalen `true` som andre argument.
+     Ingen produksjonskode blir lest, ingen verdi blir samanlikna. Den kunne
+     ikkje bli roed uansett kva motoren gjorde, men talde som éin av dei groene.
+     Det er ein kommentar forkledd som proeve, og han blaaser opp talet nedst.
+
+     Poenget er verdt aa halde fast paa - R761 gir ikkje tillegg for overberg,
+     saa standardverdien SKAL vere null - men det staar allereie proevd paa
+     linja over. Her staar grunngivinga der ho hoeyrer heime: i ein kommentar. */
 }
 
 /* ------------------------------------------------------------------ */
@@ -689,11 +714,21 @@ console.log('\n21. Når skråningen ikke lander, må det sies fra');
     terreng: { z: x => (x < 0 ? 99 + x / 1.5 : 99) },
     fjell: new M.Fjellmodell({ standarddybde: 100 }), rutestorrelse: 1, bakkefaktor: 1
   });
+  /* TRE ULIKE MERKNADER DELER TYPEN 'utslag', OG PÅSTANDEN SKILTE DEM IKKE.
+     I tomtmasser.js finnes `maksUtslag`-grensa, «skråningen finner ikke
+     bakken» og «lenger enn søkebredden» – alle med type 'utslag'.
+     `grunnmal()` nuller ikke `maksUtslag`, så StandardTomtemal sin verdi på
+     15 m står, og den merknaden fyrer i dette oppsettet uansett. Påstanden
+     het «skråningen som ikke lander blir meldt», men ble grønn av
+     maksUtslag-merknaden – en helt annen regel.
+
+     Teksten skiller dem, og det er den som prøves nå. */
   for (const sok of [45, 90]) {
     const r = lag(sok);
+    const utslag = r.merknader.filter(m => m.type === 'utslag');
     paastand(`søkebredde ${sok}: skråningen som ikke lander blir meldt`,
-      r.merknader.some(m => m.type === 'utslag'),
-      JSON.stringify(r.merknader.map(m => m.type)));
+      utslag.some(m => /finner ikke bakken|når ikke terrenget|ikke.*bakken/i.test(m.tekst || '')),
+      utslag.map(m => (m.tekst || '').slice(0, 60)).join(' | ') || 'ingen utslagsmerknad');
   }
   // og en tomt der alt lander skal IKKE gi den merknaden
   const fin = T.beregnTomtemasser({
@@ -773,6 +808,45 @@ console.log('\n21b. Muren er støtte, ikke en skråning');
   });
   sjekk('fundamentgrøft = lengde x dybde x bredde', r.sum.murFundament, 40 * 0.6 * 0.8, 0.5);
   sjekk('bakfylling = lengde x bredde x høyde', r.sum.murBakfylling, 40 * 0.5 * 2.0, 1);
+
+  /* TO TING SOM ER LIKE I ET FLATT OPPSETT, OG ULIKE I MARKA.
+     Bakfyllinga skal regnes med SNITTHØYDEN langs muren; merknaden om
+     søknadsplikt skal bruke MAKSHØYDEN. I oppsettet over er terrenget `z: 100`
+     og nivået flatt, så muren er nøyaktig 2,0 m høy i hvert eneste målepunkt –
+     og da er snitt og maks det samme tallet. Byttes de om i koden, merkes det
+     ikke.
+
+     Og murhøyden selv: koden regner den fra PLANUM, mens navnet på påstanden
+     under sa «skjæringsdybden», altså fra FERDIG NIVÅ. De to er ulike med
+     nøyaktig overbygningstykkelsen – men `grunnmal()` nuller alle fem lagene,
+     så ob = 0 og forskjellen finnes ikke i noen av de 243 prøvene.
+
+     Her står muren i SKRÅTT terreng og med en ekte overbygning, så begge
+     forskjellene blir synlige. */
+  {
+    const skraaMal = Object.assign(grunnmal(), {
+      slitelagTykkelse: 0.05, baerelagTykkelse: 0.10, forsterkningslag: 0.40
+    });
+    const obM = 0.55;
+    const rs = T.beregnTomtemasser({
+      tomt: { punkter: rektangel(40, 60), kanter: [{ type: 'mur' }, {}, {}, {}],
+        nivaa: { modus: 'flat', kote: 98 } },
+      mal: skraaMal, terreng: { z: (x) => 100 + x * 0.05 },
+      fjell: new M.Fjellmodell({ standarddybde: 100 }), rutestorrelse: 1, bakkefaktor: 1
+    });
+    /* Muren står langs x = 0…40 med terrenget stigende 1:20. Høyden over
+       PLANUM (98 − 0,55 = 97,45) går da fra 2,55 m til 4,55 m: snitt 3,55 m,
+       maks 4,55 m. To tydelig ulike tall. */
+    paastand('i skrått terreng er muren ulik høy langs seg selv',
+      rs.murHoyde > 4.0, `murHøyde ${(rs.murHoyde || 0).toFixed(2)} m`);
+    sjekk('  og murHøyde er MAKS, ikke snittet', rs.murHoyde, 4.55, 0.15);
+    sjekk('  mens bakfyllinga regnes med SNITTET',
+      rs.sum.murBakfylling, 40 * 0.5 * 3.55, 4);
+    paastand('  så de to er ikke det samme tallet',
+      Math.abs(rs.sum.murBakfylling - 40 * 0.5 * rs.murHoyde) > 10,
+      `bakfylling ${rs.sum.murBakfylling.toFixed(1)} mot maks·L·b `
+      + `${(40 * 0.5 * rs.murHoyde).toFixed(1)} m³`);
+  }
   sjekk('murlengden er kanten', r.murLengde, 40, 0.5);
   sjekk('og høyden er skjæringsdybden ved den', r.murHoyde, 2.0, 0.1);
   paastand('mur over 1,5 m blir meldt som søknadspliktig',
@@ -871,6 +945,17 @@ console.log('\n24. Det som meldes er det som faktisk skjer i kartet');
       uventet.length === 0,
       `krysser: ${[...faktisk].map(k => k + 1).join(',') || 'ingen'} · meldt: `
       + `${[...meldt].map(k => k + 1).join(',') || 'ingen'}`);
+    /* OG DEN ANDRE VEIEN. Over kreves `meldt ⊇ faktisk` – at ingenting som
+       krysser blir forbigått. Men ikke `meldt ⊆ faktisk`: en side som meldes
+       UTEN å krysse slapp gjennom. Målt: med en ekstra, oppdiktet side lagt
+       inn i `maalOverskridelse` sto påstanden over grønn.
+
+       En falsk alarm er ikke uskyldig her – den sender folk til å prosjektere
+       mur på en side som ikke trenger det. */
+    const falske = [...meldt].filter(k => !faktisk.has(k));
+    paastand(`  og ingen side meldes uten å krysse`,
+      falske.length === 0,
+      `meldt uten å krysse: ${falske.map(k => k + 1).join(',') || 'ingen'}`);
   }
 
   /* Og en kant som har rikelig plass skal IKKE overskride bare fordi en annen
@@ -953,6 +1038,36 @@ console.log('\n25. Grensa er en grense: ingenting utenfor den');
     feil++; console.log('  FEIL  volumet regnes likt med og uten grense: ' + med.sum.fylling.toFixed(0));
   } else { ok++; console.log('  ok    volumet stopper i grensa (' + med.sum.fylling.toFixed(0)
     + ' mot ' + uten.sum.fylling.toFixed(0) + ' m³ fylling)'); }
+  /* «STOPPER I GRENSA» ER MER ENN «BLIR MINDRE».
+     Kontrollen over krever bare at det å sende inn grensa flytter tallet 0,1 %.
+     Den ville stått grønn om grensa kuttet én rute av tusen, eller om den
+     kuttet et vilkårlig sted. Påstanden i teksten er at INGEN kubikk regnes
+     utenfor grensa – og den kan prøves direkte: hver eneste rute i resultatet
+     skal ligge innenfor polygonet.
+
+     Én rutestørrelse slingring, for rutesenteret ligger inntil en halv rute
+     fra kanten og `naermestePaOmriss` måler til selve streken. */
+  {
+    const rute = 1;
+    let utafor = 0, verst = 0;
+    for (const c of (med.rutenett || [])) {
+      if (T.innenforPolygon(p8, c.x, c.y)) continue;
+      const d = T.naermestePaOmriss(p8, c.x, c.y).d;
+      if (d > rute) { utafor++; verst = Math.max(verst, d); }
+    }
+    paastand('og ingen rute regnes utenfor grensa i det hele tatt',
+      utafor === 0,
+      `${utafor} ruter utenfor, verste ${verst.toFixed(1)} m fra grensa`);
+    /* Og kontrollen må ha noe å se på: uten grensa SKAL det finnes ruter
+       utenfor, ellers prøver linja over ingenting. */
+    let utenUtafor = 0;
+    for (const c of (uten.rutenett || [])) {
+      if (T.innenforPolygon(p8, c.x, c.y)) continue;
+      if (T.naermestePaOmriss(p8, c.x, c.y).d > rute) utenUtafor++;
+    }
+    paastand('  og uten grensa finnes det ruter utenfor – ellers prøver den intet',
+      utenUtafor > 5, `${utenUtafor} ruter utenfor uten grense`);
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -1124,6 +1239,39 @@ console.log('\n27. Skråningen treffer bakken – den blir aldri kappet loddrett
     if (!(midt > 0)) {
       feil++; console.log('  FEIL  en gjennomgående tvungen kant gir likevel ingen helning');
     } else { ok++; console.log('  ok    en gjennomgående tvungen kant gir 1:' + midt.toFixed(2)); }
+  }
+
+  /* OPPSLAGET MÅ PRØVES MELLOM NODENE, IKKE BARE PÅ DEM.
+     Løkka over slår opp på `f.u` – altså på selve noden feltet er bygd av – og
+     `tvungetVed` har endepunktgrener som svarer nodens egen verdi der. Den
+     delen er derfor sann uansett hvordan interpolasjonen mellom nodene ser ut,
+     og det er interpolasjonen volumet faktisk bruker: skråningsfoten regnes
+     kontinuerlig langs kanten, ikke bare i punktene.
+
+     Her prøves MIDT MELLOM to naboer. Svaret skal ligge mellom de to
+     nabo­verdiene – ikke utenfor, ikke null. */
+  {
+    let mellomFeil = 0, doeme = null, proevd = 0;
+    for (const kant of felt.keys()) {
+      const rad = felt.get(kant);
+      for (let i = 0; i + 1 < rad.length; i++) {
+        const a = rad[i], b2 = rad[i + 1];
+        if (!(b2.u > a.u + 1e-6)) continue;
+        const u = (a.u + b2.u) / 2;
+        const v = T.tvungetVed(felt, kant, u);
+        const lav = Math.min(a.tvunget || 0, b2.tvunget || 0) - 1e-9;
+        const hoy = Math.max(a.tvunget || 0, b2.tvunget || 0) + 1e-9;
+        proevd++;
+        if (!(v >= lav && v <= hoy)) {
+          mellomFeil++;
+          if (!doeme) doeme = `kant ${kant} u=${u.toFixed(3)}: fikk 1:${v.toFixed(3)}, `
+            + `naboene 1:${(a.tvunget || 0).toFixed(3)} og 1:${(b2.tvunget || 0).toFixed(3)}`;
+        }
+      }
+    }
+    paastand('  og det finnes mellomrom å prøve i', proevd > 10, `${proevd} mellompunkt`);
+    paastand('  oppslaget MELLOM to noder ligger mellom naboverdiene',
+      mellomFeil === 0, doeme || '');
   }
 
   const med = T.beregnTomtemasser({ tomt: { punkter: flate27, kanter: [], nivaa },
@@ -1560,6 +1708,32 @@ console.log('\n31. Masseutskifting – alt under tomta ned til fjell');
      ganger: én gang som utskifting og én gang som skjæring. */
   paastand('ingen løsmasseskjæring igjen under trauet',
     myr.sum.skjaeringLosmasse === 0, `fikk ${myr.sum.skjaeringLosmasse}`);
+  /* OG DET MÅ PRØVES DER DET KAN GÅ GALT.
+     `myr` ligger med ferdig kote lik terrenget, og `grunnmal()` nuller alle
+     fem lagene, så planum = terreng. Målt: 2 400 av 2 400 ruter er fylling,
+     null er skjæring, og `skjaeringLosmasse` er null før utskiftingen i det
+     hele tatt kommer inn i bildet. Påstanden over kunne derfor ikke bli rød –
+     tilfellet den handler om finnes ikke i oppsettet.
+
+     Under graves tomta NED i terrenget, så det ER en løsmasseskjæring å
+     forveksle med. Da betyr påstanden noe: det som tas ut som utskifting skal
+     ikke også stå som skjæring. */
+  {
+    /* Samme oppsett som `kjorU`, men med ferdig kote 2 m UNDER terrenget – da
+       finnes det en ekte løsmasseskjæring å forveksle utskiftingen med. */
+    const ned = T.beregnTomtemasser({
+      tomt: { punkter: rekt, kanter: [], nivaa: { modus: 'flat', kote: 98 } },
+      mal: malU(), terreng: { z: () => 100 },
+      fjell: new M.Fjellmodell({ standarddybde: 1 }),
+      rutestorrelse: 1, bakkefaktor: 1, grense: rekt
+    });
+    paastand('  og oppsettet har faktisk en skjæring å forveksle med',
+      ned.sum.skjaering > 100, `skjæring ${(ned.sum.skjaering || 0).toFixed(0)} m³`);
+    paastand('  og heller ikke da telles trauet som løsmasseskjæring',
+      ned.sum.skjaeringLosmasse < ned.sum.rensk * 0.5,
+      `løsmasse ${(ned.sum.skjaeringLosmasse || 0).toFixed(0)} mot `
+      + `rensk ${(ned.sum.rensk || 0).toFixed(0)} m³`);
+  }
 
   /* STEGET SKAL IKKE SYNES.
      Utskiftingen males celle for celle, men volumet er en egenskap ved tomta -
@@ -1890,6 +2064,28 @@ console.log('\n32. Skulderen – hylla lagene står på');
   paastand('skulderen følger overbygningen, ikke et fast tall',
     hylle2 > hylle1 + 0.5,
     `${hylle1.toFixed(2)} m med ob 0,55 mot ${hylle2.toFixed(2)} m med ob 1,10`);
+
+  /* HVOR BREI HYLLA ER, IKKE BARE AT DEN FINNES.
+     Prøvene over måler et vindu fra 0,15 m til `skulder − 0,15` og et annet fra
+     `skulder + 1,0` og utover. Selve kanten – 0,825 m – ligger i gapet mellom
+     dem, og ingen av dem ser den. Målt: med `skulder` doblet i koden gir HELE
+     tomteprøven null røde. Prøven fanget at det fantes en hylle, ikke hvor
+     brei den var – og bredden er hele poenget, for det er den som avgjør hvor
+     mye som må graves.
+
+     Her måles den ytterste ruta som fortsatt ligger på planumnivå, med et
+     rutenett på 0,25 m så kanten er til å lese av. Fasiten er `skulder`, og
+     toleransen er én rutestørrelse – nok til å skille 0,825 fra 1,65. */
+  const fint = T.beregnTomtemasser({
+    tomt: { punkter: rekt, kanter: [], nivaa: { modus: 'flat', kote: 97 } },
+    mal: malS(), terreng: { z: (x, y) => 100 - y * 0.10 },
+    fjell: new M.Fjellmodell({ standarddybde: 5 }),
+    rutestorrelse: 0.25, bakkefaktor: 1
+  });
+  const yttersteHylle = (fint.rutenett || [])
+    .filter(c => !c.inne && c.zPlanum != null && Math.abs(c.zPlanum - planumKant) < 0.005)
+    .reduce((m, c) => Math.max(m, avstand(c)), 0);
+  sjekk('hylla er nøyaktig så brei som skulderen', yttersteHylle, skulder, 0.30);
 
   /* Og helningen null skal gi skulder null – da er alt som før. */
   const res0 = kjor(Object.assign(malS(), { overbygningHelning: 0 }));
