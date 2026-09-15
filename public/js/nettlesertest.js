@@ -137,7 +137,7 @@ const Nettlesertest = {
       'veiklasser', 'tverrprofil', 'grenser', 'eksport', 'linjeredigering',
       'autolagring', 'overskriving', 'tverrsnittAvlesning', 'pdfrapport',
       'pdfavlesning', 'rapport', 'paneler', 'flereAnlegg', 'tverrsnittEnsidig',
-      'snuplassBlirSynlig', 'naboOverlapping', 'anleggsrekkefolge', 'anleggsmerking', 'prosjektmasserOgRekkefolge',
+      'snuplassBlirSynlig', 'naboOverlapping', 'anleggsrekkefolge', 'anleggsmerking', 'prosjektmasserOgRekkefolge', 'vegMellomToTomter',
       'grensesnittbredder', 'panelhoder',
       'tomt', 'tomteksport', 'tomterydding', 'tomtsnittOverbygning',
       'tomt3d', 'veg3d', 'kartlag',
@@ -1703,6 +1703,145 @@ const Nettlesertest = {
    * Prøven krever begge deler: at pilene faktisk flytter massen fra det ene
    * anlegget til det andre, og at kortet viser tre linjer som går opp.
    */
+  /**
+   * TO TOMTER MED EN VEG IMELLOM.
+   *
+   * Det er slik et prosjekt her ser ut: to tomter og en veg som går gjennom
+   * eller mellom dem. Prøven bygger nettopp det og krever at kjeden henger
+   * sammen – at alle tre regnes, at rekkefølgen gjelder, og at vegen får
+   * FRADRAGET SITT VIST.
+   *
+   * To hull ble funnet da dette ble målt første gang:
+   *
+   *  · `naboTok` ble bare regnet for TOMTER. En veg som gikk gjennom en ferdig
+   *    tomt sto med tomt «delt»-felt på kortet «Hele prosjektet» – selv om den
+   *    hadde fått et fradrag. Målt: vegens skjæring falt fra 767 til 253 m³ og
+   *    fyllingen steg fra 736 til 802. 515 m³ som ikke sto noe sted.
+   *
+   *  · Merknaden «Regnet mot terrenget slik Tomt A gjør det ferdig» kom om
+   *    hver eneste forgjenger, uansett hvor den lå. Målt med Tomt A 4,75 m fra
+   *    vegkanten: vegens tall var IDENTISKE med og uten henne – 767 m³ begge
+   *    veier – og forbeholdet sto der likevel.
+   */
+  async vegMellomToTomter() {
+    const app = App;
+    const foer = JSON.stringify(app.P);
+    const gz = Terreng.prototype.z, gd = Terreng.prototype.dekning, gl = Terreng.prototype.lastOmraade;
+    try {
+      const x0 = 430000, y0 = 6460000;
+      Terreng.prototype.z = function (x, y) { return 100 - (y - y0) * 0.10; };
+      Terreng.prototype.dekning = function () { return 1; };
+      Terreng.prototype.lastOmraade = async function () { return true; };
+      const pkt = (dx, dy) => {
+        const q = Geo.fraUtm(x0 + dx, y0 + dy, app.sone);
+        return { lat: q.lat, lon: q.lon };
+      };
+      const rute = (xa, xb) => [[xa, 0], [xb, 0], [xb, 60], [xa, 60]].map(([a, b]) => pkt(a, b));
+      const lagTomt = (id, navn, xa, xb, kote) => ({ id, type: 'tomt', navn, ip: [], vip: [],
+        tverrfall: [], plasser: [],
+        mal: Object.assign({}, Tomt.StandardTomtemal, { utskifting: false }),
+        tomt: Object.assign(Tomt.nyTomt(), { punkter: rute(xa, xb), kanter: [],
+          nivaa: { modus: 'flat', kote } }) });
+      const lagVeg = (x) => ({ id: 'vM', type: 'veg', navn: 'Vegen', tverrfall: [], plasser: [],
+        mal: Object.assign({}, StandardMal),
+        ip: [Object.assign(pkt(x, -10), { r: 0 }), Object.assign(pkt(x, 70), { r: 0 })],
+        vip: [{ s: 0, z: 97, k: 0 }, { s: 80, z: 97, k: 0 }] });
+
+      const regnAlle = async () => {
+        for (const a of app.P.anlegg) {
+          app.P.aktivt = a.id;
+          app._ferdigflater = null;
+          app._terrengnokkel = '';
+          if (a.type === 'tomt') { app.tomtEndret(); await app.beregnTomt(); }
+          else { app.byggLinje(); app.vprofil = new Vertikalprofil(app.P.vip); await app.oppdater(); }
+          await this.vent(150);
+        }
+        app.visProsjektmasser();
+        return app.prosjektsum();
+      };
+
+      /* Vegen gjennom Tomt A, og Tomt B på den andre siden. */
+      app.P.anlegg = [lagTomt('tA', 'Tomt A', 0, 55, 96), lagVeg(50),
+        lagTomt('tB', 'Tomt B', 45, 100, 94)];
+      app.P.aktivt = 'tA';
+      app.klargjorProsjekt(app.P);
+      app._ferdigflater = null;
+      const p = await regnAlle();
+
+      this.sjekk('to tomter og en veg blir alle tre regnet',
+        p && p.antall === 3,
+        p ? `${p.antall} regnet, ${p.uregnet} uregnet, ${p.gamle} gamle` : 'ingen sum');
+      if (!p || p.antall !== 3) return;
+      this.sjekk('  og de står i byggerekkefølge med typen sin',
+        p.rader[0].navn === 'Tomt A' && p.rader[1].navn === 'Vegen'
+        && p.rader[1].type === 'veg' && p.rader[2].navn === 'Tomt B',
+        p.rader.map(r => r.nr + ' ' + r.navn).join(', '));
+
+      /* DET SOM MANGLET: vegens eget fradrag. */
+      const vegRad = p.rader[1];
+      this.sjekk('vegen som går gjennom en ferdig tomt får fradraget sitt vist',
+        vegRad.delt > 100,
+        `${vegRad.delt.toFixed(0)} m³ delt`);
+      this.sjekk('  og begge tomtene er med i den delte massen',
+        (p.delt.skjaering + p.delt.fylling) > vegRad.delt,
+        `${(p.delt.skjaering + p.delt.fylling).toFixed(0)} m³ i alt mot `
+        + `${vegRad.delt.toFixed(0)} for vegen`);
+
+      /* Og fradraget skal svare til noe ekte: vegen regnet ALENE må koste mer. */
+      const alle = app.P.anlegg.slice();
+      app.P.anlegg = [alle[1]];
+      app.P.aktivt = 'vM';
+      app.klargjorProsjekt(app.P);
+      app._ferdigflater = null;
+      app._terrengnokkel = '';
+      app.byggLinje();
+      app.vprofil = new Vertikalprofil(app.P.vip);
+      await app.oppdater();
+      await this.vent(150);
+      const vegAlene = app.resultat.sum.skjaering;
+      app.P.anlegg = alle;
+      app.klargjorProsjekt(app.P);
+      this.sjekk('  og vegen alene koster mer enn vegen etter tomta',
+        vegAlene > vegRad.skjaering + 100,
+        `${vegAlene.toFixed(0)} alene mot ${vegRad.skjaering.toFixed(0)} som nr. 2`);
+
+      /* EN NABO SOM IKKE RØRER NOE SKAL IKKE GI ET FORBEHOLD.
+         Vegen flyttes 400 m unna begge tomtene. Da er tallene de samme som
+         alene, og da skal det ikke stå at de er regnet mot noen. */
+      app.P.anlegg = [alle[0], lagVeg(400), alle[2]];
+      app.P.aktivt = 'vM';
+      app.klargjorProsjekt(app.P);
+      app._ferdigflater = null;
+      app._terrengnokkel = '';
+      app.byggLinje();
+      app.vprofil = new Vertikalprofil(app.P.vip);
+      await app.oppdater();
+      await this.vent(150);
+      const unna = app.resultat;
+      this.naer('en veg 400 m unna koster det samme som alene',
+        unna.sum.skjaering, vegAlene, 1);
+      this.sjekk('  og da står det ingen merknad om at den er regnet mot naboen',
+        !(unna.merknader || []).some(m => m.type === 'naboanlegg'),
+        (unna.merknader || []).filter(m => m.type === 'naboanlegg')
+          .map(m => m.tekst.slice(0, 60)).join(' | '));
+      this.sjekk('  og ingenting er trukket fra',
+        !(unna.naboTok && unna.naboTok.noe),
+        unna.naboTok ? JSON.stringify(unna.naboTok) : 'null');
+    } catch (e) {
+      this.sjekk('veg-mellom-tomter-prøven kom seg gjennom', false,
+        e.message + ' — ' + (e.stack || '').split('\n')[1]);
+    } finally {
+      Terreng.prototype.z = gz; Terreng.prototype.dekning = gd; Terreng.prototype.lastOmraade = gl;
+      app.P = JSON.parse(foer);
+      app.klargjorProsjekt(app.P);
+      app._ferdigflater = null;
+      app.resultat = null;
+      app._terrengnokkel = null;
+      app.visAnleggsvelger();
+      app.visProsjektmasser();
+    }
+  },
+
   async prosjektmasserOgRekkefolge() {
     const app = App;
     const foer = JSON.stringify(app.P);

@@ -675,6 +675,106 @@ const App = {
    * Regnes bare når en nabo faktisk overlapper. Ellers er svaret null, og en
    * hel ekstra beregning for å komme fram til det ville vært sløsing.
    */
+  /**
+   * Hvor mye av VEGEN de som bygges før den allerede har tatt.
+   *
+   * Samme sak som `naboOverlapp` gjør for en tomt, og av samme grunn: uten den
+   * blir fradraget usynlig. En veg som går gjennom en ferdig tomt får et
+   * mindre tall, og ingenting sier hvorfor.
+   *
+   * Regnes bare når en flate foran faktisk overlapper vegens fotavtrykk.
+   * Ellers er svaret null, og en hel ekstra beregning for å komme fram til det
+   * ville vært sløsing – vegen er det dyreste anlegget å regne om igjen.
+   */
+  vegOverlapp() {
+    if (!this.resultat || !this.resultat.sum || !this.linje) return null;
+    const flater = [];
+    for (const [id, f] of (this._naboflater() || new Map())) {
+      if (id === this.P.aktivt || !f) continue;
+      flater.push(f);
+    }
+    if (!flater.length) return null;
+    /* Fotavtrykket til vegen, med skråningene: senterlinja utvidet med det
+       videste utslaget noe profil har. Grovt, men det trengs bare til å avgjøre
+       OM det er verdt å regne en gang til. */
+    let minX = Infinity, maksX = -Infinity, minY = Infinity, maksY = -Infinity;
+    let vidde = 10;
+    for (const pr of (this.resultat.profiler || [])) {
+      vidde = Math.max(vidde, Math.abs(pr.fotVenstre || 0), Math.abs(pr.fotHoyre || 0),
+        (pr.halvbredde || 0) + 5);
+    }
+    const steg = Math.max(1, this.linje.lengde / 200);
+    for (let s = 0; s <= this.linje.lengde; s += steg) {
+      const q = this.linje.punktVed(s);
+      if (!q) continue;
+      if (q.x - vidde < minX) minX = q.x - vidde;
+      if (q.x + vidde > maksX) maksX = q.x + vidde;
+      if (q.y - vidde < minY) minY = q.y - vidde;
+      if (q.y + vidde > maksY) maksY = q.y + vidde;
+    }
+    if (!Number.isFinite(minX)) return null;
+    const roerer = flater.some(f => !(f.minX > maksX || f.maksX < minX
+      || f.minY > maksY || f.maksY < minY));
+    if (!roerer) return null;
+    let raa;
+    try {
+      raa = beregnMasser({
+        linje: this.linje, profil: this.vprofil, terreng: this.terreng,
+        mal: this.P.mal, fjell: this.fjellmodell, faktorer: this.P.faktorer,
+        tverrfallOverstyring: this.P.tverrfall, plasser: this.P.plasser,
+        profilAvstand: this.P.profilAvstand, bakkefaktor: this.bakkefaktor()
+      });
+    } catch (e) { return null; }
+    const n = this.resultat.sum;
+    if (!raa || !raa.sum) return null;
+    const d = felt => Math.max(0, (raa.sum[felt] || 0) - (n[felt] || 0));
+    const ut = {
+      skjaering: d('skjaering'), fylling: d('fylling'), rensk: d('rensk'),
+      matjord: 0, skjaeringFjell: d('skjaeringFjell')
+    };
+    ut.noe = (ut.skjaering + ut.fylling + ut.rensk) > 0.5;
+    return ut;
+  },
+
+  /**
+   * Grovt rektangel rundt det anlegget som er oppe, skråningene medregnet.
+   *
+   * Brukes bare til å avgjøre OM en nabo kan ha rørt noe – aldri til å regne
+   * med. Svarer `null` når det ikke går an å si, og da slipper alle naboer
+   * gjennom: et forbehold for mye er bedre enn ett for lite.
+   */
+  _mittOmraade() {
+    const a = this.anlegg();
+    if (!a) return null;
+    let minX = Infinity, maksX = -Infinity, minY = Infinity, maksY = -Infinity;
+    const ta = (x, y, m) => {
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+      if (x - m < minX) minX = x - m; if (x + m > maksX) maksX = x + m;
+      if (y - m < minY) minY = y - m; if (y + m > maksY) maksY = y + m;
+    };
+    if (a.type === 'tomt') {
+      const p = this.tomtIUtm(a.tomt);
+      if (!p || p.length < 3) return null;
+      /* Skråningene går utenfor omrisset. Søkebredden er taket for hvor langt,
+         så den er den trygge marginen her. */
+      const m = Math.max(10, this.P.mal.maksSokebredde || 45);
+      for (const q of p) ta(q.x, q.y, m);
+    } else {
+      if (!this.linje || !(this.linje.lengde > 0)) return null;
+      let vidde = 10;
+      for (const pr of ((this.resultat && this.resultat.profiler) || [])) {
+        vidde = Math.max(vidde, Math.abs(pr.fotVenstre || 0), Math.abs(pr.fotHoyre || 0),
+          (pr.halvbredde || 0) + 5);
+      }
+      const steg = Math.max(1, this.linje.lengde / 200);
+      for (let s = 0; s <= this.linje.lengde; s += steg) {
+        const q = this.linje.punktVed(s);
+        if (q) ta(q.x, q.y, vidde);
+      }
+    }
+    return Number.isFinite(minX) ? { minX, maksX, minY, maksY } : null;
+  },
+
   naboOverlapp(polygon, t) {
     if (!polygon || polygon.length < 3) return null;
     const flater = [];
@@ -751,11 +851,25 @@ const App = {
        og derfor ikke er med i beregningen i det hele tatt. Merknaden ville da
        fortelle at tallene sto mot et anlegg de ikke sto mot. `_naboflater()`
        er lista over dem som faktisk ble brukt – se `_bygdFoer`. */
+    /* OG BARE DE SOM FAKTISK RØRER DETTE ANLEGGET.
+       Merknaden sa «Regnet mot terrenget slik Tomt A gjør det ferdig» om hver
+       eneste forgjenger, uansett hvor den lå. Målt på to tomter med en veg
+       imellom: Tomt A sluttet 4,75 m fra vegkanten, vegens tall var IDENTISKE
+       med og uten henne – 767 m³ begge veier – og merknaden sto der likevel.
+
+       Et forbehold på tall ingenting har rørt er ikke en opplysning, det er
+       støy. Og verre: den lærer folk å lese forbehold som pynt, slik at den
+       dagen naboen FAKTISK tok 514 m³, står den samme setningen der og blir
+       lest like fort forbi. Nå må flaten overlappe det dette anlegget dekker. */
     const f = this._naboflater() || new Map();
+    const mitt = this._mittOmraade();
     const navn = [];
-    for (const [id] of f) {
+    for (const [id, fl] of f) {
       const a = this.P.anlegg.find(x => x.id === id);
-      if (a) navn.push(a.navn || a.type);
+      if (!a) continue;
+      if (mitt && fl && (fl.minX > mitt.maksX || fl.maksX < mitt.minX
+        || fl.minY > mitt.maksY || fl.maksY < mitt.minY)) continue;
+      navn.push(a.navn || a.type);
     }
     /* «UBYGGELIG» HENGER IKKE PÅ REKKEFØLGEN – DEN KOMMER LENGER NEDE.
        Her sto `return` når det ikke fantes noen naboflate å regne mot. Det gikk
@@ -2554,6 +2668,16 @@ const App = {
     });
     this.resultat.mal.profilAvstand = this.P.profilAvstand;
     this.merkResultat();
+    /* VEGEN SKAL OGSÅ VISE HVA DEN SLIPPER Å GRAVE.
+       `naboTok` ble bare regnet for TOMTER, så en veg som gikk gjennom en
+       ferdig tomt sto med tomt «delt»-felt på kortet «Hele prosjektet» – selv
+       om den hadde fått et fradrag. Målt på to tomter med en veg imellom, der
+       vegen går gjennom den første: vegens skjæring faller fra 767 til 253 m³
+       og fyllingen stiger fra 736 til 802. 514 m³ som ikke sto noe sted.
+
+       Dette er nettopp tilfellet «to tomter med en veg imellom», og det er den
+       vanligste måten et prosjekt her ser ut på. */
+    this.resultat.naboTok = this.vegOverlapp();
     this.naboMerknad(this.resultat);
     /* USIKKERHETEN VENTER TIL SKJERMEN ER TEGNET.
        Den kjørte hele beregningen TRE ganger til – én med fjellet der det står,
