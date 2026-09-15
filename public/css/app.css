@@ -45,7 +45,32 @@
      byggjast. Fjellet er ein del av skjeringa, ikkje ein fjerde
      ting, og blir difor skravur oppå skjeringsfargen. */
   --data-terreng: #8e8e97;
-  --data-terrengflate: #8e8e97;
+  /* TERRENGET SOM FLATE ER JORD, OG SKAL SE UT SOM JORD.
+     Streken over er grå og blir det: en tynn strek i et snitt skal ikke ha
+     kulør. Men i 3D er dette bakken under hele modellen, og grått leses som
+     betong eller som ingenting. Brun er den ene fargen som sier «her er det
+     ikke gjort noe ennå».
+     LYSHETEN ER DEN SAMME SOM DEN GRÅ DEN AVLØSER – 141 mot 143 i luma.
+     Det er ikke pedanteri: 3D-lyset ganger fargen med 0,55–1,00, og hele
+     fargeskalaen for skjæring og fylling er avstemt mot at bakken ligger
+     her. En mørkere brun ville gjort rødt og grønt til det eneste man ser,
+     en lysere ville gjort dem borte.
+     KULØREN MÅTTE LENGER ENN FØRSTE FORSØK. En varsom brun på #97897a har
+     bare 29 i r-b, og 3D-lyset demper flaten til rundt 46 %: målt ble den
+     rgb(69,63,57), altså 12 i r-b. Brunt på papiret, grått på skjermen.
+     Kulørstyrken bærer gjennom dempingen, lysheten gjør det ikke.
+
+     MEN VARMEN MÅ LIGGE I r-b, IKKE I r-g. Andre forsøk var #a38a6c, en
+     ekte rødbrun med 25 i r-g. Den ble rød: prøven «før viser bare terreng»
+     (nettlesertest.js:5782) teller en piksel som skjæring når r > g+22 og
+     r > b+22, og hele bakken slo ut – 93 % av bildet meldt som massefarge i
+     en visning som ikke skal ha noen. Prøven har rett, og feilen er ekte:
+     en brun som ligger nær nok rødt til å forveksles med skjæring, ER
+     forvekslbar med skjæring.
+     Derfor: r-b er 52 og bærer jorda, mens r-g er holdt på 12 – godt under
+     grensa på 22. Det gir en jordbrun i khakifamilien, ikke en rødbrun.
+     Rødt og grønt eier fortsatt de to aksene de skal eie. */
+  --data-terrengflate: #9b8f67;
   --data-rensk: rgba(142, 142, 151, 0.55);
   /* MASSEUTSKIFTING. Blaa fordi den skal vaere til aa skille fra alt annet i
      tegningen OGSAA for den som ikke ser forskjell paa roedt og groent - og
@@ -84,8 +109,11 @@
   --blekk: #0b0b0c;
   --blekk-svak: #52525b;
   --data-terreng: #3f3f46;
-  /* Flata, ikkje streken: lys nok til at raudt og grønt er motivet på arket. */
-  --data-terrengflate: #c8c8cf;
+  /* Flata, ikkje streken: lys nok til at raudt og grønt er motivet på arket.
+     Same brune jorda som på skjerm, men lysare – og lysheten er lagt der den
+     grå låg (201 mot 200 i luma), slik at tonaren ikkje fyller arket. Same
+     avstand til raudt som på skjerm: r-g er 11, r-b er 51. */
+  --data-terrengflate: #d4c9a1;
   --data-rensk: rgba(63, 63, 70, 0.45);
   --data-utskifting: #0d63a8;
   --data-utskifting-flate: rgba(13, 99, 168, 0.26);
@@ -117,7 +145,9 @@
     --raud: #a8151d;
 
     --data-terreng: #3f3f46;
-    --data-terrengflate: #b4b4bc;
+    /* Same jorda i lyst tema, på den lysheten den grå hadde (181 mot 181),
+       og med same avstand til raudt: r-g er 11, r-b er 51. */
+    --data-terrengflate: #c0b58d;
     --data-rensk: rgba(63, 63, 70, 0.45);
     --data-utskifting: #0d63a8;
     --data-utskifting-flate: rgba(13, 99, 168, 0.26);
