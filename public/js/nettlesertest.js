@@ -116,6 +116,22 @@ const Nettlesertest = {
        settes lagringen pa vent, og prosjektet legges tilbake slik det var. */
     App.autolagringPause++;
     clearTimeout(App._autolagring);   // en tidtaker fra før pausen skal ikke fyre midt i testen
+    /* SAMME GRUNN, SAMME GREP, FOR DEN AUTOMATISKE 3D-SCENEN.
+       `Tegner3d._planleggFullDetalj` setter en tidtaker hver gang «Alle
+       anlegg»-knappen tegnes om, og når den fyrer bytter den aktivt anlegg
+       for hver eneste nabo. Midt i en prøve er det nøyaktig like ødeleggende
+       som autolagringen over – og verre å finne, for den slår til halvannet
+       sekund ETTER at prøven som utløste den er ferdig.
+       `autoAndre` slås av av en annen grunn: den er synkron og harmløs i seg
+       selv, men den ville gjort flere av prøvene under til vakuum. `tomt3d`
+       bygger to anlegg og hviler på at naboen IKKE tegnes; med automatikken
+       på ville den målt et annet bilde enn den tror. Prøvene som skal måle
+       selve automatikken, slår den på selv – se `automatiskeNaboer`. */
+    const foerAuto = { andre: Tegner3d.autoAndre, full: Tegner3d.autoFull };
+    Tegner3d.autoAndre = false;
+    Tegner3d.autoFull = false;
+    clearTimeout(Tegner3d._fullTimer);
+    Tegner3d._fullTimer = null;
     const foerProsjekt = App.P ? JSON.stringify(App.P) : null;
     const foerNavn = App.P ? App.P.navn : null;
 
@@ -138,6 +154,7 @@ const Nettlesertest = {
       'autolagring', 'overskriving', 'tverrsnittAvlesning', 'pdfrapport',
       'pdfavlesning', 'rapport', 'paneler', 'flereAnlegg', 'tverrsnittEnsidig',
       'snuplassBlirSynlig', 'naboOverlapping', 'anleggsrekkefolge', 'anleggsmerking', 'prosjektmasserOgRekkefolge', 'vegMellomToTomter',
+      'automatiskeNaboer',
       'grensesnittbredder', 'panelhoder',
       'tomt', 'tomteksport', 'tomterydding', 'tomtsnittOverbygning',
       'tomt3d', 'veg3d', 'kartlag',
@@ -154,6 +171,12 @@ const Nettlesertest = {
 
     window.onerror = gammelFeil;
     window.removeEventListener('unhandledrejection', paaAvvist);
+    /* Automatikken legges tilbake slik den sto, og en tidtaker en prøve
+       rakk å sette skal ikke overleve prøvegjennomgangen. */
+    clearTimeout(Tegner3d._fullTimer);
+    Tegner3d._fullTimer = null;
+    Tegner3d.autoAndre = foerAuto.andre;
+    Tegner3d.autoFull = foerAuto.full;
 
     /* Legg prosjektet tilbake slik det sto, ogsa i lageret dersom det var
        lagret der fra før. Testen skal ikke etterlate seg spor i noe brukeren
@@ -1044,6 +1067,165 @@ const Nettlesertest = {
    * ut; den sier at det som står der skal være mulig å lese, og at det man kan
    * trykke på skal være mulig å treffe.
    */
+  /* ---------------- automatisk scene ----------------
+   *
+   * «tenker den skal slås på automatisk ettersom det kommer flere tomter
+   * eller veger eller begge», og «ja full detalj også automatisk».
+   *
+   * DEN FARLIGE FEILEN HER ER IKKE AT DEN GLEMMER Å SLÅ PÅ. Den er at den
+   * slår på igjen etter at brukeren har slått av. `settVisAndre` kaller
+   * `visAndreknapp()`, og det er `visAndreknapp()` som spør automatikken –
+   * så et påslag lagt naivt der ville opphevet brukerens eget av-klikk i
+   * samme kall, og knappen ville spratt tilbake mens han så på. Prøven på
+   * «spretter den ikke tilbake» er hele grunnen til at resten står her.
+   *
+   * Hele gruppa slår automatikken PÅ selv: `kjor()` holder den av for alle
+   * de andre prøvene, se begrunnelsen der.
+   */
+  async automatiskeNaboer() {
+    const app = App;
+    const foerP = JSON.stringify(app.P);
+    const gz = Terreng.prototype.z, gd = Terreng.prototype.dekning, gl = Terreng.prototype.lastOmraade;
+    const foerAuto = { andre: Tegner3d.autoAndre, full: Tegner3d.autoFull };
+    const foerRort = Tegner3d._andreRortAvBruker;
+    const foerAktiv = { veg: Veg3d.aktiv, tomt: Tomt3d.aktiv };
+    const foerLag = { veg: Veg3d.lag.andre, tomt: Tomt3d.lag.andre };
+    const foerModus = (typeof Kart !== 'undefined') ? Kart.modus : null;
+    const foerFulle = Tegner3d._fulle;
+    try {
+      const x0 = 430000, y0 = 6460000;
+      Terreng.prototype.z = function (x, y) { return 100 - (y - y0) * 0.08; };
+      Terreng.prototype.dekning = function () { return 1; };
+      Terreng.prototype.lastOmraade = async function () { return true; };
+      const pkt = (dx, dy) => {
+        const q = Geo.fraUtm(x0 + dx, y0 + dy, app.sone);
+        return { lat: q.lat, lon: q.lon };
+      };
+      const rute = (xa, xb) => [[xa, 0], [xb, 0], [xb, 60], [xa, 60]].map(([a, b]) => pkt(a, b));
+      const lagTomt = (id, navn, xa, xb, kote) => ({ id, type: 'tomt', navn, ip: [], vip: [],
+        tverrfall: [], plasser: [],
+        mal: Object.assign({}, Tomt.StandardTomtemal, { utskifting: false }),
+        tomt: Object.assign(Tomt.nyTomt(), { punkter: rute(xa, xb), kanter: [],
+          nivaa: { modus: 'flat', kote } }) });
+      const lagVeg = (id, x) => ({ id, type: 'veg', navn: 'Vegen', tverrfall: [], plasser: [],
+        mal: Object.assign({}, StandardMal),
+        ip: [Object.assign(pkt(x, -10), { r: 0 }), Object.assign(pkt(x, 70), { r: 0 })],
+        vip: [{ s: 0, z: 97, k: 0 }, { s: 80, z: 97, k: 0 }] });
+
+      Tegner3d.autoAndre = true;
+      Tegner3d.autoFull = false;            // fristen prøves for seg lenger nede
+      Veg3d.aktiv = true; Tomt3d.aktiv = false;
+      if (typeof Kart !== 'undefined') Kart.modus = 'rediger';
+
+      /* 1. ETT ANLEGG: det finnes ingen andre, og da skal ingenting skje. */
+      app.P.anlegg = [lagVeg('v1', 50)];
+      app.P.aktivt = 'v1';
+      app.klargjorProsjekt(app.P);
+      Veg3d.lag.andre = false; Tomt3d.lag.andre = false;
+      Tegner3d.visAndreknapp();
+      this.sjekk('ett anlegg: «alle anlegg» blir stående av',
+        Veg3d.lag.andre === false, 'andre=' + Veg3d.lag.andre);
+
+      /* 2. ANLEGG NUMMER TO slår den på – og i BEGGE visningene, for det er
+            scenen det gjelder, ikke det ene bildet man står i. */
+      app.P.anlegg = [lagVeg('v1', 50), lagTomt('t1', 'Tomt 1', 80, 140, 96)];
+      Tegner3d.visAndreknapp();
+      this.sjekk('anlegg nummer to slår «alle anlegg» på av seg selv',
+        Veg3d.lag.andre === true, 'andre=' + Veg3d.lag.andre);
+      this.sjekk('  og den slår inn i tomtevisningen òg',
+        Tomt3d.lag.andre === true, 'tomt=' + Tomt3d.lag.andre);
+
+      /* 3. OG SÅ DEN SOM ER HELE POENGET. */
+      Tegner3d.settVisAndre(false);
+      Tegner3d.visAndreknapp();
+      Tegner3d.visAndreknapp();
+      this.sjekk('slår brukeren den av, spretter den ikke tilbake',
+        Veg3d.lag.andre === false, 'andre=' + Veg3d.lag.andre);
+      this.sjekk('  fordi valget hans er merket',
+        Tegner3d._andreRortAvBruker === true, String(Tegner3d._andreRortAvBruker));
+
+      /* 4. ET NYTT PROSJEKT ER ET NYTT SPØRSMÅL. */
+      app.P.anlegg = [lagVeg('v1', 50), lagTomt('t1', 'Tomt 1', 80, 140, 96)];
+      app.P.aktivt = 'v1';
+      Veg3d.lag.andre = false; Tomt3d.lag.andre = false;
+      app.klargjorProsjekt(app.P);
+      Tegner3d.visAndreknapp();
+      this.sjekk('men et nytt prosjekt stiller spørsmålet på nytt',
+        Veg3d.lag.andre === true, 'andre=' + Veg3d.lag.andre);
+
+      /* 5. FULL DETALJ: fristen settes bare når det er noe å se. */
+      Tegner3d.autoFull = true;
+      clearTimeout(Tegner3d._fullTimer); Tegner3d._fullTimer = null;
+      Tegner3d.visAndreknapp();
+      this.sjekk('full detalj får en frist når laget er på',
+        !!Tegner3d._fullTimer, 'ingen tidtaker satt');
+
+      clearTimeout(Tegner3d._fullTimer); Tegner3d._fullTimer = null;
+      Tegner3d.settVisAndre(false);
+      this.sjekk('  men ingen frist når laget er av',
+        !Tegner3d._fullTimer, 'tidtaker satt likevel');
+      clearTimeout(Tegner3d._fullTimer); Tegner3d._fullTimer = null;
+
+      /* 6. PORTENE FØR DEN FAKTISK BYGGER.
+            `byggFulleAnlegg` bytter aktivt anlegg for hver nabo. Skjer det
+            mens brukeren tegner en senterlinje, er arbeidet hans borte. */
+      Tegner3d.settVisAndre(true, true);
+      Tegner3d._fulle = null;
+      app._ferdigflater = null; app._terrengnokkel = '';
+      app.byggLinje(); app.vprofil = new Vertikalprofil(app.P.vip);
+      await app.oppdater();
+
+      this.sjekk('  og den vet at en nabo mangler modell',
+        Veg3d._trengerFulleAnlegg() === true, 'trenger ingenting');
+
+      if (typeof Kart !== 'undefined') Kart.modus = 'tegn';
+      await Veg3d._kjorFullDetalj();
+      this.sjekk('full detalj rører ikke anlegget mens man tegner',
+        !Tegner3d._fulle || Tegner3d._fulle.size === 0,
+        Tegner3d._fulle ? Tegner3d._fulle.size + ' bygd likevel' : 'ingen');
+
+      /* 7. OG SÅ BYGGER DEN, NÅR ALT ER I ORDEN. */
+      if (typeof Kart !== 'undefined') Kart.modus = 'rediger';
+      await Veg3d._kjorFullDetalj();
+      this.sjekk('full detalj bygges av seg selv når alt er i orden',
+        !!(Tegner3d._fulle && Tegner3d._fulle.size > 0),
+        Tegner3d._fulle ? Tegner3d._fulle.size + ' anlegg' : 'ingen bygd');
+
+      /* 8. OG DA ER DET IKKE MER Å GJØRE.
+            Dette er porten som gjør automatikken billig i det lange løp: uten
+            den ville hver eneste `visAndreknapp` dratt i gang en full runde. */
+      this.sjekk('  og etterpå melder den at ingenting mangler',
+        Veg3d._trengerFulleAnlegg() === false, 'sier fortsatt at noe mangler');
+    } finally {
+      Terreng.prototype.z = gz; Terreng.prototype.dekning = gd;
+      Terreng.prototype.lastOmraade = gl;
+      clearTimeout(Tegner3d._fullTimer); Tegner3d._fullTimer = null;
+      Tegner3d.autoAndre = foerAuto.andre; Tegner3d.autoFull = foerAuto.full;
+      Tegner3d._andreRortAvBruker = foerRort;
+      Tegner3d._fulle = foerFulle;
+      Tegner3d._fulleUtelatt = null;
+      Veg3d.aktiv = foerAktiv.veg; Tomt3d.aktiv = foerAktiv.tomt;
+      Veg3d.lag.andre = foerLag.veg; Tomt3d.lag.andre = foerLag.tomt;
+      Veg3d.glemBakgrunn(); Tomt3d.glemBakgrunn();
+      if (typeof Kart !== 'undefined' && foerModus !== null) Kart.modus = foerModus;
+      app.P = JSON.parse(foerP);
+      app.klargjorProsjekt(app.P);
+      app._ferdigflater = null;
+      app.resultat = null;
+      app._terrengnokkel = null;
+      Tegner3d._andreRortAvBruker = foerRort;
+      /* HELE VELGEREN, IKKE BARE «ALLE ANLEGG»-KNAPPEN.
+         Her sto `Tegner3d.visAndreknapp()` alene, og da ble anleggsvelgeren
+         stående med etiketten fra prøveprosjektet: «▬ Vegen  (2) ▾» over et
+         prosjekt som igjen hadde ett anlegg. Neste gruppe er
+         `grensesnittbredder`, som måler nettopp knappebredder, og den meldte
+         94 px tekst i en knapp på 89. Feilen var i oppryddingen her, ikke i
+         grensesnittet – den slags er den vanskeligste å lete etter.
+         `visAnleggsvelger` tegner knappen om OG kaller `visAndreknapp` selv. */
+      app.visAnleggsvelger();
+    }
+  },
+
   async grensesnittbredder() {
     /* Bredden en tekst VILLE tatt, målt med samme skrift, utenfor layouten. */
     const bredde = (tekst, mal) => {
@@ -2326,9 +2508,16 @@ const Nettlesertest = {
         const foerVegAktiv = Veg3d.aktiv, foerTomtAktiv = Tomt3d.aktiv;
         Veg3d.aktiv = true;
         try {
+          /* NAVNET STO EN GANG «av som forvalg – ingen naboanlegg i scenen».
+             Det er ikke forvalget lenger: med mer enn ett anlegg slår
+             programmet laget på selv (Tegner3d._autoAndre). Prøven måler
+             fortsatt noe den skal – at brukerens AV virkelig tømmer scenen –
+             men den kan ikke lenger hete det den het. En grønn prøve som
+             dokumenterer det motsatte av hva programmet gjør, er verre enn
+             en rød. Forvalget selv er prøvd i `automatiskeNaboer`. */
           Tegner3d.settVisAndre(false);
           const av = Veg3d._bakgrunnsgitre();
-          this.sjekk('3D: av som forvalg – ingen naboanlegg i scenen',
+          this.sjekk('3D: slår man «alle anlegg» av, er scenen tom for naboer',
             av.length === 0, av.length + ' gitre');
 
           Tegner3d.settVisAndre(true);

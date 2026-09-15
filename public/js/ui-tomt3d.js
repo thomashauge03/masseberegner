@@ -31,7 +31,9 @@ const Tomt3d = Object.assign(Object.create(Tegner3d), {
      To vanlige felt, ikke en getter/setter-kobling som vegens `kamS`: her
      finnes det ikke noe profilrutenett som runder dem bort. */
   kamX: 0, kamY: 0,
-  /* `andre`: se Veg3d.lag – den holdes i takt med vegens av Tegner3d.settVisAndre. */
+  /* `andre`: se Veg3d.lag – den holdes i takt med vegens av
+     Tegner3d.settVisAndre, og slås på automatisk sammen med den når
+     prosjektet har mer enn ett anlegg (Tegner3d._autoAndre). */
   lag: { terreng: true, grav: true, fjell: false, overbygning: false, rutenett: false,
     grenser: true, andre: false },
 

@@ -449,6 +449,45 @@ const Tegner3d = {
    * ingen av dem leser `app.resultat`. Det er hele grunnen til at dette lar
    * seg gjøre uten å røre tegneveien.
    */
+  /**
+   * Har anlegget nok til at det i det hele tatt kan regnes?
+   *
+   * Sto som en lokal hjelper inne i `byggFulleAnlegg`. Den måtte ut, for
+   * `_trengerFulleAnlegg` stiller nøyaktig det samme spørsmålet før den lar
+   * automatikken sette i gang – og to utgaver av «kan dette regnes» som
+   * kommer i utakt, er verre enn ingen automatikk: da bygger den i evig løkke
+   * på et anlegg den selv mener ikke kan bygges.
+   */
+  _kanRegnes(a) {
+    if (!a) return false;
+    return a.type === 'tomt'
+      ? !!(a.tomt && (a.tomt.punkter || []).length > 2
+        && a.tomt.nivaa && Number.isFinite(a.tomt.nivaa.kote))
+      : ((a.ip || []).length > 1 && (a.vip || []).length > 1);
+  },
+
+  /**
+   * Finnes det et naboanlegg som mangler et ferskt fullt gitter?
+   *
+   * `byggFulleAnlegg` hopper selv over alt som alt er bygd (se nøkkelprøven i
+   * løkka), så et kall der ingenting er utdatert er nesten gratis. Nesten:
+   * den regner om den aktive flaten, og den blinker framdriftsboksen. Med en
+   * automatisk utløser blir «nesten gratis» kjørt hver gang noe rører seg, og
+   * da er det ikke gratis lenger. Dette er porten.
+   */
+  _trengerFulleAnlegg() {
+    const app = this.app || (typeof App !== 'undefined' ? App : null);
+    if (!app || !app.P || !Array.isArray(app.P.anlegg)) return false;
+    const fulle = Tegner3d._fulle;
+    for (const a of app.P.anlegg) {
+      if (a.id === app.P.aktivt || this.anleggAv(a.id)) continue;
+      if (!this._kanRegnes(a)) continue;
+      const har = fulle && fulle.get(a.id);
+      if (!har || har.nokkel !== this._fullnokkel(a)) return true;
+    }
+    return false;
+  },
+
   async byggFulleAnlegg() {
     /* Kalles på PROTOTYPEN – fra knappen i menyen – og der finnes ingen `app`.
        Den bor på Veg3d og Tomt3d, ikke på Tegner3d. Samme fallback som
@@ -495,10 +534,7 @@ const Tegner3d = {
          ventet ut hele fristen, med tre slike anlegg tre ganger etter
          hverandre, foran en skjerm som ikke tok imot noe. Skissen vet allerede
          hva som mangler; det er den samme kunnskapen. */
-      const kanRegnes = a => a.type === 'tomt'
-        ? !!(a.tomt && (a.tomt.punkter || []).length > 2
-          && a.tomt.nivaa && Number.isFinite(a.tomt.nivaa.kote))
-        : ((a.ip || []).length > 1 && (a.vip || []).length > 1);
+      const kanRegnes = a => this._kanRegnes(a);
       const liste = [];
       for (const a of app.P.anlegg) {
         if (a.id === foer || this.anleggAv(a.id)) continue;
@@ -1702,8 +1738,19 @@ const Tegner3d = {
    * spørsmål om hva SCENEN skal inneholde, og det svaret følger deg når du
    * bytter mellom vegen og tomta. Sto den per visning, måtte man slå den på to
    * ganger for å få den samme utsikten.
+   *
+   * `avOss` skiller programmets eget påslag fra brukerens klikk. Uten det
+   * argumentet er dette en BESLUTNING – enten brukerens egen, eller et kall
+   * som mener det like sterkt – og da skal automatikken holde seg unna
+   * heretter. Mønsteret er det samme som `settStor(navn, tvang)` i app.js og
+   * `settOverlegg(navn, pa, stille)` i ui-kart.js.
+   *
+   * MERKINGEN MÅ SKJE FØR `visAndreknapp()` NEDENFOR. Den kaller `_autoAndre`,
+   * og uten merkingen ville et `settVisAndre(false)` slått laget på igjen i
+   * sitt eget kall: brukeren trykker av, og knappen spretter tilbake.
    */
-  settVisAndre(pa) {
+  settVisAndre(pa, avOss) {
+    if (!avOss) Tegner3d._andreRortAvBruker = true;
     for (const vis of [typeof Veg3d !== 'undefined' ? Veg3d : null,
       typeof Tomt3d !== 'undefined' ? Tomt3d : null]) {
       if (!vis || !vis.lag) continue;
@@ -1718,6 +1765,106 @@ const Tegner3d = {
     }
   },
 
+  /* ================================================================
+     NÅR PROGRAMMET BESTEMMER SELV
+
+     Brukeren sa det slik: «tenker den skal slås på automatisk ettersom det
+     kommer flere tomter eller veger eller begge», og «ja full detalj også
+     automatisk».
+
+     Begrunnelsen som sto for at `andre` var AV – «med flere er det ens eget
+     arbeid man ser på til man ber om noe annet» – holdt ikke i praksis. Den
+     gjorde at et prosjekt med seks anlegg åpnet som et prosjekt med ett, og
+     ingenting på skjermen sa at de fem andre fantes. Man ba ikke om noe
+     annet, for man visste ikke at det var noe å be om.
+
+     MØNSTERET ER KODEBASENS EGET, ikke et nytt påfunn: `_storAv3d`
+     (app.js) og `_avAvOss` (ui-kart.js) gjør dette fra før. Regelen der er
+     at programmet registrerer at DET gjorde endringen, og derfor eier retten
+     til å angre den. Her trengs bare den ene halvdelen – vi slår aldri av
+     igjen – så flagget er speilvendt: `_andreRortAvBruker` sier at brukeren
+     har uttalt seg, og da rører vi det aldri mer. `settVisAndre` setter det
+     for enhver beslutning som ikke er merket `avOss`.
+     ================================================================ */
+
+  /** Programmet kan slå laget på. Prøvene skrur den av for å måle forvalget. */
+  autoAndre: true,
+  /** Det samme for full detalj – se `_planleggFullDetalj`. */
+  autoFull: true,
+  /** Hvor lenge det skal være stille før full detalj settes i gang. */
+  AUTOFULL_MS: 1500,
+
+  /**
+   * Slår «alle anlegg» på når prosjektet har fått mer enn ett.
+   *
+   * Går UTENOM `settVisAndre` med vilje, av to grunner: den ville merket
+   * dette som brukerens eget valg, og den kaller `visAndreknapp()` – som er
+   * nettopp den som kaller hit. Her settes flaggene rett, og den som kalte
+   * tegner om etterpå slik den alltid har gjort.
+   */
+  _autoAndre(antall) {
+    if (!Tegner3d.autoAndre || Tegner3d._andreRortAvBruker) return;
+    if (!(antall >= 2)) return;
+    const visninger = [typeof Veg3d !== 'undefined' ? Veg3d : null,
+      typeof Tomt3d !== 'undefined' ? Tomt3d : null].filter(v => v && v.lag);
+    if (!visninger.length || visninger.some(v => v.lag.andre)) return;
+    for (const v of visninger) {
+      v.lag.andre = true;
+      v.glemBakgrunn();
+      v._skalaSatt = false;               // innrammingen dekker nå noe annet
+    }
+  },
+
+  /**
+   * Setter full detalj i gang når det har vært stille en stund.
+   *
+   * IKKE MED ÉN GANG, OG DET ER HELE POENGET. `byggFulleAnlegg` bytter aktivt
+   * anlegg for hver eneste nabo og venter på at hvert av dem blir regnet.
+   * Kjørt rett på hver anleggsendring ville den rykket anlegget vekk under
+   * hendene på den som nettopp la det til. Derfor: en hvilefrist, og hvert
+   * nytt kall skyver fristen – legger man til tre anlegg etter hverandre,
+   * bygges det én gang, etterpå.
+   *
+   * Portene, i tur: bryteren av, for få anlegg, laget av, 3D vises ikke,
+   * bygger alt, brukeren står i en tegnemodus, eller ingenting er utdatert.
+   * Den siste er den som gjør dette billig i det lange løp – `_trengerFulle-
+   * Anlegg` svarer nei så lenge ingenting har endret seg.
+   */
+  _planleggFullDetalj(antall) {
+    if (!Tegner3d.autoFull) return;
+    if (!(antall >= 2)) return;
+    if (!(typeof Veg3d !== 'undefined' && Veg3d.lag && Veg3d.lag.andre)) return;
+    if (Tegner3d._fullTimer) clearTimeout(Tegner3d._fullTimer);
+    Tegner3d._fullTimer = setTimeout(() => {
+      Tegner3d._fullTimer = null;
+      Tegner3d._kjorFullDetalj();
+    }, Tegner3d.AUTOFULL_MS);
+  },
+
+  async _kjorFullDetalj() {
+    if (!Tegner3d.autoFull || Tegner3d._byggerFulle) return;
+    const app = this.app || (typeof App !== 'undefined' ? App : null);
+    if (!app || !app.P || !Array.isArray(app.P.anlegg) || app.P.anlegg.length < 2) return;
+    /* TEGNER MAN, SKAL INGENTING RYKKE I ANLEGGET.
+       `Kart.modus` står på 'rediger' i ro; alt annet er en handling brukeren
+       holder på med. Å bytte aktivt anlegg midt i en senterlinje er å kaste
+       bort arbeidet hans. Fristen skyves ikke – neste `visAndreknapp` setter
+       en ny, og de kommer tett når man tegner. */
+    if (typeof Kart !== 'undefined' && Kart.modus && Kart.modus !== 'rediger') return;
+    const vis = [typeof Veg3d !== 'undefined' ? Veg3d : null,
+      typeof Tomt3d !== 'undefined' ? Tomt3d : null]
+      .find(v => v && v.aktiv && v.lag && v.lag.andre);
+    if (!vis) return;                       // 3D vises ikke – ingen ser det uansett
+    if (!vis._trengerFulleAnlegg()) return;
+    try {
+      await vis.byggFulleAnlegg();
+    } catch (e) {
+      /* Et kast her er ikke brukerens feil og skal ikke stoppe ham. Knappen
+         står der fortsatt for den som vil prøve igjen for hånd. */
+      if (app.status) app.status('Full detalj kunne ikke bygges: ' + e.message);
+    }
+  },
+
   /**
    * Knappen skal stå framme når den betyr noe, og være borte når den ikke gjør det.
    *
@@ -1728,6 +1875,8 @@ const Tegner3d = {
   visAndreknapp() {
     const app = this.app || (typeof App !== 'undefined' ? App : null);
     const antall = (app && app.P && Array.isArray(app.P.anlegg)) ? app.P.anlegg.length : 0;
+    this._autoAndre(antall);
+    this._planleggFullDetalj(antall);
     const paa = !!(typeof Veg3d !== 'undefined' && Veg3d.lag && Veg3d.lag.andre);
     /* KNAPPEN HØRER TIL 3D-BILDET, OG SKAL VÆRE BORTE NÅR DET IKKE VISES.
        Sto den framme i snittmodus også, kom den i tillegg til alle

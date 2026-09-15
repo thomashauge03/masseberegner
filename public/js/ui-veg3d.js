@@ -44,9 +44,15 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
      fortsatt som valg for den som vil se på ett parti, men det er ikke det man
      møter. */
   vindu: 0,            // meter til hver side av snittet; 0 = hele vegen
-  /* `andre` er de øvrige anleggene i prosjektet. Den står AV som forvalg: med
-     ett anlegg finnes den ikke, og med flere er det ens eget arbeid man ser på
-     til man ber om noe annet. */
+  /* `andre` er de øvrige anleggene i prosjektet. Den står av HER, fordi det
+     er riktig for det ene anlegget et nytt prosjekt begynner med – da finnes
+     det ingen andre å vise.
+     FÅR PROSJEKTET FLERE, SLÅR PROGRAMMET DEN PÅ SELV: se
+     `Tegner3d._autoAndre`. Her sto det en gang at «med flere er det ens eget
+     arbeid man ser på til man ber om noe annet». Det holdt ikke – et
+     prosjekt med seks anlegg åpnet som et prosjekt med ett, og ingenting på
+     skjermen sa at de fem andre fantes. Man ber ikke om noe man ikke vet
+     finnes. Slår brukeren den av selv, blir den av. */
   lag: { terreng: true, grav: true, vegbane: true, fjell: false, rutenett: false,
     grenser: true, andre: false },
 

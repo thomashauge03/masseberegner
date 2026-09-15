@@ -218,6 +218,13 @@ const App = {
     if (typeof Tegner3d !== 'undefined') {
       Tegner3d._fulle = null;
       Tegner3d._fulleUtelatt = null;
+      /* ET NYTT PROSJEKT ER ET NYTT SPØRSMÅL.
+         `_andreRortAvBruker` husker at brukeren selv slo «alle anlegg» av, og
+         da skal automatikken holde seg unna – men bare i DET prosjektet. Sto
+         flagget igjen, ville en enslig veg han skrudde laget av på i går
+         gjort at neste prosjekt med seks anlegg åpnet uten naboer, og
+         ingenting sa hvorfor. Se Tegner3d._autoAndre. */
+      Tegner3d._andreRortAvBruker = false;
       if (typeof Veg3d !== 'undefined') Veg3d.glemBakgrunn();
       if (typeof Tomt3d !== 'undefined') Tomt3d.glemBakgrunn();
     }
@@ -1251,6 +1258,15 @@ const App = {
     for (const b of panel.querySelectorAll('[data-ned]')) {
       b.onclick = () => this.flyttAnlegg(b.dataset.ned, 1);
     }
+    /* ANTALLET ANLEGG HAR NETTOPP ENDRET SEG – OG DET ER «ALLE ANLEGG»-KNAPPEN
+       SITT ENESTE SPØRSMÅL.
+       Den skjuler seg under to anlegg, teller dem i sin egen tekst, og lar
+       Tegner3d._autoAndre slå laget på når det blir flere. Likevel ble den
+       bare tegnet om når 3D-ruta ble slått av eller på (ui-veg3d.js,
+       ui-tomt3d.js) og fra eksportpanelet. Sto man ALT i 3D og la til anlegg
+       nummer to, kom naboen aldri til syne, og knappen ble stående og si «(0)»
+       til man byttet visning fram og tilbake. */
+    if (typeof Tegner3d !== 'undefined' && Tegner3d.visAndreknapp) Tegner3d.visAndreknapp();
   },
 
   /**
