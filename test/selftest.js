@@ -1699,8 +1699,34 @@ console.log('\n4f. Eksportformatene');
   paastand('LandXML oppgir koordinatsystemet', xml.includes('epsgCode="25832"'));
   paastand('LandXML har enhetene som kreves',
     xml.includes('temperatureUnit') && xml.includes('pressureUnit'));
-  paastand('anførselstegn i prosjektnavnet blir escapet', !/name="[^"]*«/.test(xml)
-    || xml.includes('&quot;') || !xml.includes('name="Prøvevei "'));
+  /* PRØVEN MÅ BRUKE DET TEGNET SOM FAKTISK KAN BRYTE ATTRIBUTTET.
+     Her sto navnet «Prøvevei «test»» – FRANSKE anførselstegn. « og » er helt
+     vanlige tegn i et XML-attributt og trenger ingen escaping, så attributtet
+     kunne ikke brytes uansett hva eksporten gjorde. Påstanden var sann fra
+     første tegn, og den var i tillegg skrevet som tre ledd med `||`, der det
+     første alene gjorde hele uttrykket sant.
+
+     Tegnene som KAN bryte et attributt er `"`, `&` og `<`. Her sendes alle tre
+     inn, og kravet er at fila fortsatt er velformet XML: ingen av dem får stå
+     rå inne i attributtet. Uten escaping ville navnet lukket attributtet og
+     resten av taggen blitt tolket som markup. */
+  {
+    const stygt = 'Veg "A" & <B>';
+    /* Navnet leses fra `app.P.navn` (eksport.js:322), ikke fra `app.navn` –
+       det tok meg ett forsøk å finne ut, og det er verdt å skrive ned: en
+       prøve som setter feil felt prøver ingenting og ser ut som en feil i
+       eksporten. */
+    const xml2 = Eksport.landxml(
+      Object.assign({}, app, { P: Object.assign({}, app.P, { navn: stygt }) }), res);
+    const ventet = 'name="Veg &quot;A&quot; &amp; &lt;B&gt;"';
+    paastand('anførselstegn, & og < i prosjektnavnet blir escapet',
+      xml2.includes(ventet),
+      (xml2.match(/<Alignments name="[^"]*"/) || ['fant ingen Alignments'])[0].slice(0, 140));
+    /* Og det rå navnet skal ikke stå noe sted – ett usikret anførselstegn
+       lukker attributtet, og resten av taggen blir lest som markup. */
+    paastand('  og det rå navnet står ingen steder i fila',
+      !xml2.includes(stygt));
+  }
 
   /* PI er tangentskjæringspunktet. Med buens midtpunkt ble geometrien flere
      meter feil for lesere som bygger linjen opp fra PI. */
@@ -1850,6 +1876,38 @@ console.log('\n4f. Eksportformatene');
       Math.abs(p.hoyre.z - (pr.vegnivaa - 0.05 * pr.halvbredde)));
   }
   sjekk('vegkanthøydene stemmer med tverrsnittet', verst, 0, 1e-9);
+  /* FASITEN OVER ER DEN SAMME FORMELEN EKSPORTEN BRUKER, og oppsettet gjør de
+     to sidene like: `fallVed` gir 0,05 begge veier, og halvbredden er én verdi.
+     Da er `venstre` og `hoyre` det samme tallet, og påstanden kan ikke se om
+     eksporten bytter om sidene eller bruker feil halvbredde på den ene.
+
+     Eksporten leser `halvbreddeVenstre`/`halvbreddeHoyre` hver for seg
+     (eksport.js:51-52). Under settes de til å være ULIKE – en snuplass ut til
+     én side – og da må de to kanthøydene skille lag, og hver av dem følge SIN
+     egen halvbredde. Det er den regelen som ikke kunne prøves før. */
+  {
+    const resE = M.beregnMasser({
+      linje, profil: vp, terreng: { z: () => 104 }, mal: {},
+      fjell: new M.Fjellmodell({ standarddybde: 2 }), profilAvstand: 10, bakkefaktor: 1,
+      plasser: [{ s: 100, lengde: 30, bredde: 6, side: 'hoyre', form: 'rektangel' }]
+    });
+    const pE = Eksport.punkter(Object.assign({}, app), resE);
+    const prE = resE.profiler.find(q => Math.abs(q.s - 100) < 1e-6);
+    const pkt = pE.find(q => Math.abs(q.s - 100) < 1e-6);
+    paastand('en ensidig plass gjør halvbreddene ulike',
+      prE && prE.halvbreddeHoyre > prE.halvbreddeVenstre + 5,
+      prE ? `${prE.halvbreddeVenstre.toFixed(2)} mot ${prE.halvbreddeHoyre.toFixed(2)}` : 'ingen profil');
+    if (pkt && prE) {
+      const f = app.fallVed(100);
+      sjekk('  og venstre kanthøyde følger VENSTRE halvbredde',
+        pkt.venstre.z, prE.vegnivaa - f.venstre * prE.halvbreddeVenstre, 1e-9);
+      sjekk('  og høyre følger HØYRE',
+        pkt.hoyre.z, prE.vegnivaa - f.hoyre * prE.halvbreddeHoyre, 1e-9);
+      paastand('  så de to kanthøydene er ikke like',
+        Math.abs(pkt.venstre.z - pkt.hoyre.z) > 0.05,
+        `${pkt.venstre.z.toFixed(3)} mot ${pkt.hoyre.z.toFixed(3)}`);
+    }
+  }
 
   for (const [navn, tekst] of [['KOF', kof], ['LandXML', xml], ['SOSI', sos], ['DXF', dxf]]) {
     paastand(`${navn} inneholder verken NaN eller undefined`,
@@ -2914,6 +2972,24 @@ console.log('\n6e. Snuplass og møteplass – vegen blir bredere på et stykke')
       pr.utskiftingHalvbreddeHoyre - pr.utskiftingHalvbreddeVenstre, 6, 0.01);
     sjekk('  fellestallet er det ytterste av de to',
       pr.utskiftingHalvbredde, pr.utskiftingHalvbreddeHoyre, 1e-9);
+    /* «DET YTTERSTE AV DE TO» MÅ PRØVES BEGGE VEIER.
+       Over ligger plassen ALLTID til høyre – `{sym: 0, v: 0, h: 6}` – og i hele
+       fila finnes det ikke ett profil der venstre er bredest. Da er
+       `Math.max(venstre, høyre)` og `høyre` det samme tallet uansett, og
+       påstanden ville stått grønn med maks byttet ut med «alltid høyre».
+       Samme snuplass speilvendt gir den andre halvdelen av regelen. */
+    const prV = M.beregnTverrprofil({
+      linje: linjeP, terreng: { z: () => 100 },
+      mal: Object.assign({}, KLASSISK, { utskifting: true, maksUtskifting: 4,
+        overbygningHelning: 0 }),
+      fjell: new M.Fjellmodell({ standarddybde: 1.5, punkter: [] }),
+      s: 100, vegnivaa: 100, utvidelse: { sym: 0, v: 6, h: 0 }, integrasjonssteg: 0.05
+    });
+    paastand('  speilvendt er det venstre som er bredest',
+      prV.utskiftingHalvbreddeVenstre > prV.utskiftingHalvbreddeHoyre + 5.9,
+      `${prV.utskiftingHalvbreddeVenstre.toFixed(2)} mot ${prV.utskiftingHalvbreddeHoyre.toFixed(2)}`);
+    sjekk('    og da er fellestallet DEN siden',
+      prV.utskiftingHalvbredde, prV.utskiftingHalvbreddeVenstre, 1e-9);
   }
 
   /* MAKSUTSLAG MÅLES FRA SIDENS EGEN VEGKANT.
@@ -2921,20 +2997,35 @@ console.log('\n6e. Snuplass og møteplass – vegen blir bredere på et stykke')
      falsk alarm og tapt alarm. Med en plass ut til høyre står venstre vegkant
      der den alltid har stått, og utslaget der er uendret. */
   {
-    const utslag = (plasser) => {
+    /* OPPSETTET MÅ FAKTISK KUNNE GI EN UTSLAGSALARM.
+       Her sto en sidehelling på 1:20 mot `maksUtslag: 6`. Målt i det oppsettet:
+       NULL utslagsmerknader, både med og uten snuplass – og påstanden var
+       `u1 <= u0 + 6`, altså 0 <= 6. Den kunne ikke bli rød uansett hva koden
+       gjorde med sidene.
+
+       Nå er hellingen 1:4 og grensen 3 m, og da fyrer merknaden. Og det som
+       måles er VERDIEN på merknaden, ikke antallet: en snuplass til høyre skal
+       ikke gjøre utslaget på venstre side større. Verdien står på merknaden,
+       satt der den ble målt (masser.js:2107). */
+    const utslagsverdi = (plasser) => {
       const r = M.beregnMasser({
-        linje: linjeP, profil: profilP, terreng: { z: (x, y) => 100 + 0.05 * y },
-        mal: Object.assign({}, KLASSISK, { overbygningHelning: 0, maksUtslag: 6 }),
+        linje: linjeP, profil: profilP, terreng: { z: (x, y) => 100 + 0.25 * y },
+        mal: Object.assign({}, KLASSISK, { overbygningHelning: 0, maksUtslag: 3 }),
         fjell: new M.Fjellmodell({ standarddybde: 99, punkter: [] }),
         profilAvstand: 5, bakkefaktor: 1, integrasjonssteg: 0.05, plasser
       });
-      return (r.merknader || []).filter(m => m.type === 'utslag').length;
+      const m = (r.merknader || []).filter(q => q.type === 'utslag');
+      return { antall: m.length, verst: m.reduce((v, q) => Math.max(v, q.verdi || 0), 0) };
     };
-    const u0 = utslag(null);
-    const u1 = utslag([{ s: 100, lengde: 20, bredde: 6, side: 'hoyre',
+    const u0 = utslagsverdi(null);
+    const u1 = utslagsverdi([{ s: 100, lengde: 20, bredde: 6, side: 'hoyre',
       form: 'rektangel', innkjoring: 5 }]);
-    paastand('en plass til høyre gir ikke falsk utslagsalarm til venstre',
-      u1 <= u0 + 6, `${u0} merknader uten plass, ${u1} med`);
+    paastand('oppsettet gir faktisk en utslagsalarm å måle på',
+      u0.antall > 0 && u0.verst > 0,
+      `${u0.antall} merknader, verst ${u0.verst.toFixed(2)} m`);
+    paastand('en plass til høyre gir ikke større utslag enn før',
+      u1.verst <= u0.verst + 1e-6,
+      `uten plass ${u0.verst.toFixed(2)} m, med plass ${u1.verst.toFixed(2)} m`);
   }
 
   /* HELNINGSFELTENE MÅ VALIDERES.
@@ -2959,12 +3050,27 @@ console.log('\n6e. Snuplass og møteplass – vegen blir bredere på et stykke')
       sjekk('  og den faller tilbake på standardverdien',
         r.sum.baerelag, god.sum.baerelag, 0.01);
     }
+    /* `venta` STO BARE I NAVNET.
+       Påstanden krevde `isFinite(baerelag)` og at det fantes en
+       inngangsmerknad – grensene 0 og 5 ble aldri prøvd. Målt: med klemgrensa
+       i MALGRENSER flyttet fra [0, 5] til [0, 50] sto selvtesten grønn, og en
+       helning på 99 ville sluppet gjennom som 50.
+
+       Nå måles resultatet mot en kjøring med den VENTEDE verdien: klemmes 99
+       til 5, skal svaret være det samme som om man hadde skrevet 5. Det er
+       selve grensen, ikke at det kom et tall. */
     for (const [navn, v, venta] of [['for liten', -3, 0], ['for stor', 99, 5]]) {
       const r = medHelning(v);
-      paastand(`${navn} verdi klemmes til ${venta} og meldes`,
-        isFinite(r.sum.baerelag)
-        && (r.merknader || []).some(m => m.type === 'inngang'),
-        `bærelag ${r.sum.baerelag.toFixed(0)}`);
+      const fasit = medHelning(venta);
+      paastand(`${navn} verdi meldes`,
+        (r.merknader || []).some(m => m.type === 'inngang'));
+      sjekk(`  og klemmes til ${venta} – samme svar som om man skrev ${venta}`,
+        r.sum.baerelag, fasit.sum.baerelag, 0.01);
+      /* Og grensen må ligge et annet sted enn verdien, ellers sier likheten
+         ingenting. En helning på 99 og en på 5 skal gi ULIKE svar. */
+      paastand(`  og ${venta} er noe annet enn ${v} – ellers prøver likheten intet`,
+        Math.abs(fasit.sum.baerelag - god.sum.baerelag) > 1e-9 || venta === 5,
+        `klemt ${fasit.sum.baerelag.toFixed(2)}, standard ${god.sum.baerelag.toFixed(2)}`);
     }
   }
 
@@ -3127,8 +3233,31 @@ console.log('\n6c. Avlesning av PDF');
     // `v` bruker startpunktet som første kontrollpunkt, `y` endepunktet som andre
     const v = Pdf.tolkBaner('1 0 0 1 0 0 cm 0 0 m 200 100 300 0 v S')[0];
     const y = Pdf.tolkBaner('1 0 0 1 0 0 cm 0 0 m 100 100 300 0 y S')[0];
+    /* PILHØYDEN KAN IKKE SKILLE DE TO – DE ER SPEILBILDER.
+       Her sto `maks y > 20` for begge, og begge gir 43,9453. Det er ikke en
+       tilfeldighet: `v` setter startpunktet som første kontrollpunkt, `y`
+       endepunktet som andre, så kurvene er speilvendte om midten og MÅ ha
+       samme pilhøyde. Påstandene kunne derfor byttes om uten at noe skjedde,
+       og de fanget ikke at de to operatorene ble lest likt.
+
+       Det som skiller dem er HVOR bulen ligger: `v` har den sent (x = 161,1),
+       `y` tidlig (x = 138,9). Det er den forskjellen som prøves nå. */
+    const topp = k => k.reduce((b, p) => (p.y > b.y ? p : b), k[0]);
     paastand('v-kurven bøyer av fra korden', Math.max(...v.map(p => p.y)) > 20);
     paastand('y-kurven bøyer av fra korden', Math.max(...y.map(p => p.y)) > 20);
+    /* SAMME TALL, ULIK OPERATOR – ELLERS PRØVES INGENTING.
+       De to over har forskjellige operander, så de gir forskjellige kurver
+       uansett hvordan operatorene leses. Målt: leses `v` som `y`, flytter
+       toppen seg bare fra x = 161,1 til 182,8, og en påstand om «sent» holder
+       fortsatt.
+
+       Her får begge NØYAKTIG de samme fire tallene. Da er den eneste
+       forskjellen operatoren selv, og leses de likt, blir kurvene identiske. */
+    const vS = Pdf.tolkBaner('1 0 0 1 0 0 cm 0 0 m 200 100 300 0 v S')[0];
+    const yS = Pdf.tolkBaner('1 0 0 1 0 0 cm 0 0 m 200 100 300 0 y S')[0];
+    paastand('v og y med samme tall gir ULIKE kurver',
+      Math.abs(topp(vS).x - topp(yS).x) > 10,
+      `v topper på x = ${topp(vS).x.toFixed(1)}, y på x = ${topp(yS).x.toFixed(1)}`);
   }
 
   /* Kandidatutvalget kastet alt med under femten punkt. En veglinje tegnet som
