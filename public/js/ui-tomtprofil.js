@@ -261,6 +261,20 @@ const Tomteprofil = {
       g.globalAlpha = 0.35; g.beginPath(); g.moveTo(marg.v, y); g.lineTo(b - marg.h, y); g.stroke();
       g.globalAlpha = 1; g.fillText(z.toFixed(trinn < 1 ? 1 : 0), marg.v - 5, y + 3);
     }
+    /* EN OVERDREVET HØYDE SKAL STÅ SKREVET PÅ TEGNINGEN.
+       Det er nettopp den stilltiende overdrivelsen som gjorde at snittet så
+       galt ut uten at noe sa hvorfor – se `_omrade`. Står den her, kan man
+       lese vinkelen med det forbeholdet den fortjener. Er målestokken lik i
+       begge retninger, er det ingenting å opplyse om, og da står det
+       ingenting. */
+    if (omr.overdriv > 1.05) {
+      g.textAlign = 'right';
+      g.globalAlpha = 0.75;
+      g.fillText('høyde ' + (Math.round(omr.overdriv * 10) / 10) + '× overdrevet',
+        b - marg.h, marg.o + 9);
+      g.globalAlpha = 1;
+      g.textAlign = 'right';
+    }
 
     /* Skjæring og fylling farges - det er dem øyet skal finne. Skjæring der
        terrenget ligger over det ferdige nivaet, fylling der det ligger under. */
@@ -534,8 +548,55 @@ const Tomteprofil = {
     minZ -= spenn * 0.08; maksZ += spenn * 0.08;
     const d0 = s.punkt[0].d, d1 = s.punkt[s.punkt.length - 1].d;
     const bredde = b - marg.v - marg.h, hoyde = h - marg.o - marg.u;
+    /* ================================================================
+       HØYDEN OG BREDDEN MÅ HENGE SAMMEN.
+
+       Her fylte X hele bredden og Y hele høyden, hver for seg. Da er
+       målestokken ulik i de to retningene, og en skråning tegnes ikke i sin
+       egen vinkel. Målt på en tomt på 80 × 60 m i et panel på 645 × 260:
+       4,84 piksler per meter vannrett mot 29,15 loddrett – seks gangers
+       overdrivelse. Fyllingsskråningen er 1:2, altså 26,6 grader, og ble
+       tegnet som 71,6. Brukeren så det med en gang: «ser alt for bratt ut».
+       Tallene var riktige hele veien; det var bildet som løy.
+
+       Vegens snitt har alltid gjort dette rett – se `ui-tverrprofil.js`,
+       «lik malestokk i begge retninger». To snitt i samme program som
+       tegner den samme slags figur på to måter, er én for mye.
+
+       HVORFOR IKKE BARE 1:1? Fordi en tomt er flat og brei. Den samme
+       tomta er 120 m med skråninger og 7,6 m fra bunn til topp – seksten
+       mot én. I ren målestokk blir hele snittet 37 piksler høyt i et panel
+       på 220, og da ser man ingenting. Overdrivelse er da også vanlig
+       praksis i anleggstegninger – men den SKAL stå skrevet på tegningen,
+       og den skal ikke være seks.
+
+       Derfor: `sy` legger seg så nær `sx` som høyden tillater, med et tak
+       på TAK ganger. Er snittet så høyt at ren målestokk ikke får plass,
+       gir `Math.min` etter og komprimerer – figuren er alltid innenfor.
+       ================================================================ */
+    /* TAKET ER TO, OG DET ER MÅLT, IKKE VALGT PÅ FØLELSEN.
+       På den samme tomta tegnes fyllingsskråningen på 1:2 slik:
+         6× (som før) → 71,6 grader – en vegg
+         3×           → 56,3 grader – fortsatt bratt
+         2×           → 45,0 grader – leses som den skråningen den er
+         1× (sant)    → 26,6 grader, men da er hele snittet 37 px høyt
+       Ved 2 bruker figuren en tredel av panelhøyden, og et utskiftingslag på
+       en halv meter blir fem piksler – tynt, men synlig. */
+    const TAK = 2;
+    const sx = bredde / (d1 - d0);
+    const syFull = hoyde / (maksZ - minZ);
+    const sy = Math.min(syFull, sx * TAK);
+    const overdriv = sy / sx;
+    /* Z-VINDUET UTVIDES TIL DET LERRETET FAKTISK DEKKER.
+       Da er `(maksZ - minZ) === hoyde / sy` eksakt, og både `Y`, `zVed` og
+       rutenettløkka i `tegn` regner videre på nøyaktig samme formel som før.
+       Alternativet – å gi dem hver sin nye formel – er tre steder å ta feil
+       på i stedet for ett. */
+    const midtZ = (minZ + maksZ) / 2;
+    const halv = (hoyde / sy) / 2;
+    minZ = midtZ - halv; maksZ = midtZ + halv;
     return {
-      marg, minZ, maksZ, d0, d1, bredde, hoyde,
+      marg, minZ, maksZ, d0, d1, bredde, hoyde, overdriv,
       X: d => marg.v + (d - d0) / (d1 - d0) * bredde,
       Y: z => marg.o + (maksZ - z) / (maksZ - minZ) * hoyde,
       zVed: y => maksZ - (y - marg.o) / hoyde * (maksZ - minZ),

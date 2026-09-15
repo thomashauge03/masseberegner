@@ -4727,6 +4727,55 @@ const Nettlesertest = {
       this.sjekk('  og den har en overbygning å tegne', s.ob > 0.2, s.ob + ' m');
       if (!(inne.length > 4 && s.ob > 0.2)) return;
 
+      /* ================================================================
+         HØYDEN OG BREDDEN MÅ HENGE SAMMEN.
+
+         X fylte hele bredden og Y hele høyden, hver for seg. Målt på en
+         tomt på 80 × 60 m i et panel på 645 × 260: 4,84 piksler per meter
+         vannrett mot 29,15 loddrett – seks gangers overdrivelse. En
+         fyllingsskråning på 1:2 er 26,6 grader og ble tegnet som 71,6.
+         Tilbakemeldingen var «ser alt for bratt ut», og tallene var riktige
+         hele veien – det var bildet som løy.
+
+         Prøven måler FORHOLDET mellom de to målestokkene, ikke hver for
+         seg. Et tak på to er ikke det samme som ingen overdrivelse: en tomt
+         er flat og brei, og i ren målestokk blir snittet noen få piksler
+         høyt. Men seks er det ikke, og det som overdrives skal stå skrevet
+         på tegningen.
+         ================================================================ */
+      {
+        /* PRØVEN MÅ KJØRES PÅ DET SNITTET SOM FAKTISK VAR GALT.
+           Her sto den samme målingen på tomta i denne prøven – 40 × 30 m.
+           Den havner under to ganger helt av seg selv, også med den gamle
+           koden, så prøven var grønn i begge tilfeller. Mutasjonsprøven
+           avslørte det: bare selvmotsigelsen under ble rød.
+           Den meldte feilen gjaldt en BREI OG FLAT tomt. Snittet bygges
+           derfor for hånd, med de målene som ble rapportert, så tallet
+           verken avhenger av panelstørrelsen eller av terrenget i scenen
+           over. Med uavhengige målestokker gir dette over fem ganger. */
+        const punkt = [];
+        for (let d = 0; d <= 120; d += 1) {
+          const z = 96 + 7.5 * (d / 120);
+          punkt.push({ d, zT: z, zF: null, zN: z, zJord: z, zTrau: null });
+        }
+        const flat = Tomteprofil._omrade({ punkt }, 645, 260);
+        const fsx = flat.bredde / (flat.d1 - flat.d0);
+        const fsy = flat.hoyde / (flat.maksZ - flat.minZ);
+        this.sjekk('en brei, flat tomt overdrives ikke mer enn to ganger',
+          fsy <= fsx * 2 + 1e-6, 'x ' + fsx.toFixed(2) + ' px/m, y '
+          + fsy.toFixed(2) + ' px/m – ' + (fsy / fsx).toFixed(1) + '×');
+        /* Men taket skal heller ikke bli en fast sammenklemming: er det
+           plass til to ganger, skal den bruke dem. */
+        this.sjekk('  og bruker den høyden taket gir den',
+          fsy > fsx * 1.5, (fsy / fsx).toFixed(2) + '× – klemt sammen');
+
+        const sx = omr.bredde / (omr.d1 - omr.d0);
+        const sy = omr.hoyde / (omr.maksZ - omr.minZ);
+        this.sjekk('  og _omrade melder den samme overdrivelsen som den tegner',
+          Math.abs(omr.overdriv - sy / sx) < 1e-6,
+          'melder ' + String(omr.overdriv) + ', tegner ' + (sy / sx).toFixed(2));
+      }
+
       /* Skjær alle bånd-flatene med en loddrett linje midt inne på tomta. */
       const kryss = (f, x) => {
         let lo = Infinity, hi = -Infinity;
