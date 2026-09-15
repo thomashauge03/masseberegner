@@ -4914,6 +4914,52 @@ const Nettlesertest = {
         this.sjekk('  og tegnforklaringen sier hva den blå flaten er',
           tekst.some(t => /Masseutskifting/.test(t)), tekst.join(' | '));
       }
+
+      /* ================================================================
+         OVERBYGNINGEN SLUTTER IKKE I EN LODDRETT VEGG.
+
+         «trodde det overbygninga skulle ha skråkant den og» – og det stemte.
+         `zN` settes bare der `inne` er sann, så kroppen ble et rektangel med
+         loddrett ende i tomtegrensa, med en bar planumshylle stikkende ut
+         under seg.
+
+         MÅ PRØVES I FYLLING. I skjæring står det en nær loddrett vegg i
+         kanten (målt 1:0,2), og da finnes det ingen hylle å trappe ut på –
+         kilen skal da IKKE tegnes, og en prøve i skjæring ville vært grønn
+         uansett hva koden gjorde. Tomta heves derfor godt over terrenget.
+         ================================================================ */
+      app.P.tomt.nivaa.kote = 108;
+      await app.beregnTomt();
+      await this.vent(200);
+      const s4 = Tomteprofil.snitt();
+      const mal4 = app.P.mal;
+      const helning4 = mal4.overbygningHelning === undefined
+        ? (mal4.fylling || 0) : mal4.overbygningHelning;
+      const skulder4 = s4.ob * helning4;
+      const kile = s4.punkt.filter(q => !q.inne && q.zOb != null && q.zJord != null
+        && q.zOb > q.zJord);
+      this.sjekk('overbygningen trapper ut i en skulder, ikke en loddrett vegg',
+        kile.length > 0, kile.length + ' punkt i kilen, skulder '
+        + skulder4.toFixed(2) + ' m');
+      if (kile.length) {
+        /* Kilen skal ikke stikke lenger ut enn skulderen motoren alt har
+           bokført. Én rutebredde slingringsmonn, for snittet er punktprøvd. */
+        const kant = s4.punkt.filter(q => q.inne && q.zN != null);
+        const dInn = [Math.min(...kant.map(q => q.d)), Math.max(...kant.map(q => q.d))];
+        const verst = Math.max(...kile.map(q =>
+          Math.min(Math.abs(q.d - dInn[0]), Math.abs(q.d - dInn[1]))));
+        const steg = Math.abs(s4.punkt[1].d - s4.punkt[0].d);
+        this.sjekk('  og ikke lenger ut enn skulderen motoren bokfører',
+          verst <= skulder4 + steg + 1e-6,
+          verst.toFixed(2) + ' m ut, skulder ' + skulder4.toFixed(2) + ' m');
+        /* Og den skal TYNNES utover. Uten dette ville en kile som stakk ut i
+           full tykkelse – altså den gamle loddrette veggen, bare flyttet –
+           passert prøven over. */
+        const tjukkest = Math.max(...kile.map(q => q.zOb - q.zJord));
+        this.sjekk('  og kilen er tynnere enn kroppen inne på tomta',
+          tjukkest < s4.ob - 1e-6,
+          'tykkest i kilen ' + tjukkest.toFixed(3) + ' m mot ' + s4.ob + ' m');
+      }
     } catch (e) {
       this.sjekk('overbygningsprøven kom seg gjennom', false,
         e.message + ' — ' + (e.stack || '').split('\n')[1]);

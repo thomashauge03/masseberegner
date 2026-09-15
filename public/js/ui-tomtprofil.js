@@ -220,6 +220,62 @@ const Tomteprofil = {
       punkt.push({ d, zT: Number.isFinite(zT) ? zT : null, zF, zN, zJord, inne,
         zTrau, utskift });
     }
+    /* ================================================================
+       OVERBYGNINGEN SLUTTER IKKE I EN LODDRETT VEGG.
+
+       `zN` settes bare der `inne` er sann, så overbygningskroppen ble et
+       rektangel med loddrett ende i tomtegrensa – med en bar planumshylle
+       stikkende ut under den. Tilbakemeldingen var «trodde overbygninga
+       skulle ha skråkant den og», og det er riktig: lagene trapper ut i en
+       skulder, de står ikke som en murkant.
+
+       DETTE VAR ET BEVISST VALG EN GANG, OG BEGRUNNELSEN ER UTGÅTT. Her sto
+       det at kilen ikke kunne tegnes fordi «skråningen under den starter på
+       selve tomtekanten, uten skulder» – da ville kroppen hengt utover et
+       fall som alt var borte under den. Motoren fikk siden skulderen
+       (tomtmasser.js:339 og 443: `dUt = naer.d - skulder`), og hylla er
+       målbar i snittet: på en tomt på kote 105 ligger `zJord` på planum
+       104,44 et halvt steg utenfor kanten, og først DERETTER faller den
+       1:2. Motsigelsen som stengte tegningen finnes ikke lenger.
+
+       `zOb` er toppen av kroppen: `zN` inne, og utenfor en rett linje ned
+       med `overbygningHelning`. Bredden er `ob · helning`, så linja treffer
+       planum nøyaktig i skulderens ytterkant – null tykkelse akkurat der
+       hylla slutter og skråningen tar over. Egen felt, ikke utvidet `zN`:
+       `zN` betyr FERDIG NIVÅ, og det finnes ikke utenfor tomta.
+       ================================================================ */
+    const obHelning = Math.max(0, mal.overbygningHelning === undefined
+      ? (mal.fylling || 0) : mal.overbygningHelning);
+    const skulder = ob * obHelning;
+    const n = punkt.length;
+    const naerInne = (framover) => {
+      const ut = new Array(n).fill(-1);
+      let sist = -1;
+      for (let k = 0; k < n; k++) {
+        const i = framover ? k : n - 1 - k;
+        if (punkt[i].inne && punkt[i].zN != null) sist = i;
+        ut[i] = sist;
+      }
+      return ut;
+    };
+    const fraVenstre = naerInne(true), fraHogre = naerInne(false);
+    for (let k = 0; k < n; k++) {
+      const q = punkt[k];
+      if (q.inne && q.zN != null) { q.zOb = q.zN; continue; }
+      q.zOb = null;
+      if (!(skulder > 0) || q.zJord == null) continue;
+      for (const j of [fraVenstre[k], fraHogre[k]]) {
+        if (j < 0) continue;
+        const av = Math.abs(q.d - punkt[j].d);
+        if (av > skulder) continue;
+        const z = punkt[j].zN - av / obHelning;
+        if (q.zOb == null || z > q.zOb) q.zOb = z;
+      }
+      /* Er kilen alt tynnere enn ingenting, finnes den ikke. Uten dette ville
+         et punkt der skråningen stiger BRATTERE enn skulderen – en fjellvegg –
+         fått en kropp tegnet under bakken. */
+      if (q.zOb != null && q.zOb <= q.zJord) q.zOb = null;
+    }
     return { punkt, ob, retning: grader, senter, tMin, tMaks, skyv };
   },
 
@@ -355,13 +411,12 @@ const Tomteprofil = {
        sin egen. Da kjenner den som har lært å lese vegsnittet dette igjen uten
        å lære noe nytt, og ingen ny farge må holdes i synk.
 
-       BARE INNE PÅ TOMTA. Volumet bokfører i tillegg en skrå kant som stikker
-       `ob · overbygningHelning` utenfor omrisset (tomtmasser.js:668-692) – men
-       skråningen under den starter på selve tomtekanten, uten skulder
-       (tomtmasser.js:406-424). Vegen har skulderen (masser.js:86), tomta har
-       den ikke. Å tegne kilen der ville vist en kropp som henger utover en
-       skråning som allerede faller bort under den. Den motsigelsen ligger i
-       MOTOREN, ikke i tegningen, og skal avgjøres der – ikke skjules her. */
+       OG DEN SLUTTER IKKE I EN LODDRETT VEGG. Her sto det at kroppen måtte
+       tegnes BARE inne på tomta, fordi skråningen under den startet på selve
+       tomtekanten uten skulder – kilen ville hengt utover et fall som alt var
+       borte under den. Den motsigelsen lå i motoren, og der ble den løst:
+       `skulder` i tomtmasser.js:339, brukt på `dUt` i 443. Toppen følger
+       derfor `zOb`, som trapper ut over skulderen – se `snitt()`. */
     if (s.ob > 0) {
       const kropp = (topp, bunn, farge) => {
         g.fillStyle = farge;
@@ -381,9 +436,16 @@ const Tomteprofil = {
          satt slitelaget høyere enn summen ville ellers malt det nedover forbi
          planum, altså tegnet dekke der det skal graves. */
       const sl = Math.min(Math.max(this.app.P.mal.slitelagTykkelse || 0, 0), s.ob);
-      const inne = q => q.inne && q.zN != null && q.zJord != null;
-      kropp(q => (inne(q) ? q.zN - sl : null), q => (inne(q) ? q.zJord : null), Farger.baerelag);
-      if (sl > 0) kropp(q => (inne(q) ? q.zN : null), q => (inne(q) ? q.zN - sl : null), Farger.slitelag);
+      /* `zOb` er toppen av kroppen – ferdig nivå inne på tomta, og den skrå
+         skulderkanten utenfor. Skillet mellom de to båndene klemmes mot
+         planum: ute i kilen er hele kroppen tynnere enn slitelaget, og uten
+         klemmen ville slitelaget blitt malt NEDOVER forbi planum, altså
+         dekke der det skal graves. Begge båndene ender da i null tykkelse i
+         samme punkt, der hylla slutter. */
+      const har = q => q.zOb != null && q.zJord != null && q.zOb > q.zJord;
+      const skille = q => Math.max(q.zOb - sl, q.zJord);
+      kropp(q => (har(q) ? skille(q) : null), q => (har(q) ? q.zJord : null), Farger.baerelag);
+      if (sl > 0) kropp(q => (har(q) ? q.zOb : null), q => (har(q) ? skille(q) : null), Farger.slitelag);
     }
 
     const strek = (velg, farge, tykk, stiplet) => {
