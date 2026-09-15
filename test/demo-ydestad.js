@@ -9,6 +9,25 @@
 
 const fs = require('fs');
 const path = require('path');
+
+/* FILA PAASTO I SITT EGET FILHODE AT DEN KONTROLLERER NOE – uten en eneste
+   paastand. Den skrev ut skjaering, fjell, fylling, baerelag og massebalanse og
+   avsluttet med 0 uansett hvilke tall som kom ut. En fil i `test`-mappa som
+   ikke kan bli roed er ikke en kontroll, den er en utskrift.
+
+   Verre: linje 34 svelget ALLE nedlastingsfeil med en tom `catch`. Uten
+   nettforbindelse fikk den null terrengfliser, regnet massene paa et terreng
+   som ikke fantes, skrev ut tallene i pen tabell og lagret demoprosjektet.
+
+   Naa telles flisene, og til slutt staar det paastander om kjeden fila sier at
+   den kontrollerer. Kommer det ingen fliser i det hele tatt, sies det at
+   proeven ble HOPPET OVER – det er noe annet enn at den gikk. */
+const FLISER = { ok: 0, feil: 0, sisteFeil: null };
+let feil = 0, ok = 0;
+const sjekk = (navn, sant, detalj) => {
+  if (sant) { ok++; console.log('  ok   ' + navn); }
+  else { feil++; console.log('  FEIL ' + navn + (detalj ? '  ' + detalj : '')); }
+};
 const Geo = require('../public/js/geo.js');
 const { Linjeforing } = require('../public/js/linjeforing.js');
 const { Vertikalprofil, foreslaProfil } = require('../public/js/vertikalprofil.js');
@@ -31,7 +50,8 @@ class NodeTerreng {
       const [tx, ty] = k.split('_').map(Number);
       try {
         this.fliser.set(k, pakkOpp(await hentFlis(this.sr, tx, ty, 1)).data);
-      } catch (e) { /* utenfor dekning */ }
+        FLISER.ok++;
+      } catch (e) { FLISER.feil++; FLISER.sisteFeil = e.message; }
     }
     return trengs.size;
   }
@@ -145,4 +165,56 @@ class NodeTerreng {
   fs.mkdirSync(path.dirname(ut), { recursive: true });
   fs.writeFileSync(ut, JSON.stringify(prosjekt, null, 1), 'utf8');
   console.log('\nDemoprosjekt lagret: ' + ut);
+
+  /* ---- Kjeden fila sier at den kontrollerer ---------------------------- */
+  console.log('\n--- Kontroll -------------------------------------');
+  if (FLISER.ok === 0) {
+    console.log('  HOPPET OVER: ingen terrengfliser kunne hentes'
+      + (FLISER.sisteFeil ? ' (' + FLISER.sisteFeil + ')' : ''));
+    console.log('  Uten terrengdata er det ingenting aa kontrollere.');
+    process.exit(0);
+  }
+  sjekk('terrengfliser kom fram', FLISER.ok > 0,
+    FLISER.ok + ' hentet, ' + FLISER.feil + ' feilet');
+
+  /* TERRENGET MAA FAKTISK VAERE UNDER VEGEN. Uten dette kunne fila regne
+     massene mot huller i hoeydemodellen og likevel se ferdig ut. */
+  const medTerreng = res.profiler.filter(p => Number.isFinite(p.terrengSenter));
+  sjekk('terrenget finnes under saa godt som hele linja',
+    medTerreng.length > res.profiler.length * 0.95,
+    medTerreng.length + ' av ' + res.profiler.length + ' profiler');
+  const spennT = medTerreng.length
+    ? Math.max(...medTerreng.map(p => p.terrengSenter)) - Math.min(...medTerreng.map(p => p.terrengSenter))
+    : 0;
+  sjekk('og det er ekte terreng, ikke en flate', spennT > 5,
+    'hoeydespenn ' + spennT.toFixed(1) + ' m');
+
+  /* KJEDEN: linjefoering -> lengdeprofil -> masser. Hvert ledd skal gi tall,
+     og de skal henge sammen. */
+  sjekk('linjefoeringen gir en lengde', res.lengde > 100, res.lengde.toFixed(1) + ' m');
+  sjekk('bakkefaktoren er hentet fra terrenget, ikke 1',
+    bf > 1.0000001 && bf < 1.2, bf.toFixed(6));
+  for (const felt of ['rensk', 'skjaering', 'skjaeringFjell', 'fylling', 'baerelag', 'slitelag']) {
+    sjekk('  ' + felt + ' er et tall', Number.isFinite(res.sum[felt]) && res.sum[felt] >= 0,
+      String(res.sum[felt]));
+  }
+  sjekk('det er noe aa grave OG noe aa fylle',
+    res.sum.skjaering > 100 && res.sum.fylling > 100,
+    'skjaering ' + Math.round(res.sum.skjaering) + ', fylling ' + Math.round(res.sum.fylling));
+  sjekk('skjaeringen er summen av loesmasse og fjell',
+    Math.abs(res.sum.skjaering - (res.sum.skjaeringLosmasse + res.sum.skjaeringFjell)) < 1,
+    res.sum.skjaering.toFixed(1) + ' mot '
+    + (res.sum.skjaeringLosmasse + res.sum.skjaeringFjell).toFixed(1));
+  sjekk('massebalansen er et tall', Number.isFinite(res.balanse.balanse),
+    String(res.balanse.balanse));
+
+  /* Og fila som ble skrevet skal vaere til aa aapne igjen. */
+  const lest = JSON.parse(fs.readFileSync(ut, 'utf8'));
+  sjekk('demoprosjektet lar seg lese tilbake',
+    Array.isArray(lest.ip) && lest.ip.length === prosjekt.ip.length
+    && Array.isArray(lest.vip) && lest.vip.length > 1,
+    (lest.ip || []).length + ' knekkpunkt, ' + (lest.vip || []).length + ' vipper');
+
+  console.log('\n' + ok + ' kontroller ok, ' + feil + ' feil');
+  process.exit(feil ? 1 : 0);
 })();

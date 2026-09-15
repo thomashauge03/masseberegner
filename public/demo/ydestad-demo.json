@@ -112,6 +112,11 @@
   "fylling": 1.5,
   "renskDybde": 0.2,
   "renskUtenfor": 1,
+  "utskifting": true,
+  "maksUtskifting": 4,
+  "utskiftingUtenfor": 1,
+  "utskiftingHelning": 1.5,
+  "overbygningHelning": 1.5,
   "maksSokebredde": 45,
   "breddeIKurve": [
    [
@@ -152,6 +157,10 @@
    ]
   ],
   "utvidelseOvergang": 15,
+  "plassLengde": 20,
+  "plassRadius": 13,
+  "plassOvergangsradius": 15,
+  "plassBredde": 5.5,
   "utflatingForKurve": 10,
   "stigningIKurve": [
    [
