@@ -1,0 +1,13 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "no.haugemaskin.mobil",
+      "sha256_cert_fingerprints": [
+        "94:D0:34:2F:9F:E4:31:9C:D6:A5:C0:4F:96:CE:9D:85:84:54:6F:DE:12:63:36:DC:20:83:9B:28:04:AC:27:70",
+        "BE:89:1F:A5:64:FA:EA:23:C9:67:CC:8F:3B:29:76:48:09:3F:FB:D7:1B:DF:F6:EE:FB:B7:70:59:28:5E:58:B1"
+      ]
+    }
+  }
+]
