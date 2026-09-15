@@ -1108,11 +1108,52 @@ const Tegner3d = {
       if (q.x < minX) minX = q.x; if (q.x > maksX) maksX = q.x;
       if (q.y < minY) minY = q.y; if (q.y > maksY) maksY = q.y;
     }
+    /* ================================================================
+       OG TOMTESKISSEN SKAL HELLER IKKE SVEVE.
+
+       Samme sak som vegskissen: den ferdige flaten ble tegnet som en
+       plate over omrisset og ingenting mer. Ligger tomta i fylling,
+       henger platen i lufta; ligger den i skjæring, stikker den ned i
+       bakken med en loddrett kant. Skråningen er det som binder den til
+       terrenget, og den er billig å legge på her – `Terreng.z` svarer NaN
+       der det ikke er data, og da blir forkleet null bredt av seg selv.
+
+       BOKSEN UTVIDES, NODETALLET IKKE. Ruta regnes av den UTVIDEDE
+       utstrekningen, så taket på 120×120 står. Tomteskissene er alt det
+       tyngste i bakgrunnen – målt 11 737 noder hver mot 10 043 for hele
+       det aktive anlegget – og de skal ikke bli dyrere av å bli riktige.
+       Prisen er en litt grovere plate, og en plate er nettopp det man
+       ikke måler i.
+       ================================================================ */
+    const terreng = app && app.terreng;
+    const tMal = a.mal || {};
+    const sFyll = Math.max(0.1, tMal.fylling || 2);
+    const sSkjaer = Math.max(0.1, tMal.skjaeringLosmasse || 2);
+    const maksUt = Math.max(0, Math.min(tMal.maksUtslag || 25, 60));
+    const forkle = terreng ? maksUt : 0;
+    minX -= forkle; maksX += forkle; minY -= forkle; maksY += forkle;
     const utstrekning = Math.max(maksX - minX, maksY - minY);
     if (!(utstrekning > 0.5)) return null;
     /* Ruta velges av utstrekningen, med tak på 120×120 noder. En tomt i
        bakgrunnen skal leses som en flate, ikke måles i. */
     const rute = Math.max(0.5, utstrekning / 120);
+    /* Nærmeste punkt på omrisset, og avstanden dit. Standard punkt-mot-
+       linjestykke, én gang per kant. Brukes bare for noder UTENFOR, og
+       bare når det finnes et forkle å tegne. */
+    const tilKanten = (x, y) => {
+      let best = Infinity, bx = 0, by = 0;
+      for (let m = 0; m < p.length; m++) {
+        const A = p[m], B = p[(m + 1) % p.length];
+        const vx = B.x - A.x, vy = B.y - A.y;
+        const L2 = vx * vx + vy * vy;
+        let t = L2 > 0 ? ((x - A.x) * vx + (y - A.y) * vy) / L2 : 0;
+        t = t < 0 ? 0 : (t > 1 ? 1 : t);
+        const qx = A.x + t * vx, qy = A.y + t * vy;
+        const d2 = (x - qx) * (x - qx) + (y - qy) * (y - qy);
+        if (d2 < best) { best = d2; bx = qx; by = qy; }
+      }
+      return { d: Math.sqrt(best), x: bx, y: by };
+    };
     const nb = Math.max(2, Math.round((maksX - minX) / rute) + 1);
     const nh = Math.max(2, Math.round((maksY - minY) / rute) + 1);
     const n = nb * nh;
@@ -1126,8 +1167,28 @@ const Tegner3d = {
         const k = j * nb + i;
         const x = minX + i * rute, y = minY + j * rute;
         wx[k] = x; wy[k] = y;
-        if (!Tomt.innenfor(p, x, y)) continue;
-        const zz = Tomtmasser.nivaaVed(nivUtm, x, y, tp);
+        let zz;
+        if (Tomt.innenfor(p, x, y)) {
+          zz = Tomtmasser.nivaaVed(nivUtm, x, y, tp);
+        } else if (forkle > 0) {
+          /* Utenfor: skråningen fra tomtekanten og ut til den treffer
+             terrenget. Samme regnestykke som vegskissen – utslaget er
+             høydeforskjell ganger helning, og høyden langs skråningen er
+             en rett linje. Her trengs ingen fikspunktrunde: avstanden ut
+             er gitt av noden selv, og det eneste spørsmålet er om
+             skråningen har nådd bakken før den kom hit. */
+          const nk = tilKanten(x, y);
+          if (nk.d > forkle) continue;
+          const zK = Tomtmasser.nivaaVed(nivUtm, nk.x, nk.y, tp);
+          if (!Number.isFinite(zK)) continue;
+          const zt = terreng.z(x, y);
+          if (!Number.isFinite(zt)) continue;
+          const d = zK - zt;                  // positiv: tomta ligger over bakken
+          const hell = d >= 0 ? sFyll : sSkjaer;
+          const L = Math.min(forkle, Math.abs(d) * hell);
+          if (nk.d > L) continue;             // forbi foten – her er det bare terreng
+          zz = zK + (d >= 0 ? -1 : 1) * (nk.d / hell);
+        } else continue;
         if (!Number.isFinite(zz)) continue;
         z[k] = zz; finnes[k] = 1;
         if (zz < lav) lav = zz;

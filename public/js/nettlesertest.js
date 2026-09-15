@@ -1313,6 +1313,58 @@ const Nettlesertest = {
         const b2 = Math.hypot(r2[r2.length - 1].x - r2[0].x, r2[r2.length - 1].y - r2[0].y);
         this.naer('  og er da kjørebanen alene', b2, mal.vegbredde, 0.1);
       }
+
+      /* ================================================================
+         OG TOMTESKISSEN SKAL HELLER IKKE SVEVE.
+         Den ferdige flaten ble tegnet som en plate over omrisset og
+         ingenting mer. Ligger tomta i fylling, henger platen i lufta.
+         Tomta legges på kote 106 over et terreng på 100, så utslaget er
+         seks meter ganger fyllingshelningen – et tall å regne på for hånd.
+         ================================================================ */
+      const tMal = Object.assign({}, Tomt.StandardTomtemal);
+      const bredde0 = 60;
+      const tAnl = { id: 'tskisse', type: 'tomt', navn: 'Nabotomta', ip: [], vip: [],
+        tverrfall: [], plasser: [],
+        mal: tMal,
+        tomt: Object.assign(Tomt.nyTomt(), {
+          punkter: [[0, 0], [bredde0, 0], [bredde0, 50], [0, 50]].map(([u, v]) => pkt(u, v)),
+          kanter: [], nivaa: { modus: 'flat', kote: 106 } }) };
+      const ventaT = Math.min(tMal.maksUtslag, (106 - 100) * tMal.fylling);
+      const spennX = (gg) => {
+        let lo = Infinity, hi = -Infinity, lav = Infinity, ant = 0;
+        for (let k = 0; k < gg.nb * gg.nh; k++) {
+          if (!gg.finnes[k]) continue;
+          ant++;
+          if (gg.wx[k] < lo) lo = gg.wx[k];
+          if (gg.wx[k] > hi) hi = gg.wx[k];
+          if (gg.z[k] < lav) lav = gg.z[k];
+        }
+        return { bredde: hi - lo, lav, ant };
+      };
+      const tg = Tomt3d._bakgrunnTomt.call(Tomt3d, tAnl);
+      this.sjekk('skissen av en nabotomt lar seg bygge', !!tg, tg ? '' : 'ingen geometri');
+      if (tg) {
+        const sT = spennX(tg);
+        this.naer('  og flaten når et utslag ut på hver side',
+          sT.bredde, bredde0 + 2 * ventaT, 1.6);
+        this.naer('  og foten av skråningen lander på terrenget', sT.lav, 100, 0.2);
+        /* NODETALLET SKAL IKKE VOKSE AV DETTE. Tomteskissene er alt det
+           tyngste i bakgrunnen; ruta regnes av den utvidede boksen nettopp
+           for at taket på 120×120 skal stå. */
+        this.sjekk('  uten at skissen blir dyrere enn før',
+          tg.nb <= 122 && tg.nh <= 122, tg.nb + '×' + tg.nh + ' noder');
+
+        const foer3 = app.terreng;
+        app.terreng = nullTerreng;
+        let tg2 = null;
+        try { tg2 = Tomt3d._bakgrunnTomt.call(Tomt3d, tAnl); } finally { app.terreng = foer3; }
+        this.sjekk('uten terreng lar tomteskissen seg fortsatt bygge', !!tg2,
+          tg2 ? '' : 'kastet eller ga ingenting');
+        if (tg2) {
+          this.naer('  og er da den ferdige flaten alene',
+            spennX(tg2).bredde, bredde0, 1.2);
+        }
+      }
     } finally {
       Terreng.prototype.z = gz; Terreng.prototype.dekning = gd;
       Terreng.prototype.lastOmraade = gl;
