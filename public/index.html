@@ -20,25 +20,59 @@
      Gjør det begge steder, blir overgangen sammenhengende, og den hvite
      stunden mens sida laster forsvinner bak platene.
 
-     MÅ ligge inline i HTML-en, ikke i bunten. Lastes den som en modul,
-     rekker nettleseren å male den hvite siden først, og da er hele
-     poenget borte.
+     ── SPILLER BARE NÅR APPEN ÅPNET SIDA ──────────────────────────
+     Åpner du systemet i en vanlig nettleser – på PC, som er
+     primærplattformen – skal det ikke skje noen ting.
 
-     Vinkelen er −12°, den samme som bransjebåndet i logoen. Den røde
-     forkanten er det som leser som fart: en flate som bare glir er en
-     flate, en flate med lysende kant er noe som beveger seg.
+     Signalet er document.referrer. Når appen åpner en side, setter
+     Chrome referreren til «android-app://no.haugemaskin.mobil/», og en
+     nettleser kan ALDRI produsere det skjemaet: referreren er adressen
+     til dokumentet som startet navigasjonen, og et nettdokument kan
+     ikke ha en android-app-adresse.
+
+     Prefiks-sammenlikning, ikke ===, fordi adressen kanoniseres med
+     skråstrek til slutt.
+
+     Tre andre signaler ble vurdert og forkastet:
+       · display-mode: standalone — fem av systemene våre er
+         installerbare som PWA med display:standalone, og da melder de
+         standalone uten at appen er involvert.
+       · en parameter i adressa — window.open-utgangen i appen ligger
+         utenfor den native sjekken, så parameteren ville havnet på
+         PC-adresser og platene ville spilt i nettleseren. Feil vei å
+         feile. Dessuten bærer innloggingsrunden i stock-smart
+         parameteren videre inn i ?redirect=.
+       · sessionStorage alene — Chrome på Android tømmer det ved
+         oppstart, så flagget overlever ikke.
+
+     Feilmodusen her går bare én vei: sida kan gå glipp av animasjonen
+     (for eksempel etter en innloggingsrunde, som bytter referreren),
+     men den kan aldri spille i en vanlig nettleser.
+
+     ── MÅ LIGGE INLINE ────────────────────────────────────────────
+     Ikke i bunten. Lastes den som en modul, rekker nettleseren å male
+     den hvite siden først, og da er hele poenget borte.
+
+     Vinkelen er −12°, den samme som bransjebåndet i logoen.
 
      SIKKERHETSNETT, fordi dette ligger over ekte systemer i drift:
-       · pointer-events: none — platene kan aldri svelge et trykk
+       · platene er display:none som utgangspunkt. Svikter skriptet,
+         ser ingen noe – i stedet for at alle ser plater som blir
+         liggende.
+       · pointer-events: none — de kan aldri svelge et trykk
        · åpner på load, men SENEST etter 2,6 sekund uansett
        · fjerner seg selv etterpå
        · respekterer prefers-reduced-motion
-     Henger noe, blir du aldri stående bak dem.
 
      Kanonisk kopi: hauge-maskin-mobil/twa/lukkar.html
      ══════════════════════════════════════════════════════════════════ -->
 <style>
-  #hm-lukkar { position: fixed; inset: 0; z-index: 2147483647; pointer-events: none; overflow: hidden; }
+  /* Av som utgangspunkt. Skriptet under skrur den på, og bare da. */
+  #hm-lukkar { display: none; }
+  html[data-hm-app] #hm-lukkar {
+    display: block;
+    position: fixed; inset: 0; z-index: 2147483647; pointer-events: none; overflow: hidden;
+  }
   #hm-lukkar .hm-l-grunn { position: absolute; inset: 0; background: #0a0a0c; }
   #hm-lukkar i {
     position: absolute; top: -14%; bottom: -14%; width: 46%;
@@ -71,6 +105,24 @@
 (function () {
   var e = document.getElementById('hm-lukkar');
   if (!e) return;
+  function vekk() { if (e.parentNode) e.parentNode.removeChild(e); }
+
+  /* Bare når Hauge Maskin-appen åpnet sida. Prefiks, ikke ===: adressen
+     kommer kanonisert med skråstrek til slutt. */
+  var r = document.referrer || '';
+  if (r.lastIndexOf('android-app://no.haugemaskin.mobil', 0) !== 0) { vekk(); return; }
+
+  /* Én gang per økt. Referreren overlever både reload og tilbakeknappen,
+     så uten dette ville platene spilt om igjen på en side du alt hadde
+     åpnet. Chrome på Android tømmer session storage ved oppstart, så
+     dette er en hjelp der det virker – ikke noe vi hviler på. */
+  try {
+    if (sessionStorage.getItem('hm-lukkar')) { vekk(); return; }
+    sessionStorage.setItem('hm-lukkar', '1');
+  } catch (x) { /* privat modus, blokkerte data – la den spille */ }
+
+  document.documentElement.setAttribute('data-hm-app', '');
+
   var start = Date.now(), gjort = false;
   function opne() {
     if (gjort) return;
@@ -79,7 +131,7 @@
        platene, og da blir sveipet et blaff i stedet for en overgang. */
     setTimeout(function () {
       e.className = 'opp';
-      setTimeout(function () { if (e.parentNode) e.parentNode.removeChild(e); }, 760);
+      setTimeout(vekk, 760);
     }, Math.max(0, 260 - (Date.now() - start)));
   }
   if (document.readyState === 'complete') opne();
