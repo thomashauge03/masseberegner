@@ -2737,7 +2737,17 @@ const Tegner3d = {
       const app = this.app;
       const flere = app && app.P && Array.isArray(app.P.anlegg)
         ? app.P.anlegg.length - 1 : 0;
-      if (flere > 0 && !(this.lag && this.lag.andre)) {
+      /* EN KNAPPEHENVISNING HØRER IKKE HJEMME PÅ ET PAPIR.
+         Linja peker på en knapp i verktøylinja. I en rapport som går til
+         kunden finnes det ingen knapp å peke på, og teksten leses da som en
+         opplysning om anlegget – «det er noe her du ikke ser». Rapporten
+         setter `data-utskrift` mens den tegner (se Rapport._modell3d), og
+         det er det samme flagget fargene bytter tema på.
+         Dette gjaldt tomterapporten like mye; den har hatt linja i bildet
+         hele tiden uten at noen så etter. */
+      const tilPapir = typeof document !== 'undefined'
+        && document.documentElement.hasAttribute('data-utskrift');
+      if (flere > 0 && !tilPapir && !(this.lag && this.lag.andre)) {
         const s = flere === 1
           ? 'Ett anlegg til i prosjektet – «Alle anlegg» viser det her'
           : flere + ' andre anlegg i prosjektet – «Alle anlegg» viser dem her';

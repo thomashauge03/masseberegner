@@ -76,7 +76,16 @@ const Pdfrapport = {
         a.download = navn;
         a.click();
         setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-        app.status(`PDF lastet ned · ${(bytes.length / 1024).toFixed(0)} kB`);
+        /* VALGET SKAL NEVNES DER DET MERKES.
+           Bryteren «Dette anlegget / Alle i prosjektet» står i Eksport-fanen,
+           mens PDF-knappen står i topplinja. Man trykker altså PDF uten å ha
+           sett at det finnes et valg, får ett anlegg, og har ingen grunn til
+           å lete. Linja står bare når det FINNES flere anlegg å samle – med
+           ett anlegg er det ingenting å velge mellom, og da er den støy. */
+        const flere = app.P && app.P.anlegg && app.P.anlegg.length > 1;
+        app.status(`PDF lastet ned · ${(bytes.length / 1024).toFixed(0)} kB`
+          + (flere ? ' · vil du ha alle anleggene i én fil? Velg «Alle i prosjektet» '
+            + 'under Eksport' : ''));
       }
       return bytes;
     } catch (e) {
@@ -560,6 +569,25 @@ const Pdfrapport = {
 
     /* ---------------- tegninger ---------------- */
     const tegninger = Rapport.lagTegninger(res, 6);
+
+    /* MODELLEN FØRST. Den svarer på det man ser etter når man blar opp en
+       vegrapport – hvor bredt blir inngrepet, og hvordan legger skråningene
+       seg – og den svarer på det før man har lest et eneste tall.
+       Lengdeprofilen og tverrsnittene kommer etter, som detaljene de er. */
+    const modellBilde = await this._tilJpeg(tegninger.modell);
+    if (modellBilde) {
+      overskrift('Modellen', (innmarg - this.MARG) * modellBilde.hoyde / modellBilde.bredde + 10);
+      const bredde = innmarg - this.MARG;
+      const hoyde = bredde * modellBilde.hoyde / modellBilde.bredde;
+      plass(hoyde + 6);
+      P.bilde(modellBilde.bytes, modellBilde.bredde, modellBilde.hoyde, this.MARG, tilstand.y - 6, bredde, hoyde);
+      P.rektangel(this.MARG, tilstand.y - 6, bredde, hoyde, { strek: this.LYSGRA, tykkelse: 0.5 });
+      tilstand.y += hoyde + 2;
+      P.tekst(this.MARG, tilstand.y, 'Skjæring i rødt, fylling i grønt. Terrenget rundt er dagens mark.',
+        { storrelse: this.T5, farge: this.GRA });
+      tilstand.y += 10;
+    }
+
     const lengdeBilde = await this._tilJpeg(tegninger.lengdeprofil);
     if (lengdeBilde) {
       overskrift('Lengdeprofil', (innmarg - this.MARG) * lengdeBilde.hoyde / lengdeBilde.bredde + 10);

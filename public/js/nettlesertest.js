@@ -1062,6 +1062,105 @@ const Nettlesertest = {
     this.sjekk('lerretene på skjermen er intakte',
       document.getElementById('lengdeprofil').clientWidth > 100
       && document.getElementById('tverrprofil').clientHeight > 20);
+
+    /* ================================================================
+       VEGRAPPORTEN SKAL HA MODELLEN, IKKE BARE PROFILER.
+
+       Her sto lengdeprofil og tverrsnitt. De svarer på «hvor høyt ligger
+       linja» og «hvordan ser ett snitt ut» – men ikke på det man åpner 3D-en
+       for: hvor bredt inngrepet blir, og hvordan skråningene legger seg.
+       Tomterapporten har hatt modellbilder hele tiden; vegrapporten hadde
+       ingen.
+       ================================================================ */
+    const foer = { skala: Veg3d.skala, vindu: Veg3d.vindu, aktiv: Veg3d.aktiv,
+      lag: JSON.stringify(Veg3d.lag), fyldig: Veg3d.fyldig, modus: Veg3d.modus };
+    const teg = Rapport.lagTegninger(App.resultat, 2);
+    this.sjekk('vegrapporten har et bilde av modellen',
+      typeof teg.modell === 'string' && /^data:image\//.test(teg.modell),
+      teg.modell ? 'lengde ' + teg.modell.length : 'mangler');
+    if (teg.modell) {
+      /* Et tomt lerret er òg en data-URL. Bildet må ha noe PÅ seg. */
+      const b = await new Promise(los => {
+        const i = new Image(); i.onload = () => los(i); i.onerror = () => los(null);
+        i.src = teg.modell;
+      });
+      let andel = 0;
+      if (b) {
+        const c = document.createElement('canvas');
+        c.width = b.width; c.height = b.height;
+        const g2 = c.getContext('2d'); g2.drawImage(b, 0, 0);
+        const d = g2.getImageData(0, 0, c.width, c.height).data;
+        const bak = [d[0], d[1], d[2]];
+        let ulik = 0, n = 0;
+        for (let i = 0; i < d.length; i += 4 * 11) {
+          n++;
+          if (d[i] !== bak[0] || d[i + 1] !== bak[1] || d[i + 2] !== bak[2]) ulik++;
+        }
+        andel = 100 * ulik / Math.max(1, n);
+      }
+      this.sjekk('  og bildet har innhold, ikke et tomt lerret', andel > 1.5,
+        andel.toFixed(1) + ' % av pikslene skiller seg fra bakgrunnen');
+    }
+    /* SKJERMEN SKAL STÅ IGJEN SLIK DEN STO.
+       Rapporten tegner på egne lerret og skrur av naboanlegg, vindu og
+       fyldig underveis. Uten tilbakestillingen krympet modellen på skjermen
+       rundt 40 % for hver PDF man laget – se Rapport._modell3d. */
+    this.sjekk('  og skjermmodellen står igjen slik den sto',
+      Veg3d.skala === foer.skala && Veg3d.vindu === foer.vindu
+      && Veg3d.aktiv === foer.aktiv && JSON.stringify(Veg3d.lag) === foer.lag
+      && Veg3d.fyldig === foer.fyldig && Veg3d.modus === foer.modus,
+      'skala ' + Veg3d.skala + '/' + foer.skala + ', vindu ' + Veg3d.vindu
+      + '/' + foer.vindu + ', modus ' + Veg3d.modus + '/' + foer.modus);
+
+    /* KNAPPEHENVISNINGEN HØRER IKKE HJEMME PÅ ET PAPIR.
+       «Alle anlegg viser dem her» peker på en knapp i verktøylinja. I en
+       rapport til kunden finnes ingen knapp, og teksten leses som en
+       opplysning om anlegget. Prøven måler hva `_merkBakgrunn` faktisk
+       maler, ikke bare at et flagg er satt. */
+    {
+      /* HINTET TELLER ANLEGG, OG DENNE GRUPPA HAR ETT.
+         Første utgave hoppet derfor over – og en prøve som hopper over er
+         ingen prøve. Lista utvides med en attrapp mens målingen står på;
+         hintet leser bare `P.anlegg.length`, ingenting annet ved den. */
+      const foerListe = App.P.anlegg;
+      if (App.P.anlegg.length < 2) {
+        App.P.anlegg = foerListe.concat([{ id: '__hint', type: 'veg', navn: 'Attrapp',
+          ip: [], vip: [], tverrfall: [], plasser: [], mal: {} }]);
+      }
+      const gammel = App.P.anlegg.length;
+      const malt = [];
+      const k = { font: '', textAlign: '', textBaseline: '', fillStyle: '',
+        globalAlpha: 1, measureText: () => ({ width: 10 }), fillRect() { },
+        fillText(s) { malt.push(String(s)); }, save() { }, restore() { },
+        beginPath() { }, moveTo() { }, lineTo() { }, stroke() { }, fill() { },
+        setLineDash() { }, arc() { }, closePath() { }, strokeRect() { },
+        drawImage() { }, clearRect() { }, translate() { }, rotate() { }, scale() { } };
+      /* `_merkBakgrunn(k, kam, b, h)` – kameraet brukes bare i grenen som
+         merker naboanlegg, og den er ikke i bruk her: `_andreNa` er tom når
+         laget er av, og da er det nettopp hintet som males. */
+      const proev = () => {
+        malt.length = 0;
+        try { Veg3d._merkBakgrunn(k, null, 900, 600); } catch (e) { malt.push('KASTET: ' + e.message); }
+        return malt.join(' | ');
+      };
+      if (gammel > 1 && typeof Veg3d._merkBakgrunn === 'function') {
+        const foerAndre = Veg3d.lag.andre;
+        Veg3d.lag.andre = false;
+        document.documentElement.removeAttribute('data-utskrift');
+        const paaSkjerm = proev();
+        document.documentElement.setAttribute('data-utskrift', '1');
+        const paaPapir = proev();
+        document.documentElement.removeAttribute('data-utskrift');
+        Veg3d.lag.andre = foerAndre;
+        this.sjekk('hintet om «Alle anlegg» står på skjermen',
+          /Alle anlegg/.test(paaSkjerm), paaSkjerm || 'ingenting malt');
+        this.sjekk('  men ALDRI i en rapport', !/Alle anlegg/.test(paaPapir),
+          paaPapir || 'ingenting malt');
+      } else {
+        this.hoppOver('hintet om «Alle anlegg» står på skjermen', 'ingen _merkBakgrunn');
+      }
+      App.P.anlegg = foerListe;
+    }
   },
 
   /* ---------------- 11. panelene ---------------- */

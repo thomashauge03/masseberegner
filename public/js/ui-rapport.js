@@ -335,34 +335,65 @@ ${this.sprengningsrader(res)}
       tilbake();
       Lengdeprofil.tegn(); Tverrprofil.tegn();
     }
+
+    /* MODELLEN AV VEGEN – DET BILDET MAN FAKTISK SER PÅ.
+       Her sto bare lengdeprofil og tverrsnitt. De svarer på «hvor høyt ligger
+       linja» og «hvordan ser ett snitt ut», men ikke på det man åpner 3D-en
+       for: hvor bredt inngrepet blir, og hvordan skråningene legger seg
+       langs hele strekket. Tomterapporten har hatt modellbilder hele tiden;
+       vegrapporten hadde ingen.
+
+       Samme rutine som tomta bruker – `_modell3d` – så tilbakestillingen av
+       skjermtilstanden bare finnes ett sted.
+
+       HELE VEGEN, IKKE ET VINDU. `vindu` nullstilles: står tverrsnitts-
+       skyveren på ±100 m, ville rapporten vist hundre meter av en veg på to
+       kilometer og kalt det modellen. */
+    if (typeof Veg3d !== 'undefined' && res.profiler && res.profiler.length > 1) {
+      Object.assign(bilder, Rapport._modell3d(Veg3d, (lag, vis) => {
+        vis.vindu = 0;
+        vis.kontekst = 30;
+        vis.lag = Object.assign({}, vis.lag, { rutenett: false });
+        /* Lav vinkel, som vegens egen hjemvinkel: det er den som avslører en
+           linje som ligger for høyt. Bredt format, fordi en veg er lang. */
+        return { modell: lag(1560, 620, 28, 30, true) };
+      }));
+    }
     return bilder;
   },
 
   /**
-   * Tegningene til en tomterapport.
+   * Bilder av 3D-modellen til en rapport – for en tomt eller for en veg.
    *
-   * Tomterapporten hadde INGEN. Åtte tabeller etter hverandre på én side, alle
-   * med samme vekt – man måtte lese hele for å finne ut hva saken gjaldt. En
-   * vegrapport har lengdeprofil og tverrsnitt; en tomt hadde tall og bare tall.
+   * ÉN RUTINE, TO VISNINGER. Dette sto bare for tomta, og vegrapporten hadde
+   * derfor ingen modell i det hele tatt: lengdeprofil og tverrsnitt, men aldri
+   * det bildet man faktisk ser på når man vurderer om linja ligger riktig.
+   * Å skrive den av for vegen ville gitt to utgaver av en tilbakestilling som
+   * det tok mange runder å få riktig – og en kopi går aldri i stykker sammen
+   * med originalen.
    *
-   * Bildene lages av det som alt finnes, ikke av en ny tegnerutine: 3D-modellen
-   * sett rett ovenfra ER planet, og den samme modellen på skrå er perspektivet.
-   * `Tomt3d.eksportBilde()` sto allerede der, ubrukt.
+   * `bygg(lag, vis)` får en funksjon som tegner ETT bilde og gir en data-URL,
+   * og visningen selv, så den kan stille inn lag og kontekst underveis.
+   *
+   * ALT SOM RØRES BLIR LAGT TILBAKE. Lista under er ikke lang fordi noen var
+   * grundig; hvert felt står der fordi det manglet en gang og ga en feil som
+   * så ut som noe annet. Se de enkelte merknadene.
    */
-  lagTomtetegninger(res) {
-    const bilder = {};
-    if (typeof Tomt3d === 'undefined' || !res || !res.rutenett || !res.rutenett.length) return bilder;
-
+  _modell3d(vis, bygg) {
+    if (!vis) return {};
     document.documentElement.setAttribute('data-utskrift', '1');
-    Farger.glem(); Tomt3d.glemFarger();
+    Farger.glem(); vis.glemFarger();
     const foer = {
-      lerret: Tomt3d.lerret, over: Tomt3d.over, aktiv: Tomt3d.aktiv,
-      yaw: Tomt3d.yaw, pitch: Tomt3d.pitch, fyldig: Tomt3d.fyldig, visning: Tomt3d.visning,
-      modus: Tomt3d.modus, fokus: Tomt3d.fokus,
-      senter: Tomt3d.senter, skala: Tomt3d.skala, panX: Tomt3d.panX, panY: Tomt3d.panY,
-      skalaSatt: Tomt3d._skalaSatt, gitterFor: Tomt3d._gitterFor, bilde: Tomt3d._bilde,
-      fitSkala: Tomt3d._fitSkala, tilpassetFor: Tomt3d._tilpassetFor,
-      lag: Object.assign({}, Tomt3d.lag), kontekst: Tomt3d.kontekst
+      lerret: vis.lerret, over: vis.over, aktiv: vis.aktiv,
+      yaw: vis.yaw, pitch: vis.pitch, fyldig: vis.fyldig, visning: vis.visning,
+      modus: vis.modus, fokus: vis.fokus,
+      senter: vis.senter, skala: vis.skala, panX: vis.panX, panY: vis.panY,
+      skalaSatt: vis._skalaSatt, gitterFor: vis._gitterFor, bilde: vis._bilde,
+      fitSkala: vis._fitSkala, tilpassetFor: vis._tilpassetFor,
+      lag: Object.assign({}, vis.lag), kontekst: vis.kontekst,
+      /* VEGENS EGET: tverrsnittsvinduet. Står det på ±100 m, tegner rapporten
+         hundre meter av en veg på to kilometer og kaller det modellen. */
+      vindu: vis.vindu
     };
     const lag = (b, h, yaw, pitch, fyldig) => {
       const r = document.createElement('canvas');
@@ -374,37 +405,37 @@ ${this.sprengningsrader(res)}
         // tegn() gir opp med én gang om panelet er skjult; her er det aldri i DOM-en
         Object.defineProperty(c, 'offsetParent', { value: document.body });
       }
-      Tomt3d.lerret = r; Tomt3d.over = o;
-      Tomt3d.aktiv = true;
-      Tomt3d.yaw = yaw; Tomt3d.pitch = pitch; Tomt3d.fyldig = fyldig;
+      vis.lerret = r; vis.over = o;
+      vis.aktiv = true;
+      vis.yaw = yaw; vis.pitch = pitch; vis.fyldig = fyldig;
       /* RAPPORTEN SKAL ALDRI ARVE EN SKJERMTILSTAND.
-         Sto «Før» på da rapporten ble laget, ble alle tomtetegningene bart
-         terreng – riktig etter koden, tomt etter formålet. Tegningene i en
-         rapport viser massene; det er det rapporten handler om. */
-      Tomt3d.visning = 'vanlig';
+         Sto «Før» på da rapporten ble laget, ble alle tegningene bart terreng –
+         riktig etter koden, tomt etter formålet. Tegningene i en rapport viser
+         massene; det er det rapporten handler om. */
+      vis.visning = 'vanlig';
       /* OG ALDRI EN KAMERAPOSISJON HELLER.
-         Sto man på bakken da rapporten ble laget, tegnet den tomtebildene fra
-         øyehøyde: perspektiv, horisont og himmel i en plantegning. Og med et
-         dreiepunkt satt av et klikk ble bildet sentrert der brukeren sist
-         pekte, så deler av tomta falt utenfor. Rapporten er ikke skjermen. */
-      Tomt3d.modus = 'oversikt';
-      Tomt3d.fokus = null;
+         Sto man på bakken da rapporten ble laget, tegnet den fra øyehøyde:
+         perspektiv, horisont og himmel i en plantegning. Og med et dreiepunkt
+         satt av et klikk ble bildet sentrert der brukeren sist pekte, så deler
+         av anlegget falt utenfor. Rapporten er ikke skjermen. */
+      vis.modus = 'oversikt';
+      vis.fokus = null;
       /* OG ALDRI NABOANLEGGENE.
          «Alle anlegg» er en skjermbryter: den tegner naboene som ferdige
          flater UTEN skråninger og UTEN masser, for å svare på hvor ting ligger
          i forhold til hverandre. I en rapport som går til kunden ville de stått
          i samme bilde som beregnede masser, uten noe som skiller dem – en
          flate som ser regnet ut og ikke er det. Dessuten rammer innrammingen
-         da inn naboene også, og tomta blir en flekk midt i et grått felt,
-         stikk i strid med `kontekst`-innstillingen nedenfor. */
-      Tomt3d.lag = Object.assign({}, Tomt3d.lag, { andre: false });
-      Tomt3d.glemBakgrunn();          // slipper også `_andreNa` – se der
-      Tomt3d.senter = null; Tomt3d.panX = 0; Tomt3d.panY = 0;
-      Tomt3d._skalaSatt = false;
-      Tomt3d._gitterFor = null;
-      Tomt3d._bilde = null;                       // egne skrapebuffere for denne størrelsen
-      Tomt3d.glemFarger();
-      Tomt3d.tegn();
+         da inn naboene også, og anlegget blir en flekk midt i et grått felt,
+         stikk i strid med `kontekst`-innstillingen. */
+      vis.lag = Object.assign({}, vis.lag, { andre: false });
+      vis.glemBakgrunn();          // slipper også `_andreNa` – se der
+      vis.senter = null; vis.panX = 0; vis.panY = 0;
+      vis._skalaSatt = false;
+      vis._gitterFor = null;
+      vis._bilde = null;                       // egne skrapebuffere for denne størrelsen
+      vis.glemFarger();
+      vis.tegn();
       const l = document.createElement('canvas');
       l.width = r.width; l.height = r.height;
       const k = l.getContext('2d');
@@ -412,31 +443,13 @@ ${this.sprengningsrader(res)}
       k.drawImage(o, 0, 0);
       return l.toDataURL('image/png');
     };
+    let ut = {};
     try {
-      /* Rett ovenfra: dette ER planet, med skjæring og fylling i farge.
-         Fyldig, fordi et papir ikke tåler den halvgjennomsiktige lesemåten –
-         der blir en grunn skjæring og en grunn fylling samme grå. */
-      /* Smal ring rundt i planet. På skjermen er 40 m terreng rundt riktig –
-         man vil se hva tomta ligger i. På et papir gjør den at selve tomta
-         blir en flekk midt i et grått felt: målt dekket tomta under en
-         tidel av bildet. Perspektivbildet beholder ringen, for der er
-         nettopp terrenget rundt det man ser etter. */
-      Tomt3d.lag.rutenett = true;
-      Tomt3d.kontekst = 8;
-      /* Formatet er valgt etter SIDEBREDDEN, ikke etter skjermen. A4 er
-         595 pt bred med 38 pt marg, altså 519 pt innhold. Et bilde som er
-         høyere enn det er bredt måtte krympes for å få plass i høyden – og
-         da krympet bredden med, så tegningen endte som en frimerkestor
-         flekk i venstre tredel med et tomt felt ved siden av. */
-      bilder.plan = lag(1560, 900, 0, 89.5, true);
-      Tomt3d.lag.rutenett = false;
-      Tomt3d.kontekst = 30;
-      // og på skrå, så man ser hvordan skråningene legger seg
-      bilder.perspektiv = lag(1560, 680, 32, 34, true);
+      ut = bygg(lag, vis) || {};
     } catch (e) {
       /* Et bilde som ikke lot seg lage skal ikke ta rapporten med seg. */
     } finally {
-      Object.assign(Tomt3d, {
+      Object.assign(vis, {
         lerret: foer.lerret, over: foer.over, aktiv: foer.aktiv,
         yaw: foer.yaw, pitch: foer.pitch, fyldig: foer.fyldig, visning: foer.visning,
         modus: foer.modus, fokus: foer.fokus,
@@ -453,14 +466,57 @@ ${this.sprengningsrader(res)}
            for skjermens. `lag` legges tilbake over – står bryteren på, kommer
            naboanleggene tilbake ved neste opptegning. */
         _andreNokkel: null, _andreNa: null,
-        kontekst: foer.kontekst
+        kontekst: foer.kontekst, vindu: foer.vindu
       });
       // knappene eier ikke tilstanden, så de må få vite at den er lagt tilbake
-      if (Tomt3d.paaVisning) Tomt3d.paaVisning(Tomt3d.visning);
+      if (vis.paaVisning) vis.paaVisning(vis.visning);
       document.documentElement.removeAttribute('data-utskrift');
-      Farger.glem(); Tomt3d.glemFarger();
-      if (Tomt3d.aktiv) Tomt3d.tegn();
+      Farger.glem(); vis.glemFarger();
+      if (vis.aktiv) vis.tegn();
     }
+    return ut;
+  },
+
+
+  /**
+   * Tegningene til en tomterapport.
+   *
+   * Tomterapporten hadde INGEN. Åtte tabeller etter hverandre på én side, alle
+   * med samme vekt – man måtte lese hele for å finne ut hva saken gjaldt. En
+   * vegrapport har lengdeprofil og tverrsnitt; en tomt hadde tall og bare tall.
+   *
+   * Bildene lages av det som alt finnes, ikke av en ny tegnerutine: 3D-modellen
+   * sett rett ovenfra ER planet, og den samme modellen på skrå er perspektivet.
+   * `Tomt3d.eksportBilde()` sto allerede der, ubrukt.
+   */
+  lagTomtetegninger(res) {
+    const bilder = {};
+    if (typeof Tomt3d === 'undefined' || !res || !res.rutenett || !res.rutenett.length) return bilder;
+
+    Object.assign(bilder, Rapport._modell3d(Tomt3d, (lag, vis) => {
+      const ut = {};
+      /* Rett ovenfra: dette ER planet, med skjæring og fylling i farge.
+         Fyldig, fordi et papir ikke tåler den halvgjennomsiktige lesemåten –
+         der blir en grunn skjæring og en grunn fylling samme grå. */
+      /* Smal ring rundt i planet. På skjermen er 40 m terreng rundt riktig –
+         man vil se hva tomta ligger i. På et papir gjør den at selve tomta
+         blir en flekk midt i et grått felt: målt dekket tomta under en
+         tidel av bildet. Perspektivbildet beholder ringen, for der er
+         nettopp terrenget rundt det man ser etter. */
+      /* Formatet er valgt etter SIDEBREDDEN, ikke etter skjermen. A4 er
+         595 pt bred med 38 pt marg, altså 519 pt innhold. Et bilde som er
+         høyere enn det er bredt måtte krympes for å få plass i høyden – og
+         da krympet bredden med, så tegningen endte som en frimerkestor
+         flekk i venstre tredel med et tomt felt ved siden av. */
+      vis.lag.rutenett = true;
+      vis.kontekst = 8;
+      ut.plan = lag(1560, 900, 0, 89.5, true);
+      vis.lag.rutenett = false;
+      vis.kontekst = 30;
+      // og på skrå, så man ser hvordan skråningene legger seg
+      ut.perspektiv = lag(1560, 680, 32, 34, true);
+      return ut;
+    }));
 
     /* Snittet gjennom tomta, tegnet på nytt for papir. */
     if (typeof Tomteprofil !== 'undefined' && Tomteprofil.lerret) {
