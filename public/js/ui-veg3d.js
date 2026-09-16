@@ -53,8 +53,12 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
      prosjekt med seks anlegg åpnet som et prosjekt med ett, og ingenting på
      skjermen sa at de fem andre fantes. Man ber ikke om noe man ikke vet
      finnes. Slår brukeren den av selv, blir den av. */
+  /* `arealdekke` maler skog, vann, dyrka mark og eksisterende veg på den
+     urørte bakken – AR5 fra NIBIO, se arealdekke.js. Står PÅ: uten data ser
+     modellen nøyaktig ut som før, så det koster ingenting å ha den framme,
+     og en opplysning man ikke vet finnes blir aldri bedt om. */
   lag: { terreng: true, grav: true, vegbane: true, fjell: false, rutenett: false,
-    grenser: true, andre: false },
+    grenser: true, andre: false, arealdekke: true },
 
   /* Kolonneskjemaet. Likt i hver rad, så en kolonne alltid betyr det samme:
      foten er kolonne FOT_V og FOT_H, vegkantene KANT_V og KANT_H, senterlinja
@@ -650,9 +654,14 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
        skjæring ved siden av en grunn fylling er nesten samme grå. Her ser man
        volumet i stedet, med terrenget rundt som ramme. */
     if (this.lag.terreng) {
+      /* Arealdekket maler bare TERRENGET – skog, vann, dyrka mark og
+         eksisterende veg. Der anlegget har gravd, gjelder massefargene.
+         Se Tegner3d._arealfarge. */
+      const bakken = (this.lag.arealdekke && Tegner3d._arealkart)
+        ? this._arealfarge(g) : enkel(Farger.terrengFlateRgb);
       ut.push(this.fyldig
-        ? { hoyde: g.zT, farge: enkel(Farger.terrengFlateRgb), blanding: 0, krev: g.utenGrav }
-        : { hoyde: g.zT, farge: enkel(Farger.terrengFlateRgb), blanding: 0.45 });
+        ? { hoyde: g.zT, farge: bakken, blanding: 0, krev: g.utenGrav }
+        : { hoyde: g.zT, farge: bakken, blanding: 0.45 });
     }
     if (this.lag.fjell) ut.push({ hoyde: g.zF, krev: g.harGrav, farge: enkel(Farger.fjellRgb), blanding: 0.5 });
     return ut;

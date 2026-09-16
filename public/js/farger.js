@@ -73,6 +73,23 @@ const Farger = {
   get flateRgb() { return this.rgb('flate'); },
   /* De andre anleggene i 3D-scenen. Egen farge, ikke en tone av terrenget:
      en bakgrunnsflate som ligner terreng blir lest som terreng. */
+  /* AREALDEKKE: AR5-kode inn, farge ut.
+     Tabellen er det ENESTE stedet en SOSI-kode møter en farge. Koden kommer
+     fra tjenesten (se arealdekke.js), fargen fra app.css, og ingen av delene
+     er gjettet her. Klasser uten egen farge – og alt utenfor kartet – faller
+     tilbake på terrengflaten: åpen fastmark ER bakken, og «vet ikke» skal se
+     ut som bakken, ikke som en ny opplysning. */
+  AREALFARGE: {
+    11: 'areal-bebygd', 12: 'areal-veg',
+    21: 'areal-dyrka', 22: 'areal-dyrka', 23: 'areal-dyrka',
+    30: 'areal-skog', 60: 'areal-myr', 70: 'areal-snoeis',
+    81: 'areal-vann', 82: 'areal-vann'
+  },
+  arealRgb(kode) {
+    const navn = this.AREALFARGE[kode];
+    return navn ? this.rgb(navn) : this.terrengFlateRgb;
+  },
+
   get annetAnleggRgb() { return this.rgb('data-annet'); },
   get annetAnlegg() { return this.hent('data-annet'); },
 

@@ -1949,6 +1949,101 @@ const Tegner3d = {
      for enhver beslutning som ikke er merket `avOss`.
      ================================================================ */
 
+  /* ================================================================
+     AREALDEKKET PÅ MODELLEN
+
+     Skog, vann, dyrka mark og eksisterende veg, malt på terrenget der
+     ingen har gravd ennå. Kilden er AR5 – se `arealdekke.js`. Ingenting
+     er gjettet: hver flate bærer en SOSI-kode fra tjenesten selv.
+
+     BARE PÅ URØRT MARK. Der anlegget har tatt tak, er det massefargene
+     som gjelder – det er dem hele modellen finnes for. Arealdekket
+     ligger på `zT`, terrenglaget, og det laget har allerede `krev:
+     g.utenGrav` i fyldig visning. Utenfor fyldig blandes det 45 % som
+     før, og da er det bakgrunnen som skifter kulør, ikke svaret.
+     ================================================================ */
+
+  /** Kartet som er hentet nå. Deles av begge visningene – bakken er én. */
+  _arealkart: null,
+  _arealnokkel: null,
+  _henterAreal: false,
+
+  /**
+   * Fargefunksjonen for terrengflaten: arealdekke der vi har det, jord ellers.
+   *
+   * Tabellen bygges per tegning, ikke per node. `Farger.arealRgb` går via
+   * `getComputedStyle`, og det er et oppslag i stilsystemet – gjort per node
+   * på et gitter med ti tusen av dem er det ikke en farge lenger, det er en
+   * pause.
+   */
+  _arealfarge(g) {
+    const kart = Tegner3d._arealkart;
+    const bord = new Map();
+    const rgbFor = (k) => {
+      let v = bord.get(k);
+      if (!v) { v = Farger.arealRgb(k); bord.set(k, v); }
+      return v;
+    };
+    return (k00, k10, k01, k11, z) => {
+      const rgb = kart ? rgbFor(kart.kodeVed(g.wx[k00], g.wy[k00]))
+        : Farger.terrengFlateRgb;
+      const ly = this._lys(g, k00, k10, k01, z, this._kamNa);
+      const r = Math.min(255, rgb[0] * ly), gg = Math.min(255, rgb[1] * ly);
+      const bl = Math.min(255, rgb[2] * ly);
+      return (255 << 24) | (bl << 16) | (gg << 8) | r;
+    };
+  },
+
+  /**
+   * Sørger for at arealdekket er hentet for det gitteret som tegnes nå.
+   *
+   * Randboksen regnes ÉN gang per nytt område, ikke per bilde: løkka er
+   * O(noder), og ti tusen noder seksti ganger i sekundet er en halv million
+   * sammenligninger for en opplysning som ikke har endret seg.
+   *
+   * Et område som er hentet står i `Arealdekke`-bufferet, så et bytte fram og
+   * tilbake mellom to naboanlegg koster ingenting.
+   */
+  _sikreArealdekke(g) {
+    if (!this.lag || !this.lag.arealdekke) return;
+    if (Tegner3d._henterAreal || typeof Arealdekke === 'undefined') return;
+    const app = this.app || (typeof App !== 'undefined' ? App : null);
+    if (!app || !app.sone || !g || !g.wx || !g.finnes) return;
+    let minX = Infinity, maksX = -Infinity, minY = Infinity, maksY = -Infinity;
+    for (let k = 0; k < g.wx.length; k++) {
+      if (!g.finnes[k]) continue;
+      const x = g.wx[k], y = g.wy[k];
+      if (x < minX) minX = x; if (x > maksX) maksX = x;
+      if (y < minY) minY = y; if (y > maksY) maksY = y;
+    }
+    if (!Number.isFinite(minX) || !(maksX > minX) || !(maksY > minY)) return;
+    /* Litt luft rundt, så et anlegg som vokser litt ikke utløser en ny
+       henting med det samme. */
+    const marg = Math.max(20, (maksX - minX + maksY - minY) * 0.05);
+    minX -= marg; maksX += marg; minY -= marg; maksY += marg;
+    const nokkel = app.sone + ':' + [minX, minY, maksX, maksY]
+      .map(v => Math.round(v / 50) * 50).join(',');
+    if (nokkel === Tegner3d._arealnokkel) return;
+    Tegner3d._henterAreal = true;
+    Arealdekke.hent(app.sone, minX, minY, maksX, maksY).then(kart => {
+      Tegner3d._arealnokkel = nokkel;
+      Tegner3d._arealkart = kart;
+      /* Kom det ingenting, står terrenget som før. Et manglende arealkart er
+         ingen feil – det er et område uten AR5, og da skal bakken se ut som
+         bakke og ikke som et hull. */
+      if (app.status) {
+        app.status(kart
+          ? 'Arealdekke fra AR5: ' + [...kart.koder]
+            .map(c => Arealdekke.navn(c)).filter(Boolean).join(', ')
+          : 'Ingen AR5-data for dette området – terrenget tegnes som før');
+      }
+      for (const v of [typeof Veg3d !== 'undefined' ? Veg3d : null,
+        typeof Tomt3d !== 'undefined' ? Tomt3d : null]) {
+        if (v && v.aktiv) v.tegn();
+      }
+    }).finally(() => { Tegner3d._henterAreal = false; });
+  },
+
   /** Programmet kan slå laget på. Prøvene skrur den av for å måle forvalget. */
   autoAndre: true,
   /** Det samme for full detalj – se `_planleggFullDetalj`. */
@@ -2325,6 +2420,9 @@ const Tegner3d = {
     const pikslerPerMeter = (this.skala || 1) * dpr * kvalitet;
     const steg = Math.max(1, Math.ceil(1.6 / Math.max(0.02, pikslerPerMeter)));
     let g = this._gitter(steg);
+    /* Arealdekket henges på gitteret som faktisk tegnes – se
+       `_sikreArealdekke`. Kallet er gratis når området alt er hentet. */
+    if (g) this._sikreArealdekke(g);
     if (!g) {
       this._sisteGitter = null; this._sisteKam = null;
       this._tomMelding(g2, rb, rh, dpr * kvalitet, 'For mye å tegne i 3D på én gang');

@@ -127,9 +127,17 @@ const Nettlesertest = {
        bygger to anlegg og hviler på at naboen IKKE tegnes; med automatikken
        på ville den målt et annet bilde enn den tror. Prøvene som skal måle
        selve automatikken, slår den på selv – se `automatiskeNaboer`. */
-    const foerAuto = { andre: Tegner3d.autoAndre, full: Tegner3d.autoFull };
+    /* AREALDEKKET HENTES OVER NETT, OG DET HAR INGEN PLASS I EN PRØVE.
+       Laget står PÅ i programmet, men hver 3D-prøve ville da lagt ut en
+       forespørsel til NIBIO og ventet på den – tregt, og avhengig av at
+       noen andre sitt anlegg svarer. Prøven som måler selve arealdekket
+       slår den på for seg, se `arealdekkePaaModellen`. */
+    const foerAuto = { andre: Tegner3d.autoAndre, full: Tegner3d.autoFull,
+      arealVeg: Veg3d.lag.arealdekke, arealTomt: Tomt3d.lag.arealdekke };
     Tegner3d.autoAndre = false;
     Tegner3d.autoFull = false;
+    Veg3d.lag.arealdekke = false;
+    Tomt3d.lag.arealdekke = false;
     clearTimeout(Tegner3d._fullTimer);
     Tegner3d._fullTimer = null;
     const foerProsjekt = App.P ? JSON.stringify(App.P) : null;
@@ -154,7 +162,7 @@ const Nettlesertest = {
       'autolagring', 'overskriving', 'tverrsnittAvlesning', 'pdfrapport',
       'pdfavlesning', 'rapport', 'paneler', 'flereAnlegg', 'tverrsnittEnsidig',
       'snuplassBlirSynlig', 'naboOverlapping', 'anleggsrekkefolge', 'anleggsmerking', 'prosjektmasserOgRekkefolge', 'vegMellomToTomter',
-      'automatiskeNaboer', 'skisseSkraaninger',
+      'automatiskeNaboer', 'skisseSkraaninger', 'arealdekkePaaModellen',
       'grensesnittbredder', 'panelhoder',
       'tomt', 'tomteksport', 'tomterydding', 'tomtsnittOverbygning',
       'tomt3d', 'veg3d', 'kartlag',
@@ -177,6 +185,8 @@ const Nettlesertest = {
     Tegner3d._fullTimer = null;
     Tegner3d.autoAndre = foerAuto.andre;
     Tegner3d.autoFull = foerAuto.full;
+    Veg3d.lag.arealdekke = foerAuto.arealVeg;
+    Tomt3d.lag.arealdekke = foerAuto.arealTomt;
 
     /* Legg prosjektet tilbake slik det sto, ogsa i lageret dersom det var
        lagret der fra før. Testen skal ikke etterlate seg spor i noe brukeren
@@ -1392,6 +1402,95 @@ const Nettlesertest = {
       app._ferdigflater = null;
       app._terrengnokkel = null;
       app.visAnleggsvelger();
+    }
+  },
+
+  /* ---------------- arealdekket på modellen ----------------
+   *
+   * Skog, vann, dyrka mark og eksisterende veg males på den urørte bakken.
+   * Kilden er AR5 fra NIBIO – se arealdekke.js.
+   *
+   * PRØVEN GÅR ALDRI PÅ NETT. Selve oppslaget mot NIBIO er prøvd for hånd
+   * mot uavhengig fasit (elleve punkt, alle rett), men en prøve som henger
+   * på at noen andre sin tjeneste svarer, er ikke en prøve på KODEN vår –
+   * den er en prøve på nettet. Her settes kartet inn for hånd.
+   *
+   * DEN FARLIGE FEILEN ER FARGEVALGET. Massefargene eier to akser: rødt er
+   * skjæring, grønt er fylling. En skogsgrønn utenfor det nøytrale båndet
+   * ville blitt lest som fylling – av øyet, og av prøven «før viser bare
+   * terreng». Det er den første påstanden her.
+   */
+  async arealdekkePaaModellen() {
+    const foerKart = Tegner3d._arealkart;
+    const foerLag = { veg: Veg3d.lag.arealdekke, tomt: Tomt3d.lag.arealdekke };
+    const foerLys = Veg3d._lys;
+    try {
+      /* ── 1. Ingen arealfarge får se ut som en massefarge ──────────────
+         Nøyaktig samme prøve som `farger()` i veg3d-gruppa bruker på
+         bildet: rødt er r > g+22 og r > b+22, grønt er g > r+16. */
+      const koder = Object.keys(Farger.AREALFARGE).map(Number);
+      const verstRaud = [], verstGron = [];
+      for (const k of koder) {
+        const [r, g, b] = Farger.arealRgb(k);
+        if (r > g + 22 && r > b + 22) verstRaud.push(k + ' ' + Arealdekke.navn(k));
+        if (g > r + 16) verstGron.push(k + ' ' + Arealdekke.navn(k) + ' (g-r=' + (g - r) + ')');
+      }
+      this.sjekk('ingen arealfarge leses som skjæring', !verstRaud.length,
+        verstRaud.join(', ') || (koder.length + ' klasser prøvd'));
+      this.sjekk('  og ingen leses som fylling', !verstGron.length,
+        verstGron.join(', ') || (koder.length + ' klasser prøvd'));
+      this.sjekk('  og det er faktisk klasser å prøve', koder.length >= 8,
+        koder.length + ' klasser');
+
+      /* ── 2. Kodene skiller seg fra hverandre ──────────────────────────
+         En tabell der skog og vann endte på samme farge ville passert
+         prøven over, og vært like ubrukelig som ingen farger. */
+      const ulike = new Set(koder.map(k => Farger.arealRgb(k).join(',')));
+      this.sjekk('  og skog, vann, dyrka mark og veg er ulike farger',
+        ulike.size >= 5, ulike.size + ' ulike av ' + koder.length + ' koder');
+
+      /* ── 3. Ukjent kode faller tilbake på jorda, ikke på svart ────────
+         0 betyr «utenfor kartet». Det skal se ut som bakke, ikke som en ny
+         opplysning. */
+      this.naer('  og en ukjent kode gir jordfargen',
+        Farger.arealRgb(0).join('') === Farger.terrengFlateRgb.join('') ? 1 : 0, 1, 0.01);
+
+      /* ── 4. Terrenglaget bruker kartet når det finnes ─────────────────
+         Lyset stubbes til 1, så fargen som kommer ut ER grunnfargen og
+         ikke en dempet utgave av den. */
+      const g = { nb: 2, nh: 2,
+        wx: new Float64Array([0, 1, 0, 1]), wy: new Float64Array([0, 0, 1, 1]),
+        finnes: new Uint8Array([1, 1, 1, 1]), zT: new Float32Array([0, 0, 0, 0]) };
+      Veg3d._lys = () => 1;
+      const lesFarge = (fn) => {
+        const v = fn(0, 1, 2, 3, g.zT);
+        return [v & 255, (v >> 8) & 255, (v >> 16) & 255];
+      };
+      Tegner3d._arealkart = { kodeVed: () => 30 };          // skog overalt
+      Veg3d.lag.arealdekke = true;
+      const skog = lesFarge(Veg3d._arealfarge.call(Veg3d, g));
+      this.naer('terrenget males med arealdekket der det finnes',
+        skog.join(',') === Farger.arealRgb(30).join(',') ? 1 : 0, 1, 0.01);
+      this.sjekk('  og det er IKKE jordfargen',
+        skog.join(',') !== Farger.terrengFlateRgb.join(','),
+        skog.join(',') + ' mot jord ' + Farger.terrengFlateRgb.join(','));
+
+      Tegner3d._arealkart = { kodeVed: () => 81 };          // vann overalt
+      const vann = lesFarge(Veg3d._arealfarge.call(Veg3d, g));
+      this.sjekk('  og vann blir noe annet enn skog',
+        vann.join(',') !== skog.join(','), 'vann ' + vann + ', skog ' + skog);
+
+      /* ── 5. Uten kart står bakken som før ─────────────────────────────
+         Et manglende arealkart er ingen feil – det er et område uten AR5. */
+      Tegner3d._arealkart = null;
+      const utan = lesFarge(Veg3d._arealfarge.call(Veg3d, g));
+      this.naer('uten arealkart står terrenget i jordfargen',
+        utan.join(',') === Farger.terrengFlateRgb.join(',') ? 1 : 0, 1, 0.01);
+    } finally {
+      Veg3d._lys = foerLys;
+      Tegner3d._arealkart = foerKart;
+      Veg3d.lag.arealdekke = foerLag.veg;
+      Tomt3d.lag.arealdekke = foerLag.tomt;
     }
   },
 

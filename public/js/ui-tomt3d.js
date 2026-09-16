@@ -34,8 +34,9 @@ const Tomt3d = Object.assign(Object.create(Tegner3d), {
   /* `andre`: se Veg3d.lag – den holdes i takt med vegens av
      Tegner3d.settVisAndre, og slås på automatisk sammen med den når
      prosjektet har mer enn ett anlegg (Tegner3d._autoAndre). */
+  /* `arealdekke`: se Veg3d.lag – bakken er den samme i begge visningene. */
   lag: { terreng: true, grav: true, fjell: false, overbygning: false, rutenett: false,
-    grenser: true, andre: false },
+    grenser: true, andre: false, arealdekke: true },
 
 
   init(app) {
@@ -588,9 +589,13 @@ const Tomt3d = Object.assign(Object.create(Tegner3d), {
        skjæring ved siden av en grunn fylling er nesten samme grå. Her ser man
        volumet i stedet, med terrenget rundt som ramme. */
     if (this.lag.terreng) {
+      /* Arealdekket – se Veg3d._lagliste og Tegner3d._arealfarge. Bakken er
+         den samme enten man står i en veg eller i en tomt. */
+      const bakken = (this.lag.arealdekke && Tegner3d._arealkart)
+        ? this._arealfarge(g) : enkel(Farger.terrengFlateRgb);
       ut.push(this.fyldig
-        ? { hoyde: g.zT, farge: enkel(Farger.terrengFlateRgb), blanding: 0, krev: g.utenGrav }
-        : { hoyde: g.zT, farge: enkel(Farger.terrengFlateRgb), blanding: 0.45 });
+        ? { hoyde: g.zT, farge: bakken, blanding: 0, krev: g.utenGrav }
+        : { hoyde: g.zT, farge: bakken, blanding: 0.45 });
     }
     /* `krev: g.harGrav` – samme som vegen har. Uten den tegnet fjellaget seg
        over HELE gitteret, også de førti metrene kontekstring rundt tomta. Der

@@ -97,6 +97,28 @@
      bakgrunn – den viser hvor naboanlegget ligger, ikke hva det koster. */
   --data-annet: #5b7fa8;
 
+  /* ── AREALDEKKE: hva bakken ER før noen har gravd i den ──────────
+     Skog, vann, dyrka mark, eksisterende veg. Kilden er AR5 fra NIBIO,
+     og hver farge svarer til en SOSI-kode – se arealdekke.js.
+
+     ALLE HOLDER SEG I DET NØYTRALE BÅNDET, og det er ikke pynt.
+     Massefargene eier to akser: rødt er skjæring (r > g+22 og r > b+22)
+     og grønt er fylling (g > r+16). En skogsgrønn utenfor det båndet
+     ville blitt LEST som fylling – både av øyet og av prøven «før viser
+     bare terreng». Derfor er r-g holdt på 16 eller lavere overalt:
+     skogen skilles på kulør og lyshet, ikke på metning. Samme regel som
+     ga --data-terrengflate sin jordbrune, og av samme grunn.
+
+     Åpen fastmark har ingen egen farge: den ER bakken, og bruker
+     --data-terrengflate. */
+  --areal-skog: #707e60;
+  --areal-vann: #6e7c9c;
+  --areal-myr: #7e7c68;
+  --areal-dyrka: #9ea874;
+  --areal-bebygd: #9e968e;
+  --areal-veg: #929292;
+  --areal-snoeis: #d6d8dc;
+
   --skrift: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --skrift-tittel: 'Barlow Condensed', var(--skrift);
 }
@@ -131,6 +153,15 @@
   /* På papir må den samme blåfargen være mørkere: en dempet tone som leses på
      skjerm forsvinner i toneren. */
   --data-annet: #4a6b8f;
+  /* Same arealdekket, løfta til papiret si lyshet – same forhold som
+     --data-terrengflate blir løfta med. Kulørskiljet er urørt. */
+  --areal-skog: #9eb287;
+  --areal-vann: #9bafdc;
+  --areal-myr: #b2af93;
+  --areal-dyrka: #dfeda4;
+  --areal-bebygd: #dfd4c8;
+  --areal-veg: #cecece;
+  --areal-snoeis: #f5f6f8;
 }
 
 @media (prefers-color-scheme: light) {
@@ -148,6 +179,15 @@
     /* Same jorda i lyst tema, på den lysheten den grå hadde (181 mot 181),
        og med same avstand til raudt: r-g er 11, r-b er 51. */
     --data-terrengflate: #c0b58d;
+    /* Arealdekket i lyst tema – sjå :root for kvifor alle ligg i det
+       nøytrale båndet. */
+    --areal-skog: #8ea07a;
+    --areal-vann: #8c9dc6;
+    --areal-myr: #a09d84;
+    --areal-dyrka: #c9d593;
+    --areal-bebygd: #c9bfb4;
+    --areal-veg: #b9b9b9;
+    --areal-snoeis: #ecedf2;
     --data-rensk: rgba(63, 63, 70, 0.45);
     --data-utskifting: #0d63a8;
     --data-utskifting-flate: rgba(13, 99, 168, 0.26);
