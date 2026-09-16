@@ -6848,7 +6848,8 @@ const App = {
     };
     for (const [felt, boks] of [['terreng', 't3_terreng'], ['grav', 't3_grav'],
       ['fjell', 't3_fjell'], ['overbygning', 't3_overbygning'],
-      ['rutenett', 't3_rutenett'], ['grenser', 't3_grenser']]) {
+      ['rutenett', 't3_rutenett'], ['grenser', 't3_grenser'],
+      ['arealdekke', 't3_arealdekke']]) {
       const e = id2(boks);
       if (e) e.onclick = () => {
         Tomt3d.lag[felt] = !Tomt3d.lag[felt];
@@ -7033,7 +7034,8 @@ const App = {
     };
     for (const [felt, boks] of [['terreng', 'v3_terreng'], ['grav', 'v3_grav'],
       ['vegbane', 'v3_vegbane'], ['fjell', 'v3_fjell'],
-      ['rutenett', 'v3_rutenett'], ['grenser', 'v3_grenser']]) {
+      ['rutenett', 'v3_rutenett'], ['grenser', 'v3_grenser'],
+      ['arealdekke', 'v3_arealdekke']]) {
       const e = id2(boks);
       if (e) e.onclick = () => {
         Veg3d.lag[felt] = !Veg3d.lag[felt];
