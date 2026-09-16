@@ -12,6 +12,84 @@
 <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
+<!-- ══════════════════════════════════════════════════════════════════
+     LUKKEREN — limes inn øverst i <body> på hvert av systemene våre.
+
+     Mobilappen lukker tre skrå plater når du trykker på en side. Chrome
+     tar over skjermen, og da er det systemet selv som må åpne dem igjen.
+     Gjør det begge steder, blir overgangen sammenhengende, og den hvite
+     stunden mens sida laster forsvinner bak platene.
+
+     MÅ ligge inline i HTML-en, ikke i bunten. Lastes den som en modul,
+     rekker nettleseren å male den hvite siden først, og da er hele
+     poenget borte.
+
+     Vinkelen er −12°, den samme som bransjebåndet i logoen. Den røde
+     forkanten er det som leser som fart: en flate som bare glir er en
+     flate, en flate med lysende kant er noe som beveger seg.
+
+     SIKKERHETSNETT, fordi dette ligger over ekte systemer i drift:
+       · pointer-events: none — platene kan aldri svelge et trykk
+       · åpner på load, men SENEST etter 2,6 sekund uansett
+       · fjerner seg selv etterpå
+       · respekterer prefers-reduced-motion
+     Henger noe, blir du aldri stående bak dem.
+
+     Kanonisk kopi: hauge-maskin-mobil/twa/lukkar.html
+     ══════════════════════════════════════════════════════════════════ -->
+<style>
+  #hm-lukkar { position: fixed; inset: 0; z-index: 2147483647; pointer-events: none; overflow: hidden; }
+  #hm-lukkar .hm-l-grunn { position: absolute; inset: 0; background: #0a0a0c; }
+  #hm-lukkar i {
+    position: absolute; top: -14%; bottom: -14%; width: 46%;
+    background: linear-gradient(100deg, #0b0b0f 0%, #16161c 72%, #1c1c24 100%);
+    transform: skewX(-12deg);
+  }
+  #hm-lukkar i::after {
+    content: ""; position: absolute; right: 0; top: 0; bottom: 0; width: 4px; background: #e2001a;
+  }
+  #hm-lukkar i:nth-of-type(1) { left: -8%; }
+  #hm-lukkar i:nth-of-type(2) { left: 28%; }
+  #hm-lukkar i:nth-of-type(3) { left: 64%; }
+
+  /* Grunnen slipper i det sveipet starter. Platene dekker alt akkurat da,
+     så byttet er usynlig – og uten dette ville du sett mørkt bak dem. */
+  #hm-lukkar.opp .hm-l-grunn { opacity: 0; }
+  #hm-lukkar.opp i { animation: hmLukkOpp 520ms cubic-bezier(.62, .02, .34, 1) both; }
+  #hm-lukkar.opp i:nth-of-type(1) { animation-delay: 0ms; }
+  #hm-lukkar.opp i:nth-of-type(2) { animation-delay: 60ms; }
+  #hm-lukkar.opp i:nth-of-type(3) { animation-delay: 120ms; }
+  @keyframes hmLukkOpp { to { transform: skewX(-12deg) translate3d(210%, 0, 0); } }
+
+  @media (prefers-reduced-motion: reduce) {
+    #hm-lukkar i { display: none; }
+    #hm-lukkar.opp { opacity: 0; transition: opacity .2s linear; }
+  }
+</style>
+<div id="hm-lukkar"><div class="hm-l-grunn"></div><i></i><i></i><i></i></div>
+<script>
+(function () {
+  var e = document.getElementById('hm-lukkar');
+  if (!e) return;
+  var start = Date.now(), gjort = false;
+  function opne() {
+    if (gjort) return;
+    gjort = true;
+    /* Minst 260 ms. På en varm cache er sida klar før øyet rekker å se
+       platene, og da blir sveipet et blaff i stedet for en overgang. */
+    setTimeout(function () {
+      e.className = 'opp';
+      setTimeout(function () { if (e.parentNode) e.parentNode.removeChild(e); }, 760);
+    }, Math.max(0, 260 - (Date.now() - start)));
+  }
+  if (document.readyState === 'complete') opne();
+  else window.addEventListener('load', opne);
+  /* Henger en ressurs, skal ingen bli stående bak platene. */
+  setTimeout(opne, 2600);
+})();
+</script>
+<!-- ─── slutt på lukkeren ─────────────────────────────────────────── -->
+
 
 <header class="topp">
   <div class="merke">
