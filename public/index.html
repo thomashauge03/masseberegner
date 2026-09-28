@@ -174,11 +174,15 @@
        · søke- og filterfelt hoppes over
        · e-postfeltet er tekstfeltet rett før passordfeltet i skjemaet
        · verdien settes slik at React merker den (input + change)
+     Og ingen knapp der det står et felt for NYTT passord – registrering
+     og passordbytte skal ikke få den felles nøkkelen fylt inn.
 
-     SIKKERHETSNETT: alt ligger i try/catch. Knappen og stilen dens lages
-     først når det finnes et passordfelt – sider uten innlogging får ingen
-     ting lagt inn. Knappen ligger utenfor rammeverkets rot, så React kan
-     ikke rive den. Uten svar fra appen sier knappen fra i stedet for å henge.
+     SIKKERHETSNETT: alt, også hendelsene, ligger i try/catch. Knappen og
+     stilen dens lages først når det finnes et passordfelt – sider uten
+     innlogging får ingenting lagt inn. Synligheten settes fra skriptet,
+     så en streng CSP ikke kan la knappen stå fremme. Knappen ligger
+     utenfor rammeverkets rot, så React kan ikke rive den. Uten svar fra
+     appen sier knappen fra i stedet for å henge.
 
      Kanonisk kopi: hauge-maskin-mobil/twa/hm-snutt.html
      ══════════════════════════════════════════════════════════════════ -->
@@ -195,8 +199,13 @@
       'cursor:pointer;-webkit-tap-highlight-color:transparent}' +
       '#hm-nokkel.synleg{display:inline-flex}#hm-nokkel:active{background:#b40015}';
 
-    var port = null, harNokkel = false, ferdig = false, vakt = null;
+    var port = null, harNokkel = false, ferdig = false, vakt = null, planlagt = false;
     var knapp = null, venter = null, tilbake = null;
+
+    /* Hendelser går utenfor den ytre try-en. Hver av dem får sin egen. */
+    function trygt(fn) {
+      return function () { try { return fn.apply(this, arguments); } catch (x) { /* aldri sida */ } };
+    }
 
     function les(t) { try { return JSON.parse(t); } catch (x) { return null; } }
     function fraAppen(o) { return o === location.origin || APPEN.test(String(o)); }
@@ -206,11 +215,14 @@
       return r.width > 0 && r.height > 0 && !el.disabled && !el.readOnly;
     }
 
-    function passordfelt() {
-      var alle = document.querySelectorAll('input[type="password"]');
+    function forste(velger) {
+      var alle = document.querySelectorAll(velger);
       for (var i = 0; i < alle.length; i++) if (synleg(alle[i])) return alle[i];
       return null;
     }
+
+    function passordfelt() { return forste('input[type="password"]'); }
+    function nyttPassord() { return forste('input[autocomplete~="new-password"]'); }
 
     var SOK = /(search|søk|sok|query|filter|finn)/i;
     function erSokefelt(el) {
@@ -229,7 +241,7 @@
 
     function fyll(epost, passord) {
       var pf = passordfelt();
-      if (!pf) return 0;
+      if (!pf || nyttPassord()) return 0;
       var omraade = pf.form || document;
       var kandidatar = [].slice.call(omraade.querySelectorAll(
         'input[type="email"], input[type="text"], input[type="tel"], input:not([type])'
@@ -249,7 +261,7 @@
       if (!knapp) return;
       knapp.textContent = t;
       if (tilbake) { clearTimeout(tilbake); tilbake = null; }
-      if (kort) tilbake = setTimeout(function () { tilbake = null; if (knapp) knapp.textContent = TEKST; }, 4000);
+      if (kort) tilbake = setTimeout(trygt(function () { tilbake = null; if (knapp) knapp.textContent = TEKST; }), 4000);
     }
 
     function lagKnapp() {
@@ -262,18 +274,32 @@
       knapp.id = 'hm-nokkel';
       knapp.type = 'button';
       knapp.textContent = TEKST;
-      knapp.addEventListener('click', hent);
+      // Satt fra skriptet, ikke bare i stilen: en CSP som stopper <style>
+      // skal ikke kunne la knappen stå fremme
+      knapp.style.position = 'fixed';
+      knapp.style.zIndex = '2147483646';
+      knapp.style.display = 'none';
+      knapp.addEventListener('click', trygt(hent));
       document.body.appendChild(knapp);
+    }
+
+    function skjul() {
+      if (!knapp) return;
+      if (knapp.className) knapp.className = '';
+      if (knapp.style.display !== 'none') knapp.style.display = 'none';
     }
 
     /* Under passordfeltet, høyrejustert, så knappen ikke dekker midten av
        «Logg inn»-knappen som som regel står rett under. Knappen lages
        først her, når det faktisk finnes et passordfelt. */
     function plasser() {
-      var pf = port && harNokkel && !ferdig ? passordfelt() : null;
-      if (!pf) { if (knapp && knapp.className) knapp.className = ''; return; }
+      var pf = port && harNokkel ? passordfelt() : null;
+      // Innloggingen er borte – neste gang den kommer, skal knappen med
+      if (!pf) { ferdig = false; skjul(); return; }
+      if (ferdig || nyttPassord()) { skjul(); return; }
       lagKnapp();
       if (knapp.className !== 'synleg') knapp.className = 'synleg';
+      if (knapp.style.display !== 'inline-flex') knapp.style.display = 'inline-flex';
       var r = pf.getBoundingClientRect();
       var topp = Math.round(r.bottom + 6) + 'px';
       var venstre = Math.round(Math.max(8, r.right - knapp.offsetWidth)) + 'px';
@@ -281,33 +307,42 @@
       if (knapp.style.left !== venstre) knapp.style.left = venstre;
     }
 
+    /* Samler alt som skjer i sida til neste bilde, så en animert
+       innloggingsside ikke tvinger fram én måling per endring. */
+    function snart() {
+      if (planlagt) return;
+      planlagt = true;
+      var neste = window.requestAnimationFrame || function (f) { return setTimeout(f, 16); };
+      neste(trygt(function () { planlagt = false; plasser(); }));
+    }
+
     /* Følger med på sida, så knappen kommer når innloggingen tegnes og går
        når den forsvinner. Våre egne endringer setter ikke i gang en ny runde. */
     function folgMed() {
       if (vakt) return;
-      vakt = new MutationObserver(function (poster) {
+      vakt = new MutationObserver(trygt(function (poster) {
         for (var i = 0; i < poster.length; i++) {
           var mal = poster[i].target;
-          if (mal !== knapp && !(knapp && knapp.contains(mal))) { plasser(); return; }
+          if (mal !== knapp && !(knapp && knapp.contains(mal))) { snart(); return; }
         }
-      });
+      }));
       vakt.observe(document.documentElement, {
         childList: true, subtree: true,
         attributes: true, attributeFilter: ['class', 'style', 'hidden', 'type', 'disabled']
       });
-      window.addEventListener('scroll', plasser, true);
-      window.addEventListener('resize', plasser);
-      if (window.visualViewport) window.visualViewport.addEventListener('resize', plasser);
+      window.addEventListener('scroll', trygt(snart), true);
+      window.addEventListener('resize', trygt(snart));
+      if (window.visualViewport) window.visualViewport.addEventListener('resize', trygt(snart));
     }
 
     function hent() {
       if (!port || venter) return;
       tekst('🔑 …');
       port.postMessage(JSON.stringify({ type: 'hm-hent' }));
-      venter = setTimeout(function () {
+      venter = setTimeout(trygt(function () {
         venter = null;
         tekst('Åpne sida fra appen på nytt', true);
-      }, 3000);
+      }), 3000);
     }
 
     function hei(m) {
@@ -315,7 +350,7 @@
       ferdig = false;
       if (!harNokkel) { plasser(); return; }
       if (document.body) { folgMed(); plasser(); }
-      else document.addEventListener('DOMContentLoaded', function () { folgMed(); plasser(); });
+      else document.addEventListener('DOMContentLoaded', trygt(function () { folgMed(); plasser(); }));
     }
 
     function svar(m) {
@@ -339,13 +374,13 @@
       else if (m.type === 'hm-nokkel') svar(m);
     }
 
-    window.addEventListener('message', function (e) {
+    window.addEventListener('message', trygt(function (e) {
       if (!e.ports || !e.ports[0] || !fraAppen(e.origin)) return;
       port = e.ports[0];
-      port.onmessage = motta;
+      port.onmessage = trygt(motta);
       var m = les(e.data);
       if (m && m.type === 'hm-hei') hei(m);
-    });
+    }));
   } catch (x) { /* nøkkelknappen skal aldri kunne ta ned sida */ }
 })();
 </script>
