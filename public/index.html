@@ -177,6 +177,14 @@
      Og ingen knapp der det står et felt for NYTT passord – registrering
      og passordbytte skal ikke få den felles nøkkelen fylt inn.
 
+     ── TIL «SISTE FORSØK» I APPEN ─────────────────────────────────
+     Sida sier fra til appen hva den så, så en feil på en telefon kan
+     finnes uten kabel: hm-klar (fikk hilsenen – med opphavet, en grov sti,
+     om det fantes et passordfelt da, og hvor lenge etter lasting),
+     hm-vist (knappen kom fram) og hm-avvist (en melding Chrome sendte, med
+     et opphav vi ikke kjente igjen). Aldri e-post eller passord, og stien
+     uten ledd med @, tall eller lange koder. Feil her stopper aldri knappen.
+
      SIKKERHETSNETT: alt, også hendelsene, ligger i try/catch. Knappen og
      stilen dens lages først når det finnes et passordfelt – sider uten
      innlogging får ingenting lagt inn. Synligheten settes fra skriptet,
@@ -200,7 +208,7 @@
       '#hm-nokkel.synleg{display:inline-flex}#hm-nokkel:active{background:#b40015}';
 
     var port = null, harNokkel = false, ferdig = false, vakt = null, planlagt = false;
-    var knapp = null, venter = null, tilbake = null;
+    var knapp = null, venter = null, tilbake = null, sisteOpphav = '', vistMeldt = false;
 
     /* Hendelser går utenfor den ytre try-en. Hver av dem får sin egen. */
     function trygt(fn) {
@@ -208,6 +216,26 @@
     }
 
     function les(t) { try { return JSON.parse(t); } catch (x) { return null; } }
+    function svarApp(o) { try { if (port) port.postMessage(JSON.stringify(o)); } catch (x) { /* bare til feilsøking */ } }
+
+    /* Til loggen: tre ledd, og et ledd med @, tall eller 16+ tegn blir «…»,
+       så e-postadresser og koder i adressen aldri havner der. */
+    function grovSti(p) {
+      var deler = String(p || '/').split('/'), ut = [];
+      for (var i = 1; i < deler.length && i <= 3; i++) {
+        var d = deler[i];
+        ut.push(!d || (d.length < 16 && !/[@\d]/.test(d)) ? d : '…');
+      }
+      return '/' + ut.join('/') + (deler.length > 4 ? '/…' : '');
+    }
+
+    function meldKlar() {
+      try {
+        svarApp({ type: 'hm-klar', v: 2, t: Date.now(), lastet: Math.round(performance.now()),
+                  opphav: sisteOpphav, sti: grovSti(location.pathname),
+                  passordfelt: !!passordfelt(), nyttPassord: !!nyttPassord(), nokkel: harNokkel });
+      } catch (x) { /* bare til feilsøking */ }
+    }
     function fraAppen(o) { return o === location.origin || APPEN.test(String(o)); }
 
     function synleg(el) {
@@ -300,6 +328,7 @@
       lagKnapp();
       if (knapp.className !== 'synleg') knapp.className = 'synleg';
       if (knapp.style.display !== 'inline-flex') knapp.style.display = 'inline-flex';
+      if (!vistMeldt) { vistMeldt = true; svarApp({ type: 'hm-vist', v: 2, t: Date.now() }); }
       var r = pf.getBoundingClientRect();
       var topp = Math.round(r.bottom + 6) + 'px';
       var venstre = Math.round(Math.max(8, r.right - knapp.offsetWidth)) + 'px';
@@ -348,6 +377,8 @@
     function hei(m) {
       harNokkel = m.nokkel === true;
       ferdig = false;
+      vistMeldt = false;
+      meldKlar();
       if (!harNokkel) { plasser(); return; }
       if (document.body) { folgMed(); plasser(); }
       else document.addEventListener('DOMContentLoaded', trygt(function () { folgMed(); plasser(); }));
@@ -375,8 +406,20 @@
     }
 
     window.addEventListener('message', trygt(function (e) {
-      if (!e.ports || !e.ports[0] || !fraAppen(e.origin)) return;
+      if (!e.ports || !e.ports[0]) return;
+      if (!fraAppen(e.origin)) {
+        // Sendte Chrome den (uten avsendervindu – en ramme i sida har alltid
+        // et), sier vi fra hvorfor på porten som fulgte med. Ellers ser ingen
+        // i appen at Chrome leverte med et opphav vi ikke kjente igjen.
+        if (!e.source) {
+          try {
+            e.ports[0].postMessage(JSON.stringify({ type: 'hm-avvist', v: 2, t: Date.now(), opphav: String(e.origin).slice(0, 120) }));
+          } catch (x) { /* bare til feilsøking */ }
+        }
+        return;
+      }
       port = e.ports[0];
+      sisteOpphav = String(e.origin).slice(0, 120);
       port.onmessage = trygt(motta);
       var m = les(e.data);
       if (m && m.type === 'hm-hei') hei(m);
