@@ -61,18 +61,34 @@
          liggende.
        · pointer-events: none — de kan aldri svelge et trykk
        · åpner på load, men SENEST etter 2,6 sekund uansett
-       · fjerner seg selv etterpå
+       · skjuler seg selv etterpå
        · respekterer prefers-reduced-motion
+
+     ── RØRER ALDRI ELEMENTET, BARE <html> ─────────────────────────
+     I React-systemene (Next.js, TanStack Start) er #hm-lukkar en del av
+     det React hydrerer, og skriptet kjører før React tar over sida.
+     Fjernet eller endret skriptet elementet, stemte ikke sida lenger
+     med det serveren sendte: hydreringen feilet på hver eneste side, og
+     React bygde hele treet på nytt i nettleseren. Derfor styres alt med
+     ett attributt på <html> – data-hm-lukkar = lukket | opp | ferdig –
+     og CSS-en gjør resten. Elementet blir liggende, skjult, når platene
+     har åpnet seg.
+
+     I React: suppressHydrationWarning på <html> i skallet, ellers regnes
+     attributtet som et avvik. Det gjelder bare <html> selv, ikke det som
+     ligger inni.
 
      Kanonisk kopi: hauge-maskin-mobil/twa/hm-snutt.html
      ══════════════════════════════════════════════════════════════════ -->
 <style>
   /* Av som utgangspunkt. Skriptet under skrur den på, og bare da. */
   #hm-lukkar { display: none; }
-  html[data-hm-app] #hm-lukkar {
+  html[data-hm-lukkar] #hm-lukkar {
     display: block;
     position: fixed; inset: 0; z-index: 2147483647; pointer-events: none; overflow: hidden;
   }
+  /* Av igjen når platene har åpnet seg. Elementet blir liggende – se over. */
+  html[data-hm-lukkar="ferdig"] #hm-lukkar { display: none; }
   #hm-lukkar .hm-l-grunn { position: absolute; inset: 0; background: #0a0a0c; }
   #hm-lukkar i {
     position: absolute; top: -14%; bottom: -14%; width: 46%;
@@ -88,40 +104,39 @@
 
   /* Grunnen slipper i det sveipet starter. Platene dekker alt akkurat da,
      så byttet er usynlig – og uten dette ville du sett mørkt bak dem. */
-  #hm-lukkar.opp .hm-l-grunn { opacity: 0; }
-  #hm-lukkar.opp i { animation: hmLukkOpp 520ms cubic-bezier(.62, .02, .34, 1) both; }
-  #hm-lukkar.opp i:nth-of-type(1) { animation-delay: 0ms; }
-  #hm-lukkar.opp i:nth-of-type(2) { animation-delay: 60ms; }
-  #hm-lukkar.opp i:nth-of-type(3) { animation-delay: 120ms; }
+  html[data-hm-lukkar="opp"] #hm-lukkar .hm-l-grunn { opacity: 0; }
+  html[data-hm-lukkar="opp"] #hm-lukkar i { animation: hmLukkOpp 520ms cubic-bezier(.62, .02, .34, 1) both; }
+  html[data-hm-lukkar="opp"] #hm-lukkar i:nth-of-type(1) { animation-delay: 0ms; }
+  html[data-hm-lukkar="opp"] #hm-lukkar i:nth-of-type(2) { animation-delay: 60ms; }
+  html[data-hm-lukkar="opp"] #hm-lukkar i:nth-of-type(3) { animation-delay: 120ms; }
   @keyframes hmLukkOpp { to { transform: skewX(-12deg) translate3d(210%, 0, 0); } }
 
   @media (prefers-reduced-motion: reduce) {
     #hm-lukkar i { display: none; }
-    #hm-lukkar.opp { opacity: 0; transition: opacity .2s linear; }
+    html[data-hm-lukkar="opp"] #hm-lukkar { opacity: 0; transition: opacity .2s linear; }
   }
 </style>
 <div id="hm-lukkar"><div class="hm-l-grunn"></div><i></i><i></i><i></i></div>
 <script>
 (function () {
-  var e = document.getElementById('hm-lukkar');
-  if (!e) return;
-  function vekk() { if (e.parentNode) e.parentNode.removeChild(e); }
-
   /* Bare når Hauge Maskin-appen åpnet sida. Prefiks, ikke ===: adressen
      kommer kanonisert med skråstrek til slutt. */
   var r = document.referrer || '';
-  if (r.lastIndexOf('android-app://no.haugemaskin.mobil', 0) !== 0) { vekk(); return; }
+  if (r.lastIndexOf('android-app://no.haugemaskin.mobil', 0) !== 0) return;
 
   /* Én gang per økt. Referreren overlever både reload og tilbakeknappen,
      så uten dette ville platene spilt om igjen på en side du alt hadde
      åpnet. Chrome på Android tømmer session storage ved oppstart, så
      dette er en hjelp der det virker – ikke noe vi hviler på. */
   try {
-    if (sessionStorage.getItem('hm-lukkar')) { vekk(); return; }
+    if (sessionStorage.getItem('hm-lukkar')) return;
     sessionStorage.setItem('hm-lukkar', '1');
   } catch (x) { /* privat modus, blokkerte data – la den spille */ }
 
-  document.documentElement.setAttribute('data-hm-app', '');
+  /* Alt går gjennom <html>. #hm-lukkar røres aldri – se over. */
+  var html = document.documentElement;
+  function sett(tilstand) { html.setAttribute('data-hm-lukkar', tilstand); }
+  sett('lukket');
 
   var start = Date.now(), gjort = false;
   function opne() {
@@ -130,8 +145,8 @@
     /* Minst 260 ms. På en varm cache er sida klar før øyet rekker å se
        platene, og da blir sveipet et blaff i stedet for en overgang. */
     setTimeout(function () {
-      e.className = 'opp';
-      setTimeout(vekk, 760);
+      sett('opp');
+      setTimeout(function () { sett('ferdig'); }, 760);
     }, Math.max(0, 260 - (Date.now() - start)));
   }
   if (document.readyState === 'complete') opne();
