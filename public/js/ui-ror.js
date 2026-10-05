@@ -450,10 +450,10 @@ const RorUI = {
     const r = app.P.ror;
     const res = app.resultat && app.resultat.type === 'ror' ? app.resultat : null;
     const bygg = app.byggRor();
-    if (!bygg.linjer.some(l => l.id === this.valgt)) {
-      const lengst = bygg.linjer.slice().sort((a, b) => b.lengde - a.lengde)[0];
-      this.valgt = lengst ? lengst.id : null;
-    }
+    if (this._valgtAnlegg !== app.P.aktivt) { this._valgtAnlegg = app.P.aktivt; this._valgtePunkter = null; }
+    if (!bygg.linjer.some(l => l.id === this.valgt)) this.valgt = this._etterfolger(bygg.linjer);
+    this._linjer = bygg.linjer;
+    this._huskValgt();
     this._fyllVelger(bygg.linjer, res);
     this._fyllFane(r, bygg, res);
     this._fyllKoder(r);
@@ -461,9 +461,38 @@ const RorUI = {
     if (document.querySelector('.fane.aktiv[data-fane="forklaring"]')) Forklaring.vis(app);
   },
 
+  /**
+   * Røret som tar over når det valgte ikke finnes lenger.
+   *
+   * Et brudd, en kobling eller et endepunkt slått av gir røret nye ender, og
+   * dermed ny id. Valget hoppet da til det lengste røret i anlegget – 180 PE
+   * i prøven – i stedet for å bli på røret man jobbet med. Nå tar det som har
+   * flest punkt felles med det som var valgt, over.
+   */
+  _etterfolger(linjer) {
+    const forrige = this._valgtePunkter;
+    let best = null, flest = 0;
+    if (forrige) {
+      for (const l of linjer) {
+        let n = 0;
+        for (const p of l.punkter) if (forrige.has(p.id)) n++;
+        if (n > flest) { best = l; flest = n; }
+      }
+    }
+    if (!best) best = linjer.slice().sort((a, b) => b.lengde - a.lengde)[0];
+    return best ? best.id : null;
+  },
+
+  /** Punktene i det valgte røret – det `_etterfolger` kjenner det igjen på. */
+  _huskValgt() {
+    const l = (this._linjer || []).find(x => x.id === this.valgt);
+    this._valgtePunkter = l ? new Set(l.punkter.map(p => p.id)) : null;
+  },
+
   /** Velger et rør: kartet framhever det, profilen og 3D viser det. */
   velgLinje(id) {
     this.valgt = id;
+    this._huskValgt();
     const v = document.getElementById('ror_velg');
     if (v && v.value !== id) v.value = id;
     for (const b of document.querySelectorAll('#rorInnhold [data-linje]')) {

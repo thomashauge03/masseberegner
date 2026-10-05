@@ -8595,7 +8595,13 @@ const Nettlesertest = {
       Kart.kart.setView(ll(105, 0), 19);
       Kart.settModus('rorBryt');
       this.sjekk('knappen viser at Bryt er på', document.getElementById('verktoyRorBryt').classList.contains('aktiv'));
+      const lang = App.resultat.linjer.find(l => l.kode === '90PE' && l.lengde > 150);
+      RorUI.velgLinje(lang.id);
       RorUI.kartklikk('rorBryt', ll(105, 0));
+      /* Bruddet gir begge halvdelene nye ender og dermed ny id. Valget hoppet
+         da til det lengste røret i anlegget – 180 PE – i stedet for å bli på
+         det røret man jobbet med. */
+      this.sjekk('valget blir på røret som ble brutt', String(RorUI.valgt).startsWith('90PE:'), RorUI.valgt);
       /* Med en gang, før den nye beregningen: kartet og lista tegnet det gamle
          resultatet til terrenget var hentet, og bruddet så ikke ut til å virke. */
       const streker = [];
