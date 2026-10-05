@@ -140,12 +140,17 @@ Endres terrenget eller overdekningen, flytter de frie høydene seg; de låste st
   objekter: [], enslige: [],
   kummer: [{ id, ror, x, y, bunnlop, terreng, diameter }],
   kontroll: [{ ror, s, punkt, bunn, laast, kum, fra? }],   // per rør, til profilen
-  utenDimensjon: [{ id, kode, xy }] }                      // tegnes i kartet, ellers ikke med
+  utenHoyde: [{ id, kode, xy, punkter, grunn }],           // tegnes i kartet, ellers ikke med
+  moter: [{ x, y, r }] }                                   // greininger og påkoblinger
 ```
 
 - Punktene har `z` = topp rør, i regnesonen.
-- Rør uten dimensjon er ikke med i linjene – ingen profil, ingen grøft – men tegnes i
-  kartet fra `utenDimensjon`, og merknaden sier hvilke koder det gjelder.
+- Rør uten høyder er ikke med i linjene – ingen profil, ingen grøft – men tegnes i
+  kartet fra `utenHoyde`. `grunn` er `'dimensjon'` (koden mangler dimensjon; merknaden
+  sier hvilke koder) eller `'terreng'` – før terrenget er hentet, har ingen rør høyder,
+  men de skal tegnes.
+- `moter` er greiningene og påkoblingene, der rørene skal møtes; kryssingskontrollen
+  hopper over dem (7).
 - Selvfall har ett punkt per knekkpunkt; trykk i tillegg ett per meter mellom dem, merket
   `mellom: true`.
 - Punkt-id-ene er `rør:punkt` i knekkpunktene og `rør:punkt+meter` i mellompunktene.
@@ -234,8 +239,9 @@ Endres terrenget eller overdekningen, flytter de frie høydene seg; de låste st
 
 - **Kryssing** finnes i plan: hvert segment av et planlagt rør mot hvert segment av de
   andre. I krysset regnes topp og bunn (utvendig) for begge; klaringen er
-  `max(bunn₁ − topp₂, bunn₂ − topp₁)`, og under null er treff. Kryss innen 0,5 m fra en
-  påkobling eller greining er ikke kryss – der skal rørene møtes.
+  `max(bunn₁ − topp₂, bunn₂ − topp₁)`, og under null er treff. Kryss innen 0,5 m pluss
+  største sideavstand på traseene som møtes, fra en påkobling eller greining, er ikke
+  kryss – der skal rørene møtes, også rørene som ligger ved siden av traseen.
 - Varslene står i `res.merknader` med `type` (`overdekning`, `fall`, `motfall`, `kryss`,
   `fjell`), røret og strekket, så profilen og kartet kan merke stedet.
 

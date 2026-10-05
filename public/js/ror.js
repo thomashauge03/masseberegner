@@ -561,7 +561,8 @@ const Ror = (() => {
     };
     const prover = [];
     for (let i = 0; i < xy.length; i++) {
-      prover.push(prove(s[i], xy[i].x, xy[i].y, pts[i].z, true));
+      // et mellompunkt på et tegnet trykkrør er ikke målt – det står der bare så røret følger terrenget
+      prover.push(prove(s[i], xy[i].x, xy[i].y, pts[i].z, !pts[i].mellom));
       if (i === xy.length - 1) break;
       const seg = s[i + 1] - s[i];
       for (let d = st; d < seg - 1e-9; d += st) {
