@@ -35,7 +35,8 @@ const Ror = (() => {
     return String(s).replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (hele, e) => {
       if (e[0] === '#') {
         const n = /^#x/i.test(e) ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
-        return Number.isFinite(n) ? String.fromCodePoint(n) : hele;
+        // utenfor Unicode kaster fromCodePoint – og det avviste hele fila
+        return Number.isFinite(n) && n >= 0 && n <= 0x10FFFF ? String.fromCodePoint(n) : hele;
       }
       const v = _ENTITETER[e.toLowerCase()];
       return v === undefined ? hele : v;

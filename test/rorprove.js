@@ -79,6 +79,14 @@ console.log('\n1. Lese LandXML');
   kaster('ingen punkt gir klar beskjed', () => Ror.lesLandXML('<LandXML></LandXML>'), /Fant ingen innmålte punkter/);
   const e = Ror.lesLandXML('<LandXML><CoordinateSystem epsgCode="25833"/><CgPoints><CgPoint name="a">1 2 3</CgPoint></CgPoints></LandXML>');
   sjekk('EPSG fra CoordinateSystem', e.epsg, 25833, 0);
+  /* Et tegnnummer utenfor Unicode kastet RangeError fra String.fromCodePoint,
+     og hele fila ble avvist med «Invalid code point 1114112». */
+  let tegn;
+  try {
+    tegn = Ror.lesLandXML('<LandXML><CgPoints><CgPoint name="a" code="R&#x110000;R &#216;">1 2 3</CgPoint></CgPoints></LandXML>');
+  } catch (feilen) { tegn = feilen; }
+  paastand('et tegnnummer utenfor Unicode står som det står', !(tegn instanceof Error)
+    && tegn.punkter[0].kode === 'R&#x110000;R Ø', tegn instanceof Error ? tegn.message : tegn.punkter[0].kode);
 }
 
 /* ------------------------------------------------------------------ */
