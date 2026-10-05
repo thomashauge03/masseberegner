@@ -356,16 +356,24 @@ const RorPlan = (() => {
     /* MØTENE: der en grein er festet og der et rør er koblet på et innmålt.
        Der skal rørene møtes – kontrollen for kryssing hopper over dem. Radien
        tar med sideavstanden, så rør som ligger ved siden av traseen også er
-       med i møtet. */
+       med i møtet. For en påkobling likeså: midt i traseen, ikke i rørets eget
+       punkt – ellers sto røret ved siden av i samme grøft som et kryss med
+       ledningen det andre er koblet på. */
     const moter = [];
+    const sidenAv = tider => Math.max(0, ...tider.flatMap(tid => rorPaa.get(tid) || []).map(x => Math.abs(x.side || 0)));
     for (const g of plan.greiner) {
       const t = traseer.get(g.trase);
       if (!t) continue;
-      const side = Math.max(0, ...(rorPaa.get(g.trase) || []).concat(rorPaa.get(g.til.trase) || [])
-        .map(x => Math.abs(x.side || 0)));
-      moter.push(Object.assign(tilXY(posisjon(t, g.ende === 'start' ? 0 : t.punkter.length - 1)), { r: 0.5 + side }));
+      moter.push(Object.assign(tilXY(posisjon(t, g.ende === 'start' ? 0 : t.punkter.length - 1)),
+        { r: 0.5 + sidenAv([g.trase, g.til.trase]) }));
     }
-    for (const c of kontroll) if (c.kilde) moter.push({ x: c.x, y: c.y, r: 0.5 });
+    for (const c of kontroll) {
+      if (!c.kilde) continue;
+      const r = plan.ror.find(x => x.id === c.ror), t = r && traseer.get(r.trase);
+      const i = t ? t.punkter.findIndex(p => p.id === c.punkt) : -1;
+      if (i < 0) { moter.push({ x: c.x, y: c.y, r: 0.5 }); continue; }
+      moter.push(Object.assign(tilXY(posisjon(t, i)), { r: 0.5 + sidenAv([t.id]) }));
+    }
     return { linjer, enslige: [], objekter: [], bruddUtenTreff: 0, koblingUtenTreff: 0,
       kummer, kontroll, utenHoyde, merknader, moter };
   }

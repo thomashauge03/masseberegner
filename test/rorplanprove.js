@@ -245,6 +245,18 @@ console.log('\n4. Kontrollene');
   paastand('men for lite fall er fortsatt for lite', spenn(2, 7.0, 6.985).some(v => v.type === 'fall'));
 }
 {
+  /* Påkoblingen: SP (+0,4 m) er koblet på en innmålt hovedledning som går
+     tvers over enden av traseen, og OV (−0,4 m) ligger ved siden av i samme
+     grøft. Møtet gjelder hele traseen, som for en grein – med 0,5 m rundt
+     rørets eget punkt sto det «OV treffer SP (Innmålt)» der ingen krysser. */
+  const p = plan1([[0, 0], [50, 0]], [{ kode: 'SP 160PE', side: 0.4 }, { kode: 'OV 160PVC', side: -0.4 }],
+    { laast: [{ ror: 'r1', punkt: 'p2', bunn: RorPlan.bunnFraTopp(8.0, SP), kilde: { anlegg: 'a', punkt: 'm', topp: 8.0 } }] });
+  const kr = RorPlan.kontroller({ bygg: bygg(p, flatt), koder: {}, mal: RorPlan.nyPlanmal(), terrengZ: flatt,
+    andre: [{ id: 'x', kode: 'SP 160PE', D: 0.16, xy: [{ x: 50, y: -20 }, { x: 50, y: 20 }], topp: [8.0, 8.0], navn: 'Innmålt' }] })
+    .filter(v => v.type === 'kryss');
+  paastand('påkoblingen gjelder hele traseen – røret ved siden av krysser ikke', kr.length === 0, JSON.stringify(kr.map(v => v.tekst)));
+}
+{
   // kryssing: et planlagt rør (topp 8,0, bunn 7,84) over et innmålt med kjent høyde
   const b = bygg(plan1([[0, 0], [100, 0]], [{ kode: 'SP 160PE' }]), flatt);
   const kr = toppB => RorPlan.kontroller({ bygg: b, koder: {}, mal: RorPlan.nyPlanmal(), terrengZ: flatt,
