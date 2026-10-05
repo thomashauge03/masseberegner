@@ -418,6 +418,21 @@ console.log('\n15. Spenn som kan leses');
   paastand('ukjent er en strek', Ror.spenn(NaN, NaN, f) === '–', Ror.spenn(NaN, NaN, f));
 }
 
+/* ------------------------------------------------------------------ */
+console.log('\n16. Hvert objekt på det røret det sitter på');
+{
+  const A = { id: 'A', punkter: [{ z: 1 }, { z: 1 }], xy: [{ x: 0, y: 0 }, { x: 100, y: 0 }] };
+  const B = { id: 'B', punkter: [{ z: 1 }, { z: 1 }], xy: [{ x: 0, y: 1 }, { x: 100, y: 1 }] };
+  const plass = Ror.objekterPaaLinjer([A, B], [
+    { kode: '90PE MUFFE', o: 50, n: 0.1, z: 1 }, { kode: '180 PE MUFFE', o: 70, n: 0.9, z: 1 },
+    { kode: 'LANGT', o: 50, n: 30, z: 1 }
+  ], q => ({ x: q.o, y: q.n }), 3);
+  paastand('muffen på A står bare på A', plass.get('A').length === 1 && plass.get('A')[0].kode === '90PE MUFFE',
+    JSON.stringify([...plass].map(([k, v]) => [k, v.map(o => o.kode)])));
+  paastand('muffen på B står bare på B', plass.get('B').length === 1 && plass.get('B')[0].kode === '180 PE MUFFE');
+  paastand('det som er langt unna, står på ingen', ![...plass.values()].flat().some(o => o.kode === 'LANGT'));
+}
+
 /* ---------------- sluttsum ---------------- */
 console.log(`\n${ok} tester ok, ${feil} feil`);
 process.exit(feil ? 1 : 0);

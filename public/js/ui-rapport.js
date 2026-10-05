@@ -588,6 +588,7 @@ ${this.sprengningsrader(res)}
        iterable» - uten try/catch noe sted, så knappen så ut som om den ikke
        gjorde noe i det hele tatt. */
     if (app.erTomt()) return this.apneTomterapport(app, res, valg);
+    if (app.erRor()) return this.apneRorrapport(app, res, valg);
     const t = (v, d = 0) => this.tall(v, d);
     const s = res.sum, b = res.balanse, m = res.mal, f = res.faktorer;
     const dato = new Date().toLocaleDateString('nb-NO', { day: '2-digit', month: 'long', year: 'numeric' });
@@ -740,6 +741,11 @@ ${merknader ? `<h2>Merknader</h2><table><thead><tr><th>Profil</th><th>Type</th><
       midt.push('Volumene for tomtene er regnet celle for celle på den samme høydemodellen. '
         + 'Skjæringen måles fra den avdekkede flaten, altså etter at matjorda er tatt av.');
     }
+    if (har('ror')) {
+      midt.push('Rørene er tegnet fra innmålte punkt i fila fra maskinstyringen. Høydene er topp rør; '
+        + 'overdekningen er målt mot Kartverkets terrengmodell (DTM1), som viser terrenget slik det var '
+        + 'da området ble skannet.');
+    }
     return `<div class="bunn liten">
 <b>Hauge Maskin</b> · Beregnet i Massekalk.
 ${midt.join('\n')}
@@ -796,6 +802,9 @@ ${this.rapportbunn(valg.typer)}
   rapportstil() {
     return `
   body{font-family:"Segoe UI",Arial,sans-serif;color:#0b0b0c;margin:22px;font-size:12px;line-height:1.45}
+  img.rorplan{width:100%;max-width:1000px;border:1px solid #e4e4e7;margin:4px 0 10px}
+  figure{margin:8px 0 14px} figure img.rorprofilbilde{width:100%;max-width:1000px;border:1px solid #e4e4e7}
+  figcaption{font-size:11px;color:#52525b}
   .brevhode{display:flex;align-items:center;gap:14px;background:#0b0b0c;color:#fff;
     padding:12px 16px;border-bottom:4px solid #d81e28;margin:-22px -22px 18px}
   .brevhode img{height:36px}
@@ -981,6 +990,87 @@ ${merknader ? `<h2>Merknader</h2><table><thead><tr><th>Type</th><th>Merknad</th>
     this.visRapport(html, app);
   },
 
+  /**
+   * Bildene til rørdelen – oversiktsplanen og en lengdeprofil per rør over
+   * 20 m – tegnet i den lyse paletten for papir, som vegens tegninger.
+   * Stikkledningene under 20 m står bare i tabellen: tjue profiler av en
+   * stubb på åtte meter er ti sider ingen leser.
+   */
+  lagRortegninger(res) {
+    const app = this.app;
+    const ut = { plan: null, profiler: [] };
+    const bilde = (bredde, hoyde, tegn) => {
+      const l = document.createElement('canvas');
+      l.width = bredde; l.height = hoyde;
+      Object.defineProperty(l, 'clientWidth', { value: bredde });
+      Object.defineProperty(l, 'clientHeight', { value: hoyde });
+      tegn(l);
+      return l.toDataURL('image/png');
+    };
+    document.documentElement.setAttribute('data-utskrift', '1');
+    Farger.glem();
+    try {
+      ut.plan = bilde(1560, 900, l => Rorprofil.tegnPlan(l, res, app));
+      const bf = res.bakkefaktor || 1;
+      res.linjer.forEach((l, i) => {
+        if (l.lengde * bf < 20) return;
+        const d = Rorprofil.dataFor(app, res, l);
+        ut.profiler.push({ nr: i + 1, id: l.id, navn: `${i + 1} · ${l.kode} · ${this.tall(l.lengde * bf, 1)} m`,
+          bilde: bilde(1600, 420, lerret => Rorprofil.tegnPaa(lerret, d, { dpr: 1 })) });
+      });
+    } finally {
+      document.documentElement.removeAttribute('data-utskrift');
+      Farger.glem();
+    }
+    return ut;
+  },
+
+  /** Rapporten for et røranlegg: kilde, plan, tabell, merknader, profiler. */
+  apneRorrapport(app, res, valg) {
+    const t = (v, d = 0) => this.tall(v, d);
+    const od = v => (Number.isFinite(v) ? t(v, 2) + ' m' : '–');
+    const r = app.P.ror;
+    const s = Ror.sammendrag(res);
+    const bf = res.bakkefaktor || 1;
+    const dato = new Date().toLocaleDateString('nb-NO', { day: '2-digit', month: 'long', year: 'numeric' });
+    const teg = this.lagRortegninger(res);
+    const kilder = r.kilder.map(k => `${escapeHtml(k.fil)}${k.program ? ' · ' + escapeHtml(k.program) : ''}`
+      + `${k.dato ? ' · ' + escapeHtml(k.dato) : ''} · ${k.antall} punkt`).join('<br>');
+    const rader = res.linjer.map((l, i) => {
+      const k = r.koder[l.kode] || Ror.tolkKode(l.kode);
+      const pr = res.profiler.get(l.id);
+      const merk = [pr.overTerreng > 0.5 ? `over terrenget ${t(pr.overTerreng, 1)} m` : '',
+        pr.utenTerreng > 0.5 ? `uten terreng ${t(pr.utenTerreng, 1)} m` : ''].filter(Boolean).join(', ');
+      return `<tr><td>${i + 1}</td><td>${escapeHtml(l.kode)}</td><td>${k.dim ? '⌀' + k.dim : '–'}</td>`
+        + `<td>${t(l.lengde * bf, 1)} m</td><td>${l.punkter.length}</td><td>${od(pr.minOverdekning)}</td>`
+        + `<td>${od(pr.maksOverdekning)}</td><td class="liten">${merk}</td></tr>`;
+    }).join('');
+    const merknader = res.merknader.map(m => `<li>${escapeHtml(m.tekst)}</li>`).join('');
+    const profiler = teg.profiler.map(p => `<figure><img class="rorprofilbilde" src="${p.bilde}" `
+      + `alt="Lengdeprofil for rør ${escapeHtml(p.navn)}"><figcaption>${escapeHtml(p.navn)}</figcaption></figure>`).join('');
+    const html = this.rapportskall(app, {
+      tittel: 'Innmålte rør',
+      typer: 'ror',
+      under: escapeHtml(app.P.navn) + ' · ' + escapeHtml(app.anlegg().navn || 'Rør'),
+      hoyre: `${dato}<br>${s.antall} rør · ${t(s.lengde)} m<br>EUREF89 UTM${app.sone} · NN2000`,
+      seksjon: valg && valg.seksjon
+    }, `
+<h2>Kilde</h2>
+<p class="liten">${kilder}<br>Koordinatene i fila er EUREF89 UTM${r.sone}.</p>
+<h2>Oversikt</h2>
+<img class="rorplan" src="${teg.plan}" alt="Rørene sett ovenfra">
+<h2>Rørene</h2>
+<table><thead><tr><th>#</th><th>Kode</th><th>Dim.</th><th>Lengde</th><th>Punkt</th>
+<th>Minste overdekning</th><th>Største</th><th>Merknad</th></tr></thead><tbody>${rader}
+<tr class="sum"><td></td><td>Sum</td><td></td><td>${t(s.lengde, 1)} m</td><td></td><td>${od(s.minOd)}</td><td>${od(s.maksOd)}</td><td></td></tr>
+</tbody></table>
+${merknader ? `<h2>Merknader</h2><ul>${merknader}</ul>` : ''}
+<h2>Lengdeprofiler</h2>
+${profiler || '<p class="liten">Ingen rør over 20 m.</p>'}`);
+    if (valg && valg.seksjon) return html;
+    this.visRapport(html, app);
+  },
+
   /* ---------------- Eksport ---------------- */
 
   /**
@@ -999,6 +1089,11 @@ ${merknader ? `<h2>Merknader</h2><table><thead><tr><th>Type</th><th>Merknad</th>
     const app = this.app, res = app.resultat;
     if (!res) return { ok: false, grunn: 'Ingen beregning ennå – regn ut anlegget først.' };
     if (!app.sone) return { ok: false, grunn: 'Koordinatsonen er ikke satt – tegn anlegget i kartet først.' };
+    if (app.erRor()) {
+      return res.type === 'ror' && res.linjer.length
+        ? { ok: true, form: 'ror' }
+        : { ok: false, grunn: 'Rørene er ikke regnet ennå.' };
+    }
     if (app.erTomt()) {
       /* Stubben som skrives når skråningene ikke får plass innenfor grensa har
          verken rutenett eller celler. Den ville gitt en fil med null på hver
@@ -1508,7 +1603,7 @@ ${merknader ? `<h2>Merknader</h2><table><thead><tr><th>Type</th><th>Merknad</th>
    * utgangen av alle: filen ser komplett ut, og at tomta mangler oppdages på
    * plassen.
    */
-  async gjennomAlleAnlegg(hent) {
+  async gjennomAlleAnlegg(hent, valg = {}) {
     const app = this.app;
     const P = app.P;
     const foer = P.aktivt;
@@ -1520,6 +1615,14 @@ ${merknader ? `<h2>Merknader</h2><table><thead><tr><th>Type</th><th>Merknad</th>
     try {
       for (let i = 0; i < anlegg.length; i++) {
         const a = anlegg[i];
+        /* RØR KAN IKKE EKSPORTERES ENNÅ – men de skal sies fra om MED EN GANG.
+           Uten dette ble røranlegget byttet til, og samleeksporten ventet 45 s
+           på et masseresultat som aldri kommer. Rapporten og PDF-en tar dem
+           med (`valg.medRor`). */
+        if (a.type === 'ror' && !valg.medRor) {
+          hoppet.push({ anlegg: a, grunn: 'rør kan ikke eksporteres ennå – de er med i rapporten og PDF-en' });
+          continue;
+        }
         this.eksportsvar(`Henter ${i + 1} av ${anlegg.length}: ${a.navn || a.type} …`);
         try {
           if (P.aktivt !== a.id) app.byttAnlegg(a.id);
@@ -1581,9 +1684,11 @@ ${merknader ? `<h2>Merknader</h2><table><thead><tr><th>Type</th><th>Merknad</th>
           seksjon: this.anleggskode(i) + ' · ' + escapeHtml(anl.navn || anl.type)
         });
         if (!html) return null;
+        const ror = anl.type === 'ror' ? Ror.sammendrag(res) : null;
         return { html, navn: anl.navn || anl.type, type: anl.type, sum: res.sum,
-          balanse: res.balanse || {}, kode: this.anleggskode(i) };
-      });
+          balanse: res.balanse || {}, kode: this.anleggskode(i),
+          rorTekst: ror ? `${ror.antall} rør, ${t(ror.lengde)} m – ingen masser i denne utgaven` : '' };
+      }, { medRor: true });
       if (!tatt.length) {
         this.eksportsvar('Ingen av anleggene kunne rapporteres – '
           + hoppet.map(h => (h.anlegg.navn || h.anlegg.type) + ': ' + h.grunn).join('; '), true);
@@ -1593,9 +1698,11 @@ ${merknader ? `<h2>Merknader</h2><table><thead><tr><th>Type</th><th>Merknad</th>
       const sum = app.prosjektsum(tatt.map(x => x.anlegg.id)) || {};
       const dato = new Date().toLocaleDateString('nb-NO',
         { day: '2-digit', month: 'long', year: 'numeric' });
-      const rad = b => `<tr><td>${b.kode} · ${escapeHtml(b.navn)}</td><td>${b.type}</td>`
-        + `<td>${t(b.sum.skjaering)}</td><td>${t(b.sum.skjaeringFjell)}</td>`
-        + `<td>${t(b.sum.fylling)}</td></tr>`;
+      const rad = b => b.type === 'ror'
+        ? `<tr><td>${b.kode} · ${escapeHtml(b.navn)}</td><td>rør</td><td colspan="3">${escapeHtml(b.rorTekst)}</td></tr>`
+        : `<tr><td>${b.kode} · ${escapeHtml(b.navn)}</td><td>${b.type}</td>`
+          + `<td>${t(b.sum.skjaering)}</td><td>${t(b.sum.skjaeringFjell)}</td>`
+          + `<td>${t(b.sum.fylling)}</td></tr>`;
       /* Anlegg som ikke kom med står i tabellen med grunnen sin. Å utelate dem
          ville gjort rapporten til en påstand om at prosjektet består av de
          anleggene som tilfeldigvis lot seg regne. */
@@ -1608,7 +1715,7 @@ ${merknader ? `<h2>Merknader</h2><table><thead><tr><th>Type</th><th>Merknad</th>
 <th>Sprengning m³</th><th>Fylling m³</th></tr></thead><tbody>
 ${tatt.map(x => rad(x.bit)).join('')}
 ${utelatt}
-<tr class="sum"><td>Sum</td><td>${tatt.length} anlegg</td><td>${t(sum.skjaering)}</td>
+<tr class="sum"><td>Sum</td><td>${tatt.filter(x => x.anlegg.type !== 'ror').length} anlegg</td><td>${t(sum.skjaering)}</td>
 <td>${t(sum.skjaeringFjell)}</td><td>${t(sum.fylling)}</td></tr>
 </tbody></table>
 <div class="liten">${sum.manglerTotalt > 1

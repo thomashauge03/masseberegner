@@ -8382,6 +8382,8 @@ const Nettlesertest = {
       const dA = Rorprofil.dataFor(App, App.resultat, A);
       this.sjekk('muffen står på profilen til røret den sitter på',
         dA.objekter.length === 1 && dA.objekter[0].kode === '90PE MUFFE', JSON.stringify(dA.objekter.map(o => o.kode)));
+      const B = App.resultat.linjer.find(x => x.kode === '180 PE');
+      this.sjekk('og ikke på 180 PE en meter unna', Rorprofil.dataFor(App, App.resultat, B).objekter.length === 0);
       this.sjekk('velgeren følger valget', /90PE/.test(document.getElementById('ror_velg').selectedOptions[0].textContent));
     } finally {
       App.P = JSON.parse(foer);
@@ -8415,6 +8417,45 @@ const Nettlesertest = {
       this.sjekk('tilbake til profilen', !Ror3d.aktiv && !document.getElementById('rorprofil').classList.contains('skjult'));
     } finally {
       if (typeof Ror3d !== 'undefined' && Ror3d.aktiv) Ror3d.aktiver(false);
+      App.P = JSON.parse(foer);
+      App.visAnleggsvelger(); App.visAnleggsvalg(); App.malTilSkjema(); App.tegnAlt(); await App.oppdater();
+    }
+  },
+
+  /** Rapporten: rørdelen alene, og rørene i prosjektrapporten ved siden av en veg. */
+  async rorRapport() {
+    const foer = JSON.stringify(App.P);
+    const gammel = Rapport.visRapport;
+    let html = null;
+    Rapport.visRapport = h => { html = h; };
+    try {
+      App.P = App.nyttProsjekt();
+      await RorUI.importerTekst(this._rorXml(), 'asbuilts_Prove.xml', {}, { sone: 32, maal: 'nytt' });
+      await this.ventPaBeregning(30000);
+      Rapport.apneRapport();
+      this.sjekk('rapporten ble laget', !!html);
+      this.sjekk('med tabell over rørene', !!html && /<h2>Rørene<\/h2>/.test(html));
+      this.sjekk('med koden som tekst', !!html && /90PE/.test(html) && /180 PE/.test(html));
+      this.sjekk('med oversiktsplanen', !!html && /class="rorplan" src="data:image\/png/.test(html));
+      const profiler = html ? (html.match(/class="rorprofilbilde"/g) || []).length : 0;
+      this.sjekk('og en lengdeprofil per rør over 20 m', profiler === 3, String(profiler));
+      this.sjekk('bunnteksten sier hva høydene er', !!html && /topp rør/.test(html));
+
+      html = null;
+      const demo = await (await fetch('demo/ydestad-demo.json')).json();
+      App.P = demo;
+      App.visAnleggsvelger(); App.malTilSkjema();
+      await App.oppdater();
+      await RorUI.importerTekst(this._rorXml(), 'asbuilts_Prove.xml', {}, { sone: 32, maal: 'nytt' });
+      await this.ventPaBeregning(30000);
+      const t0 = Date.now();
+      await Rapport.apneProsjektrapport();
+      this.sjekk('prosjektrapporten ble laget', !!html && /Masseberegning – prosjekt/.test(html));
+      this.sjekk('rørene står i oversikten som rør', !!html && /<td>rør<\/td>/.test(html));
+      this.sjekk('og som egen del', !!html && /Lengdeprofiler/.test(html));
+      this.sjekk('uten å vente på masser som aldri kommer', Date.now() - t0 < 30000, (Date.now() - t0) + ' ms');
+    } finally {
+      Rapport.visRapport = gammel;
       App.P = JSON.parse(foer);
       App.visAnleggsvelger(); App.visAnleggsvalg(); App.malTilSkjema(); App.tegnAlt(); await App.oppdater();
     }

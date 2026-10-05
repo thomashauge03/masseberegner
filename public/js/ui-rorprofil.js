@@ -35,9 +35,15 @@ const Rorprofil = {
     if (!res || res.type !== 'ror' || !linje) return null;
     const r = app.P.ror;
     const kode = r.koder[linje.kode] || Ror.tolkKode(linje.kode);
+    /* Hvert objekt hører til ETT rør – det nærmeste. Fordelingen gjøres én
+       gang per resultat; den er den samme for alle profilene. */
+    if (!res._objektplass) {
+      Object.defineProperty(res, '_objektplass', { configurable: true, enumerable: false,
+        value: Ror.objekterPaaLinjer(res.linjer, res.bygg.objekter, Ror.lagTilXY(r.sone, res.sone), 3) });
+    }
     return {
       linje, kode, profil: res.profiler.get(linje.id),
-      objekter: Ror.objekterLangs(linje, res.bygg.objekter, Ror.lagTilXY(r.sone, res.sone), 3),
+      objekter: res._objektplass.get(linje.id) || [],
       bakkefaktor: res.bakkefaktor || 1
     };
   },
@@ -169,6 +175,69 @@ const Rorprofil = {
       + ` · topp rør ${Rapport.tall(q.topp, 2)} · overdekning `
       + (Number.isFinite(q.overdekning) ? Rapport.tall(q.overdekning, 2) + ' m' : 'ukjent')
       + (f && Number.isFinite(f.fall) ? ` · fall ${Rapport.tall(f.fall * 100, 1)} %` : '');
+  },
+
+  /**
+   * Oversiktsplanen til rapporten: rørene sett ovenfra, med nummer, målestokk
+   * og nordpil.
+   *
+   * UTEN BAKGRUNNSKART. Kartflisene kommer fra en annen tjener, og tegnes de
+   * inn i et lerret, kan lerretet ikke leses ut som bilde lenger – rapporten
+   * ville stått uten plan. Strekene alene er det papiret trenger.
+   */
+  tegnPlan(lerret, res, app) {
+    const B = lerret.clientWidth, H = lerret.clientHeight;
+    lerret.width = B; lerret.height = H;
+    const k = lerret.getContext('2d');
+    k.fillStyle = Farger.flate; k.fillRect(0, 0, B, H);
+    const r = app.P.ror;
+    const tilXY = Ror.lagTilXY(r.sone, res.sone);
+    let minX = Infinity, maksX = -Infinity, minY = Infinity, maksY = -Infinity;
+    const ta = q => {
+      minX = Math.min(minX, q.x); maksX = Math.max(maksX, q.x);
+      minY = Math.min(minY, q.y); maksY = Math.max(maksY, q.y);
+    };
+    for (const l of res.linjer) l.xy.forEach(ta);
+    for (const p of res.bygg.objekter) ta(tilXY(p));
+    if (!Number.isFinite(minX)) return;
+    const marg = 48;
+    const skala = Math.min((B - 2 * marg) / Math.max(1, maksX - minX), (H - 2 * marg) / Math.max(1, maksY - minY));
+    const ox = marg + ((B - 2 * marg) - (maksX - minX) * skala) / 2;
+    const oy = marg + ((H - 2 * marg) - (maksY - minY) * skala) / 2;
+    const X = x => ox + (x - minX) * skala;
+    const Y = y => H - oy - (y - minY) * skala;
+    const skrift = Farger.hent('skrift');
+    for (const l of res.linjer) {
+      const kd = r.koder[l.kode] || Ror.tolkKode(l.kode);
+      k.strokeStyle = Farger.ror(kd.farge);
+      k.lineWidth = Math.max(2, Math.min(5, 1.5 + (kd.dim || 50) / 60));
+      k.beginPath();
+      l.xy.forEach((q, i) => (i ? k.lineTo(X(q.x), Y(q.y)) : k.moveTo(X(q.x), Y(q.y))));
+      k.stroke();
+    }
+    k.fillStyle = Farger.blekk;
+    for (const p of res.bygg.objekter) { const q = tilXY(p); k.fillRect(X(q.x) - 3, Y(q.y) - 3, 6, 6); }
+    // nummeret er raden i tabellen – bare ved rørene over 20 m, ellers blir det et kratt av tall
+    const bf = res.bakkefaktor || 1;
+    k.font = 'bold 15px ' + skrift; k.textAlign = 'center'; k.textBaseline = 'middle';
+    res.linjer.forEach((l, i) => {
+      if (l.lengde * bf < 20) return;
+      /* SPREDT LANGS RØRET, IKKE MIDT PÅ. Rørene i samme grøft har samme midte,
+         og der la nummeret til det ene seg over det andre. Det gylne snitt
+         sprer dem jevnt uansett hvor mange som deler grøft. */
+      const m = l.xy[Math.floor((l.xy.length - 1) * (0.2 + 0.6 * ((i * 0.618034) % 1)))];
+      k.fillStyle = Farger.flate; k.fillRect(X(m.x) + 4, Y(m.y) - 21, 22, 18);
+      k.fillStyle = Farger.blekk; k.fillText(String(i + 1), X(m.x) + 15, Y(m.y) - 12);
+    });
+    // målestokk og nordpil
+    const meter = velgSteg((B - 2 * marg) / skala / 4, 1);
+    k.strokeStyle = Farger.blekk; k.lineWidth = 3;
+    k.beginPath(); k.moveTo(marg, H - 20); k.lineTo(marg + meter * skala, H - 20); k.stroke();
+    k.font = '14px ' + skrift; k.textAlign = 'left'; k.textBaseline = 'bottom';
+    k.fillText(Rapport.tall(meter, 0) + ' m', marg, H - 26);
+    k.textAlign = 'center';
+    k.beginPath(); k.moveTo(B - 30, 22); k.lineTo(B - 38, 44); k.lineTo(B - 22, 44); k.closePath(); k.fill();
+    k.fillText('N', B - 30, 62);
   }
 };
 

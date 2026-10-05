@@ -576,6 +576,29 @@ function objekterLangs(linje, objekter, tilXY, maks) {
   return ut.sort((a, b) => a.s - b.s);
 }
 
+/**
+ * Hvert punktobjekt på det røret det sitter på – det NÆRMESTE innen `maks`.
+ *
+ * To rør i samme grøft ligger en meter fra hverandre, og en muffe på det ene
+ * ligger da også innen tre meter fra det andre. Med bare `objekterLangs` sto
+ * muffen på 90PE også på profilen til 180 PE ved siden av.
+ *
+ * @returns {Map<linjeId, Array>} objektene per rør, sortert langs røret
+ */
+function objekterPaaLinjer(linjer, objekter, tilXY, maks) {
+  const ut = new Map((linjer || []).map(l => [l.id, []]));
+  for (const p of objekter || []) {
+    let best = null;
+    for (const l of linjer || []) {
+      const [o] = objekterLangs(l, [p], tilXY, maks);
+      if (o && (!best || o.avstand < best.o.avstand)) best = { l, o };
+    }
+    if (best) ut.get(best.l.id).push(best.o);
+  }
+  for (const liste of ut.values()) liste.sort((a, b) => a.s - b.s);
+  return ut;
+}
+
 /** Tallene for hele anlegget: antall rør, lengde på bakken, overdekning. */
 function sammendrag(res) {
   const bf = (res && res.bakkefaktor) || 1;
@@ -636,7 +659,7 @@ function merknader(bygg, profiler, maksAvstand) {
 const Ror = {
   lesLandXML, dekod, tolkKode, koderFra, byggLinjer, avstandTilStrekk,
   lagTilXY, tilLatLon, sjekkKoordinater, gjettSone, slaSammen, navnFraFil,
-  korridor, profil, objekterLangs, sammendrag, merknader, spenn,
+  korridor, profil, objekterLangs, objekterPaaLinjer, sammendrag, merknader, spenn,
   nyRor, StandardRormal, FARGER
 };
 
