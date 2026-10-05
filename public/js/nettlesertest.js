@@ -8591,6 +8591,27 @@ const Nettlesertest = {
       this.sjekk('og en lengdeprofil per rør over 20 m', profiler === 3, String(profiler));
       this.sjekk('bunnteksten sier hva høydene er', !!html && /topp rør/.test(html));
 
+      /* EKSPORTKNAPPENE KJENNER BARE VEG OG TOMT. `kanEksportere` svarer ja for
+         et regnet røranlegg – rapporten trenger det – og alt som ikke var en
+         tomt, ble skrevet som en veg. */
+      {
+        const gammelNed = Rapport.lastNed;
+        const filer = [];
+        let kastet = null;
+        Rapport.lastNed = navn => { filer.push(navn); };
+        try {
+          for (const kall of [() => Rapport.eksporter('kof'), () => Rapport.eksporter('landxml'),
+            () => Rapport.eksporter('sosi'), () => Rapport.eksporter('dxf'), () => Rapport.eksportStikning(),
+            () => Rapport.eksportMasser(), () => Rapport.eksportGeojson(), () => Rapport.eksportRutenett()]) {
+            try { kall(); } catch (e) { kastet = e.message; }
+          }
+        } finally { Rapport.lastNed = gammelNed; }
+        this.sjekk('eksportknappene skriver ingen fil for rør', filer.length === 0 && !kastet,
+          kastet || filer.join(', '));
+        const linje = document.getElementById('statuslinje').textContent;
+        this.sjekk('og sier hvorfor', /[Rr]ør/.test(linje), linje);
+      }
+
       html = null;
       const demo = await (await fetch('demo/ydestad-demo.json')).json();
       App.P = demo;
@@ -8604,6 +8625,18 @@ const Nettlesertest = {
       this.sjekk('rørene står i oversikten som rør', !!html && /<td>rør<\/td>/.test(html));
       this.sjekk('og som egen del', !!html && /Lengdeprofiler/.test(html));
       this.sjekk('uten å vente på masser som aldri kommer', Date.now() - t0 < 30000, (Date.now() - t0) + ' ms');
+      /* Samleeksporten tar vegen, hopper over røret og sier det. */
+      {
+        const gammelNed = Rapport.lastNed;
+        const filer = [];
+        Rapport.lastNed = navn => { filer.push(navn); };
+        const t1 = Date.now();
+        try { await Rapport.eksporterAlle('kof'); } finally { Rapport.lastNed = gammelNed; }
+        const svar = document.getElementById('statuslinje').textContent;
+        this.sjekk('samleeksporten skriver én fil', filer.length === 1, filer.join(', '));
+        this.sjekk('og sier at røret ikke er med', /Ikke med:.*rør kan ikke eksporteres/.test(svar), svar);
+        this.sjekk('uten å vente på røret', Date.now() - t1 < 30000, (Date.now() - t1) + ' ms');
+      }
     } finally {
       Rapport.visRapport = gammel;
       await this._rorTilbake(foer);

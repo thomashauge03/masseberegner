@@ -1083,16 +1083,17 @@ ${profiler || '<p class="liten">Ingen rør over 20 m.</p>'}`);
    * med veglinja fra et tomt veganlegg. En fil som ser ferdig ut er verre enn
    * ingen fil.
    *
-   * @returns {{ok:true, form:'veg'|'tomt'}|{ok:false, grunn:string}}
+   * @returns {{ok:true, form:'veg'|'tomt'|'ror'}|{ok:false, grunn:string}}
    */
   kanEksportere() {
     const app = this.app, res = app.resultat;
     if (!res) return { ok: false, grunn: 'Ingen beregning ennå – regn ut anlegget først.' };
     if (!app.sone) return { ok: false, grunn: 'Koordinatsonen er ikke satt – tegn anlegget i kartet først.' };
     if (app.erRor()) {
-      return res.type === 'ror' && res.linjer.length
+      if (res.type !== 'ror') return { ok: false, grunn: 'Rørene er ikke regnet ennå.' };
+      return res.linjer.length
         ? { ok: true, form: 'ror' }
-        : { ok: false, grunn: 'Rørene er ikke regnet ennå.' };
+        : { ok: false, grunn: 'Ingen rør å ta med – sjekk kodene og største avstand i Rør-fanen.' };
     }
     if (app.erTomt()) {
       /* Stubben som skrives når skråningene ikke får plass innenfor grensa har
@@ -1139,6 +1140,12 @@ ${profiler || '<p class="liten">Ingen rør over 20 m.</p>'}`);
   kjorEksport(navn, lag) {
     const kan = this.kanEksportere();
     if (!kan.ok) { this.eksportsvar(kan.grunn, true); return false; }
+    /* Filformatene kjenner bare veg og tomt, og alt som ikke var en tomt,
+       ble skrevet som veg: en SOSI-fil kom ut av rørresultatet. */
+    if (kan.form === 'ror') {
+      this.eksportsvar('Rørene kan ikke eksporteres til filformatene ennå – bruk rapporten eller PDF-en.', true);
+      return false;
+    }
     try {
       lag(kan.form);
       return true;
