@@ -170,7 +170,8 @@ const Nettlesertest = {
       'tomt3d', 'veg3d', 'kartlag',
       'rorArbeidsbilde', 'rorBeregning', 'rorImport', 'rorSone', 'rorKart', 'rorFane', 'rorRetting',
       'rorProfil', 'ror3d', 'rorRapport', 'rorPdf', 'rorForklaring',
-      'groftBeregning', 'groftFane', 'groftKoder', 'groftVerktoy', 'groftProfil', 'groft3d', 'groftRapport',
+      'groftBeregning', 'groftFane', 'groftKoder', 'groftVerktoy', 'groftKnutepunkt', 'groftProfil', 'groft3d',
+      'groftRapport',
       'lovlighet', 'framdrift', 'gamleFilerOgUtskifting', 'opprydding'];
     for (const navn of proever) {
       try {
@@ -8936,6 +8937,60 @@ const Nettlesertest = {
         const g = App.resultat.groft;
         this.sjekk('og røret er ikke med i grøfta', !g.perKode.has('90PE') && g.utenDimensjon.some(u => u.kode === '90PE'));
         this.sjekk('merknaden sier hvor mye', g.merknader.some(m => m.type === 'dimensjon' && /90PE/.test(m.tekst)));
+      });
+    } finally {
+      await this._rorTilbake(foer);
+    }
+  },
+
+  /**
+   * Et knutepunkt i kartet. Det står i alle tre rørene som møtes der, og
+   * «Grøft på strekning» fra det til enden av en gren ble avvist som «ikke
+   * samme rør» når knutepunktet ble lest som et punkt på et annet av dem.
+   */
+  async groftKnutepunkt() {
+    const foer = JSON.stringify(App.P);
+    try {
+      await this._medFlattTerreng(21.5, async () => {
+        App.P = App.nyttProsjekt();
+        const o = Geo.tilUtm(58.1412, 7.0705, 32);
+        const rader = [];
+        let nr = 0;
+        const p = (x, y) => {
+          nr++;
+          rader.push(`<CgPoint name="knute-${nr}" surveyOrder="${nr}" code="90PE" timeStamp="2026-09-01T10:00:00.000Z">`
+            + `${(o.y + y).toFixed(3)} ${(o.x + x).toFixed(3)} 20.000</CgPoint>`);
+        };
+        for (let x = 0; x <= 100; x += 10) p(x, 0);
+        for (let y = 10; y <= 40; y += 10) p(50, y);
+        const xml = '<?xml version="1.0" encoding="utf-8"?>\n<LandXML xmlns="http://www.landxml.org/schema/LandXML-1.2" '
+          + 'version="1.2" date="2026-09-01"><Units><Metric linearUnit="meter"/></Units><Application name="Xsite Manage"/>'
+          + `<CgPoints name="Default">\n${rader.join('\n')}\n</CgPoints></LandXML>`;
+        await RorUI.importerTekst(xml, 'asbuilts_Knute.xml', {}, { sone: 32, maal: 'nytt' });
+        clearTimeout(App._tidsavbrudd);
+        await App.beregnRor();
+        this.sjekk('tre rør møtes i knutepunktet', App.resultat.linjer.length === 3, String(App.resultat.linjer.length));
+        const ll = (x, y) => { const g = Geo.fraUtm(o.x + x, o.y + y, 32); return L.latLng(g.lat, g.lon); };
+        Kart.kart.setView(ll(50, 20), 19);
+        Kart.settModus('groftStrekning');
+        const boks = document.getElementById('dialog');
+        // alle tre grenene – den gamle feilen godtok bare den som tilfeldigvis kom først
+        let godtatt = 0;
+        for (const [x, y] of [[0, 0], [100, 0], [50, 40]]) {
+          boks.classList.add('skjult');
+          GroftUI.kartklikk('groftStrekning', ll(50, 0));
+          GroftUI.kartklikk('groftStrekning', ll(x, y));
+          if (!boks.classList.contains('skjult') && document.getElementById('gsLagre')) godtatt++;
+        }
+        this.sjekk('strekningen fra knutepunktet til enden av hver gren godtas', godtatt === 3, godtatt + ' av 3');
+        document.getElementById('gsHelning').value = '0';
+        document.getElementById('gsLagre').click();
+        clearTimeout(App._tidsavbrudd);
+        await App.beregnRor();
+        this.sjekk('og grøfta finner den', App.P.ror.groft.strekninger.length === 1
+          && !App.resultat.groft.merknader.some(m => m.type === 'justering'),
+          App.resultat.groft.merknader.map(m => m.tekst).join(' | '));
+        Kart.settModus('rediger');
       });
     } finally {
       await this._rorTilbake(foer);

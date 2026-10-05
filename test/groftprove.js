@@ -18,13 +18,17 @@ function linje(id, kode, pts) {
   return { id, kode, punkter: pts.map((p, i) => ({ id: id + '-' + i, z: p[2] })), xy: pts.map(p => ({ x: p[0], y: p[1] })) };
 }
 /* Et rett rør med punkt hver 10. m, på skrå (0,3 rad) så kantene ikke følger
-   rutenettet. `forskyv` flytter det sidelengs. */
-function rett(id, kode, lengde, topp, x0 = 1000, y0 = 1000, vinkel = 0.3, forskyv = 0) {
+   rutenettet. `forskyv` flytter det sidelengs; `fall` senker toppen per meter. */
+function rett(id, kode, lengde, topp, x0 = 1000, y0 = 1000, vinkel = 0.3, forskyv = 0, fall = 0) {
   const ux = Math.cos(vinkel), uy = Math.sin(vinkel), nx = -uy, ny = ux;
   const pts = [];
-  for (let s = 0; s <= lengde + 1e-9; s += 10) pts.push([x0 + ux * s + nx * forskyv, y0 + uy * s + ny * forskyv, topp]);
+  for (let s = 0; s <= lengde + 1e-9; s += 10) pts.push([x0 + ux * s + nx * forskyv, y0 + uy * s + ny * forskyv, topp - fall * s]);
   return linje(id, kode, pts);
 }
+/* Posisjonen langs og ut fra et rør lagt med `rett` (vinkel 0,3, start 1000, 1000). */
+const langs = (x, y) => (x - 1000) * Math.cos(0.3) + (y - 1000) * Math.sin(0.3);
+const tvers = (x, y) => -(x - 1000) * Math.sin(0.3) + (y - 1000) * Math.cos(0.3);
+const punktVed = (s, n) => ({ x: 1000 + Math.cos(0.3) * s - Math.sin(0.3) * n, y: 1000 + Math.sin(0.3) * s + Math.cos(0.3) * n });
 
 let feil = 0, ok = 0;
 const fmt = v => (Math.abs(v) >= 1000 ? v.toFixed(1) : v.toPrecision(6));
@@ -61,6 +65,8 @@ console.log('\n2. Målene og hvor de gjelder');
   sjekk('klem: over grensen', Groft.klem('helning', 9), 3, 0);
   paastand('klem: ikke et tall', Groft.klem('omfylling', 'abc') === null && Groft.klem('fjell', null) === null
     && Groft.klem('fjell', '') === null);
+  paastand('klem: under null er en skrivefeil, ikke fjell i dagen', Groft.klem('fjell', '-0,5') === null
+    && Groft.klem('fundament', -0.1) === null && Groft.klem('fjell', 0) === 0);
 }
 
 console.log('\n3. Rørene som segmenter');
@@ -77,6 +83,8 @@ console.log('\n3. Rørene som segmenter');
     && M2.seg[1].hel === 1 && M2.seg[5].hel === 1);
   paastand('egen grøft får egen gruppe', M2.seg[2].gruppe > 0 && M2.seg[2].gruppe === M2.seg[4].gruppe && M2.seg[1].gruppe === 0);
   sjekk('to grupper i alt', M2.grupper, 2, 0);
+  const M3 = Groft.forbered({ linjer: [rett('a', '90PE', 100, 8.5)], koder: { '90PE': { dim: 90 } }, terrengZ: () => 10, rute: 0.3 });
+  sjekk('en rute som ikke går opp i 5 m, justeres så den gjør det', 5 / M3.rute, Math.round(5 / M3.rute), 1e-9);
 }
 
 console.log('\n4. Én grøft mot fasit');
@@ -120,26 +128,73 @@ const en = L => Groft.beregn({ linjer: [rett('a', '160PE', L, TOPP)], koder: kod
   sjekk('løsmassen over: 1:1 fra fjellkanten', p.gravingLos, (b + 0.8) * 0.8, (b + 0.8) * 0.8 * 0.02);
 }
 {
+  // fjellet fra sonderingene gir det samme som fjell markert på røret
+  const p = perMeter(L => Groft.beregn({ linjer: [rett('a', '160PE', L, TOPP)], koder: koder160, terrengZ: flatt,
+    rute: 0.2, fjellSondert: () => 0.8 }));
+  const zf = TERRENG - 0.8, zb = TOPP - D - f;
+  sjekk('sonderingene: loddrett fjellgrøft', p.sprengning, b * (zf - zb), b * (zf - zb) * 0.02);
+  sjekk('og løsmassen over', p.gravingLos, (b + 0.8) * 0.8, (b + 0.8) * 0.8 * 0.02);
+}
+{
   const p = perMeter(L => Groft.beregn({ linjer: [rett('a', '160PE', L, TOPP)], koder: koder160, terrengZ: flatt,
     rute: 0.2, mal: { helning: 0 } }));
   sjekk('loddrette vegger: b · h', p.gravingLos, b * h, b * h * 0.02);
 }
 {
-  const r = Groft.beregn({ linjer: [rett('a', '160PE', 100, TOPP)], koder: koder160, rute: 0.2,
-    terrengZ: (x, y) => (x < 1030 ? TERRENG : NaN) });
-  paastand('hull i terrenget telles som areal', r.manglerTerreng > 5, String(r.manglerTerreng));
+  /* SIDEHELLING. Terrenget stiger 1:2 til den ene siden, og skråningen er
+     1:1,5. Veggen møter terrenget 12,4 m ut på oppsiden – overslaget fra
+     dybden ved røret kappet grøfta ved 8,8 m. Fasiten er tverrsnittet
+     integrert fint ut. */
+  const k = 0.5, hel = 1.5, w = b / 2, zb = TOPP - D - f;
+  const lia = (x, y) => TERRENG + k * tvers(x, y);
+  const p = perMeter(L => Groft.beregn({ linjer: [rett('a', '160PE', L, TOPP)], koder: koder160, terrengZ: lia,
+    rute: 0.2, mal: { helning: hel } }));
+  let A = 0;
+  for (let n = -30; n < 30; n += 0.001) {
+    const m = n + 0.0005, T = TERRENG + k * m, z = Math.abs(m) <= w ? zb : zb + (Math.abs(m) - w) / hel;
+    if (z < T) A += (T - z) * 0.001;
+  }
+  sjekk('sidehelling: hele tverrsnittet opp til terrenget', p.gravingLos, A, A * 0.01);
+  const brattere = Groft.beregn({ linjer: [rett('a', '160PE', 100, TOPP)], koder: koder160, rute: 0.2,
+    terrengZ: (x, y) => TERRENG + 0.7 * tvers(x, y), mal: { helning: hel } });
+  paastand('brattere li enn skråningen: merknad om at gropa er kappet',
+    brattere.merknader.some(m => m.type === 'kappet'), brattere.merknader.map(m => m.type).join(','));
 }
 {
-  /* Bakkefaktoren, som for veg og tomt: lengdene ganges med den, flatene og
-     volumene med kvadratet. Røret trekkes fra med sin virkelige lengde, så
-     regnestykket går fortsatt opp. */
+  /* Hull i terrenget: 20 m av grøfta uten data. Arealet er grøftas bredde i
+     toppen ganger lengden – ikke hele søkeboksen. */
+  const r = Groft.beregn({ linjer: [rett('a', '160PE', 100, TOPP)], koder: koder160, rute: 0.2,
+    terrengZ: (x, y) => (langs(x, y) > 40 && langs(x, y) < 60 ? NaN : TERRENG) });
+  const ventet = 20 * 2 * (b / 2 + h);
+  sjekk('hull i terrenget: arealet av grøfta i hullet', r.manglerTerreng, ventet, ventet * 0.03);
+  const ved = Groft.beregn({ linjer: [rett('a', '160PE', 100, TOPP)], koder: koder160, rute: 0.2,
+    terrengZ: (x, y) => (langs(x, y) > 40 && langs(x, y) < 60 && tvers(x, y) > 5 && tvers(x, y) < 6 ? NaN : TERRENG) });
+  sjekk('et hull ved siden av grøfta er ingen grøft uten terreng', ved.manglerTerreng, 0, 0);
+  paastand('og ingen merknad', !ved.merknader.some(m => m.type === 'hull'));
+}
+{
+  /* Røret stikker 5 cm opp over terrenget: gropa graver likevel under det.
+     Én regel – graves det her – for lengden, røret og merknaden. */
+  const r = Groft.beregn({ linjer: [rett('a', '400PVC', 100, TERRENG + 0.05)], koder: { '400PVC': { dim: 400 } },
+    terrengZ: flatt, rute: 0.2 });
+  sjekk('røret litt over terrenget: lengden telles der det graves', r.sum.lengde, 100, 1e-6);
+  sjekk('og bare røret under terrenget trekkes fra', r.sum.rorvolum, Math.PI * 0.4 * 0.4 / 4 * 100 * 0.35 / 0.4, 1e-6);
+  const s = r.sum;
+  sjekk('regnestykket går opp', s.gravingLos + s.sprengning, s.fundament + s.omfylling + s.gjenfylling + s.rorvolum, 1e-6);
+  paastand('merknaden sier at røret ligger over, ikke at det ikke graves',
+    r.merknader.some(m => m.type === 'over' && !/ingen grøft/.test(m.tekst)));
+}
+{
+  /* Bakkefaktoren, som for vegen: lengden langs røret er et kartmål og ganges
+     med den. Tverrsnittet er malen i virkelige meter, så volumene ganges med
+     faktoren én gang – ikke med kvadratet, som for en tomt. */
   const bf = 1.01;
   const lag = k => Groft.beregn({ linjer: [rett('a', '160PE', 100, TOPP)], koder: koder160, terrengZ: flatt, rute: 0.2,
     bakkefaktor: k });
   const u = lag(undefined), m = lag(bf);
   sjekk('bakkefaktoren: lengden ganges med den', m.sum.lengde, u.sum.lengde * bf, 1e-9);
   sjekk('og dybdeklassene', m.dybdeklasser[1].lengde, u.dybdeklasser[1].lengde * bf, 1e-9);
-  sjekk('gravingen med kvadratet', m.sum.gravingLos, u.sum.gravingLos * bf * bf, 1e-6);
+  sjekk('gravingen også – én gang', m.sum.gravingLos, u.sum.gravingLos * bf, 1e-6);
   sjekk('røret med faktoren', m.sum.rorvolum, u.sum.rorvolum * bf, 1e-9);
   sjekk('og regnestykket går opp', m.sum.gravingLos + m.sum.sprengning,
     m.sum.fundament + m.sum.omfylling + m.sum.gjenfylling + m.sum.rorvolum, 1e-6);
@@ -179,6 +234,81 @@ console.log('\n5. Felles grøft, egen grøft og sammenslåing');
   const uten = perMeter(L => par(L, false)), med = perMeter(L => par(L, true));
   sjekk('sammenslått: flat bunn 3 + b', med.gravingLos, (3 + b + h) * h, (3 + b + h) * h * 0.015);
   paastand('mer enn uten sammenslåing', med.gravingLos > uten.gravingLos + 0.5, `${med.gravingLos} / ${uten.gravingLos}`);
+  const u100 = par(100, false);
+  sjekk('3 m fra hverandre uten sammenslåing: to grøfter, to lengder', u100.sum.lengde, 200, 1e-6);
+}
+{
+  /* ÉN GRØFT, ÉN LENGDE – også med fall og på UTM-koordinater, der
+     avrundingsstøyen før avgjorde om meteren ble talt (60 eller 70 av 100). */
+  const par = (x0, y0, dz) => Groft.beregn({ linjer: [rett('a', '160PE', 100, TOPP, x0, y0, 0.3, -1.5, 0.013),
+    rett('b', '160PE', 100, TOPP - dz, x0, y0, 0.3, 1.5, 0.013)], koder: koder160, terrengZ: flatt, rute: 0.2,
+    justering: { strekninger: [], sammen: [['a-0', 'b-0']] } });
+  for (const [x0, y0, navn] of [[1000, 1000, 'små koordinater'], [512345.67, 6612345.89, 'UTM-koordinater']]) {
+    const l = (r, id) => r.perLinje.get(id).lengde;
+    const er = (v, x) => Math.abs(v - x) < 1e-6;
+    const bDyp = par(x0, y0, 0.5), aDyp = par(x0, y0, -0.5), likt = par(x0, y0, 0);
+    paastand(`sammenslått med fall, ${navn}: det dypeste røret får lengden`,
+      er(l(bDyp, 'b'), 100) && er(l(bDyp, 'a'), 0) && er(l(aDyp, 'a'), 100) && er(l(aDyp, 'b'), 0),
+      `${l(bDyp, 'a')}/${l(bDyp, 'b')} og ${l(aDyp, 'a')}/${l(aDyp, 'b')}`);
+    paastand(`like dype, ${navn}: det første røret`, er(l(likt, 'a'), 100) && er(l(likt, 'b'), 0),
+      `${l(likt, 'a')}/${l(likt, 'b')}`);
+  }
+}
+{
+  // to like rør tett i tett er én grøft – og to egne grøfter er to
+  const to = egen => Groft.beregn({ linjer: [rett('a', '160PE', 100, TOPP, 1000, 1000, 0.3, -0.5),
+    rett('b', '160PE', 100, TOPP, 1000, 1000, 0.3, 0.5)], koder: koder160, terrengZ: flatt, rute: 0.2,
+    justering: { strekninger: egen ? [{ fra: 'b-0', til: 'b-10', mal: {}, fjell: null, egen: true }] : [], sammen: [] } });
+  sjekk('to like rør i samme grøft: én lengde', to(false).sum.lengde, 100, 1e-6);
+  sjekk('med egen grøft for det ene: to', to(true).sum.lengde, 200, 1e-6);
+}
+{
+  /* EGEN GRØFT MIDT PÅ ET RØR. Grøfta fortsetter der strekningen begynner og
+     slutter; før fikk begge gruppene en rund ende der, og det ble 22 m³ for
+     mye. Også der røret knekker i overgangen. */
+  const midt = (linjer, st) => Groft.beregn({ linjer, koder: koder160, terrengZ: flatt, rute: 0.2,
+    justering: { strekninger: st, sammen: [] } }).sum;
+  const egen = (fra, til) => [{ fra, til, mal: {}, fjell: null, egen: true }];
+  const rr = [rett('a', '160PE', 100, TOPP)];
+  const u = midt(rr, []), e = midt(rr, egen('a-4', 'a-6'));
+  sjekk('egen grøft midt på et rør: ingen ekstra graving', e.gravingLos, u.gravingLos, 0.01);
+  sjekk('og intet ekstra fundament', e.fundament, u.fundament, 0.01);
+  sjekk('og samme lengde', e.lengde, 100, 1e-6);
+  const knekk = [];
+  for (let s = 0; s <= 50; s += 10) knekk.push([1000 + Math.cos(0.3) * s, 1000 + Math.sin(0.3) * s, TOPP]);
+  const P5 = knekk[5];
+  for (let s = 10; s <= 50; s += 10) knekk.push([P5[0] + Math.cos(0.8) * s, P5[1] + Math.sin(0.8) * s, TOPP]);
+  const kr = [linje('k', '160PE', knekk)];
+  const ku = midt(kr, []), ke = midt(kr, egen('k-5', 'k-8'));
+  sjekk('egen grøft som begynner i en knekk: samme graving', ke.gravingLos, ku.gravingLos, ku.gravingLos * 0.001);
+}
+{
+  /* SAMMENSLÅTT, ULIKE LANGE RØR. Klikkrekkefølgen betyr ingenting, og forbi
+     enden av det korte røret er det ingen flat bunn – der trakk alle
+     tverrstrekene til endepunktet, i en vifte. */
+  const par = (sammen) => Groft.beregn({ linjer: [rett('a', '160PE', 100, TOPP, 1000, 1000, 0.3, -1.5),
+    rett('b', '160PE', 50, TOPP, 1000, 1000, 0.3, 1.5)], koder: koder160, terrengZ: flatt, rute: 0.2,
+    justering: { strekninger: [], sammen } });
+  const ab = par([['a-0', 'b-0']]), ba = par([['b-2', 'a-7']]), uten = par([]);
+  sjekk('klikkrekkefølgen betyr ingenting', ab.sum.gravingLos, ba.sum.gravingLos, 1e-6);
+  const q = punktVed(55, 0);
+  sjekk('5 m forbi enden av det korte, midt mellom: som uten sammenslåing',
+    Groft.nivaa(ab.modell, q.x, q.y), Groft.nivaa(uten.modell, q.x, q.y), 1e-9);
+  const i = punktVed(25, 0);
+  sjekk('men flat bunn der de går side om side', Groft.nivaa(ab.modell, i.x, i.y), TOPP - D - f, 1e-6);
+}
+{
+  /* Fjell markert på rørene gjelder også i den flate bunnen mellom dem –
+     sprengningen er det dyreste i grøfta. Fasit: bunnen 3 + b bred i fjell. */
+  const par = (L, strek) => Groft.beregn({ linjer: [rett('a', '160PE', L, TOPP, 1000, 1000, 0.3, -1.5),
+    rett('b', '160PE', L, TOPP, 1000, 1000, 0.3, 1.5)], koder: koder160, terrengZ: flatt, rute: 0.2,
+    fjellSondert: strek ? undefined : () => 0.8,
+    justering: { strekninger: strek ? ['a', 'b'].map(id => ({ fra: id + '-0', til: id + '-' + (L / 10), mal: {}, fjell: 0.8,
+      egen: false })) : [], sammen: [['a-0', 'b-0']] } });
+  const p = perMeter(L => par(L, true)), s = perMeter(L => par(L, false));
+  const ventet = (3 + b) * (TERRENG - 0.8 - (TOPP - D - f));
+  sjekk('fjell fra strekningene i den flate bunnen', p.sprengning, ventet, ventet * 0.01);
+  sjekk('det samme som fra sonderingene', p.sprengning, s.sprengning, s.sprengning * 0.001);
 }
 {
   // målene på en strekning og per kode gjelder
@@ -225,6 +355,61 @@ console.log('\n6. Langs rørene');
     koder: koder160, terrengZ: flatt, rute: 0.2 });
   sjekk('fiberet i grøfta til det dype: én lengde', r.sum.lengde, 100, 1e-6);
   sjekk('og den står på det dype røret', r.perLinje.get('a').lengde, 100, 1e-6);
+}
+{
+  /* ET KNUTEPUNKT, bygd som programmet bygger det: tre rør med samme kode
+     møtes i M50. Hver gren beholder sine meter – de krysser, de går ikke
+     langs hverandre – og strekninger og sammenslåinger som begynner i
+     knutepunktet, havner på riktig rør. */
+  const Ror = require(js('ror.js'));
+  const pts = [];
+  let nr = 1;
+  for (let x = 0; x <= 100; x += 10) pts.push({ id: 'M' + x, kode: '160PE', o: 1000 + x, n: 5000, z: 8.5 - x * 0.01, nr: nr++ });
+  for (let y = 10; y <= 40; y += 10) pts.push({ id: 'G' + y, kode: '160PE', o: 1050, n: 5000 + y, z: 8.0 - y * 0.01, nr: nr++ });
+  for (let y = 0; y <= 40; y += 10) pts.push({ id: 'K' + y, kode: '110PE', o: 1053, n: 5000 + y, z: 8.2, nr: nr++ });
+  const ror = { punkter: pts, koder: Ror.koderFra(pts), retting: { av: [], brudd: [], koble: [] } };
+  const bygg = Ror.byggLinjer(ror, Ror.StandardRormal, p => ({ x: p.o, y: p.n }));
+  const lag = just => Groft.beregn({ linjer: bygg.linjer, koder: ror.koder, terrengZ: () => 10, rute: 0.2, justering: just });
+  const g = lag(undefined);
+  const l = id => g.perLinje.get(bygg.linjer.find(x => x.punkter.some(p => p.id === id)
+    && x.punkter.some(p => p.id === 'M50')).id).lengde;
+  paastand('knutepunkt: hver gren beholder lengden sin', l('M0') === 50 && l('M100') === 50 && l('G40') === 40,
+    `${l('M0')} / ${l('M100')} / ${l('G40')}`);
+  for (const til of ['M0', 'M100', 'G40']) {
+    const M = Groft.forbered({ linjer: bygg.linjer, koder: ror.koder, terrengZ: () => 10,
+      justering: { strekninger: [{ fra: 'M50', til, mal: { helning: 0 }, fjell: null, egen: false }], sammen: [] } });
+    const rr = M.ror.find(x => x.linje.punkter.some(p => p.id === til));
+    paastand(`strekning fra knutepunktet til ${til}: på det røret`, M.strekUtenTreff === 0
+      && rr.segmenter.every(j => M.seg[j].hel === 0), `uten treff ${M.strekUtenTreff}`);
+  }
+  const M = Groft.forbered({ linjer: bygg.linjer, koder: ror.koder, terrengZ: () => 10,
+    justering: { strekninger: [], sammen: [['M50', 'K20']] } });
+  const gren = M.ror.findIndex(x => x.linje.punkter.some(p => p.id === 'G40'));
+  paastand('felles grøft fra knutepunktet: grenen som går langs det andre røret',
+    M.seg.some(s => s.virtuell) && M.seg.filter(s => s.virtuell).every(s => s.ra === gren || s.rb === gren));
+}
+{
+  /* Et punkt målt to ganger gir et segment uten lengde til slutt. Grøftekanten
+     tok retningen fra det, og mistet det siste punktet. */
+  const pts = [];
+  for (let s = 0; s <= 20; s += 10) pts.push([1000 + s, 1000, TOPP]);
+  pts.push([1020, 1000, TOPP]);
+  const r = Groft.beregn({ linjer: [linje('d', '160PE', pts)], koder: koder160, terrengZ: flatt, rute: 0.2 });
+  const kant = Groft.kanter(r.modell);
+  paastand('punkt målt to ganger: kanten har et punkt per stasjon', kant.length === 2
+    && kant.every(k => k.length === 21), kant.map(k => k.length).join(','));
+}
+{
+  /* Sonderingene slås opp én gang per meter – før gikk hvert oppslag gjennom
+     alle sonderingene for hver rute, og 300 av dem tok 3 s. */
+  const fm = new M.Fjellmodell({ standarddybde: 0.5, rekkevidde: 60,
+    punkter: Array.from({ length: 500 }, (_, i) => ({ x: 1000 + (i % 25) * 8, y: 1000 + Math.floor(i / 25) * 4, dybde: 5 })) });
+  const t0 = Date.now();
+  const r = Groft.beregn({ linjer: [rett('a', '160PE', 200, TOPP), rett('c', '160PE', 200, TOPP, 1000, 1000, 0.3, 4)],
+    koder: koder160, terrengZ: flatt, rute: 0.2, fjellSondert: (x, y) => fm.sondert(x, y) });
+  const ms = Date.now() - t0;
+  paastand('500 sonderinger: under 2 s', ms < 2000, ms + ' ms');
+  sjekk('og fjellet på 5 m er under grøfta', r.sum.sprengning, 0, 1e-9);
 }
 {
   const r = Groft.beregn({ linjer: [rett('a', '160PE', 100, 10.5), rett('u', 'UKJENT', 30, TOPP, 3000, 3000)],

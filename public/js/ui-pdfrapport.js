@@ -1036,11 +1036,12 @@ const Pdfrapport = {
       if (j.strekninger.length || j.sammen.length) {
         overskrift('Justeringer av grøfta');
         for (const st of j.strekninger) {
-          brodtekst(`• ${GroftUI._plassering(st.fra, st.til) || 'punktene finnes ikke lenger'}: ${GroftUI.strekningTekst(st)}`,
-            { farge: this.SVART });
+          brodtekst(`• ${GroftUI._plassering(st.fra, st.til, res.linjer) || 'punktene finnes ikke lenger'}: `
+            + GroftUI.strekningTekst(st), { farge: this.SVART });
         }
         for (const p of j.sammen) {
-          brodtekst(`• Felles grøft: ${GroftUI._rorMed(p[0]) || '?'} og ${GroftUI._rorMed(p[1]) || '?'}`, { farge: this.SVART });
+          brodtekst(`• Felles grøft: ${GroftUI._rorMed(p[0], res.linjer) || '?'} og ${GroftUI._rorMed(p[1], res.linjer) || '?'}`,
+            { farge: this.SVART });
         }
       }
       if (g.merknader.length) {

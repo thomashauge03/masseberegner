@@ -36,14 +36,22 @@ const Groft = (() => {
   const MAKS_UT = 30;
   /** Avstanden mellom stasjonene langs rørene (m). */
   const STEG = 1;
+  /** To nivå nærmere enn dette er like (m) – avrundingsstøyen i UTM er langt under. */
+  const LIK = 1e-6;
+  /** Et annet rør går langs dette når vinkelen mellom dem er under 30°. */
+  const LANGS = Math.cos(Math.PI / 6);
 
   function nyGroft() { return { strekninger: [], sammen: [] }; }
 
-  /** Et tall innenfor grensene for feltet, eller null. Tekst med komma godtas. */
+  /**
+   * Et tall innenfor grensene for feltet, eller null. Tekst med komma godtas.
+   * Under null er en skrivefeil, ikke null: «fjell −0,5» ble fjell i dagen.
+   */
   function klem(felt, v) {
     const x = typeof v === 'string' ? (v.trim() === '' ? NaN : Number(v.trim().replace(',', '.'))) : v;
     if (typeof x !== 'number' || !Number.isFinite(x) || !GRENSER[felt]) return null;
-    return Math.min(GRENSER[felt][1], Math.max(GRENSER[felt][0], x));
+    if (x < GRENSER[felt][0]) return null;
+    return Math.min(GRENSER[felt][1], x);
   }
 
   /**
@@ -97,19 +105,54 @@ const Groft = (() => {
     return ut;
   }
 
-  /** Nærmeste punkt på et rør. */
+  /**
+   * Nærmeste punkt på et rør. `forbi` sier at punktet ligger forbi en av
+   * endene – der går ikke røret langs noe, det slutter bare i nærheten.
+   * Segment uten lengde hoppes over; naboen har det samme punktet.
+   */
   function naermest(rr, seg, x, y) {
+    const S = rr.segmenter, n = S.length;
+    let forste = 0, siste = n - 1;
+    while (forste < siste && !(seg[S[forste]].L2 > 0)) forste++;
+    while (siste > forste && !(seg[S[siste]].L2 > 0)) siste--;
     let best = null;
-    for (const j of rr.segmenter) {
-      const sg = seg[j];
-      let t = sg.L2 > 0 ? ((x - sg.ax) * sg.dx + (y - sg.ay) * sg.dy) / sg.L2 : 0;
-      t = Math.max(0, Math.min(1, t));
+    for (let i = forste; i <= siste; i++) {
+      const j = S[i], sg = seg[j];
+      if (!(sg.L2 > 0) && forste !== siste) continue;
+      const t0 = sg.L2 > 0 ? ((x - sg.ax) * sg.dx + (y - sg.ay) * sg.dy) / sg.L2 : 0;
+      const t = t0 < 0 ? 0 : t0 > 1 ? 1 : t0;
       const px = sg.ax + sg.dx * t, py = sg.ay + sg.dy * t;
       const d = Math.hypot(x - px, y - py);
-      if (!best || d < best.d) best = { d, x: px, y: py, j, topp: sg.ta + (sg.tb - sg.ta) * t };
+      if (!best || d < best.d) {
+        // en millimeter å gå på: rør som begynner side om side, skal ikke være «forbi» på støyen
+        const L = Math.sqrt(sg.L2);
+        best = { d, x: px, y: py, j, topp: sg.ta + (sg.tb - sg.ta) * t,
+          forbi: (i === forste && t0 * L < -1e-3) || (i === siste && (t0 - 1) * L > 1e-3) };
+      }
     }
     return best;
   }
+
+  /** Avstanden fra et punkt til et segment. */
+  function avstandTil(sg, x, y) {
+    let t = sg.L2 > 0 ? ((x - sg.ax) * sg.dx + (y - sg.ay) * sg.dy) / sg.L2 : 0;
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    return Math.hypot(x - sg.ax - sg.dx * t, y - sg.ay - sg.dy * t);
+  }
+
+  /** Enhetsvektoren langs røret for hvert segment; et segment uten lengde låner naboens. */
+  function retninger(rr, seg) {
+    const ut = rr.segmenter.map(j => {
+      const sg = seg[j], L = Math.sqrt(sg.L2);
+      return L > 0 ? { x: sg.dx / L, y: sg.dy / L } : null;
+    });
+    for (let i = 1; i < ut.length; i++) if (!ut[i]) ut[i] = ut[i - 1];
+    for (let i = ut.length - 2; i >= 0; i--) if (!ut[i]) ut[i] = ut[i + 1];
+    return ut.map(u => u || { x: 1, y: 0 });
+  }
+
+  /** Det dypeste av to rør; likt – det som står først, så svaret ikke avhenger av klikkrekkefølgen. */
+  const dypest = (r1, z1, r2, z2) => (z1 < z2 - LIK ? r1 : z2 < z1 - LIK ? r2 : Math.min(r1, r2));
 
   /**
    * Rørene som segmenter, med målene som gjelder på hvert, og et register over
@@ -123,9 +166,14 @@ const Groft = (() => {
     const koder = o.koder || {};
     const just = o.justering || {};
     const T = o.terrengZ || (() => NaN);
-    const rute = o.rute > 0 ? o.rute : 0.2;
+    /* Rutene må gå opp i flisene: en rute som ikke deler 5 m, la seg over
+       kanten til neste flis eller lot en stripe stå urørt. */
+    const rute = FLIS / Math.max(1, Math.round(FLIS / (o.rute > 0 ? o.rute : 0.2)));
     const ror = [], seg = [];
     const utenDimensjon = new Map();
+    /* Punkt-id → rørene punktet står i. Et knutepunkt er med i alle rørene som
+       møtes der. Her sto bare det siste, og en strekning eller en felles grøft
+       som begynte i knutepunktet, havnet på feil rør – eller på ingen. */
     const plass = new Map();
     // 1. rørene med dimensjon – de uten er ikke med i noe, men lengden telles
     for (const l of linjer) {
@@ -140,14 +188,21 @@ const Groft = (() => {
       }
       const r = ror.length;
       ror.push({ linje: l, kode: l.kode, D: k.dim / 1000, s, kodemal: k.groft || null, segmenter: [] });
-      l.punkter.forEach((p, i) => plass.set(p.id, { r, i }));
+      l.punkter.forEach((p, i) => {
+        const v = plass.get(p.id);
+        if (v) v.push({ r, i }); else plass.set(p.id, [{ r, i }]);
+      });
     }
-    // 2. strekningene: hvilke segmenter hver dekker
+    // 2. strekningene: røret som har begge punktene, og segmentene mellom dem
     const strekPaa = ror.map(rr => rr.linje.punkter.slice(1).map(() => []));
     let strekUtenTreff = 0;
     for (const st of just.strekninger || []) {
-      const a = plass.get(st.fra), b = plass.get(st.til);
-      if (!a || !b || a.r !== b.r || a.i === b.i) { strekUtenTreff++; continue; }
+      let a = null, b = null;
+      for (const pa of plass.get(st.fra) || []) {
+        const pb = (plass.get(st.til) || []).find(x => x.r === pa.r && x.i !== pa.i);
+        if (pb) { a = pa; b = pb; break; }
+      }
+      if (!a) { strekUtenTreff++; continue; }
       for (let i = Math.min(a.i, b.i); i < Math.max(a.i, b.i); i++) strekPaa[a.r][i].push(st);
     }
     // 3. segmentene; hver sammenhengende «egen grøft» får sin egen gruppe
@@ -168,50 +223,114 @@ const Groft = (() => {
         const m = malFor(o.mal, rr.kodemal, strekMal);
         rr.segmenter.push(seg.length);
         seg.push(lagSegment(l.xy[i], l.xy[i + 1], l.punkter[i].z, l.punkter[i + 1].z, {
-          r, eier: r, sa: rr.s[i], sb: rr.s[i + 1], D: rr.D, w: rr.D / 2 + m.bunntillegg,
+          r, i, eier: r, sa: rr.s[i], sb: rr.s[i + 1], D: rr.D, w: rr.D / 2 + m.bunntillegg,
           fund: m.fundament, omf: m.omfylling, hel: m.helning, fjell, gruppe, virtuell: false
         }));
       }
+      rr.retning = retninger(rr, seg);
+      /* Terrenget i punktene, til anslaget der det mangler. Et hull kan dekke
+         hele segment, og da finnes det ingen ende å regne fra – hullet fylles
+         lineært langs røret mellom terrenget på hver side av det. */
+      const Tp = l.xy.map(q => T(q.x, q.y));
+      const Tv = Tp.map((v, i) => {
+        if (Number.isFinite(v)) return v;
+        let a = i - 1, c = i + 1;
+        while (a >= 0 && !Number.isFinite(Tp[a])) a--;
+        while (c < Tp.length && !Number.isFinite(Tp[c])) c++;
+        if (a >= 0 && c < Tp.length) return Tp[a] + (Tp[c] - Tp[a]) * (rr.s[i] - rr.s[a]) / ((rr.s[c] - rr.s[a]) || 1);
+        return a >= 0 ? Tp[a] : c < Tp.length ? Tp[c] : NaN;
+      });
+      rr.segmenter.forEach((j, i) => { seg[j].TA = Tv[i]; seg[j].TB = Tv[i + 1]; });
     });
     /* 4. SAMMENSLÅINGENE: flat bunn mellom to rør der de går side om side.
-       For hver stasjon på A trekkes en tverrstrek til nærmeste punkt på B, med
-       gravebunnen lineært mellom deres. Tverrstrekene er virtuelle segmenter
-       med halv bredde lik halve stasjonsavstanden – de former gropa, men har
-       ingen lag selv. Massene føres på det dypeste av de to rørene. */
+       Fra hver stasjon på det ene røret trekkes en tverrstrek til nærmeste
+       punkt på det andre, med gravebunnen lineært mellom dem – fra begge
+       rørene, så det ikke betyr noe hvilket som ble klikket først (det ga
+       783 eller 762 m³). Forbi enden av det andre røret trekkes ingen strek:
+       der gikk alle strekene til endepunktet, og bunnen ble flat i en vifte
+       som ikke finnes. Strekene er virtuelle segmenter med halv bredde lik
+       halve stasjonsavstanden – de former gropa, men har ingen lag selv.
+       Massene føres på det dypeste røret, og fjellet som er markert på rørene,
+       gjelder også mellom dem. */
     let sammenUtenTreff = 0, sammenAldriNaer = 0;
+    const sammenMed = ror.map(() => []);
     for (const par of just.sammen || []) {
-      const a = plass.get(par[0]), b = plass.get(par[1]);
-      if (!a || !b || a.r === b.r) { sammenUtenTreff++; continue; }
-      const RA = ror[a.r], RB = ror[b.r];
+      // et knutepunkt hører til flere rør: ta de to som ligger nærmest hverandre
+      let valgt = null, best = Infinity;
+      for (const a of plass.get(par[0]) || []) {
+        for (const b of plass.get(par[1]) || []) {
+          if (a.r === b.r) continue;
+          const pa = ror[a.r].linje.xy[a.i], pb = ror[b.r].linje.xy[b.i];
+          const na = naermest(ror[a.r], seg, pb.x, pb.y), nb = naermest(ror[b.r], seg, pa.x, pa.y);
+          const d = (na ? na.d : Infinity) + (nb ? nb.d : Infinity);
+          if (!valgt || d < best) { valgt = [a.r, b.r]; best = d; }
+        }
+      }
+      if (!valgt) { sammenUtenTreff++; continue; }
+      sammenMed[valgt[0]].push(valgt[1]);
+      sammenMed[valgt[1]].push(valgt[0]);
       let noen = false;
-      for (const q of stasjoner(RA, seg)) {
-        const sA = seg[q.j];
-        const nB = naermest(RB, seg, q.x, q.y);
-        if (!nB || nB.d > SAMMEN_MAKS || nB.d < 0.01) continue;
-        const sB = seg[nB.j];
-        const zbA = q.topp - sA.D - sA.fund, zbB = nB.topp - sB.D - sB.fund;
-        noen = true;
-        seg.push(lagSegment({ x: q.x, y: q.y }, { x: nB.x, y: nB.y }, zbA, zbB, {
-          r: -1, eier: zbA <= zbB ? a.r : b.r, sa: 0, sb: nB.d, D: 0, w: STEG / 2 + 0.01,
-          fund: 0, omf: 0, hel: Math.min(sA.hel, sB.hel), fjell: null, gruppe: 0, virtuell: true
-        }));
+      for (const [r1, r2] of [valgt, [valgt[1], valgt[0]]]) {
+        for (const q of stasjoner(ror[r1], seg)) {
+          const s1 = seg[q.j];
+          const n2 = naermest(ror[r2], seg, q.x, q.y);
+          if (!n2 || n2.forbi || n2.d > SAMMEN_MAKS || n2.d < 0.01) continue;
+          const s2 = seg[n2.j];
+          const zb1 = q.topp - s1.D - s1.fund, zb2 = n2.topp - s2.D - s2.fund;
+          const f1 = s1.fjell, f2 = s2.fjell;
+          noen = true;
+          seg.push(lagSegment({ x: q.x, y: q.y }, { x: n2.x, y: n2.y }, zb1, zb2, {
+            r: -1, i: -1, ra: r1, rb: r2, eier: dypest(r1, zb1, r2, zb2), sa: 0, sb: n2.d, D: 0,
+            w: STEG / 2 + 0.01, fund: 0, omf: 0, hel: Math.min(s1.hel, s2.hel),
+            fjell: f1 != null && f2 != null ? (f1 + f2) / 2 : (f1 != null ? f1 : f2), gruppe: 0, virtuell: true
+          }));
+        }
       }
       if (!noen) sammenAldriNaer++;
     }
     // 5. hvor langt hvert segment kan nå, og registeret over flisene
+    let kappet = 0;
     const register = new Map();
     for (let j = 0; j < seg.length; j++) {
       const sg = seg[j];
-      const zbA = sg.virtuell ? sg.ta : sg.ta - sg.D - sg.fund;
-      const zbB = sg.virtuell ? sg.tb : sg.tb - sg.D - sg.fund;
-      const TA = T(sg.ax, sg.ay), TB = T(sg.bx, sg.by);
-      /* Terrenget kan stige til siden, og da når gropa lenger ut enn dybden
-         ved røret tilsier. Dybden dobles før helningen ganges inn, og det hele
-         kappes ved MAKS_UT. */
-      const dyp = Math.max(0, Number.isFinite(TA) ? TA - zbA : 3, Number.isFinite(TB) ? TB - zbB : 3);
-      const naa = Math.min(MAKS_UT, sg.w + (sg.hel > 0 ? (2 * dyp + 2) * sg.hel : 0) + rute);
-      sg.x0 = Math.min(sg.ax, sg.bx) - naa; sg.x1 = Math.max(sg.ax, sg.bx) + naa;
-      sg.y0 = Math.min(sg.ay, sg.by) - naa; sg.y1 = Math.max(sg.ay, sg.by) + naa;
+      sg.zbA = sg.virtuell ? sg.ta : sg.ta - sg.D - sg.fund;
+      sg.zbB = sg.virtuell ? sg.tb : sg.tb - sg.D - sg.fund;
+      if (sg.virtuell) { sg.TA = T(sg.ax, sg.ay); sg.TB = T(sg.bx, sg.by); }
+      let naa = sg.w;
+      if (sg.hel > 0) {
+        /* SIDETERRENGET AVGJØR HVOR LANGT GROPA NÅR. Stiger terrenget til
+           siden, møter skråningen det langt ute – i en li på 35° og med 1:1
+           over tre ganger så langt som på flat mark. Her sto et overslag fra
+           dybden ved røret, og i lia ble grøfta kappet uten et ord: 2–13 % for
+           lite. Nå gås det ut fra linja på begge sider, annenhver meter langs
+           segmentet, til veggen fra gravebunnen når terrenget. */
+        const L = Math.sqrt(sg.L2);
+        const ux = L > 0 ? sg.dx / L : 1, uy = L > 0 ? sg.dy / L : 0;
+        const antall = Math.max(1, Math.ceil(L / 2));
+        let lengst = 0, ute = false;
+        for (let k = 0; k <= antall; k++) {
+          const t = k / antall;
+          const px = sg.ax + sg.dx * t, py = sg.ay + sg.dy * t, zb = sg.zbA + (sg.zbB - sg.zbA) * t;
+          const Tm = anslagVed(sg, t);
+          for (const side of [1, -1]) {
+            let d = sg.w;
+            for (; d < MAKS_UT; d += 0.5) {
+              // i et hull: terrenget anslått langs røret, så hullet også får sin bredde
+              let Tz = T(px - uy * d * side, py + ux * d * side);
+              if (!Number.isFinite(Tz)) Tz = Tm;
+              if (!Number.isFinite(Tz) || zb + (d - sg.w) / sg.hel >= Tz) break;
+            }
+            if (d >= MAKS_UT) ute = true;
+            if (d > lengst) lengst = d;
+          }
+        }
+        // litt ekstra: terrenget mellom prøvene kan stige mer
+        naa = Math.min(MAKS_UT, lengst * 1.15 + 1);
+        if (ute && !sg.virtuell) kappet += L;
+      }
+      sg.naa = naa + rute;
+      sg.x0 = Math.min(sg.ax, sg.bx) - sg.naa; sg.x1 = Math.max(sg.ax, sg.bx) + sg.naa;
+      sg.y0 = Math.min(sg.ay, sg.by) - sg.naa; sg.y1 = Math.max(sg.ay, sg.by) + sg.naa;
       for (let fi = Math.floor(sg.x0 / FLIS); fi <= Math.floor(sg.x1 / FLIS); fi++) {
         for (let fj = Math.floor(sg.y0 / FLIS); fj <= Math.floor(sg.y1 / FLIS); fj++) {
           const kk = nokkel(fi, fj);
@@ -221,8 +340,48 @@ const Groft = (() => {
         }
       }
     }
-    return { ror, seg, register, rute, grupper, utenDimensjon, strekUtenTreff, sammenUtenTreff, sammenAldriNaer,
-      terrengZ: T, sondert: o.fjellSondert || null, mal: malFor(o.mal, null, null), faktorer: o.faktorer || {} };
+    /* 6. DER RØRET GÅR INN I ELLER UT AV EN «EGEN GRØFT», fortsetter grøfta.
+       Gruppene regnes hver for seg, og uten noe mer fikk begge gruppene sin
+       runde ende der, den ene oppå den andre: 22 m³ for mye for en strekning
+       midt på et rør. Gropene kuttes langs halveringslinja for knekken i
+       punktet, så de to delene møtes uten å overlappe – alle segmentene som
+       kan nå punktet, ikke bare de to som møtes. */
+    for (const rr of ror) {
+      const S = rr.segmenter;
+      for (let i = 1; i < S.length; i++) {
+        const s1 = seg[S[i - 1]], s2 = seg[S[i]];
+        if (s1.gruppe === s2.gruppe) continue;
+        const u1 = rr.retning[i - 1], u2 = rr.retning[i];
+        let nx = u1.x + u2.x, ny = u1.y + u2.y;
+        const nl = Math.hypot(nx, ny);
+        if (nl < 1e-9) { nx = u1.x; ny = u1.y; } else { nx /= nl; ny /= nl; }
+        const kutt = { x: nx, y: ny, px: s2.ax, py: s2.ay };
+        for (let k = i - 1; k >= 0 && seg[S[k]].gruppe === s1.gruppe; k--) {
+          if (avstandTil(seg[S[k]], kutt.px, kutt.py) > seg[S[k]].naa) break;
+          seg[S[k]].kuttB = kutt;
+        }
+        for (let k = i; k < S.length && seg[S[k]].gruppe === s2.gruppe; k++) {
+          if (avstandTil(seg[S[k]], kutt.px, kutt.py) > seg[S[k]].naa) break;
+          seg[S[k]].kuttA = kutt;
+        }
+      }
+    }
+    /* Sonderingene slås opp for hver rute og hvert steg ut mot kanten, og hvert
+       oppslag går gjennom alle sonderingene: med 300 av dem tok grøfta 3 s.
+       Dybden endrer seg lite over en meter, så den slås opp én gang per meter. */
+    let sondert = null;
+    if (o.fjellSondert) {
+      const lager = new Map(), f = o.fjellSondert;
+      sondert = (x, y) => {
+        const i = Math.round(x), k = Math.round(y);
+        const n = (i + 4194304) * 16777216 + (k + 8388608);
+        let v = lager.get(n);
+        if (v === undefined) { v = f(i, k); lager.set(n, v); }
+        return v;
+      };
+    }
+    return { ror, seg, register, rute, grupper, utenDimensjon, strekUtenTreff, sammenUtenTreff, sammenAldriNaer, kappet,
+      sammenMed, terrengZ: T, sondert, mal: malFor(o.mal, null, null), faktorer: o.faktorer || {} };
   }
 
   /**
@@ -234,6 +393,9 @@ const Groft = (() => {
    * ingenting. `ut.t` får posisjonen langs segmentet (0–1).
    */
   function grop(sg, x, y, Tq, sondert, ut) {
+    // kuttet der røret går over i en annen gruppe – se steg 6 i `forbered`
+    if (sg.kuttA && (x - sg.kuttA.px) * sg.kuttA.x + (y - sg.kuttA.py) * sg.kuttA.y < 0) return Infinity;
+    if (sg.kuttB && (x - sg.kuttB.px) * sg.kuttB.x + (y - sg.kuttB.py) * sg.kuttB.y > 0) return Infinity;
     let t = sg.L2 > 0 ? ((x - sg.ax) * sg.dx + (y - sg.ay) * sg.dy) / sg.L2 : 0;
     /* En tverrstrek mellom to sammenslåtte rør graver bare mellom rørene. Med
        runde ender stakk bunnen dens 0,13 m forbi rørets egen bunn på
@@ -299,8 +461,12 @@ const Groft = (() => {
     return [lf, lengdeAv(O) - overlapp(O, F)];
   }
 
-  /** Den dypeste gropa i et punkt, i én gruppe – eller i alle (-1). */
-  function iPunkt(M, x, y, Tq, gruppe) {
+  /**
+   * Den dypeste gropa i et punkt, i én gruppe – eller i alle (-1). Likt
+   * innenfor avrundingsstøyen går røret `foran` først, så eieren ikke
+   * avgjøres av sjuende desimal.
+   */
+  function iPunkt(M, x, y, Tq, gruppe, foran = -1) {
     const fl = M.register.get(nokkel(Math.floor(x / FLIS), Math.floor(y / FLIS)));
     if (!fl) return null;
     let sond;
@@ -312,9 +478,79 @@ const Groft = (() => {
       if (gruppe >= 0 && sg.gruppe !== gruppe) continue;
       if (x < sg.x0 || x > sg.x1 || y < sg.y0 || y > sg.y1) continue;
       const z = grop(sg, x, y, Tq, sondert, ut);
-      if (z < Tq && (!best || z < best.z)) best = { z, j };
+      if (!(z < Tq)) continue;
+      if (!best || z < best.z - LIK
+        || (z <= best.z + LIK && foran >= 0 && sg.r === foran && M.seg[best.j].r !== foran)) best = { z, j };
     }
     return best;
+  }
+
+  /**
+   * Hvilket rør en meter grøft telles på.
+   *
+   * ÉN GRØFT, ÉN LENGDE. Ligger røret inne i grøfta til et annet rør som går
+   * langs det, telles meteren bare på det dypeste av dem – er de like dype,
+   * på det som står først. «Inne i grøfta» er at gropa til det andre røret,
+   * eller en felles grøft mellom dem, når ned under terrenget der dette røret
+   * ligger. Et rør som krysser eller greiner av, går ikke langs, og beholder
+   * meterne sine; det gjør også et rør forbi enden av det andre.
+   *
+   * Her sto «røret med den laveste gropa der røret ligger». Ved en felles
+   * grøft er det nøyaktig likt mellom røret og tverrstreken fra det, og
+   * avrundingsstøyen avgjorde om meteren ble talt: 60 eller 70 av 100 m, alt
+   * etter koordinatene. To like rør tett i tett fikk hver sin lengde.
+   */
+  function meterEier(M, r, q, sg, Tq) {
+    const fl = M.register.get(nokkel(Math.floor(q.x / FLIS), Math.floor(q.y / FLIS)));
+    let sond;
+    const sondert = () => (sond === undefined ? (sond = M.sondert ? M.sondert(q.x, q.y) : null) : sond);
+    const ut = { t: 0 };
+    /* Kandidatene: rørene som er slått sammen med dette (der de går side om
+       side, er det én grøft – akkurat der tverrstrekene trekkes), og rørene
+       der gropa når ned under terrenget her. */
+    const sammen = new Set(M.sammenMed[r]);
+    const naar = new Set();
+    for (const j of fl ? fl.segs : []) {
+      const s2 = M.seg[j];
+      if (s2.virtuell || s2.r === r || s2.gruppe !== sg.gruppe || sammen.has(s2.r) || naar.has(s2.r)) continue;
+      if (q.x < s2.x0 || q.x > s2.x1 || q.y < s2.y0 || q.y > s2.y1) continue;
+      if (grop(s2, q.x, q.y, Tq, sondert, ut) < Tq) naar.add(s2.r);
+    }
+    const u = M.ror[r].retning[sg.i];
+    let best = r, bestZ = q.topp - sg.D - sg.fund;
+    for (const r2 of [...sammen, ...naar]) {
+      const n = naermest(M.ror[r2], M.seg, q.x, q.y);
+      if (!n || n.forbi) continue;
+      const s2 = M.seg[n.j];
+      if (s2.gruppe !== sg.gruppe) continue;
+      if (sammen.has(r2)) {
+        if (n.d > SAMMEN_MAKS) continue;
+      } else {
+        const u2 = M.ror[r2].retning[s2.i];
+        if (Math.abs(u.x * u2.x + u.y * u2.y) < LANGS) continue;
+      }
+      const z2 = n.topp - s2.D - s2.fund;
+      if (z2 < bestZ - LIK || (z2 <= bestZ + LIK && r2 < best)) { best = r2; bestZ = z2; }
+    }
+    return best;
+  }
+
+  /**
+   * Terrenget der det mangler, i posisjonen t langs segmentet: lineært mellom
+   * endene (fylt langs røret i `forbered`) – eller NaN om røret ikke har noe.
+   */
+  function anslagVed(sg, t) {
+    const a = sg.TA, b = sg.TB;
+    if (Number.isFinite(a) && Number.isFinite(b)) return a + (b - a) * t;
+    return Number.isFinite(a) ? a : Number.isFinite(b) ? b : NaN;
+  }
+
+  /** Det samme i et punkt; uten noe terreng i det hele tatt telles bare bunnen. */
+  function anslag(sg, x, y) {
+    let t = sg.L2 > 0 ? ((x - sg.ax) * sg.dx + (y - sg.ay) * sg.dy) / sg.L2 : 0;
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    const v = anslagVed(sg, t);
+    return Number.isFinite(v) ? v : sg.zbA + (sg.zbB - sg.zbA) * t + 0.01;
   }
 
   /** Gravenivået i et punkt – den dypeste av alle gropene – eller NaN der det ikke graves. */
@@ -334,8 +570,9 @@ const Groft = (() => {
       for (const q of stasjoner(rr, M.seg)) {
         const Tq = M.terrengZ(q.x, q.y);
         if (!Number.isFinite(Tq) || !iPunkt(M, q.x, q.y, Tq, -1)) { avslutt(0); avslutt(1); continue; }
-        const sg = M.seg[q.j], len = Math.sqrt(sg.L2) || 1;
-        const nx = -sg.dy / len, ny = sg.dx / len;
+        // retningen fra røret, ikke fra segmentet: et segment uten lengde har ingen
+        const sg = M.seg[q.j], u = rr.retning[sg.i];
+        const nx = -u.y, ny = u.x;
         for (let k = 0; k < 2; k++) {
           const side = k ? -1 : 1;
           let kant = null;
@@ -396,11 +633,15 @@ const Groft = (() => {
           const y = fl.fj * FLIS + (c + 0.5) * rute;
           const Tq = M.terrengZ(x, y);
           if (!Number.isFinite(Tq)) {
-            // hull i terrenget: telles der det ligger en grøftebunn
+            /* Hull i terrenget: telles der grøfta ville gått, med terrenget
+               anslått fra endene av segmentet. Her ble det regnet med et
+               uendelig høyt terreng, og hele søkeboksen ble «grøft» – et hull
+               fem meter ved siden av grøfta ga 20 m² i merknaden. */
             for (const j of segs) {
               const sg = M.seg[j];
               if (x < sg.x0 || x > sg.x1 || y < sg.y0 || y > sg.y1) continue;
-              if (Number.isFinite(grop(sg, x, y, Infinity, ingen, ut))) { manglerTerreng += A; break; }
+              const Te = anslag(sg, x, y);
+              if (grop(sg, x, y, Te, ingen, ut) < Te) { manglerTerreng += A; break; }
             }
             continue;
           }
@@ -440,20 +681,21 @@ const Groft = (() => {
         }
       }
     }
-    /* BAKKEN, IKKE KARTPLANET. Rutene er målt i UTM, og bakkefaktoren gjør dem
-       om til virkelige mål, som for veg og tomt: flatene – og volumene, der
-       høyden alt er en virkelig høydeforskjell – med kvadratet, lengdene langs
-       rørene under med faktoren selv. */
+    /* BAKKEN, IKKE KARTPLANET. Lengden langs røret er målt i UTM, og
+       bakkefaktoren gjør den om til lengden på bakken. Tverrsnittet er lagt
+       ut i virkelige meter – det er malen – så volumene og flatene ganges med
+       faktoren én gang, som vegens. Med kvadratet, som for en tomt der begge
+       retningene er kartmål, ble de faktoren for store. */
     const bf = o.bakkefaktor || 1;
     for (const p of [sum, ...per]) {
-      for (const fe of ['gravingLos', 'sprengning', 'fundament', 'omfylling', 'gjenfylling', 'areal']) p[fe] *= bf * bf;
+      for (const fe of ['gravingLos', 'sprengning', 'fundament', 'omfylling', 'gjenfylling', 'areal']) p[fe] *= bf;
     }
-    manglerTerreng *= bf * bf;
+    manglerTerreng *= bf;
     /* LANGS RØRENE: løpemeter, dybdeklasser, røret og profilen.
-       En meter telles på røret som styrer der – det med den dypeste gropa.
-       Ligger et grunt rør i grøfta til et dypt, står lengden på det dype, så
-       en felles grøft bare har én lengde. Røret trekkes fra omfyllingen der
-       det ligger, og føres på det styrende røret, som rutene rundt. */
+       En meter telles der det graves, på røret `meterEier` peker ut – så en
+       felles grøft bare har én lengde, på det dypeste røret. En «egen grøft»
+       er sin egen og telles alltid. Røret trekkes fra omfyllingen der det
+       ligger, og føres på røret som eier rutene rundt. */
     const profiler = new Map();
     const overTerreng = M.ror.map(() => 0);
     let fjellStrek = 0, fjellSond = 0;
@@ -469,22 +711,32 @@ const Groft = (() => {
           omfyllingTopp: q.topp + sg.omf, fjell: null };
         pr.push(rad);
         if (!Number.isFinite(Tq)) continue;
-        if (q.topp > Tq) { overTerreng[r] += bredde; continue; }
-        const p = iPunkt(M, q.x, q.y, Tq, sg.gruppe);
+        /* ÉN REGEL: graves det her? Her sto «toppen over terrenget – ingen
+           grøft», mens rutene gravde under et rør som stakk 5 cm opp: 77 m³
+           graving, men ingen løpemeter og ingen rør trukket fra. */
+        if (q.topp > Tq) overTerreng[r] += bredde;
+        const p = iPunkt(M, q.x, q.y, Tq, sg.gruppe, r);
         if (!p) continue;
         rad.gravebunn = p.z;
         let fd = sg.fjell;
         const fraStrek = fd != null;
         if (fd == null && M.sondert) fd = M.sondert(q.x, q.y);
         if (fd != null) rad.fjell = Tq - fd;
-        const eier = M.seg[p.j].eier;
-        if (eier === r || sg.gruppe !== 0) {
+        /* Hvem meteren hører til, avgjøres midt i den. Et rør som begynner der
+           et annet slutter – i et knutepunkt – er likt med det i selve punktet,
+           og mistet sin første meter til et rør som ikke dekker den. */
+        const neste = st[k + 1];
+        const midt = neste ? { x: (q.x + neste.x) / 2, y: (q.y + neste.y) / 2, topp: (q.topp + neste.topp) / 2 } : q;
+        const Tm = neste ? M.terrengZ(midt.x, midt.y) : Tq;
+        if (bredde > 0 && (sg.gruppe !== 0 || meterEier(M, r, midt, sg, Number.isFinite(Tm) ? Tm : Tq) === r)) {
           per[r].lengde += bredde;
           per[r].dybdeklasser[dybdeklasse(Tq - p.z)] += bredde;
           if (rad.fjell != null && rad.fjell > p.z) { if (fraStrek) fjellStrek += bredde; else fjellSond += bredde; }
         }
         if (bunn < Tq) {
-          const v = Math.PI * rr.D * rr.D / 4 * bredde;
+          // bare den delen av røret som ligger under terrenget – lagene er kappet der
+          const v = Math.PI * rr.D * rr.D / 4 * bredde * Math.min(1, (Tq - bunn) / rr.D);
+          const eier = M.seg[p.j].eier;
           per[r].rorvolum += v; sum.rorvolum += v;
           per[eier].omfylling -= v; sum.omfylling -= v;
         }
@@ -519,9 +771,14 @@ const Groft = (() => {
     M.ror.forEach((rr, r) => {
       if (overTerreng[r] > 0.5) {
         merknader.push({ type: 'over', linje: rr.linje.id,
-          tekst: `${rr.kode}: røret ligger over terrenget på ${m(overTerreng[r])} m – ingen grøft der.` });
+          tekst: `${rr.kode}: røret ligger helt eller delvis over terrenget på ${m(overTerreng[r])} m – `
+            + 'grøfta regnes bare under terrenget.' });
       }
     });
+    if (M.kappet > 0.5) {
+      merknader.push({ type: 'kappet', tekst: `Sideterrenget er brattere enn skråningen på ${m(M.kappet * bf)} m av `
+        + `grøfta – gropa er kappet ${MAKS_UT} m fra røret, og massene der er for små.` });
+    }
     if (M.strekUtenTreff) {
       merknader.push({ type: 'justering', tekst: `${flertall(M.strekUtenTreff, 'strekning', 'strekninger')} `
         + 'finner ikke punktene sine lenger – se Justeringer.' });

@@ -3338,12 +3338,19 @@ const App = {
       profiler.set(l.id, Ror.profil(l, terrengZ, k.dim));
     }
     /* GRØFTA – av de samme linjene, i regnesonen. Regnes bare på nytt når noe
-       den bygger på er endret: linjene og høydene, kodene, grøftemalen,
-       justeringene, sonderingene, terrenget, faktorene eller bakkefaktoren. */
+       den bygger på er endret: punktene (id, høyde og plass), kodene,
+       grøftemalen, justeringene, sonderingene, terrenget, faktorene eller
+       bakkefaktoren.
+       TERRENGET ER DET SOM FAKTISK ER LASTET, ikke det som ble bedt om:
+       `_terrengnokkel` sier hvilket belte som ble bestilt, og var det hull i
+       første omgang, fikk en senere nedlasting som fylte dem samme nøkkel.
+       Grøfta beholdt hullene og merknaden mens profilene viste terrenget. */
     const fm = this.fjellmodellIUtm();
     const bakkefaktor = this.bakkefaktor();
-    const groftNokkel = JSON.stringify([bygg.linjer.map(l => [l.id, l.punkter.map(p => p.z)]), r.koder,
-      this.P.mal.groft, r.groft, fm.punkter, fm.rekkevidde, this._terrengnokkel, this.sone, this.P.faktorer, bakkefaktor]);
+    const lastet = this.terreng ? [this.terreng.fliser.size, this.terreng.mangler.size] : null;
+    const groftNokkel = JSON.stringify([bygg.linjer.map(l => [l.id, l.punkter.map(p => [p.id, p.z]), l.xy]), r.koder,
+      this.P.mal.groft, r.groft, fm.punkter, fm.rekkevidde, this._terrengnokkel, lastet, this.sone, this.P.faktorer,
+      bakkefaktor]);
     if (groftNokkel !== this._groftNokkel || !this._groftResultat) {
       this._groftResultat = Groft.beregn({
         linjer: bygg.linjer, koder: r.koder, mal: this.P.mal.groft, justering: r.groft,

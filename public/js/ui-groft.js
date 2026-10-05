@@ -49,11 +49,15 @@ const GroftUI = {
     return deler.join(' · ') || 'ingen endringer';
   },
 
-  /** «90PE, 12–48 m», eller null om punktene ikke finnes på samme rør lenger. */
-  _plassering(fra, til) {
-    for (const l of this.app.byggRor().linjer) {
+  /**
+   * «90PE, 12–48 m», eller null om punktene ikke finnes på samme rør lenger.
+   * `linjer` kan gis med, så en liste med mange strekninger ikke bygger
+   * rørene på nytt for hver av dem.
+   */
+  _plassering(fra, til, linjer = this.app.byggRor().linjer) {
+    for (const l of linjer) {
       const ia = l.punkter.findIndex(p => p.id === fra), ib = l.punkter.findIndex(p => p.id === til);
-      if (ia < 0 || ib < 0) continue;
+      if (ia < 0 || ib < 0 || ia === ib) continue;
       const s = [0];
       for (let i = 1; i < l.xy.length; i++) s.push(s[i - 1] + Math.hypot(l.xy[i].x - l.xy[i - 1].x, l.xy[i].y - l.xy[i - 1].y));
       return `${l.kode}, ${Rapport.tall(Math.min(s[ia], s[ib]), 0)}–${Rapport.tall(Math.max(s[ia], s[ib]), 0)} m`;
@@ -61,8 +65,8 @@ const GroftUI = {
     return null;
   },
 
-  _rorMed(punkt) {
-    const l = this.app.byggRor().linjer.find(x => x.punkter.some(p => p.id === punkt));
+  _rorMed(punkt, linjer = this.app.byggRor().linjer) {
+    const l = linjer.find(x => x.punkter.some(p => p.id === punkt));
     return l ? l.kode : null;
   },
 
@@ -98,15 +102,16 @@ const GroftUI = {
       + rad('Kjøpes: fundament', b.kjopFundament) + rad('Kjøpes: omfylling', b.kjopOmfylling)
       + (b.kjopGjenfylling > 0.5 ? rad('Kjøpes: gjenfylling', b.kjopGjenfylling) : '');
     const j = r.groft || Groft.nyGroft();
+    const linjer = j.strekninger.length || j.sammen.length ? app.byggRor().linjer : [];
     let liste = '';
     j.strekninger.forEach((st, i) => {
-      const hvor = this._plassering(st.fra, st.til);
+      const hvor = this._plassering(st.fra, st.til, linjer);
       liste += `<li><span>${hvor ? escapeHtml(hvor) : '<span class="raud">punktene finnes ikke lenger</span>'}: `
         + `${escapeHtml(this.strekningTekst(st))}</span> <button class="minilenke" data-groftendre="${i}">Endre</button>`
         + ` <button class="minilenke" data-groftslett="${i}">Slett</button></li>`;
     });
     j.sammen.forEach((par, i) => {
-      const a = this._rorMed(par[0]), c = this._rorMed(par[1]);
+      const a = this._rorMed(par[0], linjer), c = this._rorMed(par[1], linjer);
       liste += `<li><span>Felles grøft: ${a && c ? escapeHtml(a) + ' og ' + escapeHtml(c)
         : '<span class="raud">rørene finnes ikke lenger</span>'}</span>`
         + ` <button class="minilenke" data-sammenslett="${i}">Slett</button></li>`;
@@ -264,8 +269,14 @@ const GroftUI = {
       const a = this._strekFra;
       this._strekFra = null;
       Kart.tegnRor();
-      if (a.l.id !== best.l.id) { app.status('Begge punktene må ligge på samme rør'); return; }
       if (a.p.id === best.p.id) { app.status('Det var samme punkt – velg et annet'); return; }
+      /* Et knutepunkt står i alle rørene som møtes der, og «linja» til det
+         første klikket var bare én av dem. Det holder at ett rør har begge. */
+      const har = (l, id) => l.punkter.some(p => p.id === id);
+      if (!linjer.some(l => har(l, a.p.id) && har(l, best.p.id))) {
+        app.status('Begge punktene må ligge på samme rør');
+        return;
+      }
       this.dialog({ fra: a.p.id, til: best.p.id, mal: {}, fjell: null, egen: false }, null);
       return;
     }
@@ -275,9 +286,13 @@ const GroftUI = {
         for (let i = 1; i < l.xy.length; i++) {
           const d = Ror.avstandTilStrekk(u, l.xy[i - 1], l.xy[i]);
           if (d > tol || (best && d >= best.d)) continue;
-          // punktet nærmest klikket står for røret – sammenslåingen lagres mot id-er
+          /* Punktet nærmest klikket står for røret – sammenslåingen lagres mot
+             id-er. Et knutepunkt står i flere rør, så er det nærmeste et
+             knutepunkt, tas det andre endepunktet om det bare står i dette. */
           const naerA = Math.hypot(l.xy[i - 1].x - u.x, l.xy[i - 1].y - u.y) <= Math.hypot(l.xy[i].x - u.x, l.xy[i].y - u.y);
-          best = { l, d, p: naerA ? l.punkter[i - 1] : l.punkter[i] };
+          const [p1, p2] = naerA ? [l.punkter[i - 1], l.punkter[i]] : [l.punkter[i], l.punkter[i - 1]];
+          const delt = p => linjer.some(m => m !== l && m.punkter.some(x => x.id === p.id));
+          best = { l, d, p: delt(p1) && !delt(p2) ? p2 : p1 };
         }
       }
       if (!best) { app.status('Klikk på en rørstrek'); return; }

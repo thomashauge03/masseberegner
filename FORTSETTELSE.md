@@ -23,7 +23,7 @@ med `Nettlesertest.kjor()`. Utviklingstjeneren startes med `node server.js`
 (port 5178). Programmet ligger også på https://masseberegner.vercel.app.
 
 Ved siste lagring: **609 prøver i selvtesten, 194 i rørprøven
-(`test/rorprove.js`), 83 i grøfteprøven (`test/groftprove.js`), 1117 i
+(`test/rorprove.js`), 119 i grøfteprøven (`test/groftprove.js`), 1120 i
 nettlesertesten, alle grønne.** Nettlesertesten
 må kjøres i et vindu som er minst 1000 px bredt – under det legger
 sidepanelet seg oppå, og tre panelprøver blir røde uten at noe er galt. Massene på demoen er uendret gjennom hele runden: 1 548 m³ skjæring,
@@ -43,9 +43,22 @@ rute graves ned til den dypeste grøfta som når den, så en felles grøft telle
 flat bunn og egen grøft; fjell fra strekninger og sonderinger, loddrett i
 fjell; rør uten dimensjon får ingen grøft og meldes. Tallene: kubikk per lag,
 løpemeter per dybdeklasse, per kode og massebalanse – på bakken, med
-bakkefaktoren, som veg og tomt. Grøfta står i Rør-fanen, kartet (grøftekanten,
+bakkefaktoren, som vegen. Grøfta står i Rør-fanen, kartet (grøftekanten,
 «Grøft på strekning», «Felles grøft»), lengdeprofilen, 3D (laget «Grøft») og
 rapporten og PDF-en, med normalgrøfta tegnet.
+
+En kodegjennomgang av hele grenen fant én kritisk og seks alvorlige feil, alle
+i justeringene og i bratt terreng, og alle er rettet med prøver: løpemeteren
+for sammenslåtte rør ble avgjort av avrundingsstøy (nå: én grøft, én lengde, på
+det dypeste røret – se spesifikasjonen 4.5); knutepunkt hørte bare til ett av
+rørene som møtes; «egen grøft» midt på et rør talte endene to ganger; felles
+grøft laget en vifte forbi enden av det korte røret og var avhengig av
+klikkrekkefølgen; fjell på strekningene gjaldt ikke i bunnen mellom
+sammenslåtte rør; grøfta ble kappet i lia uten merknad; og grøfta kunne bli
+stående med gamle hull etter at terrenget var lastet på nytt. I samme runde:
+hull ved siden av grøfta gir ikke lenger falske merknader, et rør som stikker
+litt opp får lengden sin, sonderingene slås opp én gang per meter (1000 av dem:
+fra 10 s til 0,5 s), og bakkefaktoren ganges inn én gang, som for vegen.
 
 Prøvd mot fasit regnet for hånd (`test/groftprove.js`, fire–fem siffer), og på
 den ekte fila: alle rørene regnes på under ett sekund, og grøfta er mye kortere

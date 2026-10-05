@@ -307,8 +307,10 @@ const Forklaring = {
       ['Fundament og omfylling', 'Fundamentet ligger under røret, omfyllingen rundt og over det. Resten opp til '
         + 'terrenget er gjenfylling med stedlige masser.'],
       ['Felles grøft', 'Rør som ligger så tett at grøftene overlapper, er én grøft – hver kubikk telles én gang, og '
-        + 'den står på det dypeste røret. «Felles grøft» i kartet gir flat bunn mellom to rør.'],
-      ['Egen grøft', 'En strekning som er gravd for seg. Massene telles fullt, selv der den overlapper en annen grøft.'],
+        + 'den står på det dypeste røret. Lengden også: ligger et rør inne i grøfta til et annet som går langs det, '
+        + 'telles meteren bare på det dypeste. «Felles grøft» i kartet gir flat bunn mellom to rør.'],
+      ['Egen grøft', 'En strekning som er gravd for seg. Massene og lengden telles fullt, selv der den overlapper en '
+        + 'annen grøft.'],
       ['Fjell i grøfta', 'Bare der det er markert på røret eller sondert. Ellers regnes alt som løsmasse.']
     ]) ut += `<div class="forklaringsrad"><div><b>${ord}</b>${tekst}</div></div>`;
     /* Grøftas farger, med navnet ved – fargen skal aldri stå alene. */

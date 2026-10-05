@@ -1061,10 +1061,10 @@ ${merknader ? `<h2>Merknader</h2><table><thead><tr><th>Type</th><th>Merknad</th>
     const profiler = teg.profiler.map(p => `<figure><img class="rorprofilbilde" src="${p.bilde}" `
       + `alt="Lengdeprofil for rør ${escapeHtml(p.navn)}"><figcaption>${escapeHtml(p.navn)}</figcaption></figure>`).join('');
     const g = res.groft, j = r.groft || Groft.nyGroft();
-    const justeringer = j.strekninger.map(st => `<li>${escapeHtml(GroftUI._plassering(st.fra, st.til)
+    const justeringer = j.strekninger.map(st => `<li>${escapeHtml(GroftUI._plassering(st.fra, st.til, res.linjer)
       || 'punktene finnes ikke lenger')}: ${escapeHtml(GroftUI.strekningTekst(st))}</li>`).join('')
-      + j.sammen.map(p => `<li>Felles grøft: ${escapeHtml(GroftUI._rorMed(p[0]) || '?')} og `
-        + `${escapeHtml(GroftUI._rorMed(p[1]) || '?')}</li>`).join('');
+      + j.sammen.map(p => `<li>Felles grøft: ${escapeHtml(GroftUI._rorMed(p[0], res.linjer) || '?')} og `
+        + `${escapeHtml(GroftUI._rorMed(p[1], res.linjer) || '?')}</li>`).join('');
     const grofthtml = g ? `
 <h2>Grøftemasser</h2>
 <p class="liten">Teoretisk grøfteprofil mot Kartverkets terreng slik det var før graving. Felles grøft regnes

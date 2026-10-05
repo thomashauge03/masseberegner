@@ -69,12 +69,14 @@ function _rettGroft(a, G) {
   const j = a.ror.groft && typeof a.ror.groft === 'object' && !Array.isArray(a.ror.groft) ? a.ror.groft : {};
   const id = v => v != null && typeof v !== 'object';
   a.ror.groft = {
+    // en strekning fra et punkt til det samme punktet dekker ingenting
     strekninger: (Array.isArray(j.strekninger) ? j.strekninger : [])
-      .filter(s => s && typeof s === 'object' && id(s.fra) && id(s.til))
+      .filter(s => s && typeof s === 'object' && id(s.fra) && id(s.til) && String(s.fra) !== String(s.til))
       .map(s => ({ fra: String(s.fra), til: String(s.til), mal: malFelt(s.mal),
         fjell: G.klem('fjell', s.fjell), egen: s.egen === true })),
     sammen: (Array.isArray(j.sammen) ? j.sammen : [])
-      .filter(p => Array.isArray(p) && p.length === 2 && p.every(id)).map(p => p.map(String))
+      .filter(p => Array.isArray(p) && p.length === 2 && p.every(id) && String(p[0]) !== String(p[1]))
+      .map(p => p.map(String))
   };
 }
 

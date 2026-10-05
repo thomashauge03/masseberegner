@@ -191,9 +191,20 @@ graving + sprengning = fundament + omfylling + gjenfylling + rørvolum.
 
 - Hver rute føres på **det styrende røret**: det som har den laveste gropa der (likt →
   nærmeste). Felles grøft havner dermed på det dypeste røret.
-- Langs hvert rør, hver meter og i hvert målt punkt: dybden = T − z_g der røret ligger.
-  Er røret selv styrende der, telles meteren på det i dybdeklassen. Er et annet rør
-  styrende, telles den der, så en felles grøft bare får én lengde.
+- Langs hvert rør, hver meter og i hvert målt punkt: dybden = T − z_g der røret ligger,
+  der det graves.
+- **Én grøft, én lengde** (avklart etter kodegjennomgangen). Meteren telles bare på ett
+  av rørene i en felles grøft – det dypeste; like dype: det som står først. Et rør gir
+  fra seg meteren til et annet rør når begge gjelder midt i meteren:
+  - det andre røret går **langs** det (under 30° vinkel), og punktet ligger ikke forbi
+    enden av det, og
+  - grøfta til det andre røret **når hit** – gropa er under terrenget der dette røret
+    ligger – eller de to er **slått sammen** med «Felles grøft» og ligger innen 10 m.
+
+  Et rør som krysser eller greiner av, går ikke langs, og beholder meterne sine: et
+  T-kryss på 100 + 40 m gir 140 m grøft. To like rør 1 m fra hverandre gir én lengde;
+  3 m fra hverandre på 1,8 m dybde er det to grøfter, men på 2,7 m når skråningen 1:1
+  det andre røret, og da er det én. En «egen grøft» telles alltid.
 - Dybdeklassene: 0–1, 1–2, 2–3, 3–4, over 4 m. «1–2 m» er fra og med 1 m til under 2 m.
 - Per kode: summen av rørene med den koden.
 

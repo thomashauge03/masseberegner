@@ -148,14 +148,19 @@ slik det var før graving.
   loddrett; løsmassen over graves med vanlig skråning fra fjellkanten.
 * **Felles grøft.** Hver rute på 0,2 m graves ned til den dypeste grøfta som når
   den. Rør som ligger så tett at grøftene overlapper, får dermed én grøft, og
-  hver kubikk telles én gang – på det dypeste røret. **⊔ Felles grøft** i kartet
-  gir flat bunn mellom to rør opptil 10 m fra hverandre, og «egen grøft» på en
-  strekning graves for seg.
+  hver kubikk telles én gang – på det dypeste røret. Lengden likeså: ligger et
+  rør inne i grøfta til et annet som går langs det, telles meteren bare på det
+  dypeste. Rør som krysser eller greiner av, beholder sine meter. **⊔ Felles
+  grøft** i kartet gir flat bunn mellom to rør opptil 10 m fra hverandre, og
+  «egen grøft» på en strekning graves – og telles – for seg.
+* **Sideterrenget** avgjør hvor langt skråningen når: programmet går ut fra røret
+  til veggen møter terrenget. Er lia brattere enn skråningen, kappes gropa 30 m
+  ut, og merknadene sier fra.
 * **Rør uten dimensjon får ingen grøft**, og merknadene sier hvor mye det gjelder.
 * **Tallene:** kubikk per lag (graving løsmasse, sprengning, fundament,
   omfylling uten røret, gjenfylling), løpemeter grøft per dybdeklasse
   (0–1, 1–2, 2–3, 3–4 og over 4 m), alt per kode, og massebalansen med
-  prosjektets faktorer. Lengder og volum er på bakken, som for veg og tomt.
+  prosjektets faktorer. Lengder og volum er på bakken, som for vegen.
 
 Grøftekanten står i kartet, fundament, omfylling, gravebunn og fjell i
 lengdeprofilen (gravedybden under musa), og laget «Grøft» viser den som åpen
@@ -298,9 +303,11 @@ node test/groftprove.js
 ```
 
 Grøfta mot fasit regnet for hånd: én grøft per meter (graving, fundament,
-omfylling, gjenfylling, endene), fjellgrøft, loddrette vegger, felles og egen
-grøft, sammenslåing, mål per kode og strekning, dybdeklassene, massebalansen og
-bakkefaktoren. `npm test` kjører alle tre. Med `ROR_FIL=<sti til en xml>` kjøres
+omfylling, gjenfylling, endene), fjellgrøft fra strekninger og sonderinger,
+loddrette vegger, sidehelling, hull i terrenget, felles og egen grøft (også midt
+på et rør og i en knekk), sammenslåing med fall, ulike lengder og fjell, et
+T-kryss bygd som programmet bygger det, mål per kode og strekning,
+dybdeklassene, massebalansen og bakkefaktoren. `npm test` kjører alle tre. Med `ROR_FIL=<sti til en xml>` kjøres
 en ekte fil i tillegg i begge rørprøvene – kundens filer ligger ikke i repoet.
 
 ```bash

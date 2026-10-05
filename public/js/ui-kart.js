@@ -1708,7 +1708,11 @@ const Kart = {
        kan de aldri slås på igjen. */
     if (rett) {
       const av = new Set(r.retting.av);
+      /* Med «Grøft på strekning» kan bare punktene på rørene velges – de som
+         er slått av, og punktobjektene, vises ikke da. */
+      const paaRor = this.modus === 'groftStrekning' ? new Set(bygg.linjer.flatMap(l => l.punkter.map(p => p.id))) : null;
       for (const p of r.punkter) {
+        if (paaRor && !paaRor.has(p.id)) continue;
         const er = av.has(p.id);
         L.circleMarker(ll(p), {
           radius: er ? 4 : 3, color: er ? '#9a9aa3' : '#0b0b0c', weight: er ? 1.5 : 1,
