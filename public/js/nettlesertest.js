@@ -8461,6 +8461,34 @@ const Nettlesertest = {
     }
   },
 
+  /** PDF-en for et røranlegg, og et prosjekt med veg og rør. */
+  async rorPdf() {
+    const foer = JSON.stringify(App.P);
+    try {
+      App.P = App.nyttProsjekt();
+      await RorUI.importerTekst(this._rorXml(), 'asbuilts_Prove.xml', {}, { sone: 32, maal: 'nytt' });
+      await this.ventPaBeregning(30000);
+      const bytes = await Pdfrapport.lag(false);
+      this.sjekk('PDF-en ble laget', !!bytes && bytes.length > 2000, bytes ? bytes.length + ' byte' : 'ingen');
+      const tekst = bytes ? new TextDecoder('latin1').decode(bytes) : '';
+      this.sjekk('den er en PDF', tekst.startsWith('%PDF-1.') && tekst.trimEnd().endsWith('%%EOF'));
+      const bilder = (tekst.match(/\/Subtype \/Image/g) || []).length;
+      this.sjekk('planen og de tre profilene er med', bilder >= 4, bilder + ' bilder');
+
+      const demo = await (await fetch('demo/ydestad-demo.json')).json();
+      App.P = demo;
+      App.visAnleggsvelger(); App.malTilSkjema();
+      await App.oppdater();
+      await RorUI.importerTekst(this._rorXml(), 'asbuilts_Prove.xml', {}, { sone: 32, maal: 'nytt' });
+      await this.ventPaBeregning(30000);
+      const alle = await Pdfrapport.lagProsjekt(false);
+      this.sjekk('prosjekt-PDF med veg og rør ble laget', !!alle && alle.length > 5000, alle ? alle.length + ' byte' : 'ingen');
+    } finally {
+      App.P = JSON.parse(foer);
+      App.visAnleggsvelger(); App.visAnleggsvalg(); App.malTilSkjema(); App.tegnAlt(); await App.oppdater();
+    }
+  },
+
   /**
    * En oppdiktet as-built-fil ved Ydestad, der demoen ligger og terrenget
    * finnes. Samme oppskrift som proverPunkter() i test/rorprove.js: to rør i

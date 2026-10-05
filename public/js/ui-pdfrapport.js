@@ -127,12 +127,14 @@ const Pdfrapport = {
            både som en rad i sammendraget og som en «ikke regnet»-linje under
            det. Da talte «SUM · N anlegg» ett anlegg for mye, og summen dekket
            en rad som rapporten selv sa manglet. */
+        const ror = anl.type === 'ror' ? Ror.sammendrag(res) : null;
         const rad = { navn: anl.navn || anl.type, type: anl.type, sum: res.sum,
-          kode: Rapport.anleggskode(i), id: anl.id };
+          kode: Rapport.anleggskode(i), id: anl.id,
+          rorTekst: ror ? `${ror.antall} rør · ${Rapport.tall(ror.lengde)} m` : '' };
         await this._bygg(a2, res, delt);
         rader.push(rad);
         return true;
-      });
+      }, { medRor: true });
       if (!tatt.length) {
         app.status('Ingen av anleggene kunne rapporteres – '
           + hoppet.map(h => (h.anlegg.navn || h.anlegg.type) + ': ' + h.grunn).join('; '));
@@ -193,6 +195,12 @@ const Pdfrapport = {
     y += 12;
     for (const r of rader) {
       P.tekst(this.MARG, y, r.kode + ' · ' + r.navn, { storrelse: this.T4, farge: this.SVART });
+      if (r.type === 'ror') {
+        // rør har ingen masser ennå – lengden står i stedet, og raden teller ikke i summen
+        P.tekst(kol[3], y, r.rorTekst, { storrelse: this.T5, juster: 'h', farge: this.GRA });
+        y += 13;
+        continue;
+      }
       P.tekst(kol[1], y, t(r.sum.skjaering), { storrelse: this.T4, juster: 'h', farge: this.SVART });
       P.tekst(kol[2], y, t(r.sum.skjaeringFjell), { storrelse: this.T4, juster: 'h', farge: this.SVART });
       P.tekst(kol[3], y, t(r.sum.fylling), { storrelse: this.T4, juster: 'h', farge: this.SVART });
@@ -209,7 +217,7 @@ const Pdfrapport = {
     P.linje(this.MARG, y - 8, innmarg, y - 8, { tykkelse: 1.4, farge: this.SVART });
     // nøyaktig de radene som står over streken – se App.prosjektsum
     const sum = app.prosjektsum(rader.map(r => r.id)) || {};
-    P.tekst(this.MARG, y, 'SUM · ' + rader.length + ' anlegg',
+    P.tekst(this.MARG, y, 'SUM · ' + rader.filter(r => r.type !== 'ror').length + ' anlegg',
       { storrelse: this.T4, fet: true, farge: this.SVART });
     P.tekst(kol[1], y, t(sum.skjaering), { storrelse: this.T4, fet: true, juster: 'h', farge: this.SVART });
     P.tekst(kol[2], y, t(sum.skjaeringFjell), { storrelse: this.T4, fet: true, juster: 'h', farge: this.SVART });
@@ -249,8 +257,10 @@ const Pdfrapport = {
     /** Undertittelen: hva slags arbeid dette er. Én linje, aldri to. */
     const undertittel = app.erTomt()
       ? (Tomt.Arbeidstyper[app.P.tomt.arbeidstype] || { navn: 'Tomt' }).navn
-      /* «Veiklasse 5 – Klasse 5 – Sommerbilvei …» sa tallet to ganger. */
-      : this._klassenavn(app).replace(/^Veiklasse (\S+) – Klasse \S+ – /, 'Veiklasse $1 – ');
+      : app.erRor()
+        ? 'Innmålte rør · ' + (app.anlegg().navn || 'Rør')
+        /* «Veiklasse 5 – Klasse 5 – Sommerbilvei …» sa tallet to ganger. */
+        : this._klassenavn(app).replace(/^Veiklasse (\S+) – Klasse \S+ – /, 'Veiklasse $1 – ');
 
     /**
      * Sidehodet.
@@ -469,6 +479,15 @@ const Pdfrapport = {
        felt ville tatt åtte krasj på rad. */
     if (app.erTomt()) {
       await this._tomteinnhold(app, res, {
+        P, t, tilstand, innmarg, nySide, plass, overskrift, nokkeltabell, toSpalter, band, tabell, brodtekst,
+        delt
+      });
+      if (delt) return null;
+      this._bunn(P, innmarg);
+      return P.bygg();
+    }
+    if (app.erRor()) {
+      await this._rorinnhold(app, res, {
         P, t, tilstand, innmarg, nySide, plass, overskrift, nokkeltabell, toSpalter, band, tabell, brodtekst,
         delt
       });
@@ -926,6 +945,75 @@ const Pdfrapport = {
     brodtekst('Volumene er regnet celle for celle på Kartverkets 1 m rutenett. Skjæringen måles '
       + 'fra den avdekkede flaten, altså etter at matjorda er tatt av, så matjorda ligger ikke '
       + 'i skjæringsvolumet i tillegg til sin egen post.');
+  },
+
+  /**
+   * Rørdelen: tallene, planen, tabellen, merknadene og profilene.
+   * Samme rekkefølge som HTML-rapporten, så de to kan leses side om side.
+   *
+   * Ø, ikke ⌀: PDF-skriveren dropper tegn over 255 (se `_tekstbytes`), og
+   * diametertegnet ville forsvunnet uten et ord – «180» i stedet for «⌀180».
+   */
+  async _rorinnhold(app, res, r) {
+    const { P, t, tilstand, innmarg, nySide, plass, overskrift, band, tabell, brodtekst } = r;
+    const ror = app.P.ror;
+    const s = Ror.sammendrag(res);
+    const bf = res.bakkefaktor || 1;
+    const od = v => (Number.isFinite(v) ? t(v, 2) : '–');
+
+    nySide();
+    if (r.delt && r.delt.anleggsnavn) this._anleggstittel(P, tilstand, innmarg, r.delt.anleggsnavn);
+    P.tekst(this.MARG, tilstand.y, `Innmålte punkt fra maskinstyringen · EUREF89 UTM${app.sone}`
+      + ' · høydene er topp rør (NN2000)', { storrelse: 7.6, farge: this.GRA });
+    tilstand.y += 6;
+    band([
+      ['Rør', String(s.antall), ''],
+      ['Lengde', t(s.lengde), 'm'],
+      ['Minste overdekning', od(s.minOd), 'm', s.minOd < 0],
+      ['Største overdekning', od(s.maksOd), 'm']
+    ]);
+
+    const teg = Rapport.lagRortegninger(res);
+    const settInn = async (dataUrl, tittel, undertekst, maksHoyde) => {
+      if (!dataUrl) return;
+      const bilde = await this._tilJpeg(dataUrl);
+      if (!bilde) return;
+      let bredde = innmarg - this.MARG;
+      let hoyde = bredde * bilde.hoyde / bilde.bredde;
+      if (maksHoyde && hoyde > maksHoyde) { bredde *= maksHoyde / hoyde; hoyde = maksHoyde; }
+      plass(hoyde + 46 + (undertekst ? 12 : 6));        // tittel og bilde på samme side
+      overskrift(tittel);
+      P.bilde(bilde.bytes, bilde.bredde, bilde.hoyde, this.MARG, tilstand.y - 6, bredde, hoyde);
+      P.rektangel(this.MARG, tilstand.y - 6, bredde, hoyde, { strek: this.LYSGRA, tykkelse: 0.5 });
+      tilstand.y += hoyde;
+      if (undertekst) {
+        P.tekst(this.MARG, tilstand.y, undertekst, { storrelse: 6.8, farge: this.GRA });
+        tilstand.y += 6;
+      }
+    };
+    await settInn(teg.plan, 'Rørene ovenfra',
+      'Nummeret ved hvert rør over 20 m er raden i tabellen. Strekene har farge etter koden.');
+
+    overskrift('Rørene');
+    tabell([
+      { tekst: '#', bredde: 18 }, { tekst: 'KODE', bredde: 120, venstre: true }, { tekst: 'DIM.', bredde: 42 },
+      { tekst: 'LENGDE M', bredde: 62 }, { tekst: 'PUNKT', bredde: 44 },
+      { tekst: 'MIN. OVERD. M', bredde: 70 }, { tekst: 'MAKS. OVERD. M', bredde: 70 }
+    ], res.linjer.map((l, i) => {
+      const k = ror.koder[l.kode] || Ror.tolkKode(l.kode);
+      const pr = res.profiler.get(l.id);
+      return { celler: [String(i + 1), l.kode, k.dim ? 'Ø' + k.dim : '–', t(l.lengde * bf, 1),
+        String(l.punkter.length), od(pr.minOverdekning), od(pr.maksOverdekning)] };
+    }).concat([{ sum: true, celler: ['', 'Sum', '', t(s.lengde, 1), '', od(s.minOd), od(s.maksOd)] }]));
+
+    if (res.merknader.length) {
+      overskrift('Merknader');
+      for (const m of res.merknader) brodtekst('• ' + m.tekst, { farge: this.SVART });
+    }
+    for (const p of teg.profiler) {
+      await settInn(p.bilde, 'Lengdeprofil · ' + p.navn,
+        'Tallene over punktene er overdekningen i meter. Høyden er overdrevet – hvor mye står i tegningen.', 230);
+    }
   },
 
 
