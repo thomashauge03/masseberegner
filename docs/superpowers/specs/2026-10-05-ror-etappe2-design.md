@@ -24,6 +24,8 @@ rør) skal bruke det som det er.
 | Grøft i fjell | **Loddrette vegger i fjell, samme bunnbredde og fundament som i løsmasse.** Løsmassen over graves med vanlig skråning fra kanten av fjellgrøfta |
 | Hvilke tall? | **Kubikk per lag, løpemeter per dybdeklasse, fordelt per rør og kode, massebalanse** |
 | Regnemåte | **Rutenett** (A under) |
+| Rør der koden ikke gir dimensjon | **Dimensjonen kreves.** Røret får ingen grøft før dimensjonen er satt; kodetabellen og importdialogen markerer koden, og grøftedelen sier hvilke koder og hvor mange meter som ikke er med. Ingen tall som ser riktige ut uten å være det |
+| Hvor mye av gravemassen kan brukes til gjenfylling? | **100 % som standard**, kan endres per anlegg |
 
 Fra etappe 1: punktene er toppen av røret, målt midt over senterlinja. Grøfta ligger
 derfor sentrert på linja gjennom punktene, og bunn rør er topp − D.
@@ -67,7 +69,9 @@ anlegg (type 'ror') {
 - `StandardGroftmal = { bunntillegg: 0.30, fundament: 0.15, omfylling: 0.30, helning: 1.0, brukbar: 1.0 }`.
 - `helning` er vannrett per loddrett: 1,0 = 1:1, 0,5 = 1:0,5, **0 = loddrett**.
 - `bunntillegg` er arbeidsrommet på hver side: bunnbredde = D + 2 × bunntillegg. D er
-  dimensjonen fra kodetabellen i meter; mangler den, regnes D = 0 og merknaden sier fra.
+  dimensjonen fra kodetabellen i meter. **Mangler den, får røret ingen grøft** – det er
+  ikke med i noen av tallene før dimensjonen er satt, og det sies fra (se 7). Et rør med
+  D = 0 ville gitt en grøft som er for grunn og for smal uten at noe så galt ut.
 - `fundament` er tykkelsen under bunn rør; `omfylling` er høyden over topp rør.
 - `brukbar` er andelen av gravd løsmasse som kan gå tilbake som gjenfylling (0–1).
 - **Det mest spesifikke vinner, felt for felt:** strekning → kode → anlegg.
@@ -128,6 +132,7 @@ Ut:
              kjopFundament, kjopOmfylling, kjopGjenfylling },
   rutenett: { x0, y0, nx, ny, rute, grav: Float32Array, styrende: Int32Array },
   profiler: Map(id → [{ s, gravebunn, fjell, fundamentTopp, omfyllingTopp }]),
+  utenDimensjon: [{ kode, lengde }],   // rør som ikke er med fordi dimensjonen mangler
   merknader: [{ type, linje?, tekst }]
 }
 ```
@@ -207,7 +212,9 @@ Med prosjektets faktorer, som veg og tomt:
 - **Rør-fanen** får en grøftedel: feltene for anleggets grøftemal, tabell per lag,
   løpemeter per dybdeklasse, tabell per kode, massebalansen, lista over strekninger og
   sammenslåinger (endre, slette) og merknadene. Hvert rør i lista får sin graving.
-- **Koder-fanen:** kodetabellen får grøftefeltene. Tomt felt = anleggets verdi.
+- **Koder-fanen:** kodetabellen får grøftefeltene. Tomt felt = anleggets verdi. En kode
+  som tegnes som rør uten dimensjon, markeres med «mangler dimensjon – ingen grøft»,
+  både her og i importdialogen.
 - **Kartet:**
   - grøftekanten mot terrenget – der gravingen starter – som en tynn strek rundt rørene
   - strekninger markert langs røret, sammenslåinger som en stiplet forbindelse
@@ -241,7 +248,7 @@ Alt som endrer grøfta, går gjennom `merk()`, så det kan angres.
 |---|---|
 | Terreng mangler i deler av grøfta | Merknad med arealet; rutene er ikke med i massene |
 | Røret ligger over terrenget | Ingen grøft der; merknad med lengden |
-| Kode uten dimensjon | Grøfta regnes med D = 0; merknad med koden |
+| Rør uten dimensjon | Ingen grøft for røret. Grøftedelen og merknaden sier hvilke koder og hvor mange meter som ikke er med; koden markeres i kodetabellen og importdialogen |
 | Strekning eller sammenslåing som ikke treffer lenger (etter ny import) | Merknad med antall, som rettingene |
 | Sammenslåtte rør som aldri er innen 10 m | Merknad |
 | Hvor fjellet kommer fra | Merknad med lengden fjell fra strekninger og fra sonderinger |
@@ -264,6 +271,7 @@ har navn i tekst og eget mønster i profilen, så farge aldri står alene.
 - felles grøft med flat bunn mellom to rør
 - loddrette vegger (helning 0)
 - dybdeklasser og styrende rør
+- rør uten dimensjon er ikke med, og meterne meldes per kode
 - massebalansen med faktorene
 - kontrollen graving + sprengning = fyll + rørvolum
 - klargjøringen av feltene
