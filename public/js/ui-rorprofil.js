@@ -20,7 +20,10 @@ const Rorprofil = {
     this.app = app;
     this.lerret = document.getElementById('rorprofil');
     if (!this.lerret) return this;
-    new ResizeObserver(() => this.tegn()).observe(this.lerret);
+    /* Neste bilde, ikke nå – se `tegnSnart`. Her sto `this.tegn()`, som satte
+       canvas.width inne i målingen, og nettlesertesten ble rød på «ResizeObserver
+       loop completed» når rørbildet ble byttet inn og ut. */
+    new ResizeObserver(() => tegnSnart(this)).observe(this.lerret);
     this.lerret.addEventListener('mousemove', e => {
       const r = this.lerret.getBoundingClientRect();
       this.peker = e.clientX - r.left;
