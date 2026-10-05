@@ -374,7 +374,10 @@ const Groft = (() => {
     s.fundament += lf * A; s.omfylling += lo * A; s.gjenfylling += gjen * A;
   }
 
-  /** Massene i grøfta – se spesifikasjonen, 4.1–4.6. */
+  /**
+   * Massene i grøfta – se spesifikasjonen, 4.1–4.6. `o.bakkefaktor` gjør
+   * UTM-målene om til mål på bakken; profilenes `s` står i UTM, som rørenes.
+   */
   function beregn(o) {
     const M = forbered(o);
     const rute = M.rute, A = rute * rute, n = Math.round(FLIS / rute);
@@ -437,6 +440,15 @@ const Groft = (() => {
         }
       }
     }
+    /* BAKKEN, IKKE KARTPLANET. Rutene er målt i UTM, og bakkefaktoren gjør dem
+       om til virkelige mål, som for veg og tomt: flatene – og volumene, der
+       høyden alt er en virkelig høydeforskjell – med kvadratet, lengdene langs
+       rørene under med faktoren selv. */
+    const bf = o.bakkefaktor || 1;
+    for (const p of [sum, ...per]) {
+      for (const fe of ['gravingLos', 'sprengning', 'fundament', 'omfylling', 'gjenfylling', 'areal']) p[fe] *= bf * bf;
+    }
+    manglerTerreng *= bf * bf;
     /* LANGS RØRENE: løpemeter, dybdeklasser, røret og profilen.
        En meter telles på røret som styrer der – det med den dypeste gropa.
        Ligger et grunt rør i grøfta til et dypt, står lengden på det dype, så
@@ -450,7 +462,7 @@ const Groft = (() => {
       const st = stasjoner(rr, M.seg);
       for (let k = 0; k < st.length; k++) {
         const q = st[k], sg = M.seg[q.j];
-        const bredde = k + 1 < st.length ? st[k + 1].s - q.s : 0;
+        const bredde = (k + 1 < st.length ? st[k + 1].s - q.s : 0) * bf;
         const Tq = M.terrengZ(q.x, q.y);
         const bunn = q.topp - rr.D;
         const rad = { s: q.s, terreng: Tq, gravebunn: NaN, fundamentBunn: bunn - sg.fund, fundamentTopp: bunn,
@@ -498,7 +510,7 @@ const Groft = (() => {
     const merknader = [];
     for (const [kode, l] of M.utenDimensjon) {
       merknader.push({ type: 'dimensjon',
-        tekst: `${kode}: ${m(l)} m rør uten dimensjon – ingen grøft. Sett dimensjonen i Koder-fanen.` });
+        tekst: `${kode}: ${m(l * bf)} m rør uten dimensjon – ingen grøft. Sett dimensjonen i Koder-fanen.` });
     }
     if (manglerTerreng > 0.5) {
       merknader.push({ type: 'hull',
@@ -531,7 +543,7 @@ const Groft = (() => {
     return {
       sum, perLinje: new Map(M.ror.map((rr, r) => [rr.linje.id, per[r]])), perKode, dybdeklasser,
       balanse: balanse(sum, M.mal, M.faktorer), profiler,
-      utenDimensjon: [...M.utenDimensjon].map(([kode, l]) => ({ kode, lengde: l })),
+      utenDimensjon: [...M.utenDimensjon].map(([kode, l]) => ({ kode, lengde: l * bf })),
       merknader, manglerTerreng, modell: M
     };
   }

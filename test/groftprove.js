@@ -129,6 +129,21 @@ const en = L => Groft.beregn({ linjer: [rett('a', '160PE', L, TOPP)], koder: kod
     terrengZ: (x, y) => (x < 1030 ? TERRENG : NaN) });
   paastand('hull i terrenget telles som areal', r.manglerTerreng > 5, String(r.manglerTerreng));
 }
+{
+  /* Bakkefaktoren, som for veg og tomt: lengdene ganges med den, flatene og
+     volumene med kvadratet. Røret trekkes fra med sin virkelige lengde, så
+     regnestykket går fortsatt opp. */
+  const bf = 1.01;
+  const lag = k => Groft.beregn({ linjer: [rett('a', '160PE', 100, TOPP)], koder: koder160, terrengZ: flatt, rute: 0.2,
+    bakkefaktor: k });
+  const u = lag(undefined), m = lag(bf);
+  sjekk('bakkefaktoren: lengden ganges med den', m.sum.lengde, u.sum.lengde * bf, 1e-9);
+  sjekk('og dybdeklassene', m.dybdeklasser[1].lengde, u.dybdeklasser[1].lengde * bf, 1e-9);
+  sjekk('gravingen med kvadratet', m.sum.gravingLos, u.sum.gravingLos * bf * bf, 1e-6);
+  sjekk('røret med faktoren', m.sum.rorvolum, u.sum.rorvolum * bf, 1e-9);
+  sjekk('og regnestykket går opp', m.sum.gravingLos + m.sum.sprengning,
+    m.sum.fundament + m.sum.omfylling + m.sum.gjenfylling + m.sum.rorvolum, 1e-6);
+}
 
 console.log('\n5. Felles grøft, egen grøft og sammenslåing');
 {

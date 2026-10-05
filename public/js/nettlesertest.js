@@ -170,7 +170,7 @@ const Nettlesertest = {
       'tomt3d', 'veg3d', 'kartlag',
       'rorArbeidsbilde', 'rorBeregning', 'rorImport', 'rorSone', 'rorKart', 'rorFane', 'rorRetting',
       'rorProfil', 'ror3d', 'rorRapport', 'rorPdf', 'rorForklaring',
-      'groftBeregning', 'groftFane', 'groftKoder', 'groftVerktoy', 'groftProfil', 'groft3d',
+      'groftBeregning', 'groftFane', 'groftKoder', 'groftVerktoy', 'groftProfil', 'groft3d', 'groftRapport',
       'lovlighet', 'framdrift', 'gamleFilerOgUtskifting', 'opprydding'];
     for (const navn of proever) {
       try {
@@ -8960,6 +8960,41 @@ const Nettlesertest = {
         Rorprofil.peker = null;
       });
     } finally {
+      await this._rorTilbake(foer);
+    }
+  },
+
+  /** Grøftemassene i rapporten og PDF-en, og i prosjektradene. */
+  async groftRapport() {
+    const foer = JSON.stringify(App.P);
+    const gammel = Rapport.visRapport;
+    let html = null;
+    Rapport.visRapport = h => { html = h; };
+    try {
+      await this._medFlattTerreng(21.5, async () => {
+        App.P = App.nyttProsjekt();
+        await RorUI.importerTekst(this._rorXml(), 'asbuilts_Prove.xml', {}, { sone: 32, maal: 'nytt' });
+        clearTimeout(App._tidsavbrudd);
+        await App.beregnRor();
+        Rapport.apneRapport();
+        this.sjekk('rapporten har grøftemassene', !!html && /<h2>Grøftemasser<\/h2>/.test(html));
+        this.sjekk('med normalgrøfta som tegning', !!html && /class="groftsnitt" src="data:image\/png/.test(html));
+        this.sjekk('og dybdeklassene', !!html && /1–2 m/.test(html));
+        this.sjekk('og massebalansen', !!html && /Kjøpes: fundament/.test(html));
+        /* Innholdsstrømmene er pakket med deflate, og PDF-skriveren skriver
+           Ø som \330 – derfor pakkes de ut, og overskriften letes etter slik
+           den faktisk står i fila. */
+        const bytes = await Pdfrapport.lag(false);
+        const strommer = bytes ? await PdfImport.lesStrommer(bytes) : [];
+        const innhold = strommer.map(s => (typeof s === 'string' ? s : new TextDecoder('latin1').decode(s))).join('\n');
+        this.sjekk('PDF-en har grøftemassene', /GR\\330FTEMASSER/.test(innhold));
+        // tankestreken er WinAnsi 150, oktalt \226 – «1–2 m»
+        this.sjekk('og dybdeklassene', /1\\2262 m/.test(innhold));
+        const bilder = bytes ? (new TextDecoder('latin1').decode(bytes).match(/\/Subtype \/Image/g) || []).length : 0;
+        this.sjekk('med normalgrøfta som bilde', bilder >= 5, bilder + ' bilder');
+      });
+    } finally {
+      Rapport.visRapport = gammel;
       await this._rorTilbake(foer);
     }
   },

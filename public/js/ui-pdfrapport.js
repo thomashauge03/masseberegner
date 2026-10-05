@@ -130,7 +130,9 @@ const Pdfrapport = {
         const ror = anl.type === 'ror' ? Ror.sammendrag(res) : null;
         const rad = { navn: anl.navn || anl.type, type: anl.type, sum: res.sum,
           kode: Rapport.anleggskode(i), id: anl.id,
-          rorTekst: ror ? `${ror.antall} rør · ${Rapport.tall(ror.lengde)} m` : '' };
+          rorTekst: ror ? `${ror.antall} rør · ${Rapport.tall(ror.lengde)} m` + (res.groft
+            ? ` · graving ${Rapport.tall(res.groft.sum.gravingLos)} m³ · sprengning ${Rapport.tall(res.groft.sum.sprengning)} m³`
+            : '') : '' };
         await this._bygg(a2, res, delt);
         rader.push(rad);
         return true;
@@ -196,7 +198,8 @@ const Pdfrapport = {
     for (const r of rader) {
       P.tekst(this.MARG, y, r.kode + ' · ' + r.navn, { storrelse: this.T4, farge: this.SVART });
       if (r.type === 'ror') {
-        // rør har ingen masser ennå – lengden står i stedet, og raden teller ikke i summen
+        /* Grøftemassene er en annen sort enn vegens og tomtas skjæring og
+           fylling – de står i raden som tekst, og raden teller ikke i summen. */
         P.tekst(kol[3], y, r.rorTekst, { storrelse: this.T5, juster: 'h', farge: this.GRA });
         y += 13;
         continue;
@@ -955,7 +958,7 @@ const Pdfrapport = {
    * diametertegnet ville forsvunnet uten et ord – «180» i stedet for «⌀180».
    */
   async _rorinnhold(app, res, r) {
-    const { P, t, tilstand, innmarg, nySide, plass, overskrift, band, tabell, brodtekst } = r;
+    const { P, t, tilstand, innmarg, nySide, plass, overskrift, toSpalter, band, tabell, brodtekst } = r;
     const ror = app.P.ror;
     const s = Ror.sammendrag(res);
     const bf = res.bakkefaktor || 1;
@@ -1005,6 +1008,46 @@ const Pdfrapport = {
       return { celler: [String(i + 1), l.kode, k.dim ? 'Ø' + k.dim : '–', t(l.lengde * bf, 1),
         String(l.punkter.length), od(pr.minOverdekning), od(pr.maksOverdekning)] };
     }).concat([{ sum: true, celler: ['', 'Sum', '', t(s.lengde, 1), '', od(s.minOd), od(s.maksOd)] }]));
+
+    /* GRØFTEMASSENE – samme rekkefølge som i HTML-rapporten: tegningen med
+       forbeholdene under, lagene og dybdene side om side, kodene, balansen. */
+    const g = res.groft;
+    if (g) {
+      const forbehold = 'Normalgrøfta med anleggets mål. Teoretisk profil mot terrenget slik det var før graving; '
+        + 'felles grøft regnes én gang og står på det dypeste røret. Fjell bare der det er markert eller sondert.';
+      if (teg.snitt) await settInn(teg.snitt, 'Grøftemasser', forbehold, 160);
+      else { overskrift('Grøftemasser'); brodtekst(forbehold); }
+      toSpalter(
+        { tittel: 'Masser, m³', rader: [['Graving løsmasse', t(g.sum.gravingLos)], ['Sprengning fjell', t(g.sum.sprengning)],
+          ['Fundament', t(g.sum.fundament)], ['Omfylling (uten rør)', t(g.sum.omfylling)], ['Gjenfylling', t(g.sum.gjenfylling)]] },
+        { tittel: 'Grøft etter dybde, m', rader: g.dybdeklasser.map(kl => [GroftUI.klasseNavn(kl), t(kl.lengde)])
+          .concat([['I alt', t(g.sum.lengde), true]]) });
+      const bal = [['Gjenfylling fra gravemassene', t(g.balanse.gjenfyllingFraGraving)],
+        ['Løsmasse til overs (fast mål)', t(g.balanse.overskuddLos)], ['Sprengt fjell (løst mål)', t(g.balanse.sprengtLos)],
+        ['Kjøpes: fundament', t(g.balanse.kjopFundament)], ['Kjøpes: omfylling', t(g.balanse.kjopOmfylling)]];
+      if (g.balanse.kjopGjenfylling > 0.5) bal.push(['Kjøpes: gjenfylling', t(g.balanse.kjopGjenfylling)]);
+      toSpalter({ tittel: 'Massebalanse, m³', rader: bal }, null);
+      tabell([{ tekst: 'KODE', bredde: 110, venstre: true }, { tekst: 'GRØFT M', bredde: 60 }, { tekst: 'GRAVING M³', bredde: 62 },
+        { tekst: 'FJELL M³', bredde: 55 }, { tekst: 'FUND. M³', bredde: 55 }, { tekst: 'OMF. M³', bredde: 55 },
+        { tekst: 'GJENF. M³', bredde: 60 }],
+      [...g.perKode].map(([kode, kk]) => ({ celler: [kode, t(kk.lengde), t(kk.gravingLos), t(kk.sprengning),
+        t(kk.fundament), t(kk.omfylling), t(kk.gjenfylling)] })));
+      const j = ror.groft || Groft.nyGroft();
+      if (j.strekninger.length || j.sammen.length) {
+        overskrift('Justeringer av grøfta');
+        for (const st of j.strekninger) {
+          brodtekst(`• ${GroftUI._plassering(st.fra, st.til) || 'punktene finnes ikke lenger'}: ${GroftUI.strekningTekst(st)}`,
+            { farge: this.SVART });
+        }
+        for (const p of j.sammen) {
+          brodtekst(`• Felles grøft: ${GroftUI._rorMed(p[0]) || '?'} og ${GroftUI._rorMed(p[1]) || '?'}`, { farge: this.SVART });
+        }
+      }
+      if (g.merknader.length) {
+        overskrift('Merknader om grøfta');
+        for (const x of g.merknader) brodtekst('• ' + x.tekst, { farge: this.SVART });
+      }
+    }
 
     if (res.merknader.length) {
       overskrift('Merknader');

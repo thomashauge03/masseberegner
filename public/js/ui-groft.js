@@ -189,6 +189,53 @@ const GroftUI = {
   },
 
   /**
+   * Normalgrøfta i løsmasse med anleggets mål – til rapporten og PDF-en:
+   * terreng, gjenfylling, omfylling, fundament, røret og målene ved siden av.
+   * Overdekningen er 1,2 m som eksempel; tegningen viser formen, ikke et sted.
+   */
+  tegnSnitt(lerret, mal, dimMm) {
+    const B = lerret.width, H = lerret.height, k = lerret.getContext('2d');
+    const m = Groft.malFor(mal, null, null), D = (dimMm || 110) / 1000;
+    const dybde = 1.2 + D + m.fundament;
+    const hel = m.helning, w = D / 2 + m.bunntillegg;
+    const skala = Math.min((H * 0.66) / dybde, (B * 0.55) / (2 * w + 2 * dybde * Math.max(hel, 0.2)));
+    const cx = B * 0.34, yT = H * 0.14, X = v => cx + v * skala, Y = v => yT + v * skala;
+    const halv = d => w + Math.max(0, dybde - d) * hel;   // halv bredde i dybden d under terrenget
+    const bunnRor = dybde - m.fundament, toppRor = bunnRor - D, omfTopp = Math.max(0, toppRor - m.omfylling);
+    const flate = (d0, d1, farge) => {
+      k.fillStyle = farge;
+      k.beginPath();
+      k.moveTo(X(-halv(d0)), Y(d0)); k.lineTo(X(halv(d0)), Y(d0));
+      k.lineTo(X(halv(d1)), Y(d1)); k.lineTo(X(-halv(d1)), Y(d1));
+      k.closePath(); k.fill();
+    };
+    k.fillStyle = Farger.flate; k.fillRect(0, 0, B, H);
+    flate(0, omfTopp, Farger.groft('gjenfylling'));
+    flate(omfTopp, bunnRor, Farger.groft('omfylling'));
+    flate(bunnRor, dybde, Farger.groft('fundament'));
+    // gravekanten rundt, så grøfta står klart mot bakken også der gjenfyllingen er lys
+    k.strokeStyle = Farger.groft('bunn'); k.lineWidth = 2;
+    k.beginPath();
+    k.moveTo(X(-halv(0)), Y(0)); k.lineTo(X(-halv(dybde)), Y(dybde));
+    k.lineTo(X(halv(dybde)), Y(dybde)); k.lineTo(X(halv(0)), Y(0));
+    k.stroke();
+    k.strokeStyle = Farger.terreng; k.lineWidth = 3;
+    k.beginPath(); k.moveTo(B * 0.03, Y(0)); k.lineTo(B * 0.97, Y(0)); k.stroke();
+    k.fillStyle = Farger.ror('vann');
+    k.beginPath(); k.arc(X(0), Y(toppRor + D / 2), Math.max(4, D / 2 * skala), 0, Math.PI * 2); k.fill();
+    const t = v => Rapport.tall(v, 2);
+    const forhold = v => String(+v.toFixed(2)).replace('.', ',');   // «1:1», ikke «1:1,00»
+    k.fillStyle = Farger.blekk; k.font = `${Math.round(H * 0.045)}px ${Farger.hent('skrift')}`;
+    k.textBaseline = 'middle'; k.textAlign = 'left';
+    const xt = Math.max(X(halv(0)) + B * 0.03, B * 0.66);
+    k.fillText('Gjenfylling, stedlige masser', xt, Y(omfTopp / 2));
+    k.fillText(`Omfylling ${t(m.omfylling)} m over røret`, xt, Y((omfTopp + bunnRor) / 2));
+    k.fillText(`Fundament ${t(m.fundament)} m`, xt, Y((bunnRor + dybde) / 2) + H * 0.02);
+    k.fillText(`Bunnbredde D + 2 × ${t(m.bunntillegg)} m · `
+      + (hel === 0 ? 'loddrette vegger' : `skråning 1:${forhold(hel)}`) + ' · i fjell loddrett', B * 0.03, Y(dybde) + H * 0.09);
+  },
+
+  /**
    * Klikk i kartet med «Grøft på strekning» eller «Felles grøft». Som
    * rettingene: alt i fila sin egen sone, der punktene står.
    */

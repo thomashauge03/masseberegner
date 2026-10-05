@@ -805,6 +805,7 @@ ${this.rapportbunn(valg.typer)}
   body{font-family:"Segoe UI",Arial,sans-serif;color:#0b0b0c;margin:22px;font-size:12px;line-height:1.45}
   img.rorplan{width:100%;max-width:1000px;border:1px solid #e4e4e7;margin:4px 0 10px}
   figure{margin:8px 0 14px} figure img.rorprofilbilde{width:100%;max-width:1000px;border:1px solid #e4e4e7}
+  img.groftsnitt{width:100%;max-width:720px;border:1px solid #e4e4e7;margin:4px 0 10px}
   figcaption{font-size:11px;color:#52525b}
   .brevhode{display:flex;align-items:center;gap:14px;background:#0b0b0c;color:#fff;
     padding:12px 16px;border-bottom:4px solid #d81e28;margin:-22px -22px 18px}
@@ -999,7 +1000,7 @@ ${merknader ? `<h2>Merknader</h2><table><thead><tr><th>Type</th><th>Merknad</th>
    */
   lagRortegninger(res) {
     const app = this.app;
-    const ut = { plan: null, profiler: [] };
+    const ut = { plan: null, profiler: [], snitt: null };
     const bilde = (bredde, hoyde, tegn) => {
       const l = document.createElement('canvas');
       l.width = bredde; l.height = hoyde;
@@ -1019,6 +1020,17 @@ ${merknader ? `<h2>Merknader</h2><table><thead><tr><th>Type</th><th>Merknad</th>
         ut.profiler.push({ nr: i + 1, id: l.id, navn: `${i + 1} · ${l.kode} · ${this.tall(l.lengde * bf, 1)} m`,
           bilde: bilde(1600, 420, lerret => Rorprofil.tegnPaa(lerret, d, { dpr: 1 })) });
       });
+      if (res.groft) {
+        /* Normalgrøfta tegnes med dimensjonen som har mest rør – det er den
+           grøfta som er «normal» på dette anlegget. */
+        const lengde = new Map();
+        for (const l of res.linjer) {
+          const dim = (app.P.ror.koder[l.kode] || Ror.tolkKode(l.kode)).dim;
+          if (dim) lengde.set(dim, (lengde.get(dim) || 0) + l.lengde);
+        }
+        const dim = [...lengde].sort((a, b) => b[1] - a[1]).map(x => x[0])[0] || 110;
+        ut.snitt = bilde(1200, 520, l => GroftUI.tegnSnitt(l, app.P.mal.groft, dim));
+      }
     } finally {
       document.documentElement.removeAttribute('data-utskrift');
       Farger.glem();
@@ -1048,6 +1060,42 @@ ${merknader ? `<h2>Merknader</h2><table><thead><tr><th>Type</th><th>Merknad</th>
     const merknader = res.merknader.map(m => `<li>${escapeHtml(m.tekst)}</li>`).join('');
     const profiler = teg.profiler.map(p => `<figure><img class="rorprofilbilde" src="${p.bilde}" `
       + `alt="Lengdeprofil for rør ${escapeHtml(p.navn)}"><figcaption>${escapeHtml(p.navn)}</figcaption></figure>`).join('');
+    const g = res.groft, j = r.groft || Groft.nyGroft();
+    const justeringer = j.strekninger.map(st => `<li>${escapeHtml(GroftUI._plassering(st.fra, st.til)
+      || 'punktene finnes ikke lenger')}: ${escapeHtml(GroftUI.strekningTekst(st))}</li>`).join('')
+      + j.sammen.map(p => `<li>Felles grøft: ${escapeHtml(GroftUI._rorMed(p[0]) || '?')} og `
+        + `${escapeHtml(GroftUI._rorMed(p[1]) || '?')}</li>`).join('');
+    const grofthtml = g ? `
+<h2>Grøftemasser</h2>
+<p class="liten">Teoretisk grøfteprofil mot Kartverkets terreng slik det var før graving. Felles grøft regnes
+én gang og står på det dypeste røret. Fjell bare der det er markert på røret eller sondert.</p>
+${teg.snitt ? `<img class="groftsnitt" src="${teg.snitt}" alt="Normalgrøfta med anleggets mål">` : ''}
+<table><thead><tr><th>Lag</th><th>m³</th></tr></thead><tbody>
+<tr><td>Graving løsmasse</td><td>${t(g.sum.gravingLos)}</td></tr>
+<tr><td>Sprengning fjell</td><td>${t(g.sum.sprengning)}</td></tr>
+<tr><td>Fundament</td><td>${t(g.sum.fundament)}</td></tr>
+<tr><td>Omfylling (uten rør)</td><td>${t(g.sum.omfylling)}</td></tr>
+<tr><td>Gjenfylling</td><td>${t(g.sum.gjenfylling)}</td></tr></tbody></table>
+<table><thead><tr><th>Dybde</th><th>Grøft</th></tr></thead><tbody>
+${g.dybdeklasser.map(kl => `<tr><td>${GroftUI.klasseNavn(kl)}</td><td>${t(kl.lengde)} m</td></tr>`).join('')}
+<tr class="sum"><td>I alt</td><td>${t(g.sum.lengde)} m</td></tr></tbody></table>
+<table><thead><tr><th>Kode</th><th>Grøft</th><th>Graving</th><th>Fjell</th><th>Fundament</th><th>Omfylling</th>
+<th>Gjenfylling</th></tr></thead><tbody>
+${[...g.perKode].map(([kode, kk]) => `<tr><td>${escapeHtml(kode)}</td><td>${t(kk.lengde)} m</td><td>${t(kk.gravingLos)}</td>`
+  + `<td>${t(kk.sprengning)}</td><td>${t(kk.fundament)}</td><td>${t(kk.omfylling)}</td><td>${t(kk.gjenfylling)}</td></tr>`).join('')}
+</tbody></table>
+<p class="liten">m³. Felles grøft står på det dypeste røret.</p>
+<table><thead><tr><th>Massebalanse</th><th>m³</th></tr></thead><tbody>
+<tr><td>Gjenfylling fra gravemassene</td><td>${t(g.balanse.gjenfyllingFraGraving)}</td></tr>
+<tr><td>Løsmasse til overs (fast mål)</td><td>${t(g.balanse.overskuddLos)}</td></tr>
+<tr><td>Sprengt fjell (løst mål)</td><td>${t(g.balanse.sprengtLos)}</td></tr>
+<tr><td>Kjøpes: fundament</td><td>${t(g.balanse.kjopFundament)}</td></tr>
+<tr><td>Kjøpes: omfylling</td><td>${t(g.balanse.kjopOmfylling)}</td></tr>
+${g.balanse.kjopGjenfylling > 0.5 ? `<tr><td>Kjøpes: gjenfylling</td><td>${t(g.balanse.kjopGjenfylling)}</td></tr>` : ''}
+</tbody></table>
+${justeringer ? `<h3>Justeringer</h3><ul>${justeringer}</ul>` : ''}
+${g.merknader.length ? `<h3>Merknader om grøfta</h3><ul>${g.merknader.map(x => `<li>${escapeHtml(x.tekst)}</li>`).join('')}</ul>` : ''}`
+      : '';
     const html = this.rapportskall(app, {
       tittel: 'Innmålte rør',
       typer: 'ror',
@@ -1064,6 +1112,7 @@ ${merknader ? `<h2>Merknader</h2><table><thead><tr><th>Type</th><th>Merknad</th>
 <th>Minste overdekning</th><th>Største</th><th>Merknad</th></tr></thead><tbody>${rader}
 <tr class="sum"><td></td><td>Sum</td><td></td><td>${t(s.lengde, 1)} m</td><td></td><td>${od(s.minOd)}</td><td>${od(s.maksOd)}</td><td></td></tr>
 </tbody></table>
+${grofthtml}
 ${merknader ? `<h2>Merknader</h2><ul>${merknader}</ul>` : ''}
 <h2>Lengdeprofiler</h2>
 ${profiler || '<p class="liten">Ingen rør over 20 m.</p>'}`);
@@ -1694,7 +1743,8 @@ ${profiler || '<p class="liten">Ingen rør over 20 m.</p>'}`);
         const ror = anl.type === 'ror' ? Ror.sammendrag(res) : null;
         return { html, navn: anl.navn || anl.type, type: anl.type, sum: res.sum,
           balanse: res.balanse || {}, kode: this.anleggskode(i),
-          rorTekst: ror ? `${ror.antall} rør, ${t(ror.lengde)} m – ingen masser i denne utgaven` : '' };
+          rorTekst: ror ? `${ror.antall} rør, ${t(ror.lengde)} m` + (res.groft
+            ? ` · graving ${t(res.groft.sum.gravingLos)} m³ · sprengning ${t(res.groft.sum.sprengning)} m³` : '') : '' };
       }, { medRor: true });
       if (!tatt.length) {
         this.eksportsvar('Ingen av anleggene kunne rapporteres – '

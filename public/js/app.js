@@ -2192,7 +2192,9 @@ const App = {
     let nr = 0;
     for (const a of this.P.anlegg) {
       nr++;
-      // rør har ingen masser i etappe 1 – de skal verken telles eller meldes som uregnet
+      /* Grøftemassene til rør er en annen sort enn skjæring og fylling, og hører
+         ikke hjemme i denne summen – de står i rørets egen rad i rapporten. Rør
+         skal heller ikke meldes som uregnet her. */
       if (a.type === 'ror') continue;
       if (med && !med.has(a.id)) continue;
       const erAktivt = a.id === this.P.aktivt && this.resultat && this.resultat.sum;
@@ -2327,7 +2329,8 @@ const App = {
   visNokkeltal() {
     const e = document.getElementById('nokkeltal');
     if (!e) return;
-    /* I rørbildet er det rørene som er tallene – det finnes ingen masser ennå. */
+    /* I rørbildet er det rørene som er tallene. Grøftemassene står i Rør-fanen
+       og i rapporten, der forbeholdene står ved siden av dem. */
     if (this.erRor()) {
       const r = this.resultat;
       if (!r || r.type !== 'ror') { e.className = 'nokkeltal tom'; e.innerHTML = ''; return; }
@@ -3336,20 +3339,21 @@ const App = {
     }
     /* GRØFTA – av de samme linjene, i regnesonen. Regnes bare på nytt når noe
        den bygger på er endret: linjene og høydene, kodene, grøftemalen,
-       justeringene, sonderingene eller terrenget. */
+       justeringene, sonderingene, terrenget, faktorene eller bakkefaktoren. */
     const fm = this.fjellmodellIUtm();
+    const bakkefaktor = this.bakkefaktor();
     const groftNokkel = JSON.stringify([bygg.linjer.map(l => [l.id, l.punkter.map(p => p.z)]), r.koder,
-      this.P.mal.groft, r.groft, fm.punkter, fm.rekkevidde, this._terrengnokkel, this.sone]);
+      this.P.mal.groft, r.groft, fm.punkter, fm.rekkevidde, this._terrengnokkel, this.sone, this.P.faktorer, bakkefaktor]);
     if (groftNokkel !== this._groftNokkel || !this._groftResultat) {
       this._groftResultat = Groft.beregn({
         linjer: bygg.linjer, koder: r.koder, mal: this.P.mal.groft, justering: r.groft,
-        terrengZ, fjellSondert: (x, y) => fm.sondert(x, y), faktorer: this.P.faktorer
+        terrengZ, fjellSondert: (x, y) => fm.sondert(x, y), faktorer: this.P.faktorer, bakkefaktor
       });
       this._groftNokkel = groftNokkel;
     }
     this.resultat = {
       type: 'ror', bygg, linjer: bygg.linjer, profiler, sone: this.sone,
-      bakkefaktor: this.bakkefaktor(),
+      bakkefaktor,
       merknader: Ror.merknader(bygg, profiler, this.P.mal.maksAvstand),
       groft: this._groftResultat
     };
