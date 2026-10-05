@@ -130,8 +130,8 @@ Ut:
   dybdeklasser: [{ fra: 0, til: 1, lengde }, …, { fra: 4, til: Infinity, lengde }],
   balanse: { gjenfyllingFraGraving, overskuddLos, sprengtFast, sprengtLos,
              kjopFundament, kjopOmfylling, kjopGjenfylling },
-  rutenett: { x0, y0, nx, ny, rute, grav: Float32Array, styrende: Int32Array },
-  profiler: Map(id → [{ s, gravebunn, fjell, fundamentTopp, omfyllingTopp }]),
+  modell,          // segmentene og flisregisteret – til Groft.nivaa(modell, x, y) og Groft.kanter(modell)
+  profiler: Map(id → [{ s, terreng, gravebunn, fundamentBunn, fundamentTopp, omfyllingTopp, fjell }]),
   utenDimensjon: [{ kode, lengde }],   // rør som ikke er med fordi dimensjonen mangler
   merknader: [{ type, linje?, tekst }]
 }
