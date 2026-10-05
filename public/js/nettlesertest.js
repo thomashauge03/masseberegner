@@ -8356,6 +8356,39 @@ const Nettlesertest = {
     }
   },
 
+  /** Lengdeprofilen: tegnet, med avlesning under musa, og den følger valget. */
+  async rorProfil() {
+    const foer = JSON.stringify(App.P);
+    try {
+      App.P = App.nyttProsjekt();
+      await RorUI.importerTekst(this._rorXml(), 'asbuilts_Prove.xml', {}, { sone: 32, maal: 'nytt' });
+      await this.ventPaBeregning(30000);
+      await this.vent(200);
+      const l = document.getElementById('rorprofil');
+      this.sjekk('lerretet har størrelse', l.width > 50 && l.height > 50, `${l.width}×${l.height}`);
+      const px = l.getContext('2d').getImageData(0, 0, l.width, l.height).data;
+      const forste = px.slice(0, 4).join(',');
+      let ulike = 0;
+      for (let i = 0; i < px.length; i += 16) if (px.slice(i, i + 4).join(',') !== forste) ulike++;
+      this.sjekk('det er tegnet noe', ulike > 500, String(ulike));
+      const r = l.getBoundingClientRect();
+      l.dispatchEvent(new MouseEvent('mousemove', { clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 }));
+      const tekst = document.getElementById('rorEtikett').textContent;
+      this.sjekk('avlesningen viser overdekning og topp rør', /overdekning/.test(tekst) && /topp rør/.test(tekst), tekst);
+      const d = Rorprofil.dataFor(App, App.resultat, App.resultat.linjer.find(x => x.id === RorUI.valgt));
+      this.sjekk('dataene hører til det valgte røret', !!d && d.linje.id === RorUI.valgt);
+      const A = App.resultat.linjer.find(x => x.kode === '90PE' && x.lengde > 150);
+      RorUI.velgLinje(A.id);
+      const dA = Rorprofil.dataFor(App, App.resultat, A);
+      this.sjekk('muffen står på profilen til røret den sitter på',
+        dA.objekter.length === 1 && dA.objekter[0].kode === '90PE MUFFE', JSON.stringify(dA.objekter.map(o => o.kode)));
+      this.sjekk('velgeren følger valget', /90PE/.test(document.getElementById('ror_velg').selectedOptions[0].textContent));
+    } finally {
+      App.P = JSON.parse(foer);
+      App.visAnleggsvelger(); App.visAnleggsvalg(); App.malTilSkjema(); App.tegnAlt(); await App.oppdater();
+    }
+  },
+
   /**
    * En oppdiktet as-built-fil ved Ydestad, der demoen ligger og terrenget
    * finnes. Samme oppskrift som proverPunkter() i test/rorprove.js: to rør i

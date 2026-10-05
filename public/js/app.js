@@ -2046,6 +2046,7 @@ const App = {
     Pdfrapport.init(this);
     PdfUI.init(this);
     RorUI.init(this);
+    Rorprofil.init(this);
     this.koblingerUI();
     this.visAnleggsvelger();
     this.visAnleggsvalg();
