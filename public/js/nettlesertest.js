@@ -170,7 +170,7 @@ const Nettlesertest = {
       'tomt3d', 'veg3d', 'kartlag',
       'rorArbeidsbilde', 'rorBeregning', 'rorImport', 'rorSone', 'rorKart', 'rorFane', 'rorRetting',
       'rorProfil', 'ror3d', 'rorRapport', 'rorPdf', 'rorForklaring',
-      'groftBeregning', 'groftFane',
+      'groftBeregning', 'groftFane', 'groftKoder',
       'lovlighet', 'framdrift', 'gamleFilerOgUtskifting', 'opprydding'];
     for (const navn of proever) {
       try {
@@ -8900,6 +8900,40 @@ const Nettlesertest = {
         const tull = document.getElementById('rorInnhold').querySelector('#groftFundament');
         tull.value = 'abc'; tull.dispatchEvent(new Event('change', { bubbles: true }));
         this.sjekk('et felt som ikke er et tall, endrer ingenting', App.P.mal.groft.fundament === 0.15);
+      });
+    } finally {
+      await this._rorTilbake(foer);
+    }
+  },
+
+  /** Grøftemål per kode, og et rør uten dimensjon som sier fra i stedet for å regnes med D = 0. */
+  async groftKoder() {
+    const foer = JSON.stringify(App.P);
+    try {
+      await this._medFlattTerreng(21.5, async () => {
+        App.P = App.nyttProsjekt();
+        await RorUI.importerTekst(this._rorXml(), 'asbuilts_Prove.xml', {}, { sone: 32, maal: 'nytt' });
+        clearTimeout(App._tidsavbrudd);
+        await App.beregnRor();
+        App.visFane('rorkoder');
+        const e = document.getElementById('rorKoder');
+        const hel = e.querySelector('table.groftkoder tr[data-kode="32PE"] [data-groft="helning"]');
+        this.sjekk('kodetabellen har grøftemål per kode', !!hel);
+        if (!hel) return;
+        hel.value = '0'; hel.dispatchEvent(new Event('change', { bubbles: true }));
+        this.sjekk('helningen lagres på koden', !!App.P.ror.koder['32PE'].groft && App.P.ror.koder['32PE'].groft.helning === 0);
+        const hel2 = document.querySelector('#rorKoder table.groftkoder tr[data-kode="32PE"] [data-groft="helning"]');
+        hel2.value = ''; hel2.dispatchEvent(new Event('change', { bubbles: true }));
+        this.sjekk('et tomt felt arver igjen', !App.P.ror.koder['32PE'].groft);
+        const dim = document.querySelector('#rorKoder table.rorkoder tr[data-kode="90PE"] [data-felt="dim"]');
+        dim.value = ''; dim.dispatchEvent(new Event('change', { bubbles: true }));
+        clearTimeout(App._tidsavbrudd);
+        await App.beregnRor();
+        const rad = document.querySelector('#rorKoder table.rorkoder tr[data-kode="90PE"]');
+        this.sjekk('koden merkes: mangler dimensjon', !!rad && /mangler/.test(rad.textContent));
+        const g = App.resultat.groft;
+        this.sjekk('og røret er ikke med i grøfta', !g.perKode.has('90PE') && g.utenDimensjon.some(u => u.kode === '90PE'));
+        this.sjekk('merknaden sier hvor mye', g.merknader.some(m => m.type === 'dimensjon' && /90PE/.test(m.tekst)));
       });
     } finally {
       await this._rorTilbake(foer);

@@ -330,7 +330,8 @@ const RorUI = {
         <td><label class="sr-only" for="${id}f">Tegnes som</label>
           <select id="${id}f" class="minivalg" data-felt="form">${valg(k.form, [['linje', 'Rør'], ['punkt', 'Punkt']])}</select></td>
         <td><label class="sr-only" for="${id}d">Dimensjon i mm</label>
-          <input id="${id}d" class="minitall" type="number" min="0" max="3000" step="1" data-felt="dim" value="${escapeAttr(k.dim || '')}"></td>
+          <input id="${id}d" class="minitall" type="number" min="0" max="3000" step="1" data-felt="dim" value="${escapeAttr(k.dim || '')}">${
+            k.form === 'linje' && !k.dim ? ' <span class="raud liten">mangler – ingen grøft</span>' : ''}</td>
         <td><label class="sr-only" for="${id}c">Farge</label>
           <select id="${id}c" class="minivalg" data-felt="farge">${valg(k.farge, farger)}</select></td>
         <td><label class="sr-only" for="${id}v">Ta med ${escapeHtml(kode)}</label>
@@ -345,7 +346,8 @@ const RorUI = {
   /** Det brukeren har valgt i kodetabellen, som en ny kodetabell. */
   lesKodetabell(rot, koder) {
     const ut = {};
-    for (const tr of rot.querySelectorAll('table.rorkoder tr[data-kode]')) {
+    // grøftetabellen har også klassen rorkoder for stilens skyld – radene dens er ikke koder
+    for (const tr of rot.querySelectorAll('table.rorkoder:not(.groftkoder) tr[data-kode]')) {
       const kode = tr.dataset.kode;
       const k = Object.assign({}, koder[kode]);
       const f = felt => tr.querySelector(`[data-felt="${felt}"]`);
@@ -615,8 +617,9 @@ const RorUI = {
     const antall = {};
     for (const p of r.punkter) antall[p.kode] = (antall[p.kode] || 0) + 1;
     e.innerHTML = '<p class="notis">Hva hver kode i fila betyr. Endringene gjelder med en gang, og kan angres.</p>'
-      + this.kodetabellHtml(r.koder, antall);
-    e.onchange = () => {
+      + this.kodetabellHtml(r.koder, antall) + GroftUI.kodeHtml(r.koder);
+    e.onchange = ev => {
+      if (ev && ev.target && ev.target.closest && ev.target.closest('table.groftkoder')) { GroftUI.endreKode(ev.target); return; }
       this.app.merk('endret kode');
       r.koder = this.lesKodetabell(e, r.koder);
       this.app.tegnAlt();

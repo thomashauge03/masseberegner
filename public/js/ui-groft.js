@@ -144,6 +144,37 @@ const GroftUI = {
     }
   },
 
+  /** Grøftemål per kode. Tomt felt = anleggets verdi, som står som plassholder. */
+  kodeHtml(koder) {
+    const arv = Groft.malFor(this.app.P.mal.groft, null, null);
+    const navn = { bunntillegg: 'Arbeidsrom m', fundament: 'Fundament m', omfylling: 'Omfylling m', helning: 'Helning :1' };
+    const rader = Object.entries(koder).filter(([, k]) => k.form === 'linje').map(([kode, k], i) => {
+      const g = k.groft || {};
+      return `<tr data-kode="${escapeAttr(kode)}"><th scope="row">${escapeHtml(kode)}</th>`
+        + Groft.MALFELT.map(f => `<td><label class="sr-only" for="gk${i}${f}">${navn[f]} for ${escapeHtml(kode)}</label>`
+          + `<input id="gk${i}${f}" class="minitall" type="number" min="0" step="0.05" data-groft="${f}" `
+          + `value="${Number.isFinite(g[f]) ? g[f] : ''}" placeholder="${arv[f]}"></td>`).join('') + '</tr>';
+    }).join('');
+    return '<h3>Grøft per kode</h3><p class="notis">Tomt felt = som resten av anlegget.</p>'
+      + '<table class="rorkoder groftkoder"><thead><tr><th scope="col">Kode</th>'
+      + Groft.MALFELT.map(f => `<th scope="col">${navn[f]}</th>`).join('') + `</tr></thead><tbody>${rader}</tbody></table>`;
+  },
+
+  /** Et felt i tabellen over er endret. */
+  endreKode(input) {
+    const app = this.app;
+    const kode = input.closest('tr').dataset.kode, f = input.dataset.groft;
+    const k = app.P.ror.koder[kode];
+    if (!k) return;
+    const v = Groft.klem(f, input.value);
+    app.merk('endret grøft for kode');
+    const g = Object.assign({}, k.groft || {});
+    if (v === null) delete g[f]; else g[f] = v;
+    if (Object.keys(g).length) k.groft = g; else delete k.groft;
+    app.tegnAlt();
+    app.planlegg(30);
+  },
+
   /** Dialogen for en strekning – oppgave 9. */
   dialog() {}
 };
