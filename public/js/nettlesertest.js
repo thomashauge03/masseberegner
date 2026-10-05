@@ -203,13 +203,17 @@ const Nettlesertest = {
           if (foerNavn && await Lager.hent(foerNavn)) await Lager.lagre(foerNavn, App.P);
         } catch (e) { /* lageret sier fra selv */ }
         App._lagretSom = foerProsjekt;
-        /* Arbeidsbildet ma følge prosjektet tilbake. Uten dette sto skjermen
-           igjen i tomtemodus etter at et veganlegg var lagt tilbake: lengde-
-           profilen var skjult og kartet klemt sammen, og det sa ut som om
-           testen hadde ødelagt noe. */
-        App.visAnleggsvelger();
         try { await App.oppdater(); } catch (e) { /* tegningen kommer uansett */ }
       }
+      /* Arbeidsbildet ma følge prosjektet tilbake. Uten dette sto skjermen
+         igjen i tomtemodus etter at et veganlegg var lagt tilbake: lengde-
+         profilen var skjult og kartet klemt sammen, og det sa ut som om
+         testen hadde ødelagt noe.
+         OGSÅ NÅR PROSJEKTET ER URØRT. En prøve kan legge prosjektet tilbake
+         selv og likevel la bildet stå i tomtemodus – i hele runden retter den
+         neste prøven opp i det, men kjøres `tomt` alene (`kjor(['tomt'])`),
+         er det ingen neste. */
+      App.visAnleggsvelger();
       this.sjekk('prosjektet står igjen slik det var før testen',
         JSON.stringify(App.P) === foerProsjekt);
     }
@@ -8182,9 +8186,54 @@ const Nettlesertest = {
       this.sjekk('resultatet hører til røranlegget', r && r._anlegg === a.id);
       this.sjekk('bakkefaktoren er nær 1', r && Math.abs(r.bakkefaktor - 1) < 0.002, r && String(r.bakkefaktor));
       this.sjekk('nøkkeltallene viser rør', /Rør/.test(document.getElementById('nokkeltal').textContent));
+      /* Et anlegg UTEN data skal ikke arve topplinja fra det forrige. Målt:
+         etter et bytte fra rør til en tom veg sto «Rør 464 m · 4 rør» igjen. */
+      const tomt = App.P.anlegg.find(x => x.type !== 'ror' && !(x.ip && x.ip.length));
+      if (tomt) {
+        App.byttAnlegg(tomt.id);
+        await this.vent(400);
+        this.sjekk('rørtallene forsvinner når et anlegg uten data står oppe',
+          !/Rør/.test(document.getElementById('nokkeltal').textContent),
+          document.getElementById('nokkeltal').textContent);
+      }
     } finally {
       App.P = JSON.parse(foer);
       App.visAnleggsvelger(); App.malTilSkjema(); App.tegnAlt(); await App.oppdater();
+    }
+  },
+
+  /** Importen: fra tekst til anlegg, ny import av samme fil, og en fil som ikke er LandXML. */
+  async rorImport() {
+    const foer = JSON.stringify(App.P);
+    try {
+      App.P = App.nyttProsjekt();
+      App.visAnleggsvelger(); App.visAnleggsvalg(); App.malTilSkjema();
+      const ok = await RorUI.importerTekst(this._rorXml(), 'asbuilts_Prove_2026-09-01T10_00_00.000Z.xml', {},
+        { sone: 32, maal: 'nytt' });
+      this.sjekk('importen gikk gjennom', ok === true);
+      this.sjekk('det tomme anlegget ble byttet ut med rør',
+        App.P.anlegg.length === 1 && App.P.anlegg[0].type === 'ror', App.P.anlegg.map(a => a.type).join(','));
+      this.sjekk('navnet kommer fra filnavnet', App.anlegg().navn === 'Prove', App.anlegg().navn);
+      this.sjekk('prosjektet er ikke ubestemt lenger', !App.P.ubestemt);
+      this.sjekk('førstevalget er borte', document.getElementById('velganlegg').classList.contains('skjult'));
+      this.sjekk('alle 50 punktene ble med', App.P.ror.punkter.length === 50, String(App.P.ror.punkter.length));
+      this.sjekk('kodene fikk tolkning og farge', App.P.ror.koder['90PE'] && App.P.ror.koder['90PE'].form === 'linje'
+        && App.P.ror.koder['90PE MUFFE'].farge === 'punkt');
+      this.sjekk('kilden er notert', App.P.ror.kilder.length === 1 && App.P.ror.kilder[0].program === 'Xsite Manage');
+      this.sjekk('autolagringen ser innholdet', App.harInnhold());
+      const ok2 = await RorUI.importerTekst(this._rorXml(), 'asbuilts_Prove_2026-09-02.xml', {},
+        { sone: 32, maal: 'leggTil' });
+      this.sjekk('samme fil lagt til en gang til gir ingen doble punkt', ok2 && App.P.ror.punkter.length === 50);
+      this.sjekk('og begge filene står som kilde', App.P.ror.kilder.length === 2);
+      const ok3 = await RorUI.importerTekst('<html></html>', 'feil.xml', {}, { sone: 32, maal: 'nytt' });
+      this.sjekk('en fil som ikke er LandXML avvises og rører ingenting', ok3 === false && App.P.anlegg.length === 1);
+      this.sjekk('og brukeren får vite hvorfor', /ikke LandXML/.test(document.getElementById('dialoginnhold').textContent));
+      document.getElementById('dialog').classList.add('skjult');
+      const farge = Farger.ror('vann');
+      this.sjekk('fargene finnes i stilarket', !!farge && farge !== '#888', farge);
+    } finally {
+      App.P = JSON.parse(foer);
+      App.visAnleggsvelger(); App.visAnleggsvalg(); App.malTilSkjema(); App.tegnAlt(); await App.oppdater();
     }
   },
 

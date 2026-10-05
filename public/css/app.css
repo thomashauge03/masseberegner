@@ -97,6 +97,28 @@
      bakgrunn – den viser hvor naboanlegget ligger, ikke hva det koster. */
   --data-annet: #5b7fa8;
 
+  /* ── RØRENE ─────────────────────────────────────────────────────
+     Systemet bærer fargen der koden sier hva røret er: vann er blått,
+     spillvann brunt, overvann turkis, drens oliven, kabelrør lilla.
+     Rør uten system får hver sin palettfarge (p1–p6) i den rekkefølgen
+     de dukker opp, så to ukjente rør i samme grøft aldri blir like.
+     Midttoner med minst 3:1 mot både det lyse kartet og de mørke
+     panelene – de samme strekene står begge steder. Koden står alltid
+     som tekst ved siden av; fargen er aldri alene. */
+  --ror-vann: #3d8fe0;
+  --ror-spill: #b5713f;
+  --ror-overvann: #23a89f;
+  --ror-drens: #a59a35;
+  --ror-kabel: #a066d6;
+  --ror-felles: #8a5a3c;
+  --ror-p1: #e0533d;
+  --ror-p2: #e3b23c;
+  --ror-p3: #d6589a;
+  --ror-p4: #5fb8e8;
+  --ror-p5: #7cc24a;
+  --ror-p6: #b9b9c2;
+  --ror-punkt: #fafafa;
+
   /* ── AREALDEKKE: hva bakken ER før noen har gravd i den ──────────
      Skog, vann, dyrka mark, eksisterende veg. Kilden er AR5 fra NIBIO,
      og hver farge svarer til en SOSI-kode – se arealdekke.js.
@@ -153,6 +175,20 @@
   /* På papir må den samme blåfargen være mørkere: en dempet tone som leses på
      skjerm forsvinner i toneren. */
   --data-annet: #4a6b8f;
+  /* Rørene på papir: samme kulør, mørkere – se :root. */
+  --ror-vann: #1f6fbf;
+  --ror-spill: #8c5226;
+  --ror-overvann: #13857e;
+  --ror-drens: #7d7420;
+  --ror-kabel: #7b42b3;
+  --ror-felles: #6b4129;
+  --ror-p1: #c23a25;
+  --ror-p2: #a87d12;
+  --ror-p3: #b03a78;
+  --ror-p4: #2b84b8;
+  --ror-p5: #4f8f24;
+  --ror-p6: #6f6f78;
+  --ror-punkt: #0b0b0c;
   /* Same arealdekket, løfta til papiret si lyshet – same forhold som
      --data-terrengflate blir løfta med. Kulørskiljet er urørt. */
   --areal-skog: #9eb287;
@@ -202,6 +238,20 @@
     --data-slitelag: rgba(63, 63, 70, 0.85);
     --data-rutenett: #e4e4e7;
     --data-akse: #d0d0d5;
+    /* Rørene i lyst tema – samme som på papir. */
+    --ror-vann: #1f6fbf;
+    --ror-spill: #8c5226;
+    --ror-overvann: #13857e;
+    --ror-drens: #7d7420;
+    --ror-kabel: #7b42b3;
+    --ror-felles: #6b4129;
+    --ror-p1: #c23a25;
+    --ror-p2: #a87d12;
+    --ror-p3: #b03a78;
+    --ror-p4: #2b84b8;
+    --ror-p5: #4f8f24;
+    --ror-p6: #6f6f78;
+    --ror-punkt: #0b0b0c;
   }
 }
 
@@ -900,6 +950,19 @@ body {
 #dialoginnhold .rad span { cursor: pointer; flex: 1; }
 #dialoginnhold .rad .knapp { margin-left: 6px; }
 .dialogverktoy { display: flex; gap: 8px; padding-bottom: 10px; border-bottom: 2px solid var(--kant); margin-bottom: 4px; }
+
+/* Importdialogen for rør trenger plass til kodetabellen. */
+.dialogboks.bred { width: min(820px, 94vw); }
+.rorsone { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 8px 0 2px; }
+table.rorkoder { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 12.5px; }
+table.rorkoder th, table.rorkoder td { padding: 4px 6px; border-bottom: 1px solid var(--kant); text-align: left; }
+table.rorkoder thead th { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--blekk-svak); }
+table.rorkoder td.tall { text-align: right; font-variant-numeric: tabular-nums; }
+table.rorkoder .minitall { width: 70px; }
+.rorfarge { display: inline-block; width: 14px; height: 6px; margin-right: 7px; vertical-align: middle;
+  border-radius: 1px; box-shadow: 0 0 0 1px rgba(0,0,0,.35); }
+fieldset.rormaal { border: 1px solid var(--kant); padding: 6px 10px; margin: 8px 0; }
+fieldset.rormaal label { display: block; padding: 2px 0; }
 
 .framdriftboks {
   background: var(--flate-opp); border: 2px solid var(--kant-sterk);

@@ -1148,6 +1148,10 @@ const App = {
   /** Førstevalget: gjør det ene anlegget prosjektet har til det man ba om. */
   velgAnleggstype(type) {
     if (!this.P || !this.P.ubestemt) return;
+    /* Rør tegnes ikke – de hentes fra en fil. Valget åpner filvelgeren, og
+       prosjektet blir bestemt først når importen er gjort (se RorUI.leggInn).
+       Avbryter man, står spørsmålet der fortsatt. */
+    if (type === 'ror') { RorUI.velgFil({}); return; }
     delete this.P.ubestemt;
     const a = this.anlegg();
     /* MEN BARE HVIS DET FAKTISK ER TOMT.
@@ -1260,12 +1264,16 @@ const App = {
       + '<div class="kartknapper">'
       + '<button class="kartknapp" data-nytt="veg">▬ Ny veg</button>'
       + '<button class="kartknapp" data-nytt="tomt">⬟ Ny tomt</button>'
+      + '<button class="kartknapp" data-nyttror="1">⌀ Nye rør (fra fil)</button>'
       + '</div>';
     for (const b of panel.querySelectorAll('[data-bytt]')) {
       b.onclick = () => { this.byttAnlegg(b.dataset.bytt); this._lukkAnleggspanel(); };
     }
     for (const b of panel.querySelectorAll('[data-nytt]')) {
       b.onclick = () => { this.leggTilAnlegg(b.dataset.nytt); this._lukkAnleggspanel(); };
+    }
+    for (const b of panel.querySelectorAll('[data-nyttror]')) {
+      b.onclick = () => { this._lukkAnleggspanel(); RorUI.velgFil({}); };
     }
     for (const b of panel.querySelectorAll('[data-navn]')) {
       b.onclick = () => this.dopAnlegg(b.dataset.navn);
@@ -2037,6 +2045,7 @@ const App = {
     Rapport.init(this);
     Pdfrapport.init(this);
     PdfUI.init(this);
+    RorUI.init(this);
     this.koblingerUI();
     this.visAnleggsvelger();
     this.visAnleggsvalg();
@@ -2665,6 +2674,9 @@ const App = {
     if (!this.linje || this.linje.lengde <= 1) {
       this.resultat = null; Rapport.visSammendrag(null); Lengdeprofil.tegn(); Tverrprofil.vis(null);
       this.visLinjetabell();
+      /* Topplinja skal ikke arve tallene til anlegget man kom fra. Uten dette
+         sto «Rør 464 m · 4 rør» igjen over en veg som ikke var tegnet ennå. */
+      this.visNokkeltal();
       return;
     }
     /* EN BEREGNING SOM ER UNDERVEIS TILHØRER ANLEGGET DEN BLE STARTET FOR.
@@ -3065,7 +3077,7 @@ const App = {
     if (!this.erTomt()) return null;
     const t = this.P.tomt;
     const p = this.tomtIUtm(t);
-    if (p.length < 3) { this.resultat = null; this.visTomtemasser(); return null; }
+    if (p.length < 3) { this.resultat = null; this.visTomtemasser(); this.visNokkeltal(); return null; }
 
     /* Marginen ma dekke sa langt skråningen faktisk kan komme til a ga, ikke
        bare søkebredden. Skråningen søker nå til den lander, men den kan ikke
