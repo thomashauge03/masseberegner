@@ -291,16 +291,22 @@ const Forklaring = {
         + `${system[k.system] ? ' · ' + system[k.system] : ''}${k.vis === false ? ' · slått av' : ''}</div></div>`;
     }
     ut += '</div><div class="sumkort"><h4>Ordene</h4>';
+    // et tegnet anlegg har ingen fil og ingen målte punkt – de ordene hører til innmålingen
+    const plan = !!r.plan;
     for (const [ord, tekst] of [
-      ['Topp rør', 'Punktene i fila er målt på toppen av røret, midt over senterlinja: sett ovenfra ligger de '
-        + 'i senter av røret. Senter er en halv diameter lenger ned, bunnen en hel.'],
+      plan
+        ? ['Topp rør', 'Toppen av røret – det overdekningen måles fra. For tegnede rør regnes den av bunn innvendig.']
+        : ['Topp rør', 'Punktene i fila er målt på toppen av røret, midt over senterlinja: sett ovenfra ligger de '
+          + 'i senter av røret. Senter er en halv diameter lenger ned, bunnen en hel.'],
       ['Overdekning', 'Fra topp rør opp til terrenget – Kartverkets laserterreng, slik det var da området ble '
         + 'skannet. Er terrenget endret etterpå, er tallet det også.'],
-      ['Under null', 'Røret ligger over terrenget i modellen. Oftest er terrenget endret etter skanning, '
-        + 'eller punktet er feilmålt.'],
-      ['Enslig punkt', `Et punkt uten nabo med samme kode innen ${app.P.mal.maksAvstand} m. Det står som en ring i kartet.`],
-      ['Bryt, koble og slå av', 'Rettinger du har gjort selv. De lagres mot punktenes id i fila, så de står seg '
-        + 'når en nyere fil importeres.'],
+      ...(plan ? [] : [
+        ['Under null', 'Røret ligger over terrenget i modellen. Oftest er terrenget endret etter skanning, '
+          + 'eller punktet er feilmålt.'],
+        ['Enslig punkt', `Et punkt uten nabo med samme kode innen ${app.P.mal.maksAvstand} m. Det står som en ring i kartet.`],
+        ['Bryt, koble og slå av', 'Rettinger du har gjort selv. De lagres mot punktenes id i fila, så de står seg '
+          + 'når en nyere fil importeres.']
+      ]),
       ['Høyden overdrevet', 'Profilen og 3D-bildet strekker høyden så røret får form. Hvor mye står i tegningen.'],
       ['Grøft', 'Teoretisk grøfteprofil mot terrenget: bunnbredde D + 2 × arbeidsrom, skråning opp til terrenget, '
         + 'loddrett i fjell.'],
@@ -311,7 +317,16 @@ const Forklaring = {
         + 'telles meteren bare på det dypeste. «Felles grøft» i kartet gir flat bunn mellom to rør.'],
       ['Egen grøft', 'En strekning som er gravd for seg. Massene og lengden telles fullt, selv der den overlapper en '
         + 'annen grøft.'],
-      ['Fjell i grøfta', 'Bare der det er markert på røret eller sondert. Ellers regnes alt som løsmasse.']
+      ['Fjell i grøfta', 'Bare der det er markert på røret eller sondert. Ellers regnes alt som løsmasse.'],
+      ...(plan ? [
+        ['Trase', 'Linja du tegner i kartet. Rørene ligger på den med sideavstand – flere rør i samme trase blir én grøft.'],
+        ['Bunn innvendig', 'Bunnløpet – høyden VA-tegningene oppgir. Programmet regner med topp rør: bunn − gods + diameter.'],
+        ['Kontrollpunkt', 'Endene, kummene og de låste høydene. Et fritt kontrollpunkt ligger med overdekningen under terrenget.'],
+        ['Selvfall og trykk', 'Selvfall går rett mellom kontrollpunktene, med fast fall. Trykk følger terrenget meter for meter. '
+          + 'Koden bestemmer: spillvann, overvann og drens er selvfall; vann og kabel er trykk.'],
+        ['Kontrollene', 'Overdekning under grensen, motfall og for lite eller for mye fall, kryss med for liten klaring – og '
+          + 'fjellet grøfta går i. Rødt i kartet og profilen, og i merknadene.']
+      ] : [])
     ]) ut += `<div class="forklaringsrad"><div><b>${ord}</b>${tekst}</div></div>`;
     /* Grøftas farger, med navnet ved – fargen skal aldri stå alene. */
     ut += '</div><div class="sumkort"><h4>Grøfta i tegningene</h4>';

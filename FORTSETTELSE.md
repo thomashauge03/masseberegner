@@ -16,22 +16,54 @@ Kjør testene først, så du vet du starter fra noe som virker:
 npm test
 ```
 
-(selvtesten, rørprøven og grøfteprøven etter hverandre)
+(selvtesten, rørprøven, grøfteprøven og planprøven etter hverandre)
 
 Nettlesertesten kjøres ved å åpne programmet med `?test=1`, eller fra konsollen
 med `Nettlesertest.kjor()`. Utviklingstjeneren startes med `node server.js`
 (port 5178). Programmet ligger også på https://masseberegner.vercel.app.
 
 Ved siste lagring: **609 prøver i selvtesten, 194 i rørprøven
-(`test/rorprove.js`), 119 i grøfteprøven (`test/groftprove.js`), 1120 i
-nettlesertesten, alle grønne.** Nettlesertesten
+(`test/rorprove.js`), 129 i grøfteprøven (`test/groftprove.js`), 90 i
+planprøven (`test/rorplanprove.js`), 53 i anleggsprøven og 258 i tomteprøven,
+alle grønne; 1197 av 1198 i nettlesertesten.** Den ene, «klikk i modellen
+flytter snittet dit» i `veg3d`, feiler likt på `main` når vinduet emuleres
+1440 × 900 i en mindre rute – klikket lander én rad ved siden av. 3D-prøvene
+må ha fanen framme; i en bakgrunnsfane tegnes ingen rammer. Nettlesertesten
 må kjøres i et vindu som er minst 1000 px bredt – under det legger
 sidepanelet seg oppå, og tre panelprøver blir røde uten at noe er galt. Massene på demoen er uendret gjennom hele runden: 1 548 m³ skjæring,
 1 015 m³ fjell, 135 m³ fylling — rettingene gjelder feilmåter, ikke normalveien.
 
 ## Det som skal gjøres nå
 
-### Rør, etappe 2 – grøftemasser, ferdig på grenen `ror-etappe2`
+### Rør, etappe 3a – planlagte rør, ferdig på grenen `ror-etappe3a`
+
+Spec: `docs/superpowers/specs/2026-10-05-ror-etappe3a-design.md`.
+Plan: `docs/superpowers/plans/2026-10-05-ror-etappe3a.md`.
+
+Nye rør tegnes i et eget anlegg: et røranlegg med `ror.plan` (traseer, rør med
+sideavstand, kummer, låste høyder, greiner) som regnes, tegnes og rapporteres
+som et innmålt – med grøft. Høydene settes som bunn innvendig og regnes om til
+topp rør med godset; frie kontrollpunkt ligger med overdekningen under
+terrenget, selvfall går rett mellom kontrollpunktene og trykk følger terrenget.
+Endene festes til innmålte rør (påkobling med kilde) eller til andre traseer
+(grein). Kummene får egen grop i `groft.js`. Kontrollene i `RorPlan.kontroller`:
+overdekning, fall og motfall (med toleranse for millimeteravrundingen),
+kryssing mot alle rør i prosjektet, og fjell fra grøfta.
+
+I skjermen (`ui-rorplan.js`): «✎ Ny trase» med «Rør i traseen», redigering i
+kartet (dra, sett inn, Delete, «◯ Kum», «⇄ Snu fallretning»), Rør-fanen og
+planfeltene i Koder-fanen, og profilen med punktfeltet, «fall videre», klikk og
+dra. Rapporten og PDF-en har regel, fall og kumlista; forklaringen har ordene.
+
+Underveis, utenfor planen: grøfteverktøyene måtte få linjene fra planen (de
+bygde dem av målte punkt, og et tegnet anlegg har ingen); PDF-skriveren kjente
+ikke ‰; rapportbunnen sa «innmålte punkt … topp rør» også om tegnede rør; og
+anleggslista la et nytt anlegg ved siden av det tomme når førstevalget sto oppe.
+
+Igjen: **3b** – eksport til maskinstyring og stikning, og **3c** – planlagt mot
+innmålt.
+
+### Rør, etappe 2 – grøftemasser, ferdig og flettet inn i `main`
 
 Spec: `docs/superpowers/specs/2026-10-05-ror-etappe2-design.md`.
 Plan: `docs/superpowers/plans/2026-10-05-ror-etappe2.md`.
@@ -99,8 +131,9 @@ de mindre funnene. Ikke gjort: id-en bruker `~` mellom endene, og to
 punktnavn som selv inneholder `~` kunne i teorien gi samme id. Neste:
 
 - **Etappe 2 – grøftemasser.** Ferdig – se over.
-- **Etappe 3 – planlegge nye rør.** Tegne rør i kartet og regne grøfta før
-  man graver.
+- **Etappe 3 – planlegge nye rør.** 3a (tegne, høydene, kummer, kontrollene,
+  grøfta) er ferdig – se over. 3b (eksport) og 3c (planlagt mot innmålt) står
+  igjen.
 
 `GJENNOMGANG.md` er lista. 18 uavhengige granskere gikk gjennom hver sin del av
 programmet, og hvert funn ble forsøkt motbevist av to andre — én som skulle

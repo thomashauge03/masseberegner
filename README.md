@@ -131,7 +131,7 @@ i førstevalget, eller slipp fila på kartet.
 Rørene vises i kart, lengdeprofil og 3D (piltastene blar mellom dem), og får
 sin egen del i rapporten og PDF-en. De kan ikke eksporteres til KOF, LandXML,
 SOSI eller DXF ennå – knappene sier fra, og samleeksporten hopper over dem.
-Planlegging av nye rør kommer i neste etappe.
+Nye rør tegnes i et eget anlegg – se «Planlagte rør» under.
 
 ### Grøftemasser
 
@@ -165,6 +165,42 @@ slik det var før graving.
 Grøftekanten står i kartet, fundament, omfylling, gravebunn og fjell i
 lengdeprofilen (gravedybden under musa), og laget «Grøft» viser den som åpen
 grop i 3D. Rapporten og PDF-en får delen «Grøftemasser» med normalgrøfta tegnet.
+
+### Planlagte rør
+
+Nye rør tegnes før jobben – til kalkylen, til høydeføringen og for å se dem mot
+det som ligger der. Velg **✎ Rør (tegn)** i førstevalget eller **Planlagte rør
+(tegn)** i anleggslista; anlegget er et røranlegg som regnes, tegnes og
+rapporteres som et innmålt, med grøft og alt.
+
+* **✎ Ny trase:** klikk punktene langs traseen, dobbeltklikk eller Enter
+  avslutter (tilbaketasten tar bort det siste, Esc avbryter). I «Rør i traseen»
+  velges ett eller flere rør – kode, sideavstand fra traseen (positiv til høyre
+  i tegneretningen) og regel. Rør i samme trase blir én grøft.
+* **Feste:** en ende som klikkes nær et målt punkt på et innmålt rør, blir en
+  påkobling med høyden derfra (låst, med kilden – merknadene sier fra om
+  punktet endres). En ende på en annen trase blir en grein som følger den.
+* **Høydene er bunn innvendig**, som på VA-tegningene; programmet regner
+  topp rør = bunn − gods + diameter (godset fra koden, ellers SDR 11 for PE og
+  SN8 for resten). Kontrollpunktene er endene, kummene og de låste høydene. Et
+  fritt kontrollpunkt ligger med overdekningen under terrenget (standard 2,0 m).
+* **Selvfall og trykk:** spillvann, felles, overvann og drens går rett mellom
+  kontrollpunktene; vann og kabel følger terrenget meter for meter. Fallet går i
+  tegneretningen – **⇄ Snu fallretning** snur det.
+* **◯ Kum** setter en kum i et punkt (velg rør når traseen har flere). Kummen
+  får egen grop i grøfta, og volumet står for seg i massetabellen.
+* **Kontrollene:** overdekning under grensen, motfall og for lite eller for mye
+  fall (med toleranse for millimeteravrundingen), kryss med for liten klaring
+  mot alle andre rør i prosjektet – og fjell i grøfta. Rødt i kartet og
+  profilen, og i merknadene.
+* **I profilen** klikkes et kontrollpunkt for punktfeltet (bunn innvendig, lås,
+  fall videre, hent påkoblingen på nytt), det dras for å låse en ny høyde, og et
+  klikk på røret mellom kontrollpunktene setter inn et punkt.
+
+Punktene i kartet dras i Rediger, et klikk på traseen setter inn et punkt, og
+Delete tar bort det valgte. Rør-fanen viser traseene med rørene, fallet og
+kumlista; Koder-fanen har gods, regel, overdekning og fall per kode. Eksport til
+maskinstyring og stikning (3b) og planlagt mot innmålt (3c) kommer.
 
 ## Hva «billigst» betyr
 
@@ -307,8 +343,18 @@ omfylling, gjenfylling, endene), fjellgrøft fra strekninger og sonderinger,
 loddrette vegger, sidehelling, hull i terrenget, felles og egen grøft (også midt
 på et rør og i en knekk), sammenslåing med fall, ulike lengder og fjell, et
 T-kryss bygd som programmet bygger det, mål per kode og strekning,
-dybdeklassene, massebalansen og bakkefaktoren. `npm test` kjører alle tre. Med `ROR_FIL=<sti til en xml>` kjøres
+dybdeklassene, massebalansen og bakkefaktoren. Med `ROR_FIL=<sti til en xml>` kjøres
 en ekte fil i tillegg i begge rørprøvene – kundens filer ligger ikke i repoet.
+
+```bash
+node test/rorplanprove.js
+```
+
+De planlagte rørene: bunn ↔ topp med godset, sideavstanden i knekker, høydene
+for selvfall og trykk mellom kontrollpunktene, kummer, greiner og påkoblinger,
+kontrollene (overdekning, fall og motfall med millimeteravrundingen, kryssing),
+fallet mellom kontrollpunktene og ryddingen av plandelen når prosjektfila åpnes.
+`npm test` kjører alle fire.
 
 ```bash
 node test/demo-ydestad.js
@@ -337,8 +383,10 @@ public/js/lager.js       prosjektlager i nettleseren, import og eksport
 public/js/eksport.js     KOF, LandXML, SOSI og DXF
 public/js/pdfimport.js   avlesning av tegnede kurver i en PDF
 public/js/ror.js         rørene: LandXML, koder, linjer, sone, profil
-public/js/groft.js       grøfta: rutenett, felles grøft, fjell, lag, dybdeklasser, balanse
+public/js/groft.js       grøfta: rutenett, felles grøft, kummer, fjell, lag, dybdeklasser, balanse
+public/js/rorplan.js     planlagte rør: høydene, kummer, greiner, påkoblinger og kontrollene
 public/js/ui-ror*.js     rørene i skjermen: import, faner, profil, 3D
+public/js/ui-rorplan.js  planlagte rør i skjermen: tegning, redigering, Rør-fanen, punktfeltet
 public/js/ui-groft.js    grøfta i skjermen: Rør-fanen, verktøyene i kartet, normalgrøfta
 public/js/farger.js      tegnefargene, hentet fra CSS-variablene
 public/js/nettlesertest.js  gjennomgang av grensesnittet (?test=1)

@@ -1782,7 +1782,7 @@ const Kart = {
         if (RorPlanUI.settInnPaaTrase(t.id, e.latlng)) app.status('Satte inn et punkt – dra det dit du vil ha knekken');
       });
       for (const p of t.punkter) {
-        const valgt = RorPlanUI.valgt && RorPlanUI.valgt.punkt === p.id;
+        const v = RorPlanUI.valgtHer(), valgt = !!v && v.trase === t.id && v.punkt === p.id;
         const m = L.marker([p.lat, p.lon], {
           draggable: rediger, keyboard: false,
           icon: L.divIcon({ className: '', html: `<div class="plan-punkt${valgt ? ' valgt' : ''}"></div>`, iconSize: [11, 11], iconAnchor: [5.5, 5.5] })

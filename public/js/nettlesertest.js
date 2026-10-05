@@ -173,6 +173,7 @@ const Nettlesertest = {
       'groftBeregning', 'groftFane', 'groftKoder', 'groftVerktoy', 'groftKnutepunkt', 'groftProfil', 'groft3d',
       'groftRapport',
       'planBeregning', 'planNyttAnlegg', 'planTegnTrase', 'planRediger', 'planFane', 'planProfil', 'planRapport',
+      'planForklaring',
       'lovlighet', 'framdrift', 'gamleFilerOgUtskifting', 'opprydding'];
     for (const navn of proever) {
       try {
@@ -9215,6 +9216,18 @@ const Nettlesertest = {
         this.sjekk('fallretningen er snudd for begge rørene', plan.ror.every(x => x.motsatt === true));
         await App.angre();
         this.sjekk('angre snur den tilbake', App.P.ror.plan.ror.every(x => x.motsatt === false));
+        /* Et valgt punkt hører til anlegget det ble valgt i. Id-ene går igjen
+           i hvert tegnet anlegg – t1, p2 – så uten det slettet Delete punktet
+           med samme id i det anlegget man hadde byttet til. */
+        RorPlanUI.velgPunkt('t1', 'p3');
+        const kopi = JSON.parse(JSON.stringify(App.anlegg()));
+        kopi.id = 'kopi'; kopi.navn = 'Kopi';
+        App.P.anlegg.push(kopi);
+        App.byttAnlegg('kopi');
+        const n = App.P.ror.plan.traseer[0].punkter.length;
+        RorPlanUI.slettValgt();
+        this.sjekk('Delete i et annet anlegg sletter ikke punktet med samme id der',
+          App.P.ror.plan.traseer[0].punkter.length === n);
       });
     } finally {
       await this._rorTilbake(foer);
@@ -9366,6 +9379,25 @@ const Nettlesertest = {
       });
     } finally {
       Rapport.visRapport = gammel;
+      await this._rorTilbake(foer);
+    }
+  },
+
+  /** Forklaringen i et tegnet anlegg har ordene for planleggingen – og ikke ordene for en innmåling. */
+  async planForklaring() {
+    const foer = JSON.stringify(App.P);
+    try {
+      await this._medFlattTerreng(21.5, async () => {
+        await this._planProsjekt();
+        App.visFane('forklaring');
+        const tekst = document.getElementById('forklaringInnhold').textContent;
+        this.sjekk('ordene for tegnede rør står der', /Bunn innvendig/.test(tekst) && /Selvfall og trykk/.test(tekst)
+          && /Kontrollpunkt/.test(tekst) && /Trase/.test(tekst) && /Kontrollene/.test(tekst));
+        this.sjekk('men ikke ordene for en innmåling', !/Enslig punkt/.test(tekst) && !/Bryt, koble og slå av/.test(tekst)
+          && !/Punktene i fila/.test(tekst));
+        App.visFane('ror');
+      });
+    } finally {
       await this._rorTilbake(foer);
     }
   },

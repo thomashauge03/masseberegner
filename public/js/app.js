@@ -7420,7 +7420,7 @@ const App = {
          Esc går ut av verktøyet under, og da forkastes traseen. */
       if (Kart.modus === 'tegnTrase' && e.key === 'Enter') { e.preventDefault(); RorPlanUI.avsluttTrase(); return; }
       if (Kart.modus === 'tegnTrase' && e.key === 'Backspace') { e.preventDefault(); RorPlanUI.angreSiste(); return; }
-      if (e.key === 'Delete' && this.erPlan() && RorPlanUI.valgt) { e.preventDefault(); RorPlanUI.slettValgt(); return; }
+      if (e.key === 'Delete' && this.erPlan() && RorPlanUI.valgtHer()) { e.preventDefault(); RorPlanUI.slettValgt(); return; }
       /* Esc midt i en målestrek avslutter STREKEN, ikke verktøyet – man måler
          gjerne tre ting etter hverandre, og å måtte finne knappen igjen mellom
          hver er nok til at man lar være. Andre Esc går ut av verktøyet. */

@@ -326,15 +326,25 @@ const RorPlanUI = {
     return id;
   },
 
-  /** Velger et tracepunkt – Delete tar det bort. */
+  /**
+   * Velger et tracepunkt – Delete tar det bort. Anlegget står i valget: id-ene
+   * (t1, p2) går igjen i hvert tegnet anlegg, og et valg i ett skal ikke
+   * slette et punkt i et annet man har byttet til.
+   */
   velgPunkt(tid, pid) {
-    this.valgt = { trase: tid, punkt: pid };
+    this.valgt = { anlegg: this.app.P.aktivt, trase: tid, punkt: pid };
     this.app.status('Punktet er valgt – Delete tar det bort, dra det for å flytte');
     Kart.tegnRor();
   },
 
+  /** Det valgte punktet, om det er valgt i anlegget som er oppe. */
+  valgtHer() {
+    return this.valgt && this.valgt.anlegg === this.app.P.aktivt ? this.valgt : null;
+  },
+
   slettValgt() {
-    if (this.valgt) this.slettPunkt(this.valgt.trase, this.valgt.punkt);
+    const v = this.valgtHer();
+    if (v) this.slettPunkt(v.trase, v.punkt);
     this.valgt = null;
   },
 
