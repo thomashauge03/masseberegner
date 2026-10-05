@@ -9249,7 +9249,9 @@ const Nettlesertest = {
         await App.angre();
         this.sjekk('og angre gir det tilbake', App.P.ror.plan.ror.length === 2);
         App.visFane('rorkoder');
-        this.sjekk('Koder-fanen vises', document.getElementById('rorKoder').getBoundingClientRect().height > 0);
+        // fanen er valgt – om sidepanelet er oppe, avhenger av skjermbredden
+        this.sjekk('Koder-fanen er valgt', document.getElementById('fane-rorkoder').classList.contains('aktiv')
+          && !document.querySelector('.fane[data-fane="rorkoder"]').classList.contains('skjult'));
         const tabell = document.querySelector('#rorKoder table.rorkoder:not(.groftkoder):not(.plankoder)');
         this.sjekk('kodetabellen teller rør, ikke punkt', !!tabell && /Rør/.test(tabell.querySelector('thead').textContent));
         const gods = document.querySelector('#rorKoder table.plankoder input[data-plan="gods"]');
