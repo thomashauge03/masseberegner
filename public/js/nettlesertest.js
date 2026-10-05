@@ -8287,6 +8287,23 @@ const Nettlesertest = {
         && !App.P.ror.punkter.some(p => p.id === 'glipp'), String(App.P.ror.punkter.length));
       const linje = document.getElementById('statuslinje').textContent;
       this.sjekk('og brukeren får vite at det ble hoppet over', /1 punkt utenfor UTM/.test(linje), linje);
+      /* EN FIL I EN ANNEN SONE, LAGT TIL ET ANLEGG. Sonen til hele anlegget ble
+         byttet til den nye filas, og alle de gamle punktene flyttet seg flere
+         hundre kilometer. Det nye punktet ligger 20 m øst for det første. */
+      const forste = App.P.ror.punkter.find(p => p.id === 'prove-1');
+      const forsteFoer = { n: forste.n, o: forste.o };
+      const [la, lo] = Ror.tilLatLon({ n: forste.n, o: forste.o + 20 }, 32);
+      const i33 = Geo.tilUtm(la, lo, 33);
+      const fil33 = this._rorXml().replace('</CgPoints>',
+        `<CgPoint name="ny-33" surveyOrder="98" code="90PE">${i33.y.toFixed(3)} ${i33.x.toFixed(3)} 19.000</CgPoint>\n</CgPoints>`)
+        .replace(/<CgPoint name="prove-\d+"[^>]*>[^<]*<\/CgPoint>\n?/g, '');
+      const ok5 = await RorUI.importerTekst(fil33, 'asbuilts_Prove_sone33.xml', {}, { sone: 33, maal: 'leggTil' });
+      const ny = App.P.ror.punkter.find(p => p.id === 'ny-33');
+      this.sjekk('anlegget beholder sin sone', ok5 === true && App.P.ror.sone === 32, String(App.P.ror.sone));
+      this.sjekk('de gamle punktene står der de sto', forste.n === forsteFoer.n && forste.o === forsteFoer.o);
+      this.sjekk('det nye punktet er regnet om til anleggets sone',
+        !!ny && Math.abs(ny.o - (forsteFoer.o + 20)) < 0.002 && Math.abs(ny.n - forsteFoer.n) < 0.002,
+        ny ? `${(ny.o - forsteFoer.o).toFixed(3)} m øst, ${(ny.n - forsteFoer.n).toFixed(3)} m nord` : 'mangler');
       const ok3 = await RorUI.importerTekst('<html></html>', 'feil.xml', {}, { sone: 32, maal: 'nytt' });
       this.sjekk('en fil som ikke er LandXML avvises og rører ingenting', ok3 === false && App.P.anlegg.length === 1);
       this.sjekk('og brukeren får vite hvorfor', /ikke LandXML/.test(document.getElementById('dialoginnhold').textContent));

@@ -269,7 +269,8 @@ const RorUI = {
         ${this.kodetabellHtml(koder, antall)}
         ${aktivtRor ? `<fieldset class="rormaal"><legend>Hvor skal punktene?</legend>
           <label><input type="radio" name="rorMaal" value="leggTil" checked>
-            Legg til i «${escapeHtml(aktivtRor.navn || 'Rør')}» – punkt som finnes fra før, kjennes igjen</label>
+            Legg til i «${escapeHtml(aktivtRor.navn || 'Rør')}» – punkt som finnes fra før, kjennes igjen.
+            Anlegget er i UTM ${aktivtRor.ror.sone}; er fila i en annen sone, regnes punktene om dit.</label>
           <label><input type="radio" name="rorMaal" value="nytt"> Nytt røranlegg</label></fieldset>` : ''}
         <div class="knapperad" style="justify-content:flex-end">
           <button class="knapp" id="rorAvbryt">Avbryt</button>
@@ -361,13 +362,23 @@ const RorUI = {
     let a = svar.maal === 'leggTil' && app.erRor() ? app.anlegg() : null;
     let melding;
     if (a) {
-      const sam = Ror.slaSammen(a.ror.punkter, les.punkter);
+      /* DE NYE PUNKTENE REGNES OM TIL ANLEGGETS SONE – IKKE OMVENDT.
+         Her sto `a.ror.sone = svar.sone`. Var den nye fila i en annen sone,
+         ble hele anlegget tolket i den: de gamle punktene flyttet seg flere
+         hundre kilometer, og det nye havnet 352 km fra der det var målt. */
+      const fra = svar.sone, til = a.ror.sone;
+      const iAnlegget = Ror.lagTilXY(fra, til);
+      const nye = fra === til ? les.punkter : les.punkter.map(p => {
+        const q = iAnlegget(p);
+        return Object.assign({}, p, { o: +q.x.toFixed(3), n: +q.y.toFixed(3) });
+      });
+      const sam = Ror.slaSammen(a.ror.punkter, nye);
       a.ror.punkter = sam.punkter;
       a.ror.koder = Object.assign({}, a.ror.koder, svar.koder);
       a.ror.kilder.push(kilde);
-      a.ror.sone = svar.sone;
       melding = `${sam.nye} nye punkt, ${sam.kjente} fantes fra før`
-        + (sam.endret ? `, ${sam.endret} med nye tall` : '');
+        + (sam.endret ? `, ${sam.endret} med nye tall` : '')
+        + (fra !== til ? ` – regnet om fra UTM ${fra} til anleggets UTM ${til}` : '');
     } else {
       const navn = this._ledigNavn(Ror.navnFraFil(filnavn));
       a = app.nyttAnlegg('ror', navn);
