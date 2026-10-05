@@ -348,8 +348,13 @@ function byggLinjer(ror, mal, tilXY) {
         lengde += d;
         lengde3d += Math.hypot(d, lp[k].z - lp[k - 1].z);
       }
-      const minId = lp.reduce((m, p) => (p.id < m ? p.id : m), lp[0].id);
-      linjer.push({ id: kode + ':' + minId, kode, punkter: lp, xy: lxy, lengde, lengde3d });
+      /* Id-en er de to endene. Treet har ingen ringer, så to rør med samme
+         kode kan ikke dele begge endene – men de kan dele ett punkt: i en
+         gren er knuten med i tre rør. Minste punkt-id var ofte knuten, og da
+         fikk tre rør samme id og samme profil. Sortert, så retningen ikke
+         spiller inn. */
+      const ender = [lp[0].id, lp[lp.length - 1].id].sort();
+      linjer.push({ id: kode + ':' + ender.join('~'), kode, punkter: lp, xy: lxy, lengde, lengde3d });
     }
   }
   linjer.sort((a, b) => (a.kode < b.kode ? -1 : a.kode > b.kode ? 1 : b.lengde - a.lengde));

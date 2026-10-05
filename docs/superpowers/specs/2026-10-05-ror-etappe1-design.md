@@ -168,8 +168,10 @@ Per kode med `form: 'linje'` og `vis: true`:
 6. Punkt uten nabo blir `enslige` (vises med merknad). Punktobjekter samles i
    `objekter`.
 
-Linje-id: `kode + ':' + den alfabetisk minste punkt-id-en i linja` – stabil nok til at
-valgt rør overlever en ombygging.
+Linje-id: `kode + ':' + de to endepunktenes id-er, sortert` – stabil nok til at
+valgt rør overlever en ombygging. (Først var det den minste punkt-id-en i linja,
+men i en gren er knutepunktet med i tre rør og var ofte det minste i flere av
+dem; da fikk rørene samme id.)
 
 ### 5.4 Import, ny import og sone
 

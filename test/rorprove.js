@@ -191,8 +191,29 @@ console.log('\n6. Linjene trekkes etter geometri');
     || Math.hypot(q.x - l.xy[i - 1].x, q.y - l.xy[i - 1].y) <= 25)));
   sjekk('muffen er et objekt', b.objekter.length, 1, 0);
   sjekk('ingen enslige', b.enslige.length, 0, 0);
-  paastand('id-en er kode og minste punkt-id', A.id === '90PE:p001', A.id);
+  paastand('id-en er kode og de to endene', A.id === '90PE:p001~p021', A.id);
   paastand('samme svar to ganger', JSON.stringify(Ror.byggLinjer(ror, Ror.StandardRormal, iFila)) === JSON.stringify(b));
+}
+
+console.log('\n6b. Et rør med en gren');
+{
+  /* Der et rør forgrener seg, er grenpunktet med i tre polylinjer. Id-en var
+     kode + minste punkt-id, og grenpunktet var ofte det minste i flere av
+     dem: rørene fikk samme id, og profilen til det ene ble vist for alle.
+     Målt i den ekte fila: tre 32PE-rør på 6, 5 og 2 m sto med nøyaktig samme
+     overdekning, 0,03–0,18 m. */
+  const pts = [];
+  let nr = 0;
+  const p = (x, y) => pts.push({ id: 'g' + String(++nr).padStart(2, '0'), kode: '90PE', n: y, o: x, z: 1, tid: '', nr });
+  p(40, 0);                                   // g01 – grenpunktet har lavest id
+  for (let x = 0; x <= 32; x += 8) p(x, 0);   // hovedløpet før grenen
+  for (let x = 48; x <= 80; x += 8) p(x, 0);  // og etter
+  p(40, 3);                                   // en stubb rett ut fra grenpunktet
+  const b = Ror.byggLinjer({ punkter: pts, koder: {}, retting: { av: [], brudd: [], koble: [] } },
+    Ror.StandardRormal, iFila);
+  sjekk('tre rør møtes i grenpunktet', b.linjer.length, 3, 0);
+  paastand('og hvert har sin egen id', new Set(b.linjer.map(l => l.id)).size === b.linjer.length,
+    b.linjer.map(l => l.id).join(' '));
 }
 
 console.log('\n7. Retting: av, brudd og kobling');
@@ -457,6 +478,9 @@ if (process.env.ROR_FIL) {
   paastand('ingen strekk over 25 m', b.linjer.every(l => l.xy.every((q, i) => i === 0
     || Math.hypot(q.x - l.xy[i - 1].x, q.y - l.xy[i - 1].y) <= 25)));
   paastand('sonen er 32', Ror.gjettSone(les.punkter, les.epsg, []).sone === 32);
+  const ider = b.linjer.map(l => l.id);
+  paastand('hvert rør har sin egen id', new Set(ider).size === ider.length,
+    ider.filter((id, i) => ider.indexOf(id) !== i).join(' '));
   const perKode = {};
   for (const l of b.linjer) perKode[l.kode] = (perKode[l.kode] || []).concat(l.lengde);
   for (const [k, ls] of Object.entries(perKode)) {
