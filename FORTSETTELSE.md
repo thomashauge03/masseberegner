@@ -13,22 +13,50 @@ FORTSETTELSE.md»**. Alt som trengs står her og i `GJENNOMGANG.md`.
 Kjør testene først, så du vet du starter fra noe som virker:
 
 ```bash
-node test/selftest.js
+npm test
 ```
+
+(selvtesten, rørprøven og grøfteprøven etter hverandre)
 
 Nettlesertesten kjøres ved å åpne programmet med `?test=1`, eller fra konsollen
 med `Nettlesertest.kjor()`. Utviklingstjeneren startes med `node server.js`
 (port 5178). Programmet ligger også på https://masseberegner.vercel.app.
 
 Ved siste lagring: **609 prøver i selvtesten, 194 i rørprøven
-(`test/rorprove.js`), 1069 i nettlesertesten, alle grønne.** Nettlesertesten
+(`test/rorprove.js`), 83 i grøfteprøven (`test/groftprove.js`), 1117 i
+nettlesertesten, alle grønne.** Nettlesertesten
 må kjøres i et vindu som er minst 1000 px bredt – under det legger
 sidepanelet seg oppå, og tre panelprøver blir røde uten at noe er galt. Massene på demoen er uendret gjennom hele runden: 1 548 m³ skjæring,
 1 015 m³ fjell, 135 m³ fylling — rettingene gjelder feilmåter, ikke normalveien.
 
 ## Det som skal gjøres nå
 
-### Rør, etappe 1 – ferdig på grenen `ror-etappe1`
+### Rør, etappe 2 – grøftemasser, ferdig på grenen `ror-etappe2`
+
+Spec: `docs/superpowers/specs/2026-10-05-ror-etappe2-design.md`.
+Plan: `docs/superpowers/plans/2026-10-05-ror-etappe2.md`.
+
+Grøfta regnes med rørene i `public/js/groft.js`: et rutenett på 0,2 m der hver
+rute graves ned til den dypeste grøfta som når den, så en felles grøft telles
+én gang og står på det dypeste røret. Normalgrøft 1:1, D + 2 × 0,3 m, fundament
+0,15 m, omfylling 0,3 m; mål per anlegg, kode og strekning; felles grøft med
+flat bunn og egen grøft; fjell fra strekninger og sonderinger, loddrett i
+fjell; rør uten dimensjon får ingen grøft og meldes. Tallene: kubikk per lag,
+løpemeter per dybdeklasse, per kode og massebalanse – på bakken, med
+bakkefaktoren, som veg og tomt. Grøfta står i Rør-fanen, kartet (grøftekanten,
+«Grøft på strekning», «Felles grøft»), lengdeprofilen, 3D (laget «Grøft») og
+rapporten og PDF-en, med normalgrøfta tegnet.
+
+Prøvd mot fasit regnet for hånd (`test/groftprove.js`, fire–fem siffer), og på
+den ekte fila: alle rørene regnes på under ett sekund, og grøfta er mye kortere
+enn rørene til sammen fordi de felles grøftene telles én gang
+(`ROR_FIL=<sti> node test/groftprove.js`).
+
+Etappe 3 – planlegge nye rør – kan bruke `Groft.beregn` som den er: den bryr
+seg ikke om røret er innmålt eller tegnet, bare om linjene (`id`, `kode`,
+`xy`, `punkter` med `z` = topp rør) og kodene med `dim`.
+
+### Rør, etappe 1 – ferdig og flettet inn i `main`
 
 Spec: `docs/superpowers/specs/2026-10-05-ror-etappe1-design.md`.
 Plan: `docs/superpowers/plans/2026-10-05-ror-etappe1.md`.
@@ -57,8 +85,7 @@ terreng med en nøkkel som sa at alt var lastet. Begge er rettet, sammen med
 de mindre funnene. Ikke gjort: id-en bruker `~` mellom endene, og to
 punktnavn som selv inneholder `~` kunne i teorien gi samme id. Neste:
 
-- **Etappe 2 – grøftemasser.** Grøftemal på røranlegget (`mal`), felles grøft
-  for rør som ligger tett, masser mot terreng og fjellmodell.
+- **Etappe 2 – grøftemasser.** Ferdig – se over.
 - **Etappe 3 – planlegge nye rør.** Tegne rør i kartet og regne grøfta før
   man graver.
 

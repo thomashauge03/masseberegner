@@ -301,8 +301,31 @@ const Forklaring = {
       ['Enslig punkt', `Et punkt uten nabo med samme kode innen ${app.P.mal.maksAvstand} m. Det står som en ring i kartet.`],
       ['Bryt, koble og slå av', 'Rettinger du har gjort selv. De lagres mot punktenes id i fila, så de står seg '
         + 'når en nyere fil importeres.'],
-      ['Høyden overdrevet', 'Profilen og 3D-bildet strekker høyden så røret får form. Hvor mye står i tegningen.']
+      ['Høyden overdrevet', 'Profilen og 3D-bildet strekker høyden så røret får form. Hvor mye står i tegningen.'],
+      ['Grøft', 'Teoretisk grøfteprofil mot terrenget: bunnbredde D + 2 × arbeidsrom, skråning opp til terrenget, '
+        + 'loddrett i fjell.'],
+      ['Fundament og omfylling', 'Fundamentet ligger under røret, omfyllingen rundt og over det. Resten opp til '
+        + 'terrenget er gjenfylling med stedlige masser.'],
+      ['Felles grøft', 'Rør som ligger så tett at grøftene overlapper, er én grøft – hver kubikk telles én gang, og '
+        + 'den står på det dypeste røret. «Felles grøft» i kartet gir flat bunn mellom to rør.'],
+      ['Egen grøft', 'En strekning som er gravd for seg. Massene telles fullt, selv der den overlapper en annen grøft.'],
+      ['Fjell i grøfta', 'Bare der det er markert på røret eller sondert. Ellers regnes alt som løsmasse.']
     ]) ut += `<div class="forklaringsrad"><div><b>${ord}</b>${tekst}</div></div>`;
+    /* Grøftas farger, med navnet ved – fargen skal aldri stå alene. */
+    ut += '</div><div class="sumkort"><h4>Grøfta i tegningene</h4>';
+    for (const [form, nokkel, navn, tekst] of [
+      ['strek', 'kant', 'Grøftekant', 'Stiplet i kartet: der gravingen møter terrenget.'],
+      ['strek', 'strekning', 'Grøft på strekning', 'Bredt bånd over røret i kartet: her har grøfta egne mål, '
+        + 'fjell eller egen grøft. En stiplet strek mellom to rør er en felles grøft.'],
+      ['flate', 'omfylling', 'Omfylling', 'I profilen: rundt og over røret.'],
+      ['flate', 'fundament', 'Fundament', 'I profilen: under røret.'],
+      ['strek', 'bunn', 'Gravebunn', 'I profilen: bunnen av grøfta.'],
+      ['strek', 'fjell', 'Fjell', 'Stiplet i profilen: fjelloverflaten der den er markert eller sondert.'],
+      ['flate', 'grop', 'Grop i 3D', 'Laget «Grøft» viser grøfta som åpen grop i terrenget.']
+    ]) {
+      ut += `<div class="forklaringsrad"><span class="prove ${form}" style="--f:${Farger.groft(nokkel)}"></span>`
+        + `<div><b>${navn}</b>${tekst}</div></div>`;
+    }
     return ut + '</div>';
   },
 

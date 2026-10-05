@@ -131,7 +131,35 @@ i førstevalget, eller slipp fila på kartet.
 Rørene vises i kart, lengdeprofil og 3D (piltastene blar mellom dem), og får
 sin egen del i rapporten og PDF-en. De kan ikke eksporteres til KOF, LandXML,
 SOSI eller DXF ennå – knappene sier fra, og samleeksporten hopper over dem.
-Grøftemasser og planlegging av nye rør kommer i neste etapper.
+Planlegging av nye rør kommer i neste etappe.
+
+### Grøftemasser
+
+Grøfta regnes med rørene, mot et teoretisk grøfteprofil og Kartverkets terreng
+slik det var før graving.
+
+* **Normalgrøfta:** skråning 1:1, bunnbredde D + 2 × 0,3 m, fundament 0,15 m
+  under røret, omfylling til 0,3 m over topp rør, gjenfylling med stedlige
+  masser. Målene settes for hele anlegget i Rør-fanen, per kode i Koder-fanen og
+  på en strekning med **⊓ Grøft på strekning** i kartet (klikk to målte punkt
+  på samme rør).
+* **Fjell** bare der det er markert på en strekning (dybde til fjell) eller
+  sondert i fjellmodellen – ellers er alt løsmasse. I fjell står veggene
+  loddrett; løsmassen over graves med vanlig skråning fra fjellkanten.
+* **Felles grøft.** Hver rute på 0,2 m graves ned til den dypeste grøfta som når
+  den. Rør som ligger så tett at grøftene overlapper, får dermed én grøft, og
+  hver kubikk telles én gang – på det dypeste røret. **⊔ Felles grøft** i kartet
+  gir flat bunn mellom to rør opptil 10 m fra hverandre, og «egen grøft» på en
+  strekning graves for seg.
+* **Rør uten dimensjon får ingen grøft**, og merknadene sier hvor mye det gjelder.
+* **Tallene:** kubikk per lag (graving løsmasse, sprengning, fundament,
+  omfylling uten røret, gjenfylling), løpemeter grøft per dybdeklasse
+  (0–1, 1–2, 2–3, 3–4 og over 4 m), alt per kode, og massebalansen med
+  prosjektets faktorer. Lengder og volum er på bakken, som for veg og tomt.
+
+Grøftekanten står i kartet, fundament, omfylling, gravebunn og fjell i
+lengdeprofilen (gravedybden under musa), og laget «Grøft» viser den som åpen
+grop i 3D. Rapporten og PDF-en får delen «Grøftemasser» med normalgrøfta tegnet.
 
 ## Hva «billigst» betyr
 
@@ -264,8 +292,16 @@ node test/rorprove.js
 Rørene: innlesing av LandXML, kodetolkingen, linjene mot punkter med kjent fasit
 (fram og tilbake, rør om hverandre, stikkledninger i sikksakk), brudd, kobling,
 sone, sammenslåing av en ny fil og overdekningen mot et kunstig terreng.
-`npm test` kjører både denne og selvtesten. Med `ROR_FIL=<sti til en xml>` kjøres
-en ekte fil i tillegg – kundens filer ligger ikke i repoet.
+
+```bash
+node test/groftprove.js
+```
+
+Grøfta mot fasit regnet for hånd: én grøft per meter (graving, fundament,
+omfylling, gjenfylling, endene), fjellgrøft, loddrette vegger, felles og egen
+grøft, sammenslåing, mål per kode og strekning, dybdeklassene, massebalansen og
+bakkefaktoren. `npm test` kjører alle tre. Med `ROR_FIL=<sti til en xml>` kjøres
+en ekte fil i tillegg i begge rørprøvene – kundens filer ligger ikke i repoet.
 
 ```bash
 node test/demo-ydestad.js
@@ -294,7 +330,9 @@ public/js/lager.js       prosjektlager i nettleseren, import og eksport
 public/js/eksport.js     KOF, LandXML, SOSI og DXF
 public/js/pdfimport.js   avlesning av tegnede kurver i en PDF
 public/js/ror.js         rørene: LandXML, koder, linjer, sone, profil
+public/js/groft.js       grøfta: rutenett, felles grøft, fjell, lag, dybdeklasser, balanse
 public/js/ui-ror*.js     rørene i skjermen: import, faner, profil, 3D
+public/js/ui-groft.js    grøfta i skjermen: Rør-fanen, verktøyene i kartet, normalgrøfta
 public/js/farger.js      tegnefargene, hentet fra CSS-variablene
 public/js/nettlesertest.js  gjennomgang av grensesnittet (?test=1)
 public/js/ui-*.js        kart, lengdeprofil, tverrprofil, rapport

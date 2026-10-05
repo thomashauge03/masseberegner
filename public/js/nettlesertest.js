@@ -8823,6 +8823,8 @@ const Nettlesertest = {
       this.sjekk('kodene i anlegget står i forklaringen', /90PE/.test(tekst) && /180 PE/.test(tekst), tekst.slice(0, 80));
       this.sjekk('topp rør og overdekning forklares', /Topp rør/.test(tekst) && /Overdekning/.test(tekst));
       this.sjekk('vegens streker står ikke der', !/Etter rensk/.test(tekst));
+      this.sjekk('grøfteordene står i forklaringen', /Felles grøft/.test(tekst) && /Fundament og omfylling/.test(tekst));
+      this.sjekk('og grøftefargene', /Grøftekant/.test(tekst) && /Gravebunn/.test(tekst));
     } finally {
       await this._rorTilbake(foer);
     }
