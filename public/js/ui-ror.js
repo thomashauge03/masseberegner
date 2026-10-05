@@ -449,7 +449,7 @@ const RorUI = {
     if (!app || !app.erRor()) return;
     const r = app.P.ror;
     const res = app.resultat && app.resultat.type === 'ror' ? app.resultat : null;
-    const bygg = Ror.byggLinjer(r, app.P.mal, Ror.lagTilXY(r.sone, r.sone));
+    const bygg = app.byggRor();
     if (!bygg.linjer.some(l => l.id === this.valgt)) {
       const lengst = bygg.linjer.slice().sort((a, b) => b.lengde - a.lengde)[0];
       this.valgt = lengst ? lengst.id : null;

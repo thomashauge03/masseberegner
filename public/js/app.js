@@ -2507,6 +2507,38 @@ const App = {
     document.getElementById('framdriftStolpe').style.width = Math.round(a * 100) + '%';
   },
 
+  /**
+   * En henting fra Kartverket med framdriftsboksen oppe.
+   *
+   * Boksen dekker hele skjermen. Blir den stående fordi noe kastet underveis,
+   * er programmet låst til man laster på nytt – derfor ryddes den i finally.
+   * Men bare av den som åpnet den: sto den åpen fra før, eier en større
+   * operasjon den (se `framdrift`).
+   *
+   * OG DEN SOM ÅPNER DEN IGJEN, EIER DEN. To hentinger kan gå samtidig – en
+   * retting mens terrenget lastes, et anleggsbytte midt i. Ble den første
+   * ferdig først, lukket den boksen; framdriften til den andre åpnet den
+   * igjen, og den andre lukket den ikke, fordi den hadde funnet den åpen.
+   * Hver av de fire henterne hadde sin egen kopi av den regelen.
+   *
+   * @param {string} tekst  hva som hentes, uten «…»
+   * @param {(fram: (f: number, tot: number) => void) => Promise} hent
+   * @param {number} [start] der stolpen begynner
+   */
+  async medHenteboks(tekst, hent, start = 0) {
+    const boks = document.getElementById('framdrift');
+    let eier = boks.classList.contains('skjult');
+    this.framdrift(true, tekst + '…', start);
+    try {
+      return await hent((f, tot) => {
+        if (boks.classList.contains('skjult')) eier = true;
+        this.framdrift(true, `${tekst}… ${f}/${tot}`, tot ? f / tot : 1);
+      });
+    } finally {
+      if (eier) this.framdrift(false);
+    }
+  },
+
   /** Kjører et arbeid som far rade over stolpen fra `fra` til `til`. */
   async iFramdriftVindu(fra, til, arbeid) {
     const forrige = this._framdriftVindu;
@@ -2582,25 +2614,17 @@ const App = {
     const res = this.linje.lengde > 4000 ? 2 : 1;
     if (!this.terreng || this.terreng.sone !== this.sone || this.terreng.res !== res) {
       this.terreng = new Terreng(this.sone, res);
+      this._terrengnokkel = '';             // den gjaldt det gamle terrenget – se beregnRor
     }
     const nokkel = this.P.ip.map(p => `${p.lat.toFixed(6)},${p.lon.toFixed(6)},${p.r}`).join('|') + '#' + this.korridorbredde();
     if (nokkel === this._terrengnokkel) return;
-    /* Framdriftsboksen dekker hele skjermen. Blir den staende fordi noe kastet
-       underveis, er programmet last til man laster pa nytt - derfor ryddes den
-       i finally, ikke etter kallet.
-       Men bare dersom det var vi som apnet den. Sto den apen fra før, er det en
-       større operasjon som eier den: sidelengs flytting under Rett opp førte
-       linjen utenfor de nedlastede flisene og hentet mer terreng, og da forsvant
-       boksen midt i - de siste fire sekundene gikk uten et tegn pa skjermen. */
-    const varSynlig = !document.getElementById('framdrift').classList.contains('skjult');
-    this.framdrift(true, 'Henter terrengdata fra Kartverket…', 0);
-    try {
-      await this.terreng.lastKorridor(this.linje, this.korridorbredde(), (f, t) => {
-        this.framdrift(true, `Henter terrengdata fra Kartverket… ${f}/${t}`, t ? f / t : 1);
-      });
-    } finally {
-      if (!varSynlig) this.framdrift(false);
-    }
+    /* Boksen ryddes av den som åpnet den – se `medHenteboks`. Sto den åpen fra
+       før, er det en større operasjon som eier den: sidelengs flytting under
+       Rett opp førte linjen utenfor de nedlastede flisene og hentet mer
+       terreng, og da forsvant boksen midt i - de siste fire sekundene gikk
+       uten et tegn pa skjermen. */
+    await this.medHenteboks('Henter terrengdata fra Kartverket',
+      fram => this.terreng.lastKorridor(this.linje, this.korridorbredde(), fram));
     this._terrengnokkel = nokkel;
     if (this.terreng.mangler.size) {
       this.status(`⚠ Fikk ikke ${this.terreng.mangler.size} av ${this.terreng.fliser.size + this.terreng.mangler.size} terrengfliser – deler av traseen mangler data`);
@@ -2931,15 +2955,8 @@ const App = {
     if (!this._dom || this._dom.sone !== this.sone) {
       this._dom = new Terreng(this.sone, this.terreng.res, 'dom');
     }
-    const varSynlig = !document.getElementById('framdrift').classList.contains('skjult');
-    this.framdrift(true, 'Henter overflatemodellen…', 0.2);
-    try {
-      await this._dom.lastKorridor(this.linje, this.korridorbredde(), (f, t) => {
-        this.framdrift(true, `Henter overflatemodellen… ${f}/${t}`, t ? f / t : 1);
-      });
-    } finally {
-      if (!varSynlig) this.framdrift(false);
-    }
+    await this.medHenteboks('Henter overflatemodellen',
+      fram => this._dom.lastKorridor(this.linje, this.korridorbredde(), fram), 0.2);
 
     let sum = 0, n = 0, over2 = 0, over5 = 0, maks = 0;
     const terr = this.prosjektterreng();
@@ -3099,6 +3116,7 @@ const App = {
     const res = 1;
     if (!this.terreng || this.terreng.sone !== this.sone || this.terreng.res !== res) {
       this.terreng = new Terreng(this.sone, res);
+      this._terrengnokkel = '';             // den gjaldt det gamle terrenget – se beregnRor
     }
     const nokkel = p.map(q => q.x.toFixed(1) + ',' + q.y.toFixed(1)).join('|') + '#' + marg;
     /* Samme grunn som i `oppdater()`: nedlastingen under er et nettkall, og
@@ -3106,12 +3124,8 @@ const App = {
        og stemplet på et helt annet anlegg. */
     const anleggFoer = this.P.aktivt;
     if (nokkel !== this._terrengnokkel) {
-      const varSynlig = !document.getElementById('framdrift').classList.contains('skjult');
-      this.framdrift(true, 'Henter terrengdata fra Kartverket…', 0);
-      try {
-        await this.terreng.lastOmraade(p, marg, (f, tot) =>
-          this.framdrift(true, `Henter terrengdata fra Kartverket… ${f}/${tot}`, tot ? f / tot : 1));
-      } finally { if (!varSynlig) this.framdrift(false); }
+      await this.medHenteboks('Henter terrengdata fra Kartverket',
+        fram => this.terreng.lastOmraade(p, marg, fram));
       if (this.P.aktivt !== anleggFoer) return null;
       this._terrengnokkel = nokkel;
       if (this.terreng.mangler.size) {
@@ -3224,6 +3238,35 @@ const App = {
     return this.resultat;
   },
 
+  /** Rørene bygd av dataene, i regnesonen – én vei inn for kart, fane og beregning. */
+  byggRor() {
+    const r = this.P.ror;
+    return Ror.byggLinjer(r, this.P.mal, Ror.lagTilXY(r.sone, this.sone));
+  },
+
+  /**
+   * Regnesonen for et røranlegg.
+   *
+   * Har prosjektet en veg eller en tomt, er det den som bestemmer – med sin
+   * egen lengdegrad. Her ble rørenes brukt, og åpnet man et blandet prosjekt
+   * med røret oppe og feil sone på røret, sto regnesonen igjen etter at
+   * sonen var rettet.
+   *
+   * Er rørene alene, følger sonen dem. `_settSone` setter den bare én gang:
+   * ble fila lest i feil sone, sto regnesonen igjen etter rettingen –
+   * punktene ved Ydestad lest i sone 33 ligger på 13° Ø, og alt ble regnet
+   * videre i sone 33, uten terreng langs et eneste rør.
+   */
+  _settRorsone(r) {
+    for (const a of this.P.anlegg) {
+      if (a.type === 'ror') continue;
+      const p = (a.ip && a.ip[0]) || (a.tomt && a.tomt.punkter && a.tomt.punkter[0]);
+      if (p) { this._settSone(p.lon); return; }
+    }
+    const lon = Ror.tilLatLon(r.punkter[0], r.sone)[1];
+    if (Number.isFinite(lon)) { this.sone = Geo.sone(lon); this._soneSatt = true; }
+  },
+
   /**
    * Bygger rørene, laster terrenget langs dem og regner profilene.
    *
@@ -3233,6 +3276,11 @@ const App = {
    */
   async beregnRor() {
     if (!this.erRor()) return null;
+    /* Hver beregning får et nummer, før noe annet. En retting mens terrenget
+       lastes starter en ny før den forrige er ferdig, og kom den eldste
+       tilbake sist, skrev den sine linjer over de nye – rettingen forsvant
+       fra skjermen. */
+    const runde = this._rorRunde = (this._rorRunde || 0) + 1;
     const r = this.P.ror;
     const vis = () => {
       Kart.tegn();
@@ -3243,21 +3291,15 @@ const App = {
       this.visProsjektmasser();
     };
     if (!r || !r.punkter.length) { this.resultat = null; vis(); return null; }
-    /* SONEN FØLGER RØRENE NÅR DE ER ALENE I PROSJEKTET.
-       `_settSone` setter den én gang. Ble fila lest i feil sone, sto
-       regnesonen igjen etter at sonen var rettet i rørfanen: punktene ved
-       Ydestad lest i sone 33 ligger på 13° Ø, og alt ble regnet videre i
-       sone 33 – uten terreng langs et eneste rør. Har prosjektet en veg eller
-       en tomt, er det den som bestemmer, som før. */
-    const lon = Ror.tilLatLon(r.punkter[0], r.sone)[1];
-    const andre = this.P.anlegg.some(a => a.type !== 'ror'
-      && ((a.ip && a.ip.length) || (a.tomt && a.tomt.punkter && a.tomt.punkter.length)));
-    if (!andre && Number.isFinite(lon)) { this.sone = Geo.sone(lon); this._soneSatt = true; }
-    else this._settSone(lon);
-    const tilXY = Ror.lagTilXY(r.sone, this.sone);
-    const bygg = Ror.byggLinjer(r, this.P.mal, tilXY);
+    this._settRorsone(r);
+    const bygg = this.byggRor();
     if (!this.terreng || this.terreng.sone !== this.sone || this.terreng.res !== 1) {
       this.terreng = new Terreng(this.sone, 1);
+      /* Nøkkelen sier hva som er lastet inn i det GAMLE terrenget. Sto den
+         igjen, kunne et sonebytte fram og tilbake – angre, gjør om – gi et
+         tomt terreng med en nøkkel som sa at alt var lastet: hvert rør fikk
+         «terrengdata mangler» og ukjent overdekning. */
+      this._terrengnokkel = '';
     }
     /* Halvbredden er 3D-konteksten: terrenget rundt rørene i modellen skal
        finnes uten en ny nedlasting når man slår på 3D. */
@@ -3265,21 +3307,15 @@ const App = {
     const nokkel = 'ror#' + this.sone + '#' + halv + '#'
       + bygg.linjer.map(l => l.id + ':' + l.punkter.length + ':' + l.lengde.toFixed(2)).join('|');
     const anleggFoer = this.P.aktivt;
-    /* Hver beregning får et nummer. En retting mens terrenget lastes starter
-       en ny før den forrige er ferdig, og kom den eldste tilbake sist, skrev
-       den sine linjer over de nye – rettingen forsvant fra skjermen. */
-    const runde = this._rorRunde = (this._rorRunde || 0) + 1;
     if (nokkel !== this._terrengnokkel && bygg.linjer.length) {
-      const varSynlig = !document.getElementById('framdrift').classList.contains('skjult');
-      this.framdrift(true, 'Henter terrengdata fra Kartverket…', 0);
-      try {
-        await this.terreng.lastKorridorer(bygg.linjer.map(l => Ror.korridor(l.xy)), halv, (f, tot) =>
-          this.framdrift(true, `Henter terrengdata fra Kartverket… ${f}/${tot}`, tot ? f / tot : 1));
-      } finally { if (!varSynlig) this.framdrift(false); }
+      await this.medHenteboks('Henter terrengdata fra Kartverket',
+        fram => this.terreng.lastKorridorer(bygg.linjer.map(l => Ror.korridor(l.xy)), halv, fram));
       /* Samme vakt som i `oppdater()`: byttet man anlegg mens nedlastingen
          gikk, hører ikke dette svaret hjemme noe sted. Det gjør det heller
-         ikke når en nyere beregning er startet. */
-      if (this.P.aktivt !== anleggFoer || runde !== this._rorRunde) return null;
+         ikke når en nyere beregning er startet, eller når anlegget er byttet
+         ut under samme id: angres en import i et nytt prosjekt, står den tomme
+         vegen der igjen med rørenes id. */
+      if (this.P.aktivt !== anleggFoer || runde !== this._rorRunde || this.P.ror !== r) return null;
       this._terrengnokkel = nokkel;
       if (this.terreng.mangler.size) {
         this.status(`⚠ Fikk ikke ${this.terreng.mangler.size} terrengfliser – deler av rørene mangler terreng`);

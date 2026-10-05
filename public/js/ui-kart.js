@@ -1604,6 +1604,8 @@ const Kart = {
    * profilene regnet. Resultatet brukes bare til tallene i verktøytipset.
    * (Her sto `res ? res.bygg : …`, og et brudd så ikke ut til å virke før
    * den nye beregningen var ferdig. Byggingen tar 2 ms på den ekte fila.)
+   * Bygd i regnesonen, som beregningen, så lengdene er de samme som i
+   * rapporten.
    */
   tegnRor() {
     const app = this.app;
@@ -1612,7 +1614,7 @@ const Kart = {
     if (!app.erRor() || !app.P.ror) return;
     const r = app.P.ror;
     const res = app.resultat && app.resultat.type === 'ror' ? app.resultat : null;
-    const bygg = Ror.byggLinjer(r, app.P.mal, Ror.lagTilXY(r.sone, r.sone));
+    const bygg = app.byggRor();
     const ll = p => Ror.tilLatLon(p, r.sone);
     const kode = k => r.koder[k] || Ror.tolkKode(k);
     const t = (v, d) => Rapport.tall(v, d);

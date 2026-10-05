@@ -8140,6 +8140,30 @@ const Nettlesertest = {
     App.framdrift(true, 'ny operasjon', 0.05);
     this.sjekk('en ny visning starter forfra', pst() === 5);
     App.framdrift(false);
+
+    /* TO HENTINGER OVER HVERANDRE. Den første åpnet boksen og lukket den da
+       den ble ferdig. Den andre fant boksen åpen og eide den ikke – men
+       framdriften dens åpnet den igjen, og ingen lukket den. Boksen dekker
+       hele skjermen: programmet var låst til siden ble lastet på nytt. */
+    {
+      let slippA, slippB, framB;
+      const a = App.medHenteboks('Henter A', () => new Promise(los => { slippA = los; }));
+      const b = App.medHenteboks('Henter B', fram => { framB = fram; return new Promise(los => { slippB = los; }); });
+      slippA(); await a;
+      this.sjekk('den første lukker boksen den åpnet', skjult());
+      framB(1, 2);
+      this.sjekk('den andre viser at den fortsatt henter', !skjult());
+      slippB(); await b;
+      this.sjekk('og lukker boksen når den er ferdig', skjult());
+    }
+    /* Og den som fant boksen åpen og aldri trengte å åpne den igjen, lar den
+       stå for eieren å lukke. */
+    {
+      App.framdrift(true, 'en større operasjon', 0.3);
+      await App.medHenteboks('Henter inni', fram => { fram(1, 1); return Promise.resolve(); });
+      this.sjekk('en henting inni noe større lar boksen stå', !skjult());
+      App.framdrift(false);
+    }
   },
 
   /* ---------------- rør ---------------- */
@@ -8230,6 +8254,58 @@ const Nettlesertest = {
         } finally {
           Terreng.prototype.lastKorridorer = ekte;
           slipp();
+        }
+      }
+      /* OMVENDT REKKEFØLGE: den eldste blir ferdig først. Den åpnet boksen og
+         lukket den; framdriften til den nyeste åpnet den igjen, og den nyeste
+         lukket den ikke, fordi den hadde funnet den åpen. */
+      {
+        const ekte = Terreng.prototype.lastKorridorer;
+        let slipp;
+        const sperre = new Promise(los => { slipp = los; });
+        let kall = 0;
+        Terreng.prototype.lastKorridorer = async function (linjer, halv, fram) {
+          if (++kall === 2) { await sperre; if (fram) fram(1, 2); }
+          return ekte.apply(this, arguments);
+        };
+        try {
+          App.framdrift(false);
+          App._terrengnokkel = '';
+          const eldste = App.beregnRor();
+          a.ror.retting.av.pop();
+          const nyeste = App.beregnRor();
+          await eldste;
+          slipp();
+          await nyeste;
+          this.sjekk('framdriftsboksen blir ikke stående etter to beregninger over hverandre',
+            document.getElementById('framdrift').classList.contains('skjult'));
+        } finally {
+          Terreng.prototype.lastKorridorer = ekte;
+          slipp();
+          App.framdrift(false);
+        }
+      }
+      /* ANLEGGET BYTTET UT UNDER SAMME ID. Angres en import i et nytt prosjekt,
+         står den tomme vegen der igjen med rørenes id, og en beregning som
+         fortsatt hentet terreng skrev rørresultatet på vegen. */
+      {
+        const ekte = Terreng.prototype.lastKorridorer;
+        let slipp;
+        const sperre = new Promise(los => { slipp = los; });
+        Terreng.prototype.lastKorridorer = async function () { await sperre; return ekte.apply(this, arguments); };
+        const plass = App.P.anlegg.indexOf(a);
+        try {
+          App._terrengnokkel = '';
+          const foerRes = App.resultat;
+          const underveis = App.beregnRor();
+          App.P.anlegg[plass] = App.nyttAnlegg('veg', 'Veg', a.id);
+          slipp();
+          await underveis;
+          this.sjekk('en beregning for et anlegg som er byttet ut, skrives ikke', App.resultat === foerRes);
+        } finally {
+          Terreng.prototype.lastKorridorer = ekte;
+          slipp();
+          App.P.anlegg[plass] = a;
         }
       }
       /* Et anlegg UTEN data skal ikke arve topplinja fra det forrige. Målt:
@@ -8353,6 +8429,7 @@ const Nettlesertest = {
   async rorSone() {
     const foer = JSON.stringify(App.P);
     const soneFoer = App.sone, satt = App._soneSatt;
+    const ekte = Terreng.prototype.lastKorridorer;
     try {
       App.P = App.nyttProsjekt();
       App._soneSatt = false;
@@ -8363,23 +8440,59 @@ const Nettlesertest = {
       const valg = document.getElementById('rorSoneFane');
       valg.value = '32';
       valg.dispatchEvent(new Event('change'));
-      await this.ventPaBeregning(30000);
+      /* Selve beregningen, ikke en ventetid: rett etter byttet står det gamle
+         resultatet i sone 33 der ennå, og det er det en ventetid kan se. */
+      clearTimeout(App._tidsavbrudd);
+      await App.beregnRor();
       this.sjekk('rettes sonen i rørfanen, følger regnesonen med', App.sone === 32, String(App.sone));
       const r = App.resultat;
       this.sjekk('og resultatet er regnet i den', r && r.type === 'ror' && r.sone === 32, r && String(r.sone));
       const pr = r && r.profiler.get(r.linjer[0].id);
       this.sjekk('og terrenget finnes langs røret', pr && Number.isFinite(pr.minOverdekning),
         pr && String(pr.minOverdekning));
-      /* Har prosjektet en veg, er det vegen som bestemmer, som før. */
+
+      /* FRAM OG TILBAKE MIDT I EN NEDLASTING. Tilbake til 33 lager et nytt
+         terreng og begynner å hente; fram til 32 før den er ferdig lager enda et
+         nytt, tomt terreng – og nøkkelen fra første runde i 32 sa at alt var
+         lastet. Hvert rør fikk «terrengdata mangler». */
+      let slipp;
+      const sperre = new Promise(los => { slipp = los; });
+      let kall = 0;
+      Terreng.prototype.lastKorridorer = async function () {
+        if (++kall === 1) await sperre;
+        return ekte.apply(this, arguments);
+      };
+      App.P.ror.sone = 33;
+      const tilbake = App.beregnRor();
+      App.P.ror.sone = 32;
+      await App.beregnRor();
+      slipp();
+      await tilbake;
+      Terreng.prototype.lastKorridorer = ekte;
+      const r2 = App.resultat;
+      const pr2 = r2 && r2.profiler.get(r2.linjer[0].id);
+      this.sjekk('fram og tilbake mellom sonene gir fortsatt terreng', pr2 && Number.isFinite(pr2.minOverdekning),
+        pr2 && String(pr2.minOverdekning));
+
+      /* Har prosjektet en veg, er det vegen som bestemmer – også når prosjektet
+         åpnes med røret oppe, før vegen er regnet. */
       const veg = App.nyttAnlegg('veg', 'Veg i sone 32');
       veg.ip = [{ lat: 58.14, lon: 7.07, r: 0 }, { lat: 58.141, lon: 7.072, r: 0 }];
       App.P.anlegg.push(veg);
-      App.sone = 32; App._soneSatt = true;
+      App._soneSatt = false;
       App.P.ror.sone = 33;
-      App._terrengnokkel = '';
       await App.beregnRor();
-      this.sjekk('med en veg i prosjektet står sonen fast', App.sone === 32, String(App.sone));
+      this.sjekk('med en veg i prosjektet er det vegen som bestemmer sonen', App.sone === 32, String(App.sone));
+      /* Og rørfanen viser de samme lengdene som rapporten, også når fila er i en
+         annen sone enn regnesonen. Fanen bygde linjene i filas sone: 0,1 m
+         forskjell på 200 m her. */
+      const l = App.resultat.linjer.find(x => x.kode === '90PE' && x.lengde > 150);
+      const knapp = l && document.querySelector(`#rorInnhold [data-linje="${CSS.escape(l.id)}"]`);
+      const ventet = l && Rapport.tall(l.lengde * (App.resultat.bakkefaktor || 1), 1) + ' m';
+      this.sjekk('rørfanen viser lengden fra beregningen', !!knapp && knapp.textContent.includes(ventet),
+        knapp ? knapp.textContent + ' / ' + ventet : 'mangler');
     } finally {
+      Terreng.prototype.lastKorridorer = ekte;
       await this._rorTilbake(foer);
       App.sone = soneFoer; App._soneSatt = satt;
     }
