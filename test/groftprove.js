@@ -79,6 +79,57 @@ console.log('\n3. Rørene som segmenter');
   sjekk('to grupper i alt', M2.grupper, 2, 0);
 }
 
+console.log('\n4. Én grøft mot fasit');
+const D = 0.16, b = D + 0.6, f = 0.15, o = 0.3, TERRENG = 10, TOPP = 8.5;
+const h = TERRENG - (TOPP - D - f);                    // 1,81 m fra terreng til gravebunn
+const koder160 = { '160PE': { dim: 160 }, '40 FIBER': { dim: 40 } };
+const flatt = () => TERRENG;
+/* Massene per meter: to rør med samme start, 200 og 100 m lange. Endene er
+   like, og forskjellen er 100 m rett grøft. */
+function perMeter(lag) {
+  const a = lag(200).sum, c = lag(100).sum, ut = {};
+  for (const k of ['gravingLos', 'sprengning', 'fundament', 'omfylling', 'gjenfylling', 'rorvolum', 'areal']) {
+    ut[k] = (a[k] - c[k]) / 100;
+  }
+  return ut;
+}
+const en = L => Groft.beregn({ linjer: [rett('a', '160PE', L, TOPP)], koder: koder160, terrengZ: flatt, rute: 0.2 });
+{
+  const p = perMeter(en);
+  const A = (b + h) * h;
+  sjekk('graving per meter = (b + h)·h', p.gravingLos, A, A * 0.01);
+  sjekk('ingen sprengning uten fjell', p.sprengning, 0, 1e-9);
+  const fund = (b + f) * f;
+  sjekk('fundament per meter – trapes', p.fundament, fund, fund * 0.02);
+  const omf = (b + 2 * f + b + 2 * (f + D + o)) / 2 * (D + o);
+  sjekk('omfylling med røret per meter – trapes', p.omfylling + p.rorvolum, omf, omf * 0.02);
+  sjekk('gjenfylling er resten', p.gjenfylling, A - fund - omf, A * 0.01);
+  const s = en(100).sum;
+  sjekk('graving = fundament + omfylling + gjenfylling + røret', s.gravingLos + s.sprengning,
+    s.fundament + s.omfylling + s.gjenfylling + s.rorvolum, 1e-6);
+  // endene er avrundede groper: til sammen én hel omdreining av tverrsnittet
+  const w = b / 2, vRot = Math.PI * (w * w * h + h ** 3 / 3 + w * h * h);
+  sjekk('100 m med avrundede ender', s.gravingLos, 100 * A + vRot, (100 * A + vRot) * 0.01);
+}
+{
+  const medFjell = L => Groft.beregn({ linjer: [rett('a', '160PE', L, TOPP)], koder: koder160, terrengZ: flatt, rute: 0.2,
+    justering: { strekninger: [{ fra: 'a-0', til: 'a-' + (L / 10), mal: {}, fjell: 0.8, egen: false }], sammen: [] } });
+  const p = perMeter(medFjell);
+  const zf = TERRENG - 0.8, zb = TOPP - D - f;
+  sjekk('sprengning: loddrett fjellgrøft, b · (fjell − gravebunn)', p.sprengning, b * (zf - zb), b * (zf - zb) * 0.02);
+  sjekk('løsmassen over: 1:1 fra fjellkanten', p.gravingLos, (b + 0.8) * 0.8, (b + 0.8) * 0.8 * 0.02);
+}
+{
+  const p = perMeter(L => Groft.beregn({ linjer: [rett('a', '160PE', L, TOPP)], koder: koder160, terrengZ: flatt,
+    rute: 0.2, mal: { helning: 0 } }));
+  sjekk('loddrette vegger: b · h', p.gravingLos, b * h, b * h * 0.02);
+}
+{
+  const r = Groft.beregn({ linjer: [rett('a', '160PE', 100, TOPP)], koder: koder160, rute: 0.2,
+    terrengZ: (x, y) => (x < 1030 ? TERRENG : NaN) });
+  paastand('hull i terrenget telles som areal', r.manglerTerreng > 5, String(r.manglerTerreng));
+}
+
 /* ---------------- sluttsum ---------------- */
 console.log(`\n${ok} tester ok, ${feil} feil`);
 process.exit(feil ? 1 : 0);

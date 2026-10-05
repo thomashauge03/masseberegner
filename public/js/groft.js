@@ -172,8 +172,150 @@ const Groft = (() => {
       terrengZ: T, sondert: o.fjellSondert || null, mal: malFor(o.mal, null, null), faktorer: o.faktorer || {} };
   }
 
+  /**
+   * Gravenivået fra ett segment i (x, y), eller Infinity der det ikke graver.
+   *
+   * Innenfor bunnen: gravebunnen. Utenfor stiger gropa med helningen – fra
+   * fjelloverflaten der fjellet ligger over gravebunnen, så veggen står
+   * loddrett i fjell. Helning 0 er loddrett hele veien: utenfor bunnen graves
+   * ingenting. `ut.t` får posisjonen langs segmentet (0–1).
+   */
+  function grop(sg, x, y, Tq, sondert, ut) {
+    let t = sg.L2 > 0 ? ((x - sg.ax) * sg.dx + (y - sg.ay) * sg.dy) / sg.L2 : 0;
+    if (t < 0) t = 0; else if (t > 1) t = 1;
+    ut.t = t;
+    const ex = x - sg.ax - sg.dx * t, ey = y - sg.ay - sg.dy * t;
+    const d = Math.sqrt(ex * ex + ey * ey);
+    const topp = sg.ta + (sg.tb - sg.ta) * t;
+    const zb = sg.virtuell ? topp : topp - sg.D - sg.fund;
+    if (d <= sg.w) return zb;
+    if (!(sg.hel > 0)) return Infinity;
+    let fd = sg.fjell;
+    if (fd == null) fd = sondert();
+    const zf = fd == null ? -Infinity : Tq - fd;
+    return (zf > zb ? zf : zb) + (d - sg.w) / sg.hel;
+  }
+
+  /** Intervallene slått sammen. */
+  function forening(iv) {
+    if (iv.length < 2) return iv;
+    iv.sort((a, b) => a[0] - b[0]);
+    const ut = [iv[0].slice()];
+    for (let i = 1; i < iv.length; i++) {
+      const siste = ut[ut.length - 1];
+      if (iv[i][0] <= siste[1]) { if (iv[i][1] > siste[1]) siste[1] = iv[i][1]; } else ut.push(iv[i].slice());
+    }
+    return ut;
+  }
+  const lengdeAv = iv => iv.reduce((s, a) => s + a[1] - a[0], 0);
+  function overlapp(A, B) {
+    let s = 0;
+    for (const a of A) {
+      for (const c of B) {
+        const lo = Math.max(a[0], c[0]), hi = Math.min(a[1], c[1]);
+        if (hi > lo) s += hi - lo;
+      }
+    }
+    return s;
+  }
+
+  /**
+   * Fundament og omfylling i søylen [zg, T]. Hvert rør som graver her, får
+   * lagene slik de ville vært i dets egen grøft: fundament fra gropa opp til
+   * bunn rør, omfylling derfra til topp rør + omfylling. Et grunt rør i grøfta
+   * til et dypt får dem der det ligger, og under det er det gjenfylling.
+   * Overlapper lag fra flere rør, telles de én gang; fundamentet går foran.
+   * @returns {number[]} [fundament, omfylling med røret] i meter
+   */
+  function lagISoyle(kand, g, zg, Tq) {
+    const fund = [], omf = [];
+    for (const c of kand) {
+      if (c.g !== g) continue;
+      const f0 = Math.max(c.z, zg), f1 = Math.min(c.bunn, Tq);
+      if (f1 > f0) fund.push([f0, f1]);
+      const o0 = Math.max(c.z, c.bunn, zg), o1 = Math.min(c.omfTopp, Tq);
+      if (o1 > o0) omf.push([o0, o1]);
+    }
+    const F = forening(fund), O = forening(omf);
+    const lf = lengdeAv(F);
+    return [lf, lengdeAv(O) - overlapp(O, F)];
+  }
+
+  function leggTil(s, A, los, spreng, lf, lo, gjen) {
+    s.gravingLos += los * A; s.sprengning += spreng * A;
+    s.fundament += lf * A; s.omfylling += lo * A; s.gjenfylling += gjen * A;
+  }
+
+  /** Massene i grøfta – se spesifikasjonen, 4.1–4.6. */
+  function beregn(o) {
+    const M = forbered(o);
+    const rute = M.rute, A = rute * rute, n = Math.round(FLIS / rute);
+    const sum = tomme();
+    const per = M.ror.map(() => tomme());
+    const grpZ = new Float64Array(M.grupper), grpJ = new Int32Array(M.grupper);
+    const kand = [];
+    const ut = { t: 0 };
+    const ingen = () => null;
+    let manglerTerreng = 0;
+    for (const fl of M.register.values()) {
+      const segs = fl.segs;
+      for (let a = 0; a < n; a++) {
+        const x = fl.fi * FLIS + (a + 0.5) * rute;
+        for (let c = 0; c < n; c++) {
+          const y = fl.fj * FLIS + (c + 0.5) * rute;
+          const Tq = M.terrengZ(x, y);
+          if (!Number.isFinite(Tq)) {
+            // hull i terrenget: telles der det ligger en grøftebunn
+            for (const j of segs) {
+              const sg = M.seg[j];
+              if (x < sg.x0 || x > sg.x1 || y < sg.y0 || y > sg.y1) continue;
+              if (Number.isFinite(grop(sg, x, y, Infinity, ingen, ut))) { manglerTerreng += A; break; }
+            }
+            continue;
+          }
+          let sond;
+          const sondert = () => (sond === undefined ? (sond = M.sondert ? M.sondert(x, y) : null) : sond);
+          grpZ.fill(Infinity);
+          kand.length = 0;
+          for (const j of segs) {
+            const sg = M.seg[j];
+            if (x < sg.x0 || x > sg.x1 || y < sg.y0 || y > sg.y1) continue;
+            const z = grop(sg, x, y, Tq, sondert, ut);
+            if (!(z < Tq)) continue;
+            if (z < grpZ[sg.gruppe]) { grpZ[sg.gruppe] = z; grpJ[sg.gruppe] = j; }
+            if (!sg.virtuell) {
+              const topp = sg.ta + (sg.tb - sg.ta) * ut.t;
+              kand.push({ g: sg.gruppe, z, bunn: topp - sg.D, omfTopp: topp + sg.omf });
+            }
+          }
+          let gravd = false;
+          for (let g = 0; g < M.grupper; g++) {
+            const zg = grpZ[g];
+            if (!(zg < Tq)) continue;
+            gravd = true;
+            const sg = M.seg[grpJ[g]];
+            const dybde = Tq - zg;
+            let fd = sg.fjell;
+            if (fd == null) fd = sondert();
+            const zf = fd == null ? -Infinity : Tq - fd;
+            const spreng = zf > zg ? Math.min(Tq, zf) - zg : 0;
+            const [lf, lo] = lagISoyle(kand, g, zg, Tq);
+            const gjen = Math.max(0, dybde - lf - lo);
+            leggTil(sum, A, dybde - spreng, spreng, lf, lo, gjen);
+            leggTil(per[sg.eier], A, dybde - spreng, spreng, lf, lo, gjen);
+            per[sg.eier].areal += A;
+          }
+          if (gravd) sum.areal += A;
+        }
+      }
+    }
+    const perLinje = new Map(M.ror.map((rr, r) => [rr.linje.id, per[r]]));
+    return { sum, perLinje, manglerTerreng,
+      utenDimensjon: [...M.utenDimensjon].map(([kode, l]) => ({ kode, lengde: l })), modell: M };
+  }
+
   return { StandardGroftmal, MALFELT, GRENSER, SAMMEN_MAKS, DYBDEKLASSER,
-    nyGroft, klem, malFor, dybdeklasse, forbered };
+    nyGroft, klem, malFor, dybdeklasse, forbered, beregn };
 })();
 
 if (typeof module !== 'undefined') module.exports = Groft;
