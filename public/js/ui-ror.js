@@ -13,6 +13,9 @@ const RorUI = {
      Ror.byggLinjer. */
   valgt: null,
   _valg: null,
+  /* Den første enden ved «Koble», til den andre er klikket. Kartet ringer den
+     inn, så man ser hva man holder på med. */
+  _kobleFra: null,
 
   init(app) {
     this.app = app;
@@ -46,7 +49,100 @@ const RorUI = {
     if (id('ror_velg')) id('ror_velg').onchange = e => this.velgLinje(e.target.value);
     if (id('ror_forrige')) id('ror_forrige').onclick = () => this.blaa(-1);
     if (id('ror_neste')) id('ror_neste').onclick = () => this.blaa(1);
+    for (const [knapp, modus] of [['verktoyRorAv', 'rorAv'], ['verktoyRorBryt', 'rorBryt'],
+      ['verktoyRorKoble', 'rorKoble']]) {
+      if (id(knapp)) id(knapp).onclick = () => Kart.settModus(Kart.modus === modus ? 'rediger' : modus);
+    }
     return this;
+  },
+
+  /** Fjorten skjermpunkt i meter der man står – så et klikk treffer uansett zoom. */
+  _toleranse(latlng) {
+    const k = Kart.kart;
+    const p = k.latLngToContainerPoint(latlng);
+    return Math.max(0.3, k.distance(latlng, k.containerPointToLatLng(L.point(p.x + 14, p.y))));
+  },
+
+  /**
+   * Et klikk i kartet mens en av de tre rettingene står på.
+   *
+   * Alt regnes i fila sin egen sone, der punktene står – da er det ingen
+   * omregning mellom klikket og det som ble klikket på. Hver retting går
+   * gjennom `merk()`, så Ctrl+Z virker, og lagres mot punktenes id-er, så den
+   * står seg når en nyere fil importeres.
+   */
+  kartklikk(modus, latlng) {
+    const app = this.app;
+    if (!app.erRor()) return;
+    const r = app.P.ror;
+    const u = Geo.tilUtm(latlng.lat, latlng.lng, r.sone);
+    const tol = this._toleranse(latlng);
+    const iFila = p => ({ x: p.o, y: p.n });
+    const avstand = p => Math.hypot(p.o - u.x, p.n - u.y);
+    const par = (x, y) => ([a, b]) => (a === x && b === y) || (a === y && b === x);
+    if (modus === 'rorAv') {
+      let best = null;
+      for (const p of r.punkter) {
+        const d = avstand(p);
+        if (d <= tol && (!best || d < best.d)) best = { p, d };
+      }
+      if (!best) { app.status('Klikk nærmere et målt punkt'); return; }
+      const i = r.retting.av.indexOf(best.p.id);
+      app.merk(i >= 0 ? 'slo på punkt' : 'slo av punkt');
+      if (i >= 0) r.retting.av.splice(i, 1); else r.retting.av.push(best.p.id);
+      app.status(`${best.p.kode}, punkt ${best.p.nr}: ${i >= 0 ? 'slått på igjen' : 'slått av – det er ikke med i røret'}`);
+    } else if (modus === 'rorBryt') {
+      const bygg = Ror.byggLinjer(r, app.P.mal, iFila);
+      let best = null;
+      for (const l of bygg.linjer) {
+        for (let k = 1; k < l.xy.length; k++) {
+          const d = Ror.avstandTilStrekk(u, l.xy[k - 1], l.xy[k]);
+          if (d <= tol && (!best || d < best.d)) best = { a: l.punkter[k - 1], b: l.punkter[k], d, kode: l.kode };
+        }
+      }
+      if (!best) { app.status('Klikk på en rørstrek'); return; }
+      app.merk('brøt et rør');
+      r.retting.brudd.push([best.a.id, best.b.id]);
+      // gjelder en kobling det samme paret, er det bruddet som er det siste ordet
+      r.retting.koble = r.retting.koble.filter(k => !par(best.a.id, best.b.id)(k));
+      app.status(`${best.kode} er brutt mellom punkt ${best.a.nr} og ${best.b.nr}`);
+    } else if (modus === 'rorKoble') {
+      const bygg = Ror.byggLinjer(r, app.P.mal, iFila);
+      const ender = [];
+      for (const l of bygg.linjer) {
+        ender.push({ p: l.punkter[0], l });
+        ender.push({ p: l.punkter[l.punkter.length - 1], l });
+      }
+      for (const p of bygg.enslige) ender.push({ p, l: null });
+      let best = null;
+      for (const e of ender) {
+        const d = avstand(e.p);
+        if (d <= tol && (!best || d < best.d)) best = Object.assign({ d }, e);
+      }
+      if (!best) { app.status('Klikk på enden av et rør'); return; }
+      if (!this._kobleFra) {
+        this._kobleFra = best;
+        app.status(`Valgte enden av ${best.p.kode} – klikk på den andre enden`);
+        Kart.tegnRor();
+        return;
+      }
+      const a = this._kobleFra;
+      this._kobleFra = null;
+      if (a.p.id === best.p.id) { app.status('Det var samme ende – velg en annen'); Kart.tegnRor(); return; }
+      if (a.p.kode !== best.p.kode) {
+        app.status(`Kan ikke koble ${a.p.kode} til ${best.p.kode} – bare rør med samme kode`);
+        Kart.tegnRor();
+        return;
+      }
+      if (a.l && best.l && a.l.id === best.l.id) { app.status('Begge endene hører til samme rør'); Kart.tegnRor(); return; }
+      app.merk('koblet to rør');
+      r.retting.koble.push([a.p.id, best.p.id]);
+      r.retting.brudd = r.retting.brudd.filter(k => !par(a.p.id, best.p.id)(k));
+      app.status(`${a.p.kode} er koblet sammen`);
+    }
+    Kart.tegn();
+    this.vis();
+    app.planlegg(30);
   },
 
   /** Åpner filvelgeren. `valg` følger med til importen. */

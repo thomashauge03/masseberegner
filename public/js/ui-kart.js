@@ -554,9 +554,13 @@ const Kart = {
     this.modus = m;
     for (const [id, navn] of [['verktoyTegn', 'tegn'], ['verktoyFlytt', 'rediger'],
       ['verktoySondering', 'sondering'], ['verktoyPlass', 'plass'], ['verktoyTomt', 'tegnTomt'],
-      ['verktoyMaal', 'maal']]) {
+      ['verktoyMaal', 'maal'], ['verktoyRorAv', 'rorAv'], ['verktoyRorBryt', 'rorBryt'],
+      ['verktoyRorKoble', 'rorKoble']]) {
       const el = document.getElementById(id);
-      if (el) el.classList.toggle('aktiv', navn === m);
+      if (el) {
+        el.classList.toggle('aktiv', navn === m);
+        if (el.hasAttribute('aria-pressed')) el.setAttribute('aria-pressed', navn === m ? 'true' : 'false');
+      }
     }
     document.getElementById('kart').style.cursor = (m === 'rediger') ? '' : 'crosshair';
     if (m === 'tegnTomt') {
@@ -572,6 +576,13 @@ const Kart = {
       // bytter man verktøy midt i en strek, blir den stående som den er
       this._avsluttMaal();
     }
+    if (m === 'rorAv') this.app.status('Klikk på et målt punkt for å slå det av eller på. Rediger avslutter.');
+    if (m === 'rorBryt') this.app.status('Klikk på rørstreken der den ikke skal henge sammen.');
+    if (m === 'rorKoble') this.app.status('Klikk på enden av det ene røret, så på enden av det andre.');
+    /* De målte punktene vises bare mens man retter – ellers ville fire hundre
+       prikker druknet rørene. */
+    if (m !== 'rorKoble' && typeof RorUI !== 'undefined') RorUI._kobleFra = null;
+    if (this.app && this.app.erRor && this.app.erRor()) this.tegnRor();
   },
 
   /* ---------------- måling ---------------- */
@@ -780,6 +791,10 @@ const Kart = {
 
   klikk(e) {
     const P = this.app.P;
+    if (this.modus === 'rorAv' || this.modus === 'rorBryt' || this.modus === 'rorKoble') {
+      RorUI.kartklikk(this.modus, e.latlng);
+      return;
+    }
     if (this.modus === 'tegn') {
       /* Nar man tegner, skal punktet pa enden. Alltid.
 

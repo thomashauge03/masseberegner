@@ -8313,6 +8313,49 @@ const Nettlesertest = {
     }
   },
 
+  /** Rettingen: bryt, koble, slå av og på – og angre. */
+  async rorRetting() {
+    const foer = JSON.stringify(App.P);
+    try {
+      App.P = App.nyttProsjekt();
+      await RorUI.importerTekst(this._rorXml(), 'asbuilts_Prove.xml', {}, { sone: 32, maal: 'nytt' });
+      await this.ventPaBeregning(30000);
+      const o = Geo.tilUtm(58.1412, 7.0705, 32);
+      const ll = (x, y) => { const g = Geo.fraUtm(o.x + x, o.y + y, 32); return L.latLng(g.lat, g.lon); };
+      const antall = kode => App.resultat.linjer.filter(l => l.kode === kode).length;
+      Kart.kart.setView(ll(105, 0), 19);
+      Kart.settModus('rorBryt');
+      this.sjekk('knappen viser at Bryt er på', document.getElementById('verktoyRorBryt').classList.contains('aktiv'));
+      RorUI.kartklikk('rorBryt', ll(105, 0));
+      await this.vent(600);
+      this.sjekk('bruddet er lagret', App.P.ror.retting.brudd.length === 1);
+      this.sjekk('90PE er nå tre rør', antall('90PE') === 3, String(antall('90PE')));
+      Kart.settModus('rorKoble');
+      Kart.kart.setView(ll(200, 0), 19);
+      RorUI.kartklikk('rorKoble', ll(200, 0));
+      this.sjekk('første ende er valgt', !!RorUI._kobleFra);
+      Kart.kart.setView(ll(500, 0), 19);
+      RorUI.kartklikk('rorKoble', ll(500, 0));
+      await this.vent(600);
+      this.sjekk('koblingen er lagret', App.P.ror.retting.koble.length === 1);
+      this.sjekk('90PE er nå to rør', antall('90PE') === 2, String(antall('90PE')));
+      Kart.settModus('rorAv');
+      Kart.kart.setView(ll(50, 0), 19);
+      RorUI.kartklikk('rorAv', ll(50, 0.2));
+      this.sjekk('punktet er slått av', App.P.ror.retting.av.length === 1);
+      RorUI.kartklikk('rorAv', ll(50, 0.2));
+      this.sjekk('og på igjen ved neste klikk', App.P.ror.retting.av.length === 0);
+      await App.angre();
+      this.sjekk('angre slår det av igjen', App.P.ror.retting.av.length === 1);
+      Kart.settModus('rediger');
+      this.sjekk('Rediger slår av rettingsmodusen', !document.getElementById('verktoyRorAv').classList.contains('aktiv'));
+    } finally {
+      Kart.settModus('rediger');
+      App.P = JSON.parse(foer);
+      App.visAnleggsvelger(); App.visAnleggsvalg(); App.malTilSkjema(); App.tegnAlt(); await App.oppdater();
+    }
+  },
+
   /**
    * En oppdiktet as-built-fil ved Ydestad, der demoen ligger og terrenget
    * finnes. Samme oppskrift som proverPunkter() i test/rorprove.js: to rør i
