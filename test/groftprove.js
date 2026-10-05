@@ -130,6 +130,58 @@ const en = L => Groft.beregn({ linjer: [rett('a', '160PE', L, TOPP)], koder: kod
   paastand('hull i terrenget telles som areal', r.manglerTerreng > 5, String(r.manglerTerreng));
 }
 
+console.log('\n5. Felles grøft, egen grøft og sammenslåing');
+{
+  // to parallelle rør, sentrene ±0,5 m: gropene smelter sammen til én
+  const to = (L, egen) => Groft.beregn({ linjer: [rett('a', '160PE', L, TOPP, 1000, 1000, 0.3, -0.5),
+    rett('b', '160PE', L, TOPP, 1000, 1000, 0.3, 0.5)], koder: koder160, terrengZ: flatt, rute: 0.2,
+    justering: { strekninger: egen ? [{ fra: 'b-0', til: 'b-' + (L / 10), mal: {}, fjell: null, egen: true }] : [], sammen: [] } });
+  const p = perMeter(L => to(L, false));
+  /* Bunnene når ikke helt sammen: 1 m mellom sentrene er 0,24 m mer enn
+     bunnbredden, og der står en rygg på 0,12 m (1:1) – en trekant på
+     (1 − b)²/4 som ikke graves. */
+  const felles = (1 + b + h) * h - (1 - b) ** 2 / 4;
+  sjekk('felles grøft: én grop med en lav rygg midt i', p.gravingLos, felles, felles * 0.005);
+  const pe = perMeter(L => to(L, true));
+  sjekk('egen grøft: to hele groper', pe.gravingLos, 2 * (b + h) * h, 2 * (b + h) * h * 0.01);
+}
+{
+  // et grunt fiberrør 0,5 m til siden, i grøfta til et dypt rør
+  const lag = L => Groft.beregn({ linjer: [rett('a', '160PE', L, TOPP), rett('f', '40 FIBER', L, 9.3, 1000, 1000, 0.3, 0.5)],
+    koder: koder160, terrengZ: flatt, rute: 0.2 });
+  const p = perMeter(lag), alene = perMeter(en);
+  sjekk('fiberet gjør ikke grøfta større', p.gravingLos, alene.gravingLos, alene.gravingLos * 0.005);
+  const wf = 0.02 + 0.3, ff = (2 * wf + f) * f;
+  sjekk('fiberet får sitt eget fundament der det ligger', p.fundament - alene.fundament, ff, ff * 0.05);
+  const of = (2 * wf + 2 * f + 2 * wf + 2 * (f + 0.04 + o)) / 2 * (0.04 + o);
+  sjekk('og sin egen omfylling', (p.omfylling + p.rorvolum) - (alene.omfylling + alene.rorvolum), of, of * 0.05);
+}
+{
+  // sammenslått: to rør 3 m fra hverandre får flat bunn mellom seg
+  const par = (L, sammen) => Groft.beregn({ linjer: [rett('a', '160PE', L, TOPP, 1000, 1000, 0.3, -1.5),
+    rett('b', '160PE', L, TOPP, 1000, 1000, 0.3, 1.5)], koder: koder160, terrengZ: flatt, rute: 0.2,
+    justering: { strekninger: [], sammen: sammen ? [['a-0', 'b-0']] : [] } });
+  const uten = perMeter(L => par(L, false)), med = perMeter(L => par(L, true));
+  sjekk('sammenslått: flat bunn 3 + b', med.gravingLos, (3 + b + h) * h, (3 + b + h) * h * 0.015);
+  paastand('mer enn uten sammenslåing', med.gravingLos > uten.gravingLos + 0.5, `${med.gravingLos} / ${uten.gravingLos}`);
+}
+{
+  // målene på en strekning og per kode gjelder
+  const L = 100, ett = ekstra => Groft.beregn(Object.assign({ linjer: [rett('a', '160PE', L, TOPP)], koder: koder160,
+    terrengZ: flatt, rute: 0.2 }, ekstra)).sum.gravingLos;
+  const anlegg = ett({ mal: { helning: 0.5 } });
+  sjekk('helning på en strekning over hele røret', ett({ justering: { strekninger: [{ fra: 'a-0', til: 'a-10',
+    mal: { helning: 0.5 }, fjell: null, egen: false }], sammen: [] } }), anlegg, anlegg * 1e-9);
+  sjekk('helning per kode', ett({ koder: { '160PE': { dim: 160, groft: { helning: 0.5 } } } }), anlegg, anlegg * 1e-9);
+  const halv = ett({ justering: { strekninger: [{ fra: 'a-5', til: 'a-0', mal: { helning: 0.5 }, fjell: null, egen: false }], sammen: [] } });
+  const hel = en(L).sum.gravingLos;
+  paastand('en strekning over halve røret gir noe imellom', halv < hel && halv > anlegg, `${anlegg} < ${halv} < ${hel}`);
+  const feilM = Groft.forbered({ linjer: [rett('a', '160PE', L, TOPP)], koder: koder160, terrengZ: flatt,
+    justering: { strekninger: [{ fra: 'a-0', til: 'x-3', mal: {}, fjell: null, egen: false }], sammen: [['a-0', 'y-1']] } });
+  sjekk('strekning som ikke treffer, telles', feilM.strekUtenTreff, 1, 0);
+  sjekk('sammenslåing som ikke treffer, telles', feilM.sammenUtenTreff, 1, 0);
+}
+
 /* ---------------- sluttsum ---------------- */
 console.log(`\n${ok} tester ok, ${feil} feil`);
 process.exit(feil ? 1 : 0);

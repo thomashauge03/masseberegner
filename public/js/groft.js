@@ -81,6 +81,36 @@ const Groft = (() => {
     return Object.assign({ ax: a.x, ay: a.y, bx: b.x, by: b.y, dx, dy, L2: dx * dx + dy * dy, ta, tb }, felt);
   }
 
+  /** Stasjonene langs et rør: hver meter og hvert målt punkt, med segmentet de ligger på. */
+  function stasjoner(rr, seg) {
+    const l = rr.linje, ut = [];
+    for (let i = 0; i + 1 < l.xy.length; i++) {
+      const j = rr.segmenter[i], sg = seg[j];
+      const L = rr.s[i + 1] - rr.s[i];
+      for (let d = 0; d < L - 1e-9; d += STEG) {
+        const t = L > 0 ? d / L : 0;
+        ut.push({ s: rr.s[i] + d, x: sg.ax + sg.dx * t, y: sg.ay + sg.dy * t, topp: sg.ta + (sg.tb - sg.ta) * t, j, t });
+      }
+    }
+    const i = l.xy.length - 1, j = rr.segmenter[i - 1], sg = seg[j];
+    ut.push({ s: rr.s[i], x: sg.bx, y: sg.by, topp: sg.tb, j, t: 1 });
+    return ut;
+  }
+
+  /** Nærmeste punkt på et rør. */
+  function naermest(rr, seg, x, y) {
+    let best = null;
+    for (const j of rr.segmenter) {
+      const sg = seg[j];
+      let t = sg.L2 > 0 ? ((x - sg.ax) * sg.dx + (y - sg.ay) * sg.dy) / sg.L2 : 0;
+      t = Math.max(0, Math.min(1, t));
+      const px = sg.ax + sg.dx * t, py = sg.ay + sg.dy * t;
+      const d = Math.hypot(x - px, y - py);
+      if (!best || d < best.d) best = { d, x: px, y: py, j, topp: sg.ta + (sg.tb - sg.ta) * t };
+    }
+    return best;
+  }
+
   /**
    * Rørene som segmenter, med målene som gjelder på hvert, og et register over
    * hvilke segmenter som kan nå hver flis.
@@ -143,8 +173,31 @@ const Groft = (() => {
         }));
       }
     });
-    // 4. sammenslåingene (oppgave 4)
+    /* 4. SAMMENSLÅINGENE: flat bunn mellom to rør der de går side om side.
+       For hver stasjon på A trekkes en tverrstrek til nærmeste punkt på B, med
+       gravebunnen lineært mellom deres. Tverrstrekene er virtuelle segmenter
+       med halv bredde lik halve stasjonsavstanden – de former gropa, men har
+       ingen lag selv. Massene føres på det dypeste av de to rørene. */
     let sammenUtenTreff = 0, sammenAldriNaer = 0;
+    for (const par of just.sammen || []) {
+      const a = plass.get(par[0]), b = plass.get(par[1]);
+      if (!a || !b || a.r === b.r) { sammenUtenTreff++; continue; }
+      const RA = ror[a.r], RB = ror[b.r];
+      let noen = false;
+      for (const q of stasjoner(RA, seg)) {
+        const sA = seg[q.j];
+        const nB = naermest(RB, seg, q.x, q.y);
+        if (!nB || nB.d > SAMMEN_MAKS || nB.d < 0.01) continue;
+        const sB = seg[nB.j];
+        const zbA = q.topp - sA.D - sA.fund, zbB = nB.topp - sB.D - sB.fund;
+        noen = true;
+        seg.push(lagSegment({ x: q.x, y: q.y }, { x: nB.x, y: nB.y }, zbA, zbB, {
+          r: -1, eier: zbA <= zbB ? a.r : b.r, sa: 0, sb: nB.d, D: 0, w: STEG / 2 + 0.01,
+          fund: 0, omf: 0, hel: Math.min(sA.hel, sB.hel), fjell: null, gruppe: 0, virtuell: true
+        }));
+      }
+      if (!noen) sammenAldriNaer++;
+    }
     // 5. hvor langt hvert segment kan nå, og registeret over flisene
     const register = new Map();
     for (let j = 0; j < seg.length; j++) {
@@ -182,6 +235,11 @@ const Groft = (() => {
    */
   function grop(sg, x, y, Tq, sondert, ut) {
     let t = sg.L2 > 0 ? ((x - sg.ax) * sg.dx + (y - sg.ay) * sg.dy) / sg.L2 : 0;
+    /* En tverrstrek mellom to sammenslåtte rør graver bare mellom rørene. Med
+       runde ender stakk bunnen dens 0,13 m forbi rørets egen bunn på
+       yttersiden, og grøfta ble 3,4 % for stor. Utenfor er det rørenes egne
+       groper som gjelder. */
+    if (sg.virtuell && (t < 0 || t > 1)) return Infinity;
     if (t < 0) t = 0; else if (t > 1) t = 1;
     ut.t = t;
     const ex = x - sg.ax - sg.dx * t, ey = y - sg.ay - sg.dy * t;
