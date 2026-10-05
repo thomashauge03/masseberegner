@@ -8475,6 +8475,13 @@ const Nettlesertest = {
       Kart.settModus('rorBryt');
       this.sjekk('knappen viser at Bryt er på', document.getElementById('verktoyRorBryt').classList.contains('aktiv'));
       RorUI.kartklikk('rorBryt', ll(105, 0));
+      /* Med en gang, før den nye beregningen: kartet og lista tegnet det gamle
+         resultatet til terrenget var hentet, og bruddet så ikke ut til å virke. */
+      const streker = [];
+      Kart.lag.ror.eachLayer(l => { if (l instanceof L.Polyline && l.options.interactive !== false) streker.push(l); });
+      this.sjekk('bruddet synes i kartet med en gang', streker.length === 5, String(streker.length));
+      this.sjekk('og i rørlista', document.querySelectorAll('#rorInnhold [data-linje]').length === 5,
+        String(document.querySelectorAll('#rorInnhold [data-linje]').length));
       await this.vent(600);
       this.sjekk('bruddet er lagret', App.P.ror.retting.brudd.length === 1);
       this.sjekk('90PE er nå tre rør', antall('90PE') === 3, String(antall('90PE')));

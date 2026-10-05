@@ -440,15 +440,16 @@ const RorUI = {
   /**
    * Rørfanen, Koder-fanen og velgeren over profilen.
    *
-   * Leser resultatet når det finnes, ellers linjene bygget her og nå – fanen
-   * skal ikke stå tom mens terrenget lastes.
+   * Linjene bygges av dataene her og nå, som i kartet – fanen skal ikke stå
+   * tom mens terrenget lastes, og en retting skal synes med en gang.
+   * Resultatet gir tallene der det har en profil for røret.
    */
   vis() {
     const app = this.app;
     if (!app || !app.erRor()) return;
     const r = app.P.ror;
     const res = app.resultat && app.resultat.type === 'ror' ? app.resultat : null;
-    const bygg = res ? res.bygg : Ror.byggLinjer(r, app.P.mal, Ror.lagTilXY(r.sone, r.sone));
+    const bygg = Ror.byggLinjer(r, app.P.mal, Ror.lagTilXY(r.sone, r.sone));
     if (!bygg.linjer.some(l => l.id === this.valgt)) {
       const lengst = bygg.linjer.slice().sort((a, b) => b.lengde - a.lengde)[0];
       this.valgt = lengst ? lengst.id : null;
