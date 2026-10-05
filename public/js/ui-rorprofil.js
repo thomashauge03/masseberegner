@@ -47,7 +47,8 @@ const Rorprofil = {
     return {
       linje, kode, profil: res.profiler.get(linje.id),
       objekter: res._objektplass.get(linje.id) || [],
-      bakkefaktor: res.bakkefaktor || 1
+      bakkefaktor: res.bakkefaktor || 1,
+      groft: res.groft ? res.groft.profiler.get(linje.id) || null : null
     };
   },
 
@@ -93,6 +94,7 @@ const Rorprofil = {
       if (Number.isFinite(q.terreng)) { zmin = Math.min(zmin, q.terreng); zmaks = Math.max(zmaks, q.terreng); }
       zmin = Math.min(zmin, q.bunn); zmaks = Math.max(zmaks, q.topp);
     }
+    for (const q of d.groft || []) if (Number.isFinite(q.gravebunn)) zmin = Math.min(zmin, q.gravebunn, q.fundamentBunn);
     const pad = Math.max(0.4, (zmaks - zmin) * 0.12);
     zmin -= pad; zmaks += pad;
     const X = s => ml + (s / L) * bb;
@@ -124,6 +126,69 @@ const Rorprofil = {
       if (nede) k.lineTo(X(q.s), Y(q.terreng)); else { k.moveTo(X(q.s), Y(q.terreng)); nede = true; }
     }
     k.stroke();
+
+    /* GRØFTA: fundament og omfylling som felt, gravebunnen og fjellet som
+       streker. Bare der det faktisk graves – over terrenget er det ingen, og
+       der brytes feltene, så de aldri bygger bro over et hull. */
+    const Gr = d.groft || [];
+    const biter = [];
+    let bit = [];
+    for (const q of Gr) {
+      if (Number.isFinite(q.gravebunn)) bit.push(q);
+      else if (bit.length) { biter.push(bit); bit = []; }
+    }
+    if (bit.length) biter.push(bit);
+    // hva tegningen er, og hvor mye høyden er strukket – står øverst til venstre
+    const overdriv = (L / bb) / ((zmaks - zmin) / hh);
+    const tittel = `${d.linje.kode}${d.kode.dim ? ' · ⌀' + d.kode.dim : ''} · ${Rapport.tall(L * bf, 1)} m`
+      + ` · høyden ${Rapport.tall(overdriv, 0)}× overdrevet`;
+    const tittelSlutt = ml + 6 + k.measureText(tittel).width + 12;
+    if (biter.some(b => b.length > 1)) {
+      const felt = (lo, hi, fyll) => {
+        k.fillStyle = fyll; k.globalAlpha = 0.5;
+        for (const G of biter) {
+          if (G.length < 2) continue;
+          k.beginPath();
+          G.forEach((q, i) => (i ? k.lineTo(X(q.s), Y(hi(q))) : k.moveTo(X(q.s), Y(hi(q)))));
+          for (let i = G.length - 1; i >= 0; i--) k.lineTo(X(G[i].s), Y(lo(G[i])));
+          k.closePath(); k.fill();
+        }
+        k.globalAlpha = 1;
+      };
+      felt(q => q.fundamentTopp, q => Math.min(q.omfyllingTopp, q.terreng), Farger.groft('omfylling'));
+      felt(q => q.fundamentBunn, q => q.fundamentTopp, Farger.groft('fundament'));
+      const strek = (z, s, stipling) => {
+        k.strokeStyle = s; k.lineWidth = 1.4; k.setLineDash(stipling);
+        k.beginPath();
+        let nede = false;
+        for (const q of Gr) {
+          const v = z(q);
+          if (v == null || !Number.isFinite(v)) { nede = false; continue; }
+          if (nede) k.lineTo(X(q.s), Y(v)); else { k.moveTo(X(q.s), Y(v)); nede = true; }
+        }
+        k.stroke(); k.setLineDash([]);
+      };
+      strek(q => q.gravebunn, Farger.groft('bunn'), []);
+      strek(q => q.fjell, Farger.groft('fjell'), [3, 3]);
+      /* Navnene ved fargene, så fargen aldri står alene. Fra høyre, og bare
+         så langt det er plass før tittelen. */
+      k.font = '10px ' + Farger.hent('skrift'); k.textAlign = 'right'; k.textBaseline = 'top';
+      let xx = ml + bb - 4;
+      for (const [navn, s, strekt] of [['fjell', Farger.groft('fjell'), true], ['gravebunn', Farger.groft('bunn'), true],
+        ['fundament', Farger.groft('fundament'), false], ['omfylling', Farger.groft('omfylling'), false]]) {
+        const bredde = k.measureText(navn).width + 4 + 12;
+        if (xx - bredde < tittelSlutt) break;
+        k.fillStyle = Farger.blekkSvak; k.fillText(navn, xx, mt + 2);
+        xx -= k.measureText(navn).width + 4;
+        k.fillStyle = s; k.strokeStyle = s;
+        if (strekt) {
+          k.lineWidth = 1.6; k.setLineDash(navn === 'fjell' ? [3, 3] : []);
+          k.beginPath(); k.moveTo(xx - 12, mt + 7); k.lineTo(xx, mt + 7); k.stroke(); k.setLineDash([]);
+        } else k.fillRect(xx - 12, mt + 3, 12, 8);
+        xx -= 22;
+      }
+      k.font = '11px ' + Farger.hent('skrift');
+    }
 
     // røret: båndet mellom topp og bunn, og toppen som strek
     const farge = Farger.ror(d.kode.farge);
@@ -160,11 +225,8 @@ const Rorprofil = {
       k.fillText(o.kode, x, y + 6);
     }
 
-    // hva tegningen er, og hvor mye høyden er strukket
-    const overdriv = (L / bb) / ((zmaks - zmin) / hh);
     k.fillStyle = Farger.blekk; k.textAlign = 'left'; k.textBaseline = 'top';
-    k.fillText(`${d.linje.kode}${d.kode.dim ? ' · ⌀' + d.kode.dim : ''} · ${Rapport.tall(L * bf, 1)} m`
-      + ` · høyden ${Rapport.tall(overdriv, 0)}× overdrevet`, ml + 6, mt + 2);
+    k.fillText(tittel, ml + 6, mt + 2);
 
     // pekeren
     if (valg.peker == null || valg.peker < ml || valg.peker > ml + bb) return '';
@@ -174,10 +236,17 @@ const Rorprofil = {
     k.beginPath(); k.moveTo(X(q.s) + 0.5, mt); k.lineTo(X(q.s) + 0.5, mt + hh); k.stroke();
     k.setLineDash([]);
     const f = pr.fall.find(x => q.s >= x.fra - 1e-9 && q.s <= x.til + 1e-9);
+    // grøfteprøven nærmest – står den der det ikke graves, er det ingen dybde å vise
+    const gq = Gr.length ? Gr.reduce((a, b) => (Math.abs(b.s - q.s) < Math.abs(a.s - q.s) ? b : a)) : null;
+    const grofttekst = gq && Number.isFinite(gq.gravebunn)
+      ? ` · gravedybde ${Rapport.tall(gq.terreng - gq.gravebunn, 2)} m`
+        + (gq.fjell != null && gq.fjell > gq.gravebunn ? ` · fjell ${Rapport.tall(gq.fjell, 2)}` : '')
+      : '';
     return `Profil ${Rapport.tall(q.s * bf, 1)} m · terreng ${Number.isFinite(q.terreng) ? Rapport.tall(q.terreng, 2) : '–'}`
       + ` · topp rør ${Rapport.tall(q.topp, 2)} · overdekning `
       + (Number.isFinite(q.overdekning) ? Rapport.tall(q.overdekning, 2) + ' m' : 'ukjent')
-      + (f && Number.isFinite(f.fall) ? ` · fall ${Rapport.tall(f.fall * 100, 1)} %` : '');
+      + (f && Number.isFinite(f.fall) ? ` · fall ${Rapport.tall(f.fall * 100, 1)} %` : '')
+      + grofttekst;
   },
 
   /**

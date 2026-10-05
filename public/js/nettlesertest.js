@@ -170,7 +170,7 @@ const Nettlesertest = {
       'tomt3d', 'veg3d', 'kartlag',
       'rorArbeidsbilde', 'rorBeregning', 'rorImport', 'rorSone', 'rorKart', 'rorFane', 'rorRetting',
       'rorProfil', 'ror3d', 'rorRapport', 'rorPdf', 'rorForklaring',
-      'groftBeregning', 'groftFane', 'groftKoder', 'groftVerktoy',
+      'groftBeregning', 'groftFane', 'groftKoder', 'groftVerktoy', 'groftProfil',
       'lovlighet', 'framdrift', 'gamleFilerOgUtskifting', 'opprydding'];
     for (const navn of proever) {
       try {
@@ -8934,6 +8934,30 @@ const Nettlesertest = {
         const g = App.resultat.groft;
         this.sjekk('og røret er ikke med i grøfta', !g.perKode.has('90PE') && g.utenDimensjon.some(u => u.kode === '90PE'));
         this.sjekk('merknaden sier hvor mye', g.merknader.some(m => m.type === 'dimensjon' && /90PE/.test(m.tekst)));
+      });
+    } finally {
+      await this._rorTilbake(foer);
+    }
+  },
+
+  /** Grøfta i lengdeprofilen, og gravedybden i avlesningen. */
+  async groftProfil() {
+    const foer = JSON.stringify(App.P);
+    try {
+      await this._medFlattTerreng(21.5, async () => {
+        App.P = App.nyttProsjekt();
+        await RorUI.importerTekst(this._rorXml(), 'asbuilts_Prove.xml', {}, { sone: 32, maal: 'nytt' });
+        clearTimeout(App._tidsavbrudd);
+        await App.beregnRor();
+        const linje = App.resultat.linjer.find(l => l.id === RorUI.valgt);
+        const d = Rorprofil.dataFor(App, App.resultat, linje);
+        this.sjekk('profilen får grøfta', !!d.groft && d.groft.length > 10);
+        const l = document.getElementById('rorprofil');
+        Rorprofil.peker = l.clientWidth / 2;
+        Rorprofil.tegn();
+        this.sjekk('avlesningen viser gravedybden', /gravedybde/.test(document.getElementById('rorEtikett').textContent),
+          document.getElementById('rorEtikett').textContent);
+        Rorprofil.peker = null;
       });
     } finally {
       await this._rorTilbake(foer);
