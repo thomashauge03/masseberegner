@@ -57,6 +57,22 @@ console.log('\n1. Malen, kodene og bunn ↔ topp');
     && RorPlan.nyPlanmal().kum !== RorPlan.StandardPlanmal.kum && RorPlan.nyPlanmal().kum.diameter === 1000);
 }
 
+console.log('\n2. Sideavstanden');
+{
+  const rett = RorPlan.forskyv([{ x: 0, y: 0 }, { x: 10, y: 0 }], 0.5);
+  paastand('rett strekk: høyre i tegneretningen er minus y når man går mot øst',
+    Math.abs(rett[0].y + 0.5) < 1e-12 && Math.abs(rett[1].y + 0.5) < 1e-12 && rett[1].x === 10);
+  const v = RorPlan.forskyv([{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }], 1);
+  // venstresving på 90°: høyresiden er yttersida, punktet ligger på halveringslinja, √2 ut
+  sjekk('90° knekk: √2 · side ut', Math.hypot(v[1].x - 10, v[1].y), Math.SQRT2, 1e-12);
+  paastand('og på yttersida', v[1].x > 10 && v[1].y < 0);
+  const s = RorPlan.forskyv([{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 0, y: 1 }], 1);
+  sjekk('skarp knekk: kappet ved 2 · side', Math.hypot(s[1].x - 10, s[1].y), 2, 1e-12);
+  paastand('side 0 gir punktene som de er', RorPlan.forskyv([{ x: 1, y: 2 }, { x: 3, y: 4 }], 0)[1].y === 4);
+  const st = RorPlan.stasjonering([{ x: 0, y: 0 }, { x: 3, y: 4 }, { x: 3, y: 10 }]);
+  paastand('stasjoneringen langs linja', st.length === 3 && st[1] === 5 && st[2] === 11);
+}
+
 /* ---------------- sluttsum ---------------- */
 console.log(`\n${ok} tester ok, ${feil} feil`);
 process.exit(feil ? 1 : 0);

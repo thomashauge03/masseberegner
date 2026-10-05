@@ -81,8 +81,53 @@ const RorPlan = (() => {
   function minFall(k) { return Number.isFinite(k.minFall) ? k.minFall : (STANDARD_MINFALL[k.system] || 0); }
   function maksFall(k) { return Number.isFinite(k.maksFall) ? k.maksFall : null; }
 
+  /**
+   * Traseen forskjøvet `side` meter til høyre i tegneretningen. I et
+   * knekkpunkt ligger punktet på halveringslinja, side / cos(θ/2) ut; i knekker
+   * skarpere enn 120° kappes det ved 2 · side, så en spiss knekk ikke sender
+   * røret langt av sted. Strekk uten lengde låner retningen fra naboen.
+   */
+  function forskyv(pts, side) {
+    if (!side || pts.length < 2) return pts.map(p => ({ x: p.x, y: p.y }));
+    const n = pts.length;
+    // høyre for retningen (dx, dy) er (dy, −dx)
+    const normal = (a, b) => {
+      const dx = b.x - a.x, dy = b.y - a.y, L = Math.hypot(dx, dy);
+      return L > 0 ? { x: dy / L, y: -dx / L } : null;
+    };
+    const nr = [];
+    for (let i = 0; i + 1 < n; i++) nr.push(normal(pts[i], pts[i + 1]));
+    for (let i = 1; i < nr.length; i++) if (!nr[i]) nr[i] = nr[i - 1];
+    for (let i = nr.length - 2; i >= 0; i--) if (!nr[i]) nr[i] = nr[i + 1];
+    const ut = [];
+    for (let i = 0; i < n; i++) {
+      const n1 = i > 0 ? nr[i - 1] : null, n2 = i < n - 1 ? nr[i] : null;
+      let mx, my, f = 1;
+      if (n1 && n2) {
+        mx = n1.x + n2.x; my = n1.y + n2.y;
+        const L = Math.hypot(mx, my);
+        if (L < 1e-9) { mx = n1.x; my = n1.y; } else {
+          mx /= L; my /= L;
+          f = 1 / Math.max(mx * n1.x + my * n1.y, 0.5);   // 1 / cos(θ/2), høyst 2
+        }
+      } else {
+        const m = n1 || n2 || { x: 0, y: 0 };
+        mx = m.x; my = m.y;
+      }
+      ut.push({ x: pts[i].x + mx * side * f, y: pts[i].y + my * side * f });
+    }
+    return ut;
+  }
+
+  /** Lengden fram til hvert punkt langs linja. */
+  function stasjonering(xy) {
+    const s = [0];
+    for (let i = 1; i < xy.length; i++) s.push(s[i - 1] + Math.hypot(xy[i].x - xy[i - 1].x, xy[i].y - xy[i - 1].y));
+    return s;
+  }
+
   return { StandardPlanmal, GRENSER, nyPlan, nyPlanmal, klem, nyId, alleIder, kodeAv, gods,
-    toppFraBunn, bunnFraTopp, regel, overdekning, minFall, maksFall };
+    toppFraBunn, bunnFraTopp, regel, overdekning, minFall, maksFall, forskyv, stasjonering };
 })();
 
 if (typeof module !== 'undefined') module.exports = RorPlan;
