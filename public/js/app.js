@@ -1273,7 +1273,7 @@ const App = {
       b.onclick = () => { this.leggTilAnlegg(b.dataset.nytt); this._lukkAnleggspanel(); };
     }
     for (const b of panel.querySelectorAll('[data-nyttror]')) {
-      b.onclick = () => { this._lukkAnleggspanel(); RorUI.velgFil({}); };
+      b.onclick = () => { this._lukkAnleggspanel(); RorUI.velgFil({ nytt: true }); };
     }
     for (const b of panel.querySelectorAll('[data-navn]')) {
       b.onclick = () => this.dopAnlegg(b.dataset.navn);

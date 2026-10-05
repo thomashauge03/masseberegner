@@ -192,10 +192,16 @@ const RorUI = {
     les.advarsler.utenforUtm = kk.utenfor;
     const gjett = Ror.gjettSone(les.punkter, les.epsg, this._prosjektpunkter());
     const aktivtRor = app.erRor() ? app.anlegg() : null;
-    const koder = Ror.koderFra(les.punkter, aktivtRor ? aktivtRor.ror.koder : null);
+    /* Det aktive anleggets koder gir tolkningen og fargene for koder brukeren
+       alt har rettet – men bare kodene i DENNE fila kommer med. Ellers arvet
+       et nytt anlegg alle kodene til det gamle, med null punkt hver. Legges
+       fila til, beholder anlegget sine egne uansett. */
+    const iFila = new Set(les.punkter.map(p => p.kode));
+    const koder = Object.fromEntries(Object.entries(Ror.koderFra(les.punkter, aktivtRor ? aktivtRor.ror.koder : null))
+      .filter(([kode]) => iFila.has(kode)));
     const svar = svarUtenDialog
       ? Object.assign({ koder }, svarUtenDialog)
-      : await this.dialog(les, filnavn, gjett, koder, aktivtRor);
+      : await this.dialog(les, filnavn, gjett, koder, aktivtRor, valg);
     if (!svar) { app.status('Importen ble avbrutt'); return false; }
     this.leggInn(les, filnavn, svar);
     return true;
@@ -231,7 +237,7 @@ const RorUI = {
    * Dialogen før importen: hva fila inneholder, hvilken sone, hva kodene betyr.
    * @returns {Promise<?{sone, koder, maal}>} null når brukeren avbryter
    */
-  dialog(les, filnavn, gjett, koder, aktivtRor) {
+  dialog(les, filnavn, gjett, koder, aktivtRor, valg = {}) {
     return new Promise(los => {
       const boks = document.getElementById('dialog');
       const ramme = boks.querySelector('.dialogboks');
@@ -268,10 +274,10 @@ const RorUI = {
         <p class="notis">${grunn}</p>
         ${this.kodetabellHtml(koder, antall)}
         ${aktivtRor ? `<fieldset class="rormaal"><legend>Hvor skal punktene?</legend>
-          <label><input type="radio" name="rorMaal" value="leggTil" checked>
+          <label><input type="radio" name="rorMaal" value="leggTil"${valg.nytt ? '' : ' checked'}>
             Legg til i «${escapeHtml(aktivtRor.navn || 'Rør')}» – punkt som finnes fra før, kjennes igjen.
             Anlegget er i UTM ${aktivtRor.ror.sone}; er fila i en annen sone, regnes punktene om dit.</label>
-          <label><input type="radio" name="rorMaal" value="nytt"> Nytt røranlegg</label></fieldset>` : ''}
+          <label><input type="radio" name="rorMaal" value="nytt"${valg.nytt ? ' checked' : ''}> Nytt røranlegg</label></fieldset>` : ''}
         <div class="knapperad" style="justify-content:flex-end">
           <button class="knapp" id="rorAvbryt">Avbryt</button>
           <button class="knapp primaer" id="rorImporter">Importer</button>

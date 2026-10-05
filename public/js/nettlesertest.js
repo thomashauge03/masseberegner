@@ -8304,8 +8304,27 @@ const Nettlesertest = {
       this.sjekk('det nye punktet er regnet om til anleggets sone',
         !!ny && Math.abs(ny.o - (forsteFoer.o + 20)) < 0.002 && Math.abs(ny.n - forsteFoer.n) < 0.002,
         ny ? `${(ny.o - forsteFoer.o).toFixed(3)} m øst, ${(ny.n - forsteFoer.n).toFixed(3)} m nord` : 'mangler');
+      /* «Nye rør (fra fil)» i anleggslista foreslo å legge punktene inn i
+         røranlegget som sto oppe, og et nytt anlegg arvet alle kodene til det
+         gamle – med null punkt hver. */
+      const antallFoer = App.P.anlegg.length;
+      const bare32 = this._rorXml().replace(/<CgPoint [^>]*code="(?!32PE")[^"]*"[^>]*>[^<]*<\/CgPoint>\n?/g, '');
+      const venter = RorUI.importerTekst(bare32, 'asbuilts_Stikk.xml', { nytt: true });
+      await this.vent(100);
+      const nyttValg = document.querySelector('input[name="rorMaal"][value="nytt"]');
+      this.sjekk('«Nye rør» foreslår et nytt anlegg', !!nyttValg && nyttValg.checked);
+      const tabell = [...document.querySelectorAll('#dialoginnhold tr[data-kode]')].map(tr => tr.dataset.kode);
+      this.sjekk('kodetabellen viser bare kodene i fila', tabell.join(',') === '32PE', tabell.join(','));
+      document.getElementById('rorImporter').click();
+      const ok6 = await venter;
+      this.sjekk('og får det', ok6 === true && App.P.anlegg.length === antallFoer + 1 && App.erRor(),
+        App.P.anlegg.map(x => x.type).join(','));
+      this.sjekk('det nye anlegget har bare kodene i sin egen fil',
+        Object.keys(App.P.ror.koder).join(',') === '32PE', Object.keys(App.P.ror.koder).join(','));
+      const anleggFoer = App.P.anlegg.length;
       const ok3 = await RorUI.importerTekst('<html></html>', 'feil.xml', {}, { sone: 32, maal: 'nytt' });
-      this.sjekk('en fil som ikke er LandXML avvises og rører ingenting', ok3 === false && App.P.anlegg.length === 1);
+      this.sjekk('en fil som ikke er LandXML avvises og rører ingenting',
+        ok3 === false && App.P.anlegg.length === anleggFoer);
       this.sjekk('og brukeren får vite hvorfor', /ikke LandXML/.test(document.getElementById('dialoginnhold').textContent));
       document.getElementById('dialog').classList.add('skjult');
       const farge = Farger.ror('vann');
