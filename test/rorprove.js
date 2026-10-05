@@ -438,6 +438,41 @@ console.log('\n14. Røranlegget i prosjektfila');
   paastand('et prosjekt med innmålte rør er ikke ubestemt', !Q.ubestemt);
   const R = Prosjektform.klargjor({ navn: 'z', aktivt: 'r1', anlegg: [{ id: 'r1', ror: { punkter: [] } }] });
   paastand('et anlegg uten type men med ror-felt blir rør', R.anlegg[0].type === 'ror');
+
+  /* EN FIL KAN INNEHOLDE HVA SOM HELST. Den kan være redigert for hånd eller
+     sendt fra en kollega, og feltene går rett inn i regnestykker og skjemaer:
+     en dimensjon som tekst limes inn i HTML-en uten escaping, og en sone som
+     ikke finnes gir NaN i hver koordinat. */
+  const F = Prosjektform.klargjor({ navn: 'f', aktivt: 'r1', anlegg: [{ id: 'r1', type: 'ror',
+    mal: { maksAvstand: '9999' },
+    ror: {
+      sone: 34,
+      punkter: [{ id: 'a', kode: '90PE', n: 1, o: 2, z: 3, nr: 1 }, { id: 'b', kode: 'NY KODE', n: 1, o: 2, z: 3, nr: 2 }],
+      koder: {
+        '90PE': { form: 'sirkel', dim: '"><img src=x onerror=alert(1)>', farge: 'rød', vis: 'ja' },
+        '110PVC': { form: 'linje', dim: '110', farge: 'vann', vis: false },
+        'TULL': 'ikke et objekt'
+      },
+      kilder: [{ fil: 'x.xml', antall: '<b>12</b>' }, null]
+    } }] });
+  const fr = F.anlegg[0].ror;
+  sjekk('maks avstand utenfor 5–200 blir standarden', F.anlegg[0].mal.maksAvstand, 25, 0);
+  sjekk('en sone som ikke finnes blir 32', fr.sone, 32, 0);
+  paastand('en dimensjon som ikke er et tall blir null', fr.koder['90PE'].dim === null, String(fr.koder['90PE'].dim));
+  paastand('en dimensjon som tekst blir tall', fr.koder['110PVC'].dim === 110, String(fr.koder['110PVC'].dim));
+  paastand('en form som ikke finnes blir tolket fra koden', fr.koder['90PE'].form === 'linje', fr.koder['90PE'].form);
+  paastand('en farge som ikke finnes blir en som gjør det', fr.koder['90PE'].farge in Ror.FARGER, fr.koder['90PE'].farge);
+  paastand('vis er sant eller usant', fr.koder['90PE'].vis === true && fr.koder['110PVC'].vis === false);
+  paastand('en kode som ikke er et objekt tas bort', !('TULL' in fr.koder));
+  paastand('en kode punktene har men tabellen mangler, legges til', !!fr.koder['NY KODE']
+    && fr.koder['NY KODE'].form === 'punkt', JSON.stringify(fr.koder['NY KODE']));
+  paastand('kilder som ikke er objekter tas bort', fr.kilder.length === 1);
+  paastand('antall punkt i kilden er et tall', fr.kilder[0].antall === 0, String(fr.kilder[0].antall));
+  const G = Prosjektform.klargjor({ navn: 'g', aktivt: 'r1', anlegg: [{ id: 'r1', type: 'ror',
+    mal: { maksAvstand: 40 }, ror: { sone: '33', punkter: [], kilder: [{ fil: 'y.xml', antall: 120 }] } }] });
+  sjekk('en lovlig maks avstand står', G.anlegg[0].mal.maksAvstand, 40, 0);
+  sjekk('en sone som tekst blir tall', G.anlegg[0].ror.sone, 33, 0);
+  sjekk('et lovlig antall står', G.anlegg[0].ror.kilder[0].antall, 120, 0);
 }
 
 /* ------------------------------------------------------------------ */

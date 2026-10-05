@@ -35,6 +35,46 @@ function _ror() {
 }
 
 /**
+ * Feltene i et røranlegg fra fil, gjort om til det programmet regner med.
+ *
+ * En prosjektfil kan være redigert for hånd eller sendt fra en kollega, og
+ * feltene går rett inn i regnestykker og skjemaer. En dimensjon som tekst ble
+ * limt inn i kodetabellen uten escaping; en sone som ikke finnes gir NaN i
+ * hver eneste koordinat; maks avstand på 9 999 m trekker én strek gjennom
+ * alle punktene med samme kode. Det som ikke kan brukes, får standardverdien.
+ */
+function _rettRorfelt(a, R) {
+  const tall = v => {
+    const x = typeof v === 'string' ? parseFloat(v) : v;
+    return typeof x === 'number' && Number.isFinite(x) ? x : null;
+  };
+  const m = tall(a.mal.maksAvstand);
+  a.mal.maksAvstand = m !== null && m >= 5 && m <= 200 ? m : R.StandardRormal.maksAvstand;
+  const sone = tall(a.ror.sone);
+  a.ror.sone = [32, 33, 35].includes(sone) ? sone : 32;
+  for (const kode of Object.keys(a.ror.koder)) {
+    const k = a.ror.koder[kode];
+    if (!k || typeof k !== 'object' || Array.isArray(k)) { delete a.ror.koder[kode]; continue; }
+    const tolket = R.tolkKode(kode);
+    if (k.form !== 'linje' && k.form !== 'punkt') k.form = tolket.form;
+    const d = tall(k.dim);
+    k.dim = d !== null && d > 0 && d <= 3000 ? d : null;
+    if (!Object.prototype.hasOwnProperty.call(R.FARGER, k.farge)) {
+      k.farge = k.form === 'punkt' ? 'punkt'
+        : Object.prototype.hasOwnProperty.call(R.FARGER, tolket.system) ? tolket.system : 'p6';
+    }
+    k.vis = k.vis !== false;
+  }
+  // en kode punktene har, men tabellen mangler, får tolkningen sin
+  a.ror.koder = R.koderFra(a.ror.punkter, a.ror.koder);
+  a.ror.kilder = a.ror.kilder.filter(k => k && typeof k === 'object' && !Array.isArray(k));
+  for (const k of a.ror.kilder) {
+    const n = tall(k.antall);
+    k.antall = n !== null && n >= 0 ? Math.round(n) : 0;
+  }
+}
+
+/**
  * En mal fra en eldre fil, brakt opp til dagens navn.
  *
  * Lå som `App.moderniserMal`. Den er ren – ingen `this`, ingen skjerm – og
@@ -150,6 +190,7 @@ function klargjor(P) {
       if (!a.ror.koder || typeof a.ror.koder !== 'object') a.ror.koder = {};
       a.ror.retting = Object.assign({ av: [], brudd: [], koble: [] }, a.ror.retting || {});
       for (const k of ['av', 'brudd', 'koble']) if (!Array.isArray(a.ror.retting[k])) a.ror.retting[k] = [];
+      _rettRorfelt(a, R);
       a.ip = a.ip || [];      // se nyttAnlegg: tomme lister, ikke undefined
       a.vip = a.vip || [];
     } else {

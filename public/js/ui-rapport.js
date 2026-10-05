@@ -1035,7 +1035,7 @@ ${merknader ? `<h2>Merknader</h2><table><thead><tr><th>Type</th><th>Merknad</th>
     const dato = new Date().toLocaleDateString('nb-NO', { day: '2-digit', month: 'long', year: 'numeric' });
     const teg = this.lagRortegninger(res);
     const kilder = r.kilder.map(k => `${escapeHtml(k.fil)}${k.program ? ' · ' + escapeHtml(k.program) : ''}`
-      + `${k.dato ? ' · ' + escapeHtml(k.dato) : ''} · ${k.antall} punkt`).join('<br>');
+      + `${k.dato ? ' · ' + escapeHtml(k.dato) : ''} · ${escapeHtml(k.antall)} punkt`).join('<br>');
     const rader = res.linjer.map((l, i) => {
       const k = r.koder[l.kode] || Ror.tolkKode(l.kode);
       const pr = res.profiler.get(l.id);

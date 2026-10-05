@@ -323,7 +323,7 @@ const RorUI = {
         <td><label class="sr-only" for="${id}f">Tegnes som</label>
           <select id="${id}f" class="minivalg" data-felt="form">${valg(k.form, [['linje', 'Rør'], ['punkt', 'Punkt']])}</select></td>
         <td><label class="sr-only" for="${id}d">Dimensjon i mm</label>
-          <input id="${id}d" class="minitall" type="number" min="0" max="3000" step="1" data-felt="dim" value="${k.dim || ''}"></td>
+          <input id="${id}d" class="minitall" type="number" min="0" max="3000" step="1" data-felt="dim" value="${escapeAttr(k.dim || '')}"></td>
         <td><label class="sr-only" for="${id}c">Farge</label>
           <select id="${id}c" class="minivalg" data-felt="farge">${valg(k.farge, farger)}</select></td>
         <td><label class="sr-only" for="${id}v">Ta med ${escapeHtml(kode)}</label>
@@ -507,7 +507,7 @@ const RorUI = {
     }
     const merknader = (res ? res.merknader : []).map(m => `<li>${escapeHtml(m.tekst)}</li>`).join('');
     const kilder = r.kilder.map(k => `${escapeHtml(k.fil)}${k.program ? ' · ' + escapeHtml(k.program) : ''}`
-      + `${k.dato ? ' · ' + escapeHtml(k.dato) : ''} · ${k.antall} punkt`).join('<br>');
+      + `${k.dato ? ' · ' + escapeHtml(k.dato) : ''} · ${escapeHtml(k.antall)} punkt`).join('<br>');
     const ret = r.retting;
     e.innerHTML = `
       <h3>${escapeHtml(app.anlegg().navn || 'Rør')}</h3>
