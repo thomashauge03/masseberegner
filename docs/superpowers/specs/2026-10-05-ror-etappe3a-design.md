@@ -160,8 +160,11 @@ Endres terrenget eller overdekningen, flytter de frie høydene seg; de låste st
 
 ### 4.6 Påkobling og greining
 
-- **Mot et innmålt rør** (et annet anlegg): begynner eller slutter en trase innen 1 m fra
-  et punkt på en innmålt linje, festes den der. Høyden i påkoblingen hentes fra punktet –
+- **Mot et innmålt rør** (et annet anlegg): begynner eller slutter en trase nær et punkt
+  på en innmålt linje – innen fjorten skjermpunkt, som verktøyene for innmålte rør; en
+  fast meter var umulig å treffe uten å zoome helt inn – festes den der. Høyden låses på
+  røret i traseen med samme kode (eller samme system og dimensjon); har ingen av dem
+  den, låses ingenting, og statuslinja sier det. Høyden i påkoblingen hentes fra punktet –
   topp rør, gjort om til bunn innvendig med dimensjonen og godset til det innmålte røret –
   og lagres som en låst høyde med `kilde`. Endres kilden senere (ny import), sier
   merknadene fra; «Hent på nytt» i punktfeltet oppdaterer.
@@ -234,7 +237,7 @@ Endres terrenget eller overdekningen, flytter de frie høydene seg; de låste st
 |---|---|---|
 | Overdekning | `T − topp` er under grensen (1 cm å gå på), slått sammen til strekk | Rørets overdekning – det samme tallet de frie punktene legges på |
 | Fall | Selvfall: motfall, fall under `minFall`, eller over `maksFall` når den er satt – med toleransen max(0,05 ‰, 1 mm / L), siden høydene låses på hel millimeter | Standard `minFall`: spillvann og felles 10 ‰, overvann og drens 5 ‰. Trykk sjekkes ikke |
-| Kryssing | Et planlagt rør krysser et annet – innmålt i et annet anlegg, eller planlagt – med klaring under grensen, eller treffer det | `kryssKlaring`, 0,3 m; klaringen er avstanden mellom utsidene i krysset |
+| Kryssing | Et planlagt rør krysser et annet – innmålt i et annet anlegg, eller planlagt – med klaring under grensen, eller treffer det. Og to rør i samme trase som ligger oppå hverandre (sideavstandene nærmere enn halve diameterne til sammen) | `kryssKlaring`, 0,3 m; klaringen er avstanden mellom utsidene i krysset |
 | Fjell | Grøfta går i fjell (fra etappe 2: strekninger og sonderinger) | Ingen – en opplysning: rør, lengde i fjell og sprengning |
 
 - **Kryssing** finnes i plan: hvert segment av et planlagt rør mot hvert segment av de

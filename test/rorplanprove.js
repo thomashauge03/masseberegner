@@ -257,6 +257,18 @@ console.log('\n4. Kontrollene');
   paastand('påkoblingen gjelder hele traseen – røret ved siden av krysser ikke', kr.length === 0, JSON.stringify(kr.map(v => v.tekst)));
 }
 {
+  /* To rør i samme trase med samme sideavstand ligger oppå hverandre – og
+     strekker som går parallelt, krysser aldri. «Nytt rør» foreslår side 0
+     hver gang, så det skjer lett, og ingenting sa fra. */
+  const opp = (s1, s2) => RorPlan.kontroller({ bygg: bygg(plan1([[0, 0], [50, 0]],
+    [{ kode: 'SP 160PE', side: s1 }, { kode: 'VL 110PE', side: s2 }]), flatt), koder: {}, mal: RorPlan.nyPlanmal(),
+    terrengZ: flatt, andre: [] }).filter(v => v.type === 'kryss');
+  paastand('rør oppå hverandre i samme trase varsles', opp(0, 0).length === 1 && /oppå hverandre/.test(opp(0, 0)[0].tekst),
+    JSON.stringify(opp(0, 0).map(v => v.tekst)));
+  paastand('også når de overlapper litt', opp(0.4, 0.3).length === 1);
+  paastand('men ikke når de ligger ved siden av hverandre', opp(0.4, -0.4).length === 0);
+}
+{
   // kryssing: et planlagt rør (topp 8,0, bunn 7,84) over et innmålt med kjent høyde
   const b = bygg(plan1([[0, 0], [100, 0]], [{ kode: 'SP 160PE' }]), flatt);
   const kr = toppB => RorPlan.kontroller({ bygg: b, koder: {}, mal: RorPlan.nyPlanmal(), terrengZ: flatt,

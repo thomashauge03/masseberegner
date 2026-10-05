@@ -303,7 +303,7 @@ const RorPlan = (() => {
         id: r.id, kode: r.kode,
         punkter: rader.map(q => Object.assign({ id: q.id, kode: r.kode, o: q.o, n: q.n, z: q.z }, q.mellom ? { mellom: true } : {})),
         xy: rader.map(q => ({ x: q.x, y: q.y })), lengde: s[n - 1], lengde3d,
-        plan: { ror: r.id, trase: t.id, regel: reg, grense: ov, gods: gods(k), motsatt: !!r.motsatt }
+        plan: { ror: r.id, trase: t.id, regel: reg, grense: ov, gods: gods(k), motsatt: !!r.motsatt, side: r.side || 0 }
       });
       const vedKnekk = i => rader.find(q => q.i === i).z;
       for (let i = 0; i < n; i++) toppVed.set(r.id + ':' + t.punkter[i].id, vedKnekk(i));
@@ -492,6 +492,28 @@ const RorPlan = (() => {
               ? `${A.kode} treffer ${hvem} ved ${m0(sv)} m.`
               : `${A.kode} krysser ${hvem} med ${m2(klaring)} m klaring ved ${m0(sv)} m (grense ${m2(grense)} m).` });
           }
+        }
+      }
+    }
+    /* RØR OPPÅ HVERANDRE: to rør i samme trase som ligger nærmere hverandre
+       enn halve diameterne til sammen. Strekk som går parallelt, krysser
+       aldri, så kontrollen over så dem ikke – og «Nytt rør» foreslår side 0
+       hver gang. */
+    const iTrase = new Map();
+    for (const l of b.linjer) {
+      if (!l.plan) continue;
+      if (!iTrase.has(l.plan.trase)) iTrase.set(l.plan.trase, []);
+      iTrase.get(l.plan.trase).push(l);
+    }
+    for (const ls of iTrase.values()) {
+      for (let i = 0; i < ls.length; i++) {
+        for (let j = i + 1; j < ls.length; j++) {
+          const A = ls[i], B = ls[j], sa = A.plan.side || 0, sb = B.plan.side || 0;
+          const DA = (kodeAv(o.koder, A.kode).dim || 0) / 1000, DB = (kodeAv(o.koder, B.kode).dim || 0) / 1000;
+          if (Math.abs(sa - sb) >= (DA + DB) / 2) continue;
+          const midt = A.xy[Math.floor((A.xy.length - 1) / 2)];
+          ut.push({ type: 'kryss', linje: A.id, mot: B.id, fra: 0, til: 0, x: midt.x, y: midt.y,
+            tekst: `${A.kode} og ${B.kode} ligger oppå hverandre i traseen – sideavstand ${m1(sa)} og ${m1(sb)} m.` });
         }
       }
     }
