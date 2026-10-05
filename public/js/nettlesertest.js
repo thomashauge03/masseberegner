@@ -9168,6 +9168,15 @@ const Nettlesertest = {
         // spillvannet (fri ende, topp 19,5) går rett gjennom 180 PE (topp 19,5) der det krysser
         this.sjekk('krysset med det innmålte 180 PE varsles', App.resultat.merknader.some(m => m.type === 'kryss'
           && /180 PE/.test(m.tekst)), App.resultat.merknader.map(m => m.tekst).join(' | '));
+        // «Lås» på påkoblingen uten å endre noe: koblingen står, og møtet med 90PE er ikke et kryss
+        RorPlanUI.punktfelt(plan.ror[0].id, plan.traseer[0].punkter[0].id);
+        document.getElementById('ppLaas').click();
+        clearTimeout(App._tidsavbrudd);
+        await App.beregnRor();
+        this.sjekk('å låse påkoblingen på nytt gir ikke «treffer» der den er koblet på',
+          !!App.P.ror.plan.laast[0].kilde && !App.resultat.merknader.some(m => m.type === 'kryss' && /90PE treffer 90PE/.test(m.tekst)),
+          App.resultat.merknader.map(m => m.tekst).join(' | '));
+        await App.angre();
         await App.angre();
         this.sjekk('angre tar hele traseen bort', App.P.ror.plan.traseer.length === 0);
       });
@@ -9362,6 +9371,40 @@ const Nettlesertest = {
         clearTimeout(App._tidsavbrudd);
         await App.beregnRor();
         this.sjekk('for lite overdekning varsles', App.resultat.merknader.some(m => m.type === 'overdekning' && m.linje === 'r1'));
+        /* EN PÅKOBLING ER EN KOBLING, OGSÅ NÅR HØYDEN LÅSES PÅ NYTT. «Lås» i
+           punktfeltet, en dragning eller «fall videre» skrev en låst høyde uten
+           kilden – og da sto det «treffer» i merknadene der røret er koblet på,
+           og «Hent på nytt» var borte. */
+        const pl = App.P.ror.plan;
+        // et innmålt punkt å være koblet på – bunn innvendig 19,0455 − 0,160 + 0,0145 = 18,900
+        const inn = App.nyttAnlegg('ror', 'Innmålt');
+        inn.id = 'innmalt';
+        inn.ror.koder = Ror.koderFra([{ kode: 'SP 160PE' }], {});
+        inn.ror.punkter = [{ id: 'm1', kode: 'SP 160PE', o: 0, n: 0, z: 19.0455 }];
+        App.P.anlegg.push(inn);
+        pl.laast = pl.laast.filter(x => !(x.ror === 'r1' && x.punkt === 'p2'));
+        pl.laast.push({ ror: 'r1', punkt: 'p2', bunn: 18.9, kilde: { anlegg: 'innmalt', punkt: 'm1', topp: 19.0455 } });
+        RorPlanUI.punktfelt('r1', 'p2');
+        this.sjekk('en påkobling med rørets høyde er «hentet fra et innmålt rør»',
+          /hentet fra et innmålt rør/.test(document.getElementById('dialoginnhold').textContent));
+        document.getElementById('dialog').classList.add('skjult');
+        RorPlanUI.laas('r1', 'p2', 18.8);
+        const Lk = pl.laast.find(x => x.ror === 'r1' && x.punkt === 'p2');
+        this.sjekk('å låse en påkobling på nytt beholder koblingen', !!Lk && Lk.bunn === 18.8 && !!Lk.kilde, JSON.stringify(Lk));
+        RorPlanUI.punktfelt('r1', 'p2');
+        this.sjekk('og punktfeltet sier at høyden er satt for hånd', /for hånd/.test(document.getElementById('dialoginnhold').textContent)
+          && !!document.getElementById('ppHent'));
+        document.getElementById('dialog').classList.add('skjult');
+        clearTimeout(App._tidsavbrudd);
+        await App.beregnRor();
+        // fall videre fra p1: neste kontrollpunkt er påkoblingen, og den flyttes ikke – p1 settes så fallet dit blir 10 ‰
+        RorPlanUI.fallVidere('r1', 'p1', 10, 25);
+        const kp = App.resultat.kontroll.filter(c => c.ror === 'r1');
+        const L1b = pl.laast.find(x => x.ror === 'r1' && x.punkt === 'p1'), L2b = pl.laast.find(x => x.ror === 'r1' && x.punkt === 'p2');
+        const ds2 = kp.find(c => c.punkt === 'p2').s - kp.find(c => c.punkt === 'p1').s;
+        this.sjekk('fall videre flytter ikke en påkobling', L2b.bunn === 18.8 && !!L2b.kilde);
+        this.sjekk('men setter punktet før, så fallet ned til den blir det som er skrevet', !!L1b
+          && Math.abs((L1b.bunn - 18.8) / ds2 - 0.010) < 1e-4, L1b && String(L1b.bunn));
       });
     } finally {
       await this._rorTilbake(foer);

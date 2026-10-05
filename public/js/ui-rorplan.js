@@ -590,8 +590,14 @@ const RorPlanUI = {
     const selvfall = RorPlan.regel(ror, k) === 'selvfall';
     const boks = document.getElementById('dialog'), innhold = document.getElementById('dialoginnhold');
     document.getElementById('dialogtittel').textContent = `${ror.kode} · ${kum ? 'kum ' + kum.id : 'punkt ' + punkt}`;
-    innhold.innerHTML = `<p class="notis">${L ? (L.kilde ? 'Låst – hentet fra et innmålt rør.' : 'Låst.')
-      : 'Fri – følger overdekningen under terrenget.'}</p>`
+    const kb = L && L.kilde ? this._kildeBunn(L) : null;
+    const tilstand = !L ? 'Fri – følger overdekningen under terrenget.'
+      : !L.kilde ? 'Låst.'
+        : kb == null ? 'Låst – koblet på et innmålt rør som ikke finnes lenger.'
+          : Math.abs(L.bunn - kb) <= 0.0005 ? 'Låst – hentet fra et innmålt rør.'
+            : `Låst – koblet på et innmålt rør, men høyden er satt for hånd (røret har ${Rapport.tall(kb, 3)}). `
+              + '«Hent på nytt» tar den fra røret igjen.';
+    innhold.innerHTML = `<p class="notis">${escapeHtml(tilstand)}</p>`
       + `<div class="rorinnstilling"><label for="ppBunn">Bunn innvendig</label><input id="ppBunn" class="minitall" type="number" step="0.01" `
       + `value="${Number.isFinite(bunnNa) ? bunnNa.toFixed(3) : ''}"> moh</div>`
       + (selvfall ? '<div class="rorinnstilling"><label for="ppFall">Fall videre i fallretningen</label>'
@@ -616,7 +622,7 @@ const RorPlanUI = {
     boks.classList.remove('skjult');
   },
 
-  /** Låser bunn innvendig i et punkt. En høyde man skriver selv, er ikke lenger hentet fra et annet rør. */
+  /** Låser bunn innvendig i et punkt – i klikk, dragning og «fall videre». */
   laas(rorId, punkt, bunn) {
     const app = this.app;
     app.merk('låste høyde');
@@ -626,10 +632,25 @@ const RorPlanUI = {
     app.status(`Bunn innvendig låst på ${Rapport.tall(bunn, 2)}`);
   },
 
+  /**
+   * EN PÅKOBLING ER EN KOBLING OGSÅ NÅR HØYDEN LÅSES PÅ NYTT. Kilden står: den
+   * sier hvor røret er koblet på, og det er den som gjør møtet med det
+   * innmålte røret til en kobling og ikke et kryss – og som gir «Hent på
+   * nytt». Her ble den skrevet over, og «Lås» uten å endre noe ga «treffer»
+   * i merknadene. Høyden er brukerens til den hentes på nytt.
+   */
   _settLaast(rorId, punkt, bunn) {
-    const plan = this.plan(), ny = { ror: rorId, punkt, bunn: Math.round(bunn * 1000) / 1000 };
-    const i = plan.laast.findIndex(x => x.ror === rorId && x.punkt === punkt);
+    const plan = this.plan(), i = plan.laast.findIndex(x => x.ror === rorId && x.punkt === punkt);
+    const ny = { ror: rorId, punkt, bunn: Math.round(bunn * 1000) / 1000 };
+    if (i >= 0 && plan.laast[i].kilde) ny.kilde = plan.laast[i].kilde;
     if (i >= 0) plan.laast[i] = ny; else plan.laast.push(ny);
+  },
+
+  /** Bunn innvendig i det innmålte punktet en påkobling henter fra – eller null om det er borte. */
+  _kildeBunn(L) {
+    const a = this.app.P.anlegg.find(x => x.id === L.kilde.anlegg);
+    const p = a && a.ror && !a.ror.plan ? a.ror.punkter.find(x => x.id === L.kilde.punkt) : null;
+    return p ? Math.round(RorPlan.bunnFraTopp(L.kilde.topp, RorPlan.kodeAv(a.ror.koder, p.kode)) * 1000) / 1000 : null;
   },
 
   laasOpp(rorId, punkt) {
@@ -644,16 +665,33 @@ const RorPlanUI = {
   /**
    * Fall videre: låser dette punktet der det står, og neste kontrollpunkt i
    * fallretningen så fallet mellom dem blir det som er skrevet.
+   *
+   * ER NESTE EN PÅKOBLING, FLYTTES DEN IKKE. Høyden der er det innmålte
+   * røret sin, og skrevet over ville det nye røret ikke lenger møtt det.
+   * Da settes i stedet dette punktet, så fallet ned til påkoblingen blir det
+   * som er skrevet – høydeføring bakover fra det som ligger fast.
    */
   fallVidere(rorId, punkt, fall, bunnHer) {
-    const app = this.app, res = app.resultat, ror = this.plan().ror.find(x => x.id === rorId);
+    const app = this.app, res = app.resultat, plan = this.plan(), ror = plan.ror.find(x => x.id === rorId);
     if (!Number.isFinite(fall)) { app.status('Skriv fallet i promille'); return; }
     const ktr = (res && res.kontroll ? res.kontroll : []).filter(c => c.ror === rorId).sort((a, b) => a.s - b.s);
     const j = ktr.findIndex(c => c.punkt === punkt);
     const neste = j < 0 || !ror ? null : ktr[ror.motsatt ? j - 1 : j + 1];
     if (!neste) { app.status('Ingen kontrollpunkt videre i fallretningen – sett en kum eller lås en høyde der først'); return; }
+    const L = Math.abs(neste.s - ktr[j].s);
+    const fast = plan.laast.find(x => x.ror === rorId && x.punkt === neste.punkt && x.kilde);
+    if (fast) {
+      const herFraFast = fast.bunn + fall / 1000 * L;
+      app.merk('satte fall');
+      this._settLaast(rorId, punkt, herFraFast);
+      app.tegnAlt();
+      app.planlegg(30);
+      app.status(`Neste kontrollpunkt er en påkobling, og den flyttes ikke – bunnløpet her er låst på `
+        + `${Rapport.tall(herFraFast, 2)}, så fallet ned dit blir ${Rapport.tall(fall, 1)} ‰`);
+      return;
+    }
     const her = Number.isFinite(bunnHer) ? bunnHer : ktr[j].bunn;
-    const bunnNeste = her - fall / 1000 * Math.abs(neste.s - ktr[j].s);
+    const bunnNeste = her - fall / 1000 * L;
     app.merk('satte fall');
     this._settLaast(rorId, punkt, her);
     this._settLaast(rorId, neste.punkt, bunnNeste);
