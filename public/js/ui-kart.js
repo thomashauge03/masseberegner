@@ -555,7 +555,8 @@ const Kart = {
     for (const [id, navn] of [['verktoyTegn', 'tegn'], ['verktoyFlytt', 'rediger'],
       ['verktoySondering', 'sondering'], ['verktoyPlass', 'plass'], ['verktoyTomt', 'tegnTomt'],
       ['verktoyMaal', 'maal'], ['verktoyRorAv', 'rorAv'], ['verktoyRorBryt', 'rorBryt'],
-      ['verktoyRorKoble', 'rorKoble'], ['verktoyGroftStrekning', 'groftStrekning'], ['verktoyGroftSammen', 'groftSammen']]) {
+      ['verktoyRorKoble', 'rorKoble'], ['verktoyGroftStrekning', 'groftStrekning'], ['verktoyGroftSammen', 'groftSammen'],
+      ['verktoyTrase', 'tegnTrase'], ['verktoyKum', 'kum'], ['verktoySnu', 'snuTrase']]) {
       const el = document.getElementById(id);
       if (el) {
         el.classList.toggle('aktiv', navn === m);
@@ -589,6 +590,13 @@ const Kart = {
       if (m !== 'groftStrekning') GroftUI._strekFra = null;
       if (m !== 'groftSammen') GroftUI._sammenFra = null;
     }
+    if (m === 'tegnTrase') {
+      this.app.status('Klikk punktene langs traseen. Dobbeltklikk eller Enter avslutter, tilbaketasten tar bort det siste, Esc avbryter.');
+    }
+    if (m === 'kum') this.app.status('Klikk et punkt på en trase for å sette en kum – eller ta den bort.');
+    if (m === 'snuTrase') this.app.status('Klikk en trase for å snu fallretningen for rørene i den.');
+    // bytter man verktøy midt i en trase, er den ikke lagret
+    if (m !== 'tegnTrase' && typeof RorPlanUI !== 'undefined' && RorPlanUI._ny) RorPlanUI.avbryt();
     /* De målte punktene vises bare mens man retter – ellers ville fire hundre
        prikker druknet rørene. */
     if (m !== 'rorKoble' && typeof RorUI !== 'undefined') RorUI._kobleFra = null;
@@ -1397,6 +1405,15 @@ const Kart = {
         for (const l of b.linjer) {
           const p = l.punkter.map(q => Ror.tilLatLon(q, a.ror.sone));
           L.polyline(p, Object.assign({}, stil, { dashArray: null, weight: 2 })).on('click', bytt).addTo(this.lag.andre);
+          ramme.extend(p);
+        }
+        if (ramme.isValid()) midt = ramme.getCenter();
+      } else if (a.type === 'ror' && a.ror && a.ror.plan && a.ror.plan.traseer.length) {
+        // et tegnet anlegg: traseene, rett fra gradene
+        const ramme = L.latLngBounds([]);
+        for (const t of a.ror.plan.traseer) {
+          const p = t.punkter.map(q => [q.lat, q.lon]);
+          L.polyline(p, Object.assign({}, stil, { weight: 2 })).on('click', bytt).addTo(this.lag.andre);
           ramme.extend(p);
         }
         if (ramme.isValid()) midt = ramme.getCenter();

@@ -537,6 +537,10 @@
         <button id="verktoyRorKoble" class="verktoyknapp skjult" aria-pressed="false" title="Klikk på to rørender som hører sammen">⟷ Koble</button>
         <button id="verktoyGroftStrekning" class="verktoyknapp skjult" aria-pressed="false" title="Klikk to målte punkt på et rør og sett egne mål, fjell eller egen grøft mellom dem">⊓ Grøft på strekning</button>
         <button id="verktoyGroftSammen" class="verktoyknapp skjult" aria-pressed="false" title="Klikk to rør som ligger i én bred grøft med flat bunn mellom seg">⊔ Felles grøft</button>
+        <!-- TEGNEDE RØR: traseene og kummene i et planlagt anlegg – se RorPlanUI. -->
+        <button id="verktoyTrase" class="verktoyknapp skjult" aria-pressed="false" title="Klikk punktene langs traseen. Dobbeltklikk eller Enter avslutter, Esc avbryter.">✎ Ny trase</button>
+        <button id="verktoyKum" class="verktoyknapp skjult" aria-pressed="false" title="Klikk et punkt på en trase for å sette en kum – eller ta den bort">◯ Kum</button>
+        <button id="verktoySnu" class="verktoyknapp skjult" aria-pressed="false" title="Klikk en trase for å snu fallretningen for rørene i den">⇄ Snu fallretning</button>
         <input type="file" id="rorFil" accept=".xml,application/xml,text/xml" hidden>
         <button id="verktoyFlytt" class="verktoyknapp aktiv" title="Flytt og rediger punkt">✥ Rediger</button>
         <button id="verktoySondering" class="verktoyknapp" title="Registrer observert dybde til fjell">⛏ Fjellpunkt</button>
@@ -567,6 +571,7 @@
           <button class="knapp primaer" data-velg="veg">▬ Veg</button>
           <button class="knapp primaer" data-velg="tomt">⬟ Tomt</button>
           <button class="knapp primaer" data-velg="ror">⌀ Rør (fra fil)</button>
+          <button class="knapp primaer" data-velg="rorplan">✎ Rør (tegn)</button>
         </div>
         <div class="velgnotis">Du kan legge til flere av hvert slag etterpå.</div>
       </div>
@@ -1210,6 +1215,7 @@
 <script src="js/ui-veg3d.js"></script>
 <script src="js/ui-ror.js"></script>
 <script src="js/ui-groft.js"></script>
+<script src="js/ui-rorplan.js"></script>
 <script src="js/ui-rorprofil.js"></script>
 <script src="js/ui-ror3d.js"></script>
 <script src="js/ui-forklaring.js"></script>

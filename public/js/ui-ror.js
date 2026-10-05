@@ -191,7 +191,10 @@ const RorUI = {
     les.punkter = kk.punkter;
     les.advarsler.utenforUtm = kk.utenfor;
     const gjett = Ror.gjettSone(les.punkter, les.epsg, this._prosjektpunkter());
-    const aktivtRor = app.erRor() ? app.anlegg() : null;
+    /* Et tegnet anlegg kan ikke få punkt lagt til – de ville havnet i
+       `ror.punkter`, som et tegnet anlegg ikke bruker, og forsvunnet uten et
+       ord. Da blir importen alltid et nytt anlegg. */
+    const aktivtRor = app.erRor() && !app.erPlan() ? app.anlegg() : null;
     /* Det aktive anleggets koder gir tolkningen og fargene for koder brukeren
        alt har rettet – men bare kodene i DENNE fila kommer med. Ellers arvet
        et nytt anlegg alle kodene til det gamle, med null punkt hver. Legges

@@ -1120,6 +1120,19 @@ const App = {
   },
 
   /**
+   * Et nytt tegnet røranlegg, rett i «Ny trase». Byttet er en del av det å
+   * legge til – én angrepost, ikke to.
+   */
+  leggTilPlan() {
+    this.merk('nytt anlegg');
+    const a = this.nyttAnlegg('rorplan', RorUI._ledigNavn('Planlagte rør'));
+    this.P.anlegg.push(a);
+    this._ikkeMerk = true;
+    try { this.byttAnlegg(a.id); } finally { this._ikkeMerk = false; }
+    Kart.settModus('tegnTrase');
+  },
+
+  /**
    * Bytter mellom vegbildet og tomtebildet.
    *
    * Her sto det en anleggsvelger nede i kartverktøylinja, og resten av skjermen
@@ -1182,7 +1195,7 @@ const App = {
       /* Anlegget er tomt – ingenting er tegnet ennå – så det byttes ut i stedet
          for å konverteres. En konvertering ville måttet flytte felt som ikke
          finnes, og etterlatt en tomt med en vegmal. */
-      const nytt = this.nyttAnlegg(type, type === 'tomt' ? 'Tomt' : 'Veg', a.id);
+      const nytt = this.nyttAnlegg(type, type === 'tomt' ? 'Tomt' : type === 'rorplan' ? 'Planlagte rør' : 'Veg', a.id);
       this.P.anlegg[this.P.anlegg.indexOf(a)] = nytt;
       this.P.aktivt = nytt.id;
     } else if (a && a.type !== type && harNoe) {
@@ -1190,16 +1203,16 @@ const App = {
          anlegg – ikke at det gamle forsvinner. Resten av metoden kjøres
          etterpå som vanlig: den viser riktig skjema og setter kartmodus for
          den typen man nettopp ba om. */
-      this.leggTilAnlegg(type);
+      if (type === 'rorplan') this.leggTilPlan(); else this.leggTilAnlegg(type);
     }
     this.visAnleggsvalg();
     this.visAnleggsvelger();
     this.malTilSkjema();
-    Kart.settModus(type === 'tomt' ? 'tegnTomt' : 'tegn');
+    Kart.settModus(type === 'tomt' ? 'tegnTomt' : type === 'rorplan' ? 'tegnTrase' : 'tegn');
     this.tegnAlt();
-    this.status(type === 'tomt'
-      ? 'Klikk rundt tomta i kartet. Dobbeltklikk for å lukke den.'
-      : 'Klikk i kartet for å legge inn knekkpunkt. Dobbeltklikk for å avslutte.');
+    this.status(type === 'tomt' ? 'Klikk rundt tomta i kartet. Dobbeltklikk for å lukke den.'
+      : type === 'rorplan' ? 'Klikk punktene langs traseen. Dobbeltklikk eller Enter avslutter.'
+        : 'Klikk i kartet for å legge inn knekkpunkt. Dobbeltklikk for å avslutte.');
   },
 
   /** Merket foran et anlegg i lista – samme tegn som den gamle bryteren brukte. Rør er ⌀. */
@@ -1233,8 +1246,12 @@ const App = {
        ikke, og en knapp som legger inn noe man ikke ser, er verre enn ingen. */
     bytt('verktoySondering', !ror);
     bytt('verktoyPlass', !ror);
-    for (const id of ['verktoyRorImport', 'verktoyRorAv', 'verktoyRorBryt', 'verktoyRorKoble',
-      'verktoyGroftStrekning', 'verktoyGroftSammen']) bytt(id, ror);
+    /* Et tegnet anlegg har ingen fil å importere eller punkt å rette – det har
+       traseene og kummene. Grøfteverktøyene gjelder begge. */
+    const plan = this.erPlan();
+    for (const id of ['verktoyRorImport', 'verktoyRorAv', 'verktoyRorBryt', 'verktoyRorKoble']) bytt(id, ror && !plan);
+    for (const id of ['verktoyGroftStrekning', 'verktoyGroftSammen']) bytt(id, ror);
+    for (const id of ['verktoyTrase', 'verktoyKum', 'verktoySnu']) bytt(id, plan);
     if (tomt) { this.tomtTilSkjema(); this.visTomtemasser(); }
     if (ror && typeof RorUI !== 'undefined') RorUI.vis();
 
@@ -1279,6 +1296,7 @@ const App = {
       + '<button class="kartknapp" data-nytt="veg">▬ Ny veg</button>'
       + '<button class="kartknapp" data-nytt="tomt">⬟ Ny tomt</button>'
       + '<button class="kartknapp" data-nyttror="1">⌀ Nye rør (fra fil)</button>'
+      + '<button class="kartknapp" data-nyttplan="1">⌀ Planlagte rør (tegn)</button>'
       + '</div>';
     for (const b of panel.querySelectorAll('[data-bytt]')) {
       b.onclick = () => { this.byttAnlegg(b.dataset.bytt); this._lukkAnleggspanel(); };
@@ -1288,6 +1306,9 @@ const App = {
     }
     for (const b of panel.querySelectorAll('[data-nyttror]')) {
       b.onclick = () => { this._lukkAnleggspanel(); RorUI.velgFil({ nytt: true }); };
+    }
+    for (const b of panel.querySelectorAll('[data-nyttplan]')) {
+      b.onclick = () => { this._lukkAnleggspanel(); this.leggTilPlan(); };
     }
     for (const b of panel.querySelectorAll('[data-navn]')) {
       b.onclick = () => this.dopAnlegg(b.dataset.navn);
@@ -2061,6 +2082,7 @@ const App = {
     PdfUI.init(this);
     RorUI.init(this);
     GroftUI.init(this);
+    RorPlanUI.init(this);
     Rorprofil.init(this);
     Ror3d.init(this);
     this.koblingerUI();

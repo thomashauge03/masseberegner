@@ -172,7 +172,7 @@ const Nettlesertest = {
       'rorProfil', 'ror3d', 'rorRapport', 'rorPdf', 'rorForklaring',
       'groftBeregning', 'groftFane', 'groftKoder', 'groftVerktoy', 'groftKnutepunkt', 'groftProfil', 'groft3d',
       'groftRapport',
-      'planBeregning',
+      'planBeregning', 'planNyttAnlegg',
       'lovlighet', 'framdrift', 'gamleFilerOgUtskifting', 'opprydding'];
     for (const navn of proever) {
       try {
@@ -9070,6 +9070,32 @@ const Nettlesertest = {
         this.sjekk('planen står seg gjennom lagring og åpning', pl.traseer.length === 1 && pl.ror.length === 2
           && pl.kummer.length === 1 && apnet.anlegg[0].mal.plan.overdekning === 2 && !apnet.ubestemt);
       });
+    } finally {
+      await this._rorTilbake(foer);
+    }
+  },
+
+  /** «Planlagte rør (tegn)» i førstevalget og i anleggslista. */
+  async planNyttAnlegg() {
+    const foer = JSON.stringify(App.P);
+    try {
+      App.P = App.nyttProsjekt();
+      App.visAnleggsvelger(); App.visAnleggsvalg();
+      document.querySelector('#velganlegg [data-velg="rorplan"]').click();
+      this.sjekk('førstevalget gir et tegnet anlegg', App.erPlan() && App.P.anlegg.length === 1 && !App.P.ubestemt);
+      this.sjekk('og står i «Ny trase»', Kart.modus === 'tegnTrase', Kart.modus);
+      const synlig = id => !document.getElementById(id).classList.contains('skjult');
+      this.sjekk('tegneverktøyene vises', synlig('verktoyTrase') && synlig('verktoyKum') && synlig('verktoySnu'));
+      this.sjekk('importens verktøy vises ikke', !synlig('verktoyRorImport') && !synlig('verktoyRorAv'));
+      this.sjekk('grøfteverktøyene vises', synlig('verktoyGroftStrekning') && synlig('verktoyGroftSammen'));
+      Kart.settModus('rediger');
+      App.visAnleggsvelger();
+      document.querySelector('#anleggspanel [data-nyttplan]').click();
+      this.sjekk('anleggslista legger til et nytt', App.P.anlegg.length === 2 && App.erPlan()
+        && App.anlegg().navn === 'Planlagte rør 2', App.anlegg().navn);
+      Kart.settModus('rediger');
+      await App.angre();
+      this.sjekk('og angre tar det bort igjen', App.P.anlegg.length === 1);
     } finally {
       await this._rorTilbake(foer);
     }
