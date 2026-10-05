@@ -351,16 +351,46 @@ body {
 .rute.tomtemodus.uten-side.stor-kart { grid-template-areas: "kart"; }
 .rute.tomtemodus.uten-side.stor-tomt { grid-template-areas: "tomt"; }
 
+/* RØRMODUS ER ET EGET ARBEIDSBILDE, SOM TOMTEMODUS.
+   Lengdeprofil og tverrprofil hører til en senterlinje; rørene har sin egen
+   profil i rørpanelet. `:not(.rormodus)` av samme grunn som for tomtpanelet
+   over: `.panel { display: flex }` står lenger ned og ville vunnet. */
+.rute:not(.rormodus) .rorpanel { display: none; }
+.rorpanel { grid-area: ror; }
+.rute.rormodus {
+  grid-template-rows: minmax(180px, 1.2fr) minmax(200px, 1fr);
+  grid-template-areas: "kart side" "ror side";
+}
+.rute.rormodus .profilpanel,
+.rute.rormodus .tverrpanel { display: none; }
+.rute.rormodus .rorpanel { display: flex; flex-direction: column; }
+.rute.rormodus.stor-kart { grid-template-rows: 1fr; grid-template-areas: "kart side"; }
+.rute.rormodus.stor-ror { grid-template-rows: 1fr; grid-template-areas: "ror side"; }
+.rute.rormodus.stor-kart .rorpanel,
+.rute.rormodus.stor-ror .kartpanel { display: none; }
+.rute.rormodus.uten-side { grid-template-areas: "kart" "ror"; }
+.rute.rormodus.uten-side.stor-kart { grid-template-areas: "kart"; }
+.rute.rormodus.uten-side.stor-ror { grid-template-areas: "ror"; }
+.rorinnhold { display: flex; overflow: hidden; flex: 1 1 auto; min-height: 110px; position: relative; }
+#rorprofil { flex: 1; min-width: 0; display: block; }
+.rute.rormodus .rorpanel .panelhode > span:first-child { flex: none; white-space: nowrap; }
+
+/* For skjermlesere: etiketten finnes, men tar ikke plass. */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+
 /* Tomtepanelet rommer to visninger av samme tall: snittet og 3D-modellen.
    3D-lerreta ligg oppå kvarandre i same rute – rasteret nedst, vektor­overlegget
    med strekar og tal oppå – og er skjulte til nokon vel 3D. */
 .tomtinnhold { display: flex; gap: 2px; overflow: hidden; flex: 1; min-height: 0; position: relative; }
 #tomtprofil { flex: 1; min-width: 0; display: block; }
-#tomt3d, #tomt3dover, #veg3d, #veg3dover { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-#tomt3d, #veg3d { z-index: 1; }
-#tomt3dover, #veg3dover { z-index: 2; cursor: grab; }
-#tomt3dover:active, #veg3dover:active { cursor: grabbing; }
-#tomt3d.skjult, #tomt3dover.skjult, #veg3d.skjult, #veg3dover.skjult { display: none; }
+#tomt3d, #tomt3dover, #veg3d, #veg3dover, #ror3d, #ror3dover { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+#tomt3d, #veg3d, #ror3d { z-index: 1; }
+#tomt3dover, #veg3dover, #ror3dover { z-index: 2; cursor: grab; }
+#tomt3dover:active, #veg3dover:active, #ror3dover:active { cursor: grabbing; }
+#tomt3d.skjult, #tomt3dover.skjult, #veg3d.skjult, #veg3dover.skjult, #ror3d.skjult, #ror3dover.skjult { display: none; }
 /* Tverrpanelet må ha ei ramme dei absolutt plasserte lerreta kan feste seg i. */
 /* Boksen lerretene måler fra. Uten den la 3D-lerretet seg over panelhodet. */
 .tverrinnhold { position: relative; flex: 1; min-height: 0; display: flex; }
@@ -1117,6 +1147,7 @@ body {
   .rute .sidepanel { display: none; }
   .rute { grid-template-areas: "kart" "profil" "tverr"; }
   .rute.tomtemodus { grid-template-areas: "kart" "tomt"; }
+  .rute.rormodus { grid-template-areas: "kart" "ror"; }
   /* ◧-knappen slår det på igjen, og da legger det seg OPPÅ i stedet for å
      stjele bredde fra kartet. */
   .rute.med-side .sidepanel {

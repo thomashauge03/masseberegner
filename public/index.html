@@ -529,6 +529,13 @@
       <div class="kartverktoy">
         <button id="verktoyTegn" class="verktoyknapp" title="Klikk i kartet for å legge inn knekkpunkt. Dobbeltklikk for å avslutte.">✏️ Tegn senterlinje</button>
         <button id="verktoyTomt" class="verktoyknapp skjult" title="Klikk rundt tomta i kartet. Dobbeltklikk for å lukke den.">⬟ Tegn tomt</button>
+        <!-- RØRENE TEGNES IKKE, DE HENTES. Knappene under er de tre enkle
+             grepene for når appen har koblet noe feil – se RorUI.kartklikk. -->
+        <button id="verktoyRorImport" class="verktoyknapp skjult" title="Hent innmålte rør fra en LandXML-fil fra maskinstyringen">📂 Importer rør</button>
+        <button id="verktoyRorAv" class="verktoyknapp skjult" aria-pressed="false" title="Klikk på et målt punkt for å slå det av eller på">⊘ Slå av punkt</button>
+        <button id="verktoyRorBryt" class="verktoyknapp skjult" aria-pressed="false" title="Klikk på en rørstrek der den ikke skal henge sammen">✂ Bryt</button>
+        <button id="verktoyRorKoble" class="verktoyknapp skjult" aria-pressed="false" title="Klikk på to rørender som hører sammen">⟷ Koble</button>
+        <input type="file" id="rorFil" accept=".xml,application/xml,text/xml" hidden>
         <button id="verktoyFlytt" class="verktoyknapp aktiv" title="Flytt og rediger punkt">✥ Rediger</button>
         <button id="verktoySondering" class="verktoyknapp" title="Registrer observert dybde til fjell">⛏ Fjellpunkt</button>
         <!-- SNUPLASSEN ER IKKE ET EGET ANLEGG. Den er vegen som er bredere på
@@ -557,8 +564,9 @@
         <div class="velgknapper">
           <button class="knapp primaer" data-velg="veg">▬ Veg</button>
           <button class="knapp primaer" data-velg="tomt">⬟ Tomt</button>
+          <button class="knapp primaer" data-velg="ror">⌀ Rør (fra fil)</button>
         </div>
-        <div class="velgnotis">Du kan legge til flere av begge slag etterpå.</div>
+        <div class="velgnotis">Du kan legge til flere av hvert slag etterpå.</div>
       </div>
       <div id="kartinfo" class="kartinfo"></div>
     </div>
@@ -822,6 +830,55 @@
     </div>
   </section>
 
+  <!-- ---------------- Rør (erstatter de to profilpanelene) ----------------
+       Samme oppsett som tomtpanelet: profilen og 3D-modellen er to måter å se
+       de samme rørene på, og ligger i samme rute. -->
+  <section class="panel rorpanel">
+    <div class="panelhode">
+      <span>Rørene</span>
+      <button class="utvidknapp" data-utvid="ror" title="Stor visning">⤢</button>
+      <div class="visvalg">
+        <button id="rorVisProfil" class="verktoyknapp aktiv" title="Lengdeprofil for det valgte røret">Profil</button>
+        <button id="rorVis3d" class="verktoyknapp" title="Rørene i tre dimensjoner, med terrenget over">3D</button>
+      </div>
+      <div class="verktoy">
+        <span id="rorprofilverktoy" class="verktoygruppe">
+          <button id="ror_forrige" class="verktoyknapp" title="Forrige rør">◀</button>
+          <label class="sr-only" for="ror_velg">Røret profilen viser</label>
+          <select id="ror_velg" class="minivalg" title="Hvilket rør profilen viser"></select>
+          <button id="ror_neste" class="verktoyknapp" title="Neste rør">▶</button>
+        </span>
+        <span id="ror3dverktoy" class="verktoygruppe skjult">
+          <button id="r3_staker" class="verktoyknapp aktiv" aria-pressed="true"
+                  title="Loddrette staker fra terrenget ned til røret i hvert målte punkt">Staker</button>
+          <label class="sr-only" for="r3_overdriv">Høydeoverdrivelse</label>
+          <select id="r3_overdriv" class="minivalg" title="Overdriv høyden så dybden blir lettere å se">
+            <option value="1">Høyde 1×</option>
+            <option value="2" selected>Høyde 2×</option>
+            <option value="3">Høyde 3×</option>
+            <option value="5">Høyde 5×</option>
+          </select>
+          <label class="sr-only" for="r3_kontekst">Terreng rundt rørene</label>
+          <select id="r3_kontekst" class="minivalg" title="Hvor mye terreng rundt rørene som vises">
+            <option value="10">10 m rundt</option>
+            <option value="20">20 m rundt</option>
+            <option value="40" selected>40 m rundt</option>
+            <option value="80">80 m rundt</option>
+          </select>
+          <button id="r3_nullstill" class="verktoyknapp" title="Tilbake til utgangsstillingen">↺</button>
+          <span class="hjelpetekst">Dra snur · høyreklikk-dra flytter · hjul zoomer</span>
+        </span>
+      </div>
+    </div>
+    <div class="rorinnhold">
+      <canvas id="rorprofil"></canvas>
+      <!-- 3D: rasteret nederst, vektoroverlegget med streker og tall oppå -->
+      <canvas id="ror3d" class="skjult"></canvas>
+      <canvas id="ror3dover" class="skjult" tabindex="0"></canvas>
+      <div id="rorEtikett" class="avlesning">–</div>
+    </div>
+  </section>
+
   <!-- ---------------- Sidepanel ---------------- -->
   <aside class="panel sidepanel">
     <div class="faner">
@@ -831,6 +888,8 @@
       <button class="fane" data-fane="grunn">Grunnforhold</button>
       <button class="fane" data-fane="linje">Linje</button>
       <button class="fane" data-fane="eksport">Eksport</button>
+      <button class="fane skjult" data-fane="ror">Rør</button>
+      <button class="fane skjult" data-fane="rorkoder" title="Hva hver kode i fila betyr, og hvordan den tegnes">Koder</button>
       <button class="fane" data-fane="forklaring" title="Hva strekene, fargene og ordene betyr">Forklaring</button>
     </div>
 
@@ -937,6 +996,8 @@
     </div>
 
     <!-- Vegmal -->
+    <div class="faneinnhold" id="fane-ror"><div id="rorInnhold"></div></div>
+    <div class="faneinnhold" id="fane-rorkoder"><div id="rorKoder"></div></div>
     <div class="faneinnhold" id="fane-forklaring"><div id="forklaringInnhold"></div></div>
     <div class="faneinnhold" id="fane-tomthoyde"><div id="tomthoydeSkjema"></div></div>
     <div class="faneinnhold" id="fane-tomtemal"><div id="tomtemalSkjema"></div></div>

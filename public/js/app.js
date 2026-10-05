@@ -1200,15 +1200,23 @@ const App = {
    */
   visAnleggsvelger() {
     if (!this.P) return;
-    const tomt = this.erTomt();
-    document.querySelector('.rute').classList.toggle('tomtemodus', tomt);
+    const tomt = this.erTomt(), ror = this.erRor();
+    const rute = document.querySelector('.rute');
+    rute.classList.toggle('tomtemodus', tomt);
+    rute.classList.toggle('rormodus', ror);
     const m = (id, pa) => { const e = document.getElementById(id); if (e) e.classList.toggle('aktiv', pa); };
-    m('modusVeg', !tomt);
+    m('modusVeg', !tomt && !ror);
     m('modusTomt', tomt);
     const bytt = (id, vis) => { const e = document.getElementById(id); if (e) e.classList.toggle('skjult', !vis); };
-    bytt('verktoyTegn', !tomt);
+    bytt('verktoyTegn', !tomt && !ror);
     bytt('verktoyTomt', tomt);
+    /* Fjellpunkt og snuplass hører til vegen og tomta. I rørbildet tegnes de
+       ikke, og en knapp som legger inn noe man ikke ser, er verre enn ingen. */
+    bytt('verktoySondering', !ror);
+    bytt('verktoyPlass', !ror);
+    for (const id of ['verktoyRorImport', 'verktoyRorAv', 'verktoyRorBryt', 'verktoyRorKoble']) bytt(id, ror);
     if (tomt) { this.tomtTilSkjema(); this.visTomtemasser(); }
+    if (ror && typeof RorUI !== 'undefined') RorUI.vis();
 
     const knapp = document.getElementById('anleggsknapp');
     const panel = document.getElementById('anleggspanel');
@@ -5022,7 +5030,7 @@ const App = {
        lese en tomtemal ville fylt hvert felt med undefined - og verre: neste
        gang noen rørte et felt, ville skjemaet skrevet vegverdier inn i tomtas
        mal. Faktorene og grunnforholdene er felles og settes fortsatt. */
-    if (this.erTomt()) { this.grunnTilSkjema(f, g); return; }
+    if (this.erTomt() || this.erRor()) { this.grunnTilSkjema(f, g); return; }
     sett('m_vegbredde', m.vegbredde);
     sett('m_tverrfall', (m.tverrfall * 100).toFixed(1));
     sett('m_tverrfallType', m.tverrfallType);
@@ -5094,16 +5102,24 @@ const App = {
    * den er i stykker. I stedet far tomta sin egen malfane.
    */
   visMalfane() {
-    const tomt = this.erTomt();
+    const tomt = this.erTomt(), ror = this.erRor();
     const vis = (velger, pa) => {
       const e = document.querySelector(velger);
       if (e) e.classList.toggle('skjult', !pa);
     };
-    vis('.fane[data-fane="hoyder"]', !tomt);
-    vis('.fane[data-fane="linje"]', !tomt);
-    vis('.fane[data-fane="mal"]', !tomt);
+    /* RØRENE HAR INGEN MASSER I ETAPPE 1, INGEN MAL Å FYLLE UT OG INGEN
+       EKSPORT. Fanene for det ville stått tomme, og en tom fane ser ut som en
+       som er i stykker. De får Rør og Koder i stedet; Forklaring er felles. */
+    vis('.fane[data-fane="masser"]', !ror);
+    vis('.fane[data-fane="grunn"]', !ror);
+    vis('.fane[data-fane="eksport"]', !ror);
+    vis('.fane[data-fane="hoyder"]', !tomt && !ror);
+    vis('.fane[data-fane="linje"]', !tomt && !ror);
+    vis('.fane[data-fane="mal"]', !tomt && !ror);
     vis('.fane[data-fane="tomtemal"]', tomt);
     vis('.fane[data-fane="tomthoyde"]', tomt);
+    vis('.fane[data-fane="ror"]', ror);
+    vis('.fane[data-fane="rorkoder"]', ror);
     vis('#visTomtefargerBoks', tomt);
     /* KNAPPETEKSTEN MÅ SI HVA KNAPPEN FAKTISK LEVERER.
        En knapp som heter «Masseoppsett per profil» og leverer et sammendrag
@@ -5186,7 +5202,7 @@ const App = {
     /* Star man pa en fane som nettopp ble skjult, ma man flyttes - ellers blir
        sidepanelet tomt uten at noe forklarer hvorfor. */
     const aktiv = document.querySelector('.fane.aktiv');
-    if (aktiv && aktiv.classList.contains('skjult')) this.visFane('masser');
+    if (aktiv && aktiv.classList.contains('skjult')) this.visFane(ror ? 'ror' : 'masser');
     if (tomt) { this.tomthoydeTilSkjema(); this.tomtemalTilSkjema(); }
   },
 
@@ -5615,6 +5631,10 @@ const App = {
   },
 
   skjemaTilMal() {
+    /* Vegskjemaet skal aldri skrive inn i rørmalen. Feltene er skjult i
+       rørbildet, men en change-hendelse som kommer etter et anleggsbytte
+       ville ellers lagt vegbredde og grøftedybde inn i røret. */
+    if (this.erRor()) return;
     const m = this.P.mal, f = this.P.faktorer, g = this.P.fjell;
     /* Et tomt eller ugyldig felt ma ikke skrive NaN inn i malen. Det ga
        stille nullvolum: `while (t < NaN)` kjører aldri, og skjæringen ble 0
@@ -6568,7 +6588,11 @@ const App = {
 
   /* Tomt3d.tegn() returnerer sjølv med ein gong når panelet er skjult, så
      den kostar ingenting når nokon ikkje ser på 3D. */
-  tegnAlt() { Kart.tegn(); Lengdeprofil.tegn(); Tverrprofil.tegn(); Tomteprofil.tegn(); Tomt3d.tegn(); Veg3d.tegn(); },
+  tegnAlt() {
+    Kart.tegn(); Lengdeprofil.tegn(); Tverrprofil.tegn(); Tomteprofil.tegn(); Tomt3d.tegn(); Veg3d.tegn();
+    if (typeof Rorprofil !== 'undefined') Rorprofil.tegn();
+    if (typeof Ror3d !== 'undefined') Ror3d.tegn();
+  },
 
   /* ---------------- knapper og felt ---------------- */
 
@@ -6731,7 +6755,7 @@ const App = {
      *   Uten den veksler den, som knappen alltid har gjort.
      */
     const settStor = (navn, tvang) => {
-      const alt = ['kart', 'profil', 'tverr', 'tomt'];
+      const alt = ['kart', 'profil', 'tverr', 'tomt', 'ror'];
       const alleredePa = rute.classList.contains('stor-' + navn);
       const skalPa = tvang === undefined ? !alleredePa : !!tvang;
       alt.forEach(n2 => rute.classList.remove('stor-' + n2));
@@ -6744,6 +6768,7 @@ const App = {
       setTimeout(() => {
         if (Kart.kart) Kart.kart.invalidateSize();
         Lengdeprofil.tegn(); Tverrprofil.tegn(); Tomteprofil.tegn(); Tomt3d.tegn(); Veg3d.tegn();
+        if (typeof Rorprofil !== 'undefined') Rorprofil.tegn(); if (typeof Ror3d !== 'undefined') Ror3d.tegn();
       }, 60);
     };
     this.settStor = settStor;
@@ -6792,7 +6817,9 @@ const App = {
         if (Kart.kart) Kart.kart.invalidateSize();
         Lengdeprofil.tegn(); Tverrprofil.tegn(); Tomteprofil.tegn();
         Tomt3d._skalaSatt = false; Veg3d._skalaSatt = false;
+        if (typeof Ror3d !== 'undefined') Ror3d._skalaSatt = false;
         Tomt3d.tegn(); Veg3d.tegn();
+        if (typeof Rorprofil !== 'undefined') Rorprofil.tegn(); if (typeof Ror3d !== 'undefined') Ror3d.tegn();
       }, 80);
     });
 
@@ -6831,12 +6858,16 @@ const App = {
       setTimeout(() => {
         if (Kart.kart) Kart.kart.invalidateSize();
         Lengdeprofil.tegn(); Tverrprofil.tegn(); Tomteprofil.tegn(); Tomt3d.tegn(); Veg3d.tegn();
+        if (typeof Rorprofil !== 'undefined') Rorprofil.tegn(); if (typeof Ror3d !== 'undefined') Ror3d.tegn();
       }, 60);
     };
     this._nullstillVisning = () => {
-      ['kart', 'profil', 'tverr', 'tomt'].forEach(n => rute.classList.remove('stor-' + n));
+      ['kart', 'profil', 'tverr', 'tomt', 'ror'].forEach(n => rute.classList.remove('stor-' + n));
       document.querySelectorAll('.utvidknapp').forEach(b => { b.classList.remove('aktiv'); b.textContent = '⤢'; });
-      setTimeout(() => { if (Kart.kart) Kart.kart.invalidateSize(); Lengdeprofil.tegn(); Tverrprofil.tegn(); Tomteprofil.tegn(); Tomt3d.tegn(); Veg3d.tegn(); }, 60);
+      setTimeout(() => {
+        if (Kart.kart) Kart.kart.invalidateSize(); Lengdeprofil.tegn(); Tverrprofil.tegn(); Tomteprofil.tegn(); Tomt3d.tegn(); Veg3d.tegn();
+        if (typeof Rorprofil !== 'undefined') Rorprofil.tegn(); if (typeof Ror3d !== 'undefined') Ror3d.tegn();
+      }, 60);
     };
 
     /* FANEKLIKK SKAL GÅ GJENNOM visFane(), IKKE FORBI DEN.

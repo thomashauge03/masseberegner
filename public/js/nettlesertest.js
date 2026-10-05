@@ -95,7 +95,7 @@ const Nettlesertest = {
     return !!App.resultat;
   },
 
-  async kjor() {
+  async kjor(bare) {
     const t0 = performance.now();
     this.ok = 0; this.feil = 0; this.hopp = 0; this.linjer = [];
     const feilILoggen = [];
@@ -157,7 +157,9 @@ const Nettlesertest = {
           som så ferdig ut. En prøve som henger er en feil, og skal meldes som
           en feil. Da stopper vi også resten: den hengende prøven kjører videre
           i bakgrunnen og ville rotet i prosjektet under dem som kom etter. */
-    const proever = ['hoppTellesForSeg', 'modulene', 'lagring', 'tegneLinje', 'profilverktoy', 'hoyder',
+    /* `bare` er for den som jobber med én ting: `Nettlesertest.kjor(['rorKart'])`
+       kjører de prøvene med samme oppsett og opprydding som hele runden. */
+    const proever = Array.isArray(bare) && bare.length ? bare : ['hoppTellesForSeg', 'modulene', 'lagring', 'tegneLinje', 'profilverktoy', 'hoyder',
       'veiklasser', 'tverrprofil', 'grenser', 'eksport', 'linjeredigering',
       'autolagring', 'overskriving', 'tverrsnittAvlesning', 'pdfrapport',
       'pdfavlesning', 'rapport', 'paneler', 'flereAnlegg', 'tverrsnittEnsidig',
@@ -8119,6 +8121,45 @@ const Nettlesertest = {
     App.framdrift(true, 'ny operasjon', 0.05);
     this.sjekk('en ny visning starter forfra', pst() === 5);
     App.framdrift(false);
+  },
+
+  /* ---------------- rør ---------------- */
+
+  /** Rørmodus er et eget arbeidsbilde, som tomtemodus. */
+  async rorArbeidsbilde() {
+    const foer = JSON.stringify(App.P);
+    try {
+      const a = App.nyttAnlegg('ror', 'Prøverør');
+      App.P.anlegg.push(a);
+      App.byttAnlegg(a.id);
+      await this.vent(150);
+      const rute = document.querySelector('.rute');
+      const vises = sel => getComputedStyle(document.querySelector(sel)).display !== 'none';
+      const fane = navn => document.querySelector(`.fane[data-fane="${navn}"]`);
+      this.sjekk('rørmodus er på', rute.classList.contains('rormodus'));
+      this.sjekk('og ikke tomtemodus', !rute.classList.contains('tomtemodus'));
+      this.sjekk('rørpanelet vises', vises('.rorpanel'));
+      this.sjekk('lengdeprofilen og tverrprofilen er borte', !vises('.profilpanel') && !vises('.tverrpanel'));
+      this.sjekk('Rør- og Koder-fanen vises', !fane('ror').classList.contains('skjult')
+        && !fane('rorkoder').classList.contains('skjult'));
+      this.sjekk('vegfanene er skjult', ['masser', 'hoyder', 'mal', 'grunn', 'linje', 'eksport']
+        .every(n => fane(n).classList.contains('skjult')));
+      this.sjekk('man står i Rør-fanen', fane('ror').classList.contains('aktiv'));
+      this.sjekk('Tegn senterlinje og Fjellpunkt er skjult',
+        document.getElementById('verktoyTegn').classList.contains('skjult')
+        && document.getElementById('verktoySondering').classList.contains('skjult'));
+      this.sjekk('rørknappene vises', ['verktoyRorImport', 'verktoyRorAv', 'verktoyRorBryt', 'verktoyRorKoble']
+        .every(id => !document.getElementById(id).classList.contains('skjult')));
+      this.sjekk('anleggsknappen viser ⌀', document.getElementById('anleggsknapp').textContent.startsWith('⌀'));
+      App.byttAnlegg(App.P.anlegg[0].id);
+      await this.vent(150);
+      this.sjekk('tilbake i vegbildet', !rute.classList.contains('rormodus') && vises('.profilpanel'));
+      this.sjekk('Rør-fanen er skjult igjen', fane('ror').classList.contains('skjult'));
+      this.sjekk('rørknappene er skjult igjen', document.getElementById('verktoyRorImport').classList.contains('skjult'));
+    } finally {
+      App.P = JSON.parse(foer);
+      App.visAnleggsvelger(); App.malTilSkjema(); App.tegnAlt();
+    }
   },
 
   /* ---------------- 13. opprydding ---------------- */
