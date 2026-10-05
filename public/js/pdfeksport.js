@@ -328,6 +328,7 @@ PdfSkriver.ETTBYTE = {
   '\u201c': 34, '\u201d': 34,
   '\u00b7': 183,          // · midtprikk
   '\u2022': 149,          // • kulepunkt
+  '\u2030': 137,          // ‰ promille – fallet på planlagte rør
   '\u2500': 45,           // ─ rammestrek
   '\u25ac': 45,           // ▬
   '\u00ab': 171, '\u00bb': 187

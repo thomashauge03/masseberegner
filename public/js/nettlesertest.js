@@ -172,7 +172,7 @@ const Nettlesertest = {
       'rorProfil', 'ror3d', 'rorRapport', 'rorPdf', 'rorForklaring',
       'groftBeregning', 'groftFane', 'groftKoder', 'groftVerktoy', 'groftKnutepunkt', 'groftProfil', 'groft3d',
       'groftRapport',
-      'planBeregning', 'planNyttAnlegg', 'planTegnTrase', 'planRediger', 'planFane', 'planProfil',
+      'planBeregning', 'planNyttAnlegg', 'planTegnTrase', 'planRediger', 'planFane', 'planProfil', 'planRapport',
       'lovlighet', 'framdrift', 'gamleFilerOgUtskifting', 'opprydding'];
     for (const navn of proever) {
       try {
@@ -9041,7 +9041,7 @@ const Nettlesertest = {
     a.ror.plan.ror.push({ id: 'r1', trase: 't1', kode: 'SP 160PE', side: 0.4, regel: null, motsatt: false },
       { id: 'r2', trase: 't1', kode: 'VL 110PE', side: -0.4, regel: null, motsatt: false });
     a.ror.plan.kummer.push({ id: 'k1', ror: 'r1', punkt: 'p2', diameter: 1000 });
-    App.visAnleggsvelger(); App.malTilSkjema(); App.tegnAlt();
+    App.visAnleggsvelger(); App.visAnleggsvalg(); App.malTilSkjema(); App.tegnAlt();
     clearTimeout(App._tidsavbrudd);
     await App.beregnRor();
     return { a, ll: (x, y) => { const g = gr(x, y); return L.latLng(g.lat, g.lon); } };
@@ -9327,6 +9327,45 @@ const Nettlesertest = {
         this.sjekk('for lite overdekning varsles', App.resultat.merknader.some(m => m.type === 'overdekning' && m.linje === 'r1'));
       });
     } finally {
+      await this._rorTilbake(foer);
+    }
+  },
+
+  /** Rapporten og PDF-en for et tegnet anlegg: kilden, regel og fall, kumlista – og i prosjektrapporten. */
+  async planRapport() {
+    const foer = JSON.stringify(App.P);
+    const gammel = Rapport.visRapport;
+    let html = null;
+    Rapport.visRapport = h => { html = h; };
+    try {
+      await this._medFlattTerreng(21.5, async () => {
+        await this._planProsjekt();
+        Rapport.apneRapport();
+        this.sjekk('rapporten sier at rørene er tegnet', !!html && /Tegnet i Massekalk/.test(html));
+        this.sjekk('og kaller dem ikke innmålte', !!html && !/Innmålte rør/.test(html) && !/innmålte punkt i fila/.test(html));
+        this.sjekk('bunnteksten sier hva høydene er', !!html && /bunn innvendig/.test(html));
+        this.sjekk('rørtabellen har regel og fall', !!html && /selvfall/.test(html) && /trykk/.test(html) && /Fall ‰/.test(html));
+        this.sjekk('og kumlista', !!html && /<h2>Kummer<\/h2>/.test(html) && /k1/.test(html));
+        this.sjekk('massetabellen har kummene', !!html && /Kummene \(betong\)/.test(html));
+        const bytes = await Pdfrapport.lag(false);
+        const strommer = bytes ? await PdfImport.lesStrommer(bytes) : [];
+        const innhold = strommer.map(s => (typeof s === 'string' ? s : new TextDecoder('latin1').decode(s))).join('\n');
+        this.sjekk('PDF-en sier at rørene er tegnet', /Tegnede r\\370r/.test(innhold));
+        this.sjekk('PDF-en har kumlista', /KUMMER/.test(innhold));
+        this.sjekk('og grøftemassene med kummene', /GR\\330FTEMASSER/.test(innhold) && /Kummene \\\(betong\\\)/.test(innhold));
+        // ‰ er WinAnsi 137, oktalt \211 – uten den falt tegnet stille ut av PDF-en
+        this.sjekk('promilletegnet kommer med', /FALL \\211/.test(innhold));
+        // i prosjektrapporten står anlegget som planlagte rør, ved siden av et innmålt
+        html = null;
+        await RorUI.importerTekst(this._rorXml(), 'asbuilts_Prove.xml', {}, { sone: 32, maal: 'nytt' });
+        clearTimeout(App._tidsavbrudd);
+        await Rapport.apneProsjektrapport();
+        this.sjekk('prosjektrapporten skiller planlagte og innmålte rør', !!html && /<td>planlagte rør<\/td>/.test(html)
+          && /<td>rør<\/td>/.test(html));
+        this.sjekk('og bunnteksten har begge', !!html && /bunn innvendig/.test(html) && /innmålte punkt i fila/.test(html));
+      });
+    } finally {
+      Rapport.visRapport = gammel;
       await this._rorTilbake(foer);
     }
   },

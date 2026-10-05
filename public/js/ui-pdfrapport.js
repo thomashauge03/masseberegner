@@ -964,10 +964,13 @@ const Pdfrapport = {
     const bf = res.bakkefaktor || 1;
     const od = v => (Number.isFinite(v) ? t(v, 2) : '–');
 
+    const plan = !!ror.plan;
     nySide();
     if (r.delt && r.delt.anleggsnavn) this._anleggstittel(P, tilstand, innmarg, r.delt.anleggsnavn);
-    P.tekst(this.MARG, tilstand.y, `Innmålte punkt fra maskinstyringen · EUREF89 UTM${app.sone}`
-      + ' · punktene er topp rør, midt over senterlinja (NN2000)', { storrelse: 7.6, farge: this.GRA });
+    P.tekst(this.MARG, tilstand.y, plan
+      ? `Tegnede rør · EUREF89 UTM${app.sone} · høydene ved kummer og låste punkt er bunn innvendig (NN2000)`
+      : `Innmålte punkt fra maskinstyringen · EUREF89 UTM${app.sone}`
+        + ' · punktene er topp rør, midt over senterlinja (NN2000)', { storrelse: 7.6, farge: this.GRA });
     tilstand.y += 6;
     band([
       ['Rør', String(s.antall), ''],
@@ -998,16 +1001,28 @@ const Pdfrapport = {
       'Nummeret ved hvert rør over 20 m er raden i tabellen. Strekene har farge etter koden.');
 
     overskrift('Rørene');
+    // et tegnet anlegg har regel og fall der et innmålt har antall punkt
     tabell([
-      { tekst: '#', bredde: 18 }, { tekst: 'KODE', bredde: 120, venstre: true }, { tekst: 'DIM.', bredde: 42 },
-      { tekst: 'LENGDE M', bredde: 62 }, { tekst: 'PUNKT', bredde: 44 },
-      { tekst: 'MIN. OVERD. M', bredde: 70 }, { tekst: 'MAKS. OVERD. M', bredde: 70 }
+      { tekst: '#', bredde: 18 }, { tekst: 'KODE', bredde: plan ? 110 : 120, venstre: true },
+      { tekst: 'DIM.', bredde: plan ? 40 : 42 }, { tekst: 'LENGDE M', bredde: plan ? 58 : 62 },
+      ...(plan ? [{ tekst: 'REGEL', bredde: 52, venstre: true }, { tekst: 'FALL ‰', bredde: 56 }] : [{ tekst: 'PUNKT', bredde: 44 }]),
+      { tekst: 'MIN. OVERD. M', bredde: plan ? 66 : 70 }, { tekst: 'MAKS. OVERD. M', bredde: plan ? 66 : 70 }
     ], res.linjer.map((l, i) => {
       const k = ror.koder[l.kode] || Ror.tolkKode(l.kode);
-      const pr = res.profiler.get(l.id);
+      const pr = res.profiler.get(l.id), f = plan ? RorPlan.fallSpenn(res.kontroll, l) : null;
       return { celler: [String(i + 1), l.kode, k.dim ? 'Ø' + k.dim : '–', t(l.lengde * bf, 1),
-        String(l.punkter.length), od(pr.minOverdekning), od(pr.maksOverdekning)] };
-    }).concat([{ sum: true, celler: ['', 'Sum', '', t(s.lengde, 1), '', od(s.minOd), od(s.maksOd)] }]));
+        ...(plan ? [l.plan.regel, f ? Ror.spenn(f.min, f.maks, v => t(v, 1)) : '–'] : [String(l.punkter.length)]),
+        od(pr.minOverdekning), od(pr.maksOverdekning)] };
+    }).concat([{ sum: true, celler: ['', 'Sum', '', t(s.lengde, 1), ...(plan ? ['', ''] : ['']), od(s.minOd), od(s.maksOd)] }]));
+    if (plan && res.kummer && res.kummer.length) {
+      overskrift('Kummer');
+      tabell([{ tekst: 'KUM', bredde: 40, venstre: true }, { tekst: 'RØR', bredde: 110, venstre: true }, { tekst: 'Ø MM', bredde: 50 },
+        { tekst: 'TERRENG', bredde: 70 }, { tekst: 'BUNNLØP', bredde: 70 }, { tekst: 'DYBDE M', bredde: 60 }],
+      res.kummer.map(km => {
+        const x = ror.plan.ror.find(y => y.id === km.ror);
+        return { celler: [km.id, x ? x.kode : '?', String(km.diameter), t(km.terreng, 2), t(km.bunnlop, 2), t(km.terreng - km.bunnlop, 2)] };
+      }));
+    }
 
     /* GRØFTEMASSENE – samme rekkefølge som i HTML-rapporten: tegningen med
        forbeholdene under, lagene og dybdene side om side, kodene, balansen. */
@@ -1017,9 +1032,12 @@ const Pdfrapport = {
         + 'felles grøft regnes én gang og står på det dypeste røret. Fjell bare der det er markert eller sondert.';
       if (teg.snitt) await settInn(teg.snitt, 'Grøftemasser', forbehold, 160);
       else { overskrift('Grøftemasser'); brodtekst(forbehold); }
+      // kummene er verken fundament, omfylling eller gjenfylling – uten en egen rad går ikke tabellen opp
+      const masser = [['Graving løsmasse', t(g.sum.gravingLos)], ['Sprengning fjell', t(g.sum.sprengning)],
+        ['Fundament', t(g.sum.fundament)], ['Omfylling (uten rør)', t(g.sum.omfylling)], ['Gjenfylling', t(g.sum.gjenfylling)]];
+      if (g.sum.kumvolum > 0.5) masser.push(['Kummene (betong)', t(g.sum.kumvolum)]);
       toSpalter(
-        { tittel: 'Masser, m³', rader: [['Graving løsmasse', t(g.sum.gravingLos)], ['Sprengning fjell', t(g.sum.sprengning)],
-          ['Fundament', t(g.sum.fundament)], ['Omfylling (uten rør)', t(g.sum.omfylling)], ['Gjenfylling', t(g.sum.gjenfylling)]] },
+        { tittel: 'Masser, m³', rader: masser },
         { tittel: 'Grøft etter dybde, m', rader: g.dybdeklasser.map(kl => [GroftUI.klasseNavn(kl), t(kl.lengde)])
           .concat([['I alt', t(g.sum.lengde), true]]) });
       const bal = [['Gjenfylling fra gravemassene', t(g.balanse.gjenfyllingFraGraving)],
@@ -1055,8 +1073,10 @@ const Pdfrapport = {
       for (const m of res.merknader) brodtekst('• ' + m.tekst, { farge: this.SVART });
     }
     for (const p of teg.profiler) {
-      await settInn(p.bilde, 'Lengdeprofil · ' + p.navn,
-        'Tallene over punktene er overdekningen i meter. Høyden er overdrevet – hvor mye står i tegningen.', 230);
+      await settInn(p.bilde, 'Lengdeprofil · ' + p.navn, plan
+        ? 'Over punktene står overdekningen i meter, under kontrollpunktene bunn innvendig, og mellom dem fallet i ‰. '
+          + 'Høyden er overdrevet – hvor mye står i tegningen.'
+        : 'Tallene over punktene er overdekningen i meter. Høyden er overdrevet – hvor mye står i tegningen.', 230);
     }
   },
 

@@ -747,6 +747,11 @@ ${merknader ? `<h2>Merknader</h2><table><thead><tr><th>Profil</th><th>Type</th><
         + 'overdekningen er målt mot Kartverkets terrengmodell (DTM1), som viser terrenget slik det var '
         + 'da området ble skannet.');
     }
+    if (har('rorplan')) {
+      midt.push('De planlagte rørene er tegnet i Massekalk. Høydene ved kummer og låste punkt er bunn innvendig; '
+        + 'frie punkt ligger med overdekningen under Kartverkets terrengmodell (DTM1), som viser terrenget '
+        + 'slik det var da området ble skannet.');
+    }
     return `<div class="bunn liten">
 <b>Hauge Maskin</b> · Beregnet i Massekalk.
 ${midt.join('\n')}
@@ -1047,12 +1052,22 @@ ${merknader ? `<h2>Merknader</h2><table><thead><tr><th>Type</th><th>Merknad</th>
     const bf = res.bakkefaktor || 1;
     const dato = new Date().toLocaleDateString('nb-NO', { day: '2-digit', month: 'long', year: 'numeric' });
     const teg = this.lagRortegninger(res);
-    const kilder = r.kilder.map(k => escapeHtml(Ror.kildetekst(k))).join('<br>');
+    // et tegnet anlegg har ingen fil bak seg – rørene er tegnet her, og høydene er bunn innvendig
+    const plan = !!r.plan;
+    const kilder = plan ? `Tegnet i Massekalk · ${r.plan.traseer.length} ${r.plan.traseer.length === 1 ? 'trase' : 'traseer'}`
+      : r.kilder.map(k => escapeHtml(Ror.kildetekst(k))).join('<br>');
     const rader = res.linjer.map((l, i) => {
       const k = r.koder[l.kode] || Ror.tolkKode(l.kode);
       const pr = res.profiler.get(l.id);
       const merk = [pr.overTerreng > 0.5 ? `over terrenget ${t(pr.overTerreng, 1)} m` : '',
         pr.utenTerreng > 0.5 ? `uten terreng ${t(pr.utenTerreng, 1)} m` : ''].filter(Boolean).join(', ');
+      if (plan) {
+        const f = RorPlan.fallSpenn(res.kontroll, l);
+        return `<tr><td>${i + 1}</td><td>${escapeHtml(l.kode)}</td><td>${k.dim ? '⌀' + k.dim : '–'}</td>`
+          + `<td>${t(l.lengde * bf, 1)} m</td><td>${l.plan.regel}${l.plan.motsatt ? ' (snudd)' : ''}</td>`
+          + `<td>${f ? Ror.spenn(f.min, f.maks, v => t(v, 1)) : '–'}</td><td>${od(pr.minOverdekning)}</td>`
+          + `<td>${od(pr.maksOverdekning)}</td><td class="liten">${merk}</td></tr>`;
+      }
       return `<tr><td>${i + 1}</td><td>${escapeHtml(l.kode)}</td><td>${k.dim ? '⌀' + k.dim : '–'}</td>`
         + `<td>${t(l.lengde * bf, 1)} m</td><td>${l.punkter.length}</td><td>${od(pr.minOverdekning)}</td>`
         + `<td>${od(pr.maksOverdekning)}</td><td class="liten">${merk}</td></tr>`;
@@ -1075,7 +1090,8 @@ ${teg.snitt ? `<img class="groftsnitt" src="${teg.snitt}" alt="Normalgrøfta med
 <tr><td>Sprengning fjell</td><td>${t(g.sum.sprengning)}</td></tr>
 <tr><td>Fundament</td><td>${t(g.sum.fundament)}</td></tr>
 <tr><td>Omfylling (uten rør)</td><td>${t(g.sum.omfylling)}</td></tr>
-<tr><td>Gjenfylling</td><td>${t(g.sum.gjenfylling)}</td></tr></tbody></table>
+<tr><td>Gjenfylling</td><td>${t(g.sum.gjenfylling)}</td></tr>
+${g.sum.kumvolum > 0.5 ? `<tr><td>Kummene (betong)</td><td>${t(g.sum.kumvolum)}</td></tr>` : ''}</tbody></table>
 <table><thead><tr><th>Dybde</th><th>Grøft</th></tr></thead><tbody>
 ${g.dybdeklasser.map(kl => `<tr><td>${GroftUI.klasseNavn(kl)}</td><td>${t(kl.lengde)} m</td></tr>`).join('')}
 <tr class="sum"><td>I alt</td><td>${t(g.sum.lengde)} m</td></tr></tbody></table>
@@ -1096,22 +1112,34 @@ ${g.balanse.kjopGjenfylling > 0.5 ? `<tr><td>Kjøpes: gjenfylling</td><td>${t(g.
 ${justeringer ? `<h3>Justeringer</h3><ul>${justeringer}</ul>` : ''}
 ${g.merknader.length ? `<h3>Merknader om grøfta</h3><ul>${g.merknader.map(x => `<li>${escapeHtml(x.tekst)}</li>`).join('')}</ul>` : ''}`
       : '';
+    const kumliste = plan && res.kummer && res.kummer.length ? `
+<h2>Kummer</h2>
+<table><thead><tr><th>Kum</th><th>Rør</th><th>Ø mm</th><th>Terreng</th><th>Bunnløp</th><th>Dybde</th></tr></thead><tbody>
+${res.kummer.map(km => {
+    const ror = r.plan.ror.find(x => x.id === km.ror);
+    return `<tr><td>${escapeHtml(km.id)}</td><td>${escapeHtml(ror ? ror.kode : '?')}</td><td>${km.diameter}</td>`
+      + `<td>${t(km.terreng, 2)}</td><td>${t(km.bunnlop, 2)}</td><td>${t(km.terreng - km.bunnlop, 2)} m</td></tr>`;
+  }).join('')}
+</tbody></table>` : '';
     const html = this.rapportskall(app, {
-      tittel: 'Innmålte rør',
-      typer: 'ror',
+      tittel: plan ? 'Planlagte rør' : 'Innmålte rør',
+      typer: plan ? 'rorplan' : 'ror',
       under: escapeHtml(app.P.navn) + ' · ' + escapeHtml(app.anlegg().navn || 'Rør'),
       hoyre: `${dato}<br>${s.antall} rør · ${t(s.lengde)} m<br>EUREF89 UTM${app.sone} · NN2000`,
       seksjon: valg && valg.seksjon
     }, `
 <h2>Kilde</h2>
-<p class="liten">${kilder}<br>Punktene står i EUREF89 UTM${r.sone}.</p>
+<p class="liten">${kilder}<br>${plan
+    ? `Høydene ved kummer og låste punkt er bunn innvendig; frie punkt ligger ${t(app.P.mal.plan.overdekning, 2)} m under terrenget.`
+    : `Punktene står i EUREF89 UTM${r.sone}.`}</p>
 <h2>Oversikt</h2>
 <img class="rorplan" src="${teg.plan}" alt="Rørene sett ovenfra">
 <h2>Rørene</h2>
-<table><thead><tr><th>#</th><th>Kode</th><th>Dim.</th><th>Lengde</th><th>Punkt</th>
+<table><thead><tr><th>#</th><th>Kode</th><th>Dim.</th><th>Lengde</th>${plan ? '<th>Regel</th><th>Fall ‰</th>' : '<th>Punkt</th>'}
 <th>Minste overdekning</th><th>Største</th><th>Merknad</th></tr></thead><tbody>${rader}
-<tr class="sum"><td></td><td>Sum</td><td></td><td>${t(s.lengde, 1)} m</td><td></td><td>${od(s.minOd)}</td><td>${od(s.maksOd)}</td><td></td></tr>
+<tr class="sum"><td></td><td>Sum</td><td></td><td>${t(s.lengde, 1)} m</td>${plan ? '<td></td><td></td>' : '<td></td>'}<td>${od(s.minOd)}</td><td>${od(s.maksOd)}</td><td></td></tr>
 </tbody></table>
+${kumliste}
 ${grofthtml}
 ${merknader ? `<h2>Merknader</h2><ul>${merknader}</ul>` : ''}
 <h2>Lengdeprofiler</h2>
@@ -1741,7 +1769,9 @@ ${profiler || '<p class="liten">Ingen rør over 20 m.</p>'}`);
         });
         if (!html) return null;
         const ror = anl.type === 'ror' ? Ror.sammendrag(res) : null;
-        return { html, navn: anl.navn || anl.type, type: anl.type, sum: res.sum,
+        // planlagte rør står for seg – i tabellen og i bunnteksten om hva høydene er
+        const type = anl.type === 'ror' && anl.ror && anl.ror.plan ? 'rorplan' : anl.type;
+        return { html, navn: anl.navn || anl.type, type, sum: res.sum,
           balanse: res.balanse || {}, kode: this.anleggskode(i),
           rorTekst: ror ? `${ror.antall} rør, ${t(ror.lengde)} m` + (res.groft
             ? ` · graving ${t(res.groft.sum.gravingLos)} m³ · sprengning ${t(res.groft.sum.sprengning)} m³` : '') : '' };
@@ -1755,8 +1785,9 @@ ${profiler || '<p class="liten">Ingen rør over 20 m.</p>'}`);
       const sum = app.prosjektsum(tatt.map(x => x.anlegg.id)) || {};
       const dato = new Date().toLocaleDateString('nb-NO',
         { day: '2-digit', month: 'long', year: 'numeric' });
-      const rad = b => b.type === 'ror'
-        ? `<tr><td>${b.kode} · ${escapeHtml(b.navn)}</td><td>rør</td><td colspan="3">${escapeHtml(b.rorTekst)}</td></tr>`
+      const rad = b => b.type === 'ror' || b.type === 'rorplan'
+        ? `<tr><td>${b.kode} · ${escapeHtml(b.navn)}</td><td>${b.type === 'rorplan' ? 'planlagte rør' : 'rør'}</td>`
+          + `<td colspan="3">${escapeHtml(b.rorTekst)}</td></tr>`
         : `<tr><td>${b.kode} · ${escapeHtml(b.navn)}</td><td>${b.type}</td>`
           + `<td>${t(b.sum.skjaering)}</td><td>${t(b.sum.skjaeringFjell)}</td>`
           + `<td>${t(b.sum.fylling)}</td></tr>`;

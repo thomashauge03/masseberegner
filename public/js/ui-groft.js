@@ -87,7 +87,9 @@ const GroftUI = {
     const rad = (navn, v, enhet = 'm³') => `<div class="sumrad"><span>${navn}</span><span class="verdi">${t(v)} ${enhet}</span></div>`;
     const s = g.sum, b = g.balanse;
     ut += '<h4>Masser, teoretisk profil</h4>' + rad('Graving løsmasse', s.gravingLos) + rad('Sprengning fjell', s.sprengning)
-      + rad('Fundament', s.fundament) + rad('Omfylling (uten rør)', s.omfylling) + rad('Gjenfylling', s.gjenfylling);
+      + rad('Fundament', s.fundament) + rad('Omfylling (uten rør)', s.omfylling) + rad('Gjenfylling', s.gjenfylling)
+      // kummene er verken fundament, omfylling eller gjenfylling – uten en egen rad går ikke tabellen opp
+      + (s.kumvolum > 0.5 ? rad('Kummene (betong)', s.kumvolum) : '');
     ut += '<h4>Grøft etter dybde</h4>' + g.dybdeklasser.map(k => rad(this.klasseNavn(k), k.lengde, 'm')).join('')
       + rad('I alt', s.lengde, 'm');
     ut += '<h4>Per kode</h4><table class="groftkodetall"><thead><tr><th scope="col">Kode</th><th scope="col">Grøft</th>'
