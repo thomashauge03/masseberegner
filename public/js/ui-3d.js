@@ -460,6 +460,7 @@ const Tegner3d = {
    */
   _kanRegnes(a) {
     if (!a) return false;
+    if (a.type === 'ror') return false;   // rør har sitt eget 3D-bilde
     return a.type === 'tomt'
       ? !!(a.tomt && (a.tomt.punkter || []).length > 2
         && a.tomt.nivaa && Number.isFinite(a.tomt.nivaa.kote))
@@ -522,6 +523,7 @@ const Tegner3d = {
        `visAndreknapp` bruker; uten den gjorde knappen ingenting, stille. */
     const app = this.app || (typeof App !== 'undefined' ? App : null);
     if (!app || !app.P || !Array.isArray(app.P.anlegg) || app.P.anlegg.length < 2) return;
+    if (app.erRor && app.erRor()) return;   // rørbildet har ingen naboflater
     if (Tegner3d._byggerFulle) return;
     Tegner3d._byggerFulle = true;
     const foer = app.P.aktivt;
@@ -569,7 +571,8 @@ const Tegner3d = {
         if (kanRegnes(a)) liste.push(a);
         else {
           utelatt.push((a.navn || a.type) + ' – '
-            + (a.type === 'tomt' ? 'ingen ferdig kote satt' : 'ingen høydeprofil ennå'));
+            + (a.type === 'tomt' ? 'ingen ferdig kote satt'
+              : a.type === 'ror' ? 'rør vises i sitt eget 3D-bilde' : 'ingen høydeprofil ennå'));
         }
       }
       /* ÉN RUNDE, I LISTEREKKEFØLGE.
@@ -860,8 +863,8 @@ const Tegner3d = {
       }
       let g = null, grunn = null;
       try {
-        g = a.type === 'tomt' ? this._bakgrunnTomt(a) : this._bakgrunnVeg(a);
-        if (!g) grunn = 'ingen geometri å tegne';
+        g = a.type === 'tomt' ? this._bakgrunnTomt(a) : a.type === 'ror' ? null : this._bakgrunnVeg(a);
+        if (!g) grunn = a.type === 'ror' ? 'rør vises i sitt eget 3D-bilde' : 'ingen geometri å tegne';
       } catch (e) {
         grunn = e.message;
       }
@@ -2102,6 +2105,7 @@ const Tegner3d = {
     if (!Tegner3d.autoFull || Tegner3d._byggerFulle) return;
     const app = this.app || (typeof App !== 'undefined' ? App : null);
     if (!app || !app.P || !Array.isArray(app.P.anlegg) || app.P.anlegg.length < 2) return;
+    if (app.erRor && app.erRor()) return;   // står man i rørene, skal ingenting bytte anlegg under en
     /* TEGNER MAN, SKAL INGENTING RYKKE I ANLEGGET.
        `Kart.modus` står på 'rediger' i ro; alt annet er en handling brukeren
        holder på med. Å bytte aktivt anlegg midt i en senterlinje er å kaste
@@ -2131,7 +2135,9 @@ const Tegner3d = {
    */
   visAndreknapp() {
     const app = this.app || (typeof App !== 'undefined' ? App : null);
-    const antall = (app && app.P && Array.isArray(app.P.anlegg)) ? app.P.anlegg.length : 0;
+    /* Rørene teller ikke: de er ingen flate å vise i veg- eller tomtebildet. */
+    const antall = (app && app.P && Array.isArray(app.P.anlegg))
+      ? app.P.anlegg.filter(a => a.type !== 'ror').length : 0;
     this._autoAndre(antall);
     this._planleggFullDetalj(antall);
     const paa = !!(typeof Veg3d !== 'undefined' && Veg3d.lag && Veg3d.lag.andre);

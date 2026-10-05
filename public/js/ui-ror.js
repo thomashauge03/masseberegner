@@ -53,6 +53,24 @@ const RorUI = {
       ['verktoyRorKoble', 'rorKoble']]) {
       if (id(knapp)) id(knapp).onclick = () => Kart.settModus(Kart.modus === modus ? 'rediger' : modus);
     }
+    // Profil eller 3D i rørpanelet
+    if (id('rorVisProfil')) id('rorVisProfil').onclick = () => Ror3d.aktiver(false);
+    if (id('rorVis3d')) id('rorVis3d').onclick = () => { Ror3d.aktiver(true); Ror3d.settModus('oversikt'); };
+    if (id('r3_overdriv')) id('r3_overdriv').onchange = e => { Ror3d.overdriv = parseFloat(e.target.value) || 1; Ror3d.tegn(); };
+    if (id('r3_kontekst')) id('r3_kontekst').onchange = e => {
+      Ror3d.kontekst = parseFloat(e.target.value) || 10;
+      Ror3d._gitterFor = null;
+      Ror3d._skalaSatt = false;
+      // en bredere ring trenger kanskje terreng som ikke er lastet – beregningen henter det
+      this.app.planlegg(30);
+    };
+    if (id('r3_staker')) id('r3_staker').onclick = e => {
+      Ror3d.lag.staker = !Ror3d.lag.staker;
+      e.currentTarget.classList.toggle('aktiv', Ror3d.lag.staker);
+      e.currentTarget.setAttribute('aria-pressed', Ror3d.lag.staker ? 'true' : 'false');
+      Ror3d.tegn();
+    };
+    if (id('r3_nullstill')) id('r3_nullstill').onclick = () => Ror3d.nullstill();
     return this;
   },
 

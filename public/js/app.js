@@ -1074,7 +1074,7 @@ const App = {
        fortsatt, i blått, nøyaktig der kameraet peker – mens det nye ligger
        utenfor kanten. Man ser da et helt troverdig bilde av feil anlegg. */
     for (const vis of [typeof Veg3d !== 'undefined' ? Veg3d : null,
-      typeof Tomt3d !== 'undefined' ? Tomt3d : null]) {
+      typeof Tomt3d !== 'undefined' ? Tomt3d : null, typeof Ror3d !== 'undefined' ? Ror3d : null]) {
       if (!vis) continue;
       if (vis.modus === 'bakken') vis.settModus('oversikt', true);
       vis.senter = null; vis.fokus = null;
@@ -2047,6 +2047,7 @@ const App = {
     PdfUI.init(this);
     RorUI.init(this);
     Rorprofil.init(this);
+    Ror3d.init(this);
     this.koblingerUI();
     this.visAnleggsvelger();
     this.visAnleggsvalg();

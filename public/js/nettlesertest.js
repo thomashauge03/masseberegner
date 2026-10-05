@@ -8389,6 +8389,37 @@ const Nettlesertest = {
     }
   },
 
+  /** 3D: gitteret går ned til rørene, og rørene tegnes som streker. */
+  async ror3d() {
+    const foer = JSON.stringify(App.P);
+    try {
+      App.P = App.nyttProsjekt();
+      await RorUI.importerTekst(this._rorXml(), 'asbuilts_Prove.xml', {}, { sone: 32, maal: 'nytt' });
+      await this.ventPaBeregning(30000);
+      let streker = 0;
+      const orig = Ror3d._verdensstrek;
+      Ror3d._verdensstrek = function (...a) { streker++; return orig.apply(this, a); };
+      try {
+        document.getElementById('rorVis3d').click();
+        await this.vent(900);
+      } finally { Ror3d._verdensstrek = orig; }
+      this.sjekk('3D er på', Ror3d.aktiv && !document.getElementById('ror3d').classList.contains('skjult'));
+      this.sjekk('profilen er skjult', document.getElementById('rorprofil').classList.contains('skjult'));
+      const g = Ror3d._sisteGitter;
+      this.sjekk('gitteret er bygd rundt rørene', !!g && g.iKontekst > 100, g && String(g.iKontekst));
+      const dypest = Math.min(...App.resultat.linjer.flatMap(l => l.punkter.map(p => p.z)));
+      this.sjekk('og går ned til rørene', !!g && g.lav <= dypest, g && `${g.lav} mot ${dypest}`);
+      this.sjekk('rørene ble tegnet som streker', streker >= 4, String(streker));
+      document.getElementById('rorVisProfil').click();
+      await this.vent(200);
+      this.sjekk('tilbake til profilen', !Ror3d.aktiv && !document.getElementById('rorprofil').classList.contains('skjult'));
+    } finally {
+      if (typeof Ror3d !== 'undefined' && Ror3d.aktiv) Ror3d.aktiver(false);
+      App.P = JSON.parse(foer);
+      App.visAnleggsvelger(); App.visAnleggsvalg(); App.malTilSkjema(); App.tegnAlt(); await App.oppdater();
+    }
+  },
+
   /**
    * En oppdiktet as-built-fil ved Ydestad, der demoen ligger og terrenget
    * finnes. Samme oppskrift som proverPunkter() i test/rorprove.js: to rør i
