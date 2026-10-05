@@ -52,6 +52,31 @@ function _rettRorfelt(a, R) {
   a.mal.maksAvstand = m !== null && m >= 5 && m <= 200 ? m : R.StandardRormal.maksAvstand;
   const sone = tall(a.ror.sone);
   a.ror.sone = [32, 33, 35].includes(sone) ? sone : 32;
+  /* Punktene. Et `null` i lista stoppet åpningen av hele prosjektet, med
+     panelene alt tømt. Et punkt uten tre tall kan ikke tegnes – det hopper
+     innlesingen også over. */
+  const erObjekt = v => !!v && typeof v === 'object' && !Array.isArray(v);
+  const punkter = [];
+  for (const p of a.ror.punkter) {
+    if (!erObjekt(p)) continue;
+    const n = tall(p.n), o = tall(p.o), z = tall(p.z);
+    if (n === null || o === null || z === null) continue;
+    p.n = n; p.o = o; p.z = z;
+    p.kode = p.kode != null && String(p.kode).trim() ? String(p.kode) : 'UTEN KODE';
+    p.id = p.id != null && String(p.id) ? String(p.id) : `${p.kode}|${n.toFixed(3)}|${o.toFixed(3)}|${z.toFixed(3)}`;
+    const nr = tall(p.nr);
+    p.nr = nr !== null ? nr : punkter.length + 1;
+    punkter.push(p);
+  }
+  a.ror.punkter = punkter;
+  /* Og rettingene: id-er, og par av id-er. Et par som ikke var et par, fikk
+     linjebyggingen til å kaste ved hver tegning. */
+  const id = v => v != null && typeof v !== 'object';
+  const par = v => Array.isArray(v) && v.length === 2 && v.every(id);
+  const ret = a.ror.retting;
+  ret.av = ret.av.filter(id).map(String);
+  ret.brudd = ret.brudd.filter(par).map(v => v.map(String));
+  ret.koble = ret.koble.filter(par).map(v => v.map(String));
   for (const kode of Object.keys(a.ror.koder)) {
     const k = a.ror.koder[kode];
     if (!k || typeof k !== 'object' || Array.isArray(k)) { delete a.ror.koder[kode]; continue; }
@@ -67,7 +92,7 @@ function _rettRorfelt(a, R) {
   }
   // en kode punktene har, men tabellen mangler, får tolkningen sin
   a.ror.koder = R.koderFra(a.ror.punkter, a.ror.koder);
-  a.ror.kilder = a.ror.kilder.filter(k => k && typeof k === 'object' && !Array.isArray(k));
+  a.ror.kilder = a.ror.kilder.filter(erObjekt);
   for (const k of a.ror.kilder) {
     const n = tall(k.antall);
     k.antall = n !== null && n >= 0 ? Math.round(n) : 0;

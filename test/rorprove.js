@@ -481,6 +481,31 @@ console.log('\n14. Røranlegget i prosjektfila');
   sjekk('en lovlig maks avstand står', G.anlegg[0].mal.maksAvstand, 40, 0);
   sjekk('en sone som tekst blir tall', G.anlegg[0].ror.sone, 33, 0);
   sjekk('et lovlig antall står', G.anlegg[0].ror.kilder[0].antall, 120, 0);
+
+  /* Punktene og rettingene kan også være hva som helst. Et `null` i lista
+     stoppet åpningen av hele prosjektet – med panelene alt tømt og det gamle
+     prosjektet fortsatt lastet – og et rettingspar som ikke var et par, fikk
+     linjebyggingen til å kaste. */
+  let H, hKast = null;
+  try {
+    H = Prosjektform.klargjor({ navn: 'h', aktivt: 'r1', anlegg: [{ id: 'r1', type: 'ror', ror: {
+      punkter: [null, 'tull', { id: 'a', kode: '90PE', n: 1, o: 2, z: 3, nr: 1 },
+        { id: 5, n: '6488855.3', o: 429458.5, z: 206 }, { id: 'c', kode: 'X', n: 1, o: 2 }],
+      retting: { av: ['a', null, 7], brudd: [['a', 'b'], 'tull', [1], null], koble: [['a', 'b', 'c'], {}, ['x', 'y']] }
+    } }] });
+  } catch (e) { hKast = e.message; }
+  paastand('et prosjekt med ødelagte punkt kan åpnes', !hKast, hKast);
+  const hr = H && H.anlegg[0].ror;
+  paastand('punkt som ikke er objekter eller mangler en høyde, tas bort', !!hr && hr.punkter.length === 2,
+    hr && JSON.stringify(hr.punkter));
+  paastand('id og kode blir tekst, og en manglende kode blir UTEN KODE', !!hr && hr.punkter[1].id === '5'
+    && hr.punkter[1].kode === 'UTEN KODE', hr && JSON.stringify(hr.punkter[1]));
+  paastand('tall som tekst blir tall', !!hr && hr.punkter[1].n === 6488855.3);
+  paastand('rettingene blir id-er og par av id-er', !!hr && JSON.stringify(hr.retting)
+    === JSON.stringify({ av: ['a', '7'], brudd: [['a', 'b']], koble: [['x', 'y']] }), hr && JSON.stringify(hr.retting));
+  let bKast = null;
+  try { if (hr) Ror.byggLinjer(hr, H.anlegg[0].mal, iFila); } catch (e) { bKast = e.message; }
+  paastand('og linjene kan bygges', !bKast, bKast);
 }
 
 /* ------------------------------------------------------------------ */
