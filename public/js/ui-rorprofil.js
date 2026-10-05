@@ -66,7 +66,7 @@ const Rorprofil = {
     if (c) { this._dra = { c, y0: my, y: null }; return; }
     const s = sk.sAv(mx), P = sk.d.profil.prover;
     const q = P.reduce((a, b) => (Math.abs(b.s - s) < Math.abs(a.s - s) ? b : a));
-    if (Math.abs(sk.Y(q.topp) - my) <= 8) this._paRor = { s: q.s };
+    if (Math.abs(sk.Y(q.topp) - my) <= 8) this._paRor = { s: q.s, topp: q.topp };
   },
 
   _opp(e) {
@@ -82,10 +82,12 @@ const Rorprofil = {
       return;
     }
     if (this._paRor && d) {
-      const s = this._paRor.s;
+      const { s, topp } = this._paRor;
       this._paRor = null;
       const pid = RorPlanUI.settInnVed(d.linje.id, s);
-      if (pid) RorPlanUI.punktfelt(d.linje.id, pid);
+      /* Beregningen med det nye punktet er ikke ferdig ennå – høyden og
+         stasjonen er det røret har der det ble klikket. */
+      if (pid) RorPlanUI.punktfelt(d.linje.id, pid, { s, bunn: RorPlan.bunnFraTopp(topp, d.kode) });
     }
   },
 

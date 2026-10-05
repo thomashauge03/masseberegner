@@ -9371,6 +9371,30 @@ const Nettlesertest = {
         clearTimeout(App._tidsavbrudd);
         await App.beregnRor();
         this.sjekk('for lite overdekning varsles', App.resultat.merknader.some(m => m.type === 'overdekning' && m.linje === 'r1'));
+        /* Klikk på røret mellom kontrollpunktene setter inn et punkt og åpner
+           punktfeltet – med høyden røret har der, og «fall videre» skal virke
+           fra det, selv om det ikke er et kontrollpunkt ennå. */
+        Rorprofil.tegn();
+        const sk2 = Rorprofil._skala, q20 = data().profil.prover.reduce((a, b) => (Math.abs(b.s - 20) < Math.abs(a.s - 20) ? b : a));
+        const rect2 = Rorprofil.lerret.getBoundingClientRect();
+        const mus2 = type => Rorprofil.lerret.dispatchEvent(new MouseEvent(type,
+          { clientX: rect2.left + sk2.X(q20.s), clientY: rect2.top + sk2.Y(q20.topp), bubbles: true }));
+        const foerPunkt = App.P.ror.plan.traseer[0].punkter.map(p => p.id);
+        mus2('mousedown'); mus2('mouseup');
+        const nyPunkt = App.P.ror.plan.traseer[0].punkter.map(p => p.id).find(id => !foerPunkt.includes(id));
+        const ppB = document.getElementById('ppBunn');
+        this.sjekk('klikk på røret i profilen setter inn et punkt, med høyden der i punktfeltet', !!nyPunkt && !!ppB
+          && Math.abs(parseFloat(ppB.value) - RorPlan.bunnFraTopp(q20.topp, SP)) < 0.002, ppB && ppB.value);
+        document.getElementById('ppFall').value = '10';
+        document.getElementById('ppFallKnapp').click();
+        const Ln = App.P.ror.plan.laast.find(x => x.ror === 'r1' && x.punkt === nyPunkt);
+        const Lp2 = App.P.ror.plan.laast.find(x => x.ror === 'r1' && x.punkt === 'p2');
+        const sP2 = App.resultat.kontroll.find(c => c.ror === 'r1' && c.punkt === 'p2').s;
+        this.sjekk('og «fall videre» fra det låser det og neste kontrollpunkt', !!Ln && !!Lp2
+          && Math.abs((Ln.bunn - Lp2.bunn) / (sP2 - q20.s) - 0.010) < 2e-4, JSON.stringify({ Ln, Lp2 }));
+        RorPlanUI.slettPunkt('t1', nyPunkt);         // ut igjen – resten av prøven regner med p1, p2, p3
+        clearTimeout(App._tidsavbrudd);
+        await App.beregnRor();
         /* EN PÅKOBLING ER EN KOBLING, OGSÅ NÅR HØYDEN LÅSES PÅ NYTT. «Lås» i
            punktfeltet, en dragning eller «fall videre» skrev en låst høyde uten
            kilden – og da sto det «treffer» i merknadene der røret er koblet på,

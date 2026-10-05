@@ -575,8 +575,12 @@ const RorPlanUI = {
   /**
    * Punktfeltet for et punkt på et tegnet rør: bunn innvendig, lås og lås opp,
    * for selvfall fallet videre, og «Hent på nytt» for en påkobling.
+   *
+   * `valg` = { s, bunn } for et punkt som nettopp er satt inn fra profilen:
+   * beregningen med det er ikke ferdig, så høyden og stasjonen er det røret
+   * har der det ble klikket.
    */
-  punktfelt(rorId, punkt) {
+  punktfelt(rorId, punkt, valg = {}) {
     const app = this.app, plan = this.plan(), res = app.resultat;
     const ror = plan.ror.find(x => x.id === rorId);
     if (!ror) return;
@@ -586,7 +590,8 @@ const RorPlanUI = {
     const c = res && res.kontroll ? res.kontroll.find(x => x.ror === rorId && x.punkt === punkt) : null;
     const l = res && res.linjer.find(x => x.id === rorId);
     const lp = l && l.punkter.find(p => p.id === rorId + ':' + punkt);
-    const bunnNa = L ? L.bunn : c ? c.bunn : lp ? RorPlan.bunnFraTopp(lp.z, k) : NaN;
+    const bunnNa = L ? L.bunn : c ? c.bunn : lp ? RorPlan.bunnFraTopp(lp.z, k)
+      : Number.isFinite(valg.bunn) ? valg.bunn : NaN;
     const selvfall = RorPlan.regel(ror, k) === 'selvfall';
     const boks = document.getElementById('dialog'), innhold = document.getElementById('dialoginnhold');
     document.getElementById('dialogtittel').textContent = `${ror.kode} · ${kum ? 'kum ' + kum.id : 'punkt ' + punkt}`;
@@ -617,7 +622,11 @@ const RorPlanUI = {
     if (L) innhold.querySelector('#ppLaasOpp').onclick = () => { lukk(); this.laasOpp(rorId, punkt); };
     if (L && L.kilde) innhold.querySelector('#ppHent').onclick = () => { lukk(); this.hentPaNytt(rorId, punkt); };
     if (selvfall) {
-      innhold.querySelector('#ppFallKnapp').onclick = () => { const f = tall('ppFall'); lukk(); this.fallVidere(rorId, punkt, f, tall('ppBunn')); };
+      innhold.querySelector('#ppFallKnapp').onclick = () => {
+        const f = tall('ppFall');
+        lukk();
+        this.fallVidere(rorId, punkt, f, tall('ppBunn'), valg.s);
+      };
     }
     boks.classList.remove('skjult');
   },
@@ -670,15 +679,27 @@ const RorPlanUI = {
    * røret sin, og skrevet over ville det nye røret ikke lenger møtt det.
    * Da settes i stedet dette punktet, så fallet ned til påkoblingen blir det
    * som er skrevet – høydeføring bakover fra det som ligger fast.
+   *
+   * Punktet trenger ikke være et kontrollpunkt: et fritt knekkpunkt – eller
+   * et som nettopp er satt inn fra profilen (`sKjent`) – finnes etter
+   * stasjonen, og neste kontrollpunkt er det første forbi det i fallretningen.
    */
-  fallVidere(rorId, punkt, fall, bunnHer) {
+  fallVidere(rorId, punkt, fall, bunnHer, sKjent) {
     const app = this.app, res = app.resultat, plan = this.plan(), ror = plan.ror.find(x => x.id === rorId);
     if (!Number.isFinite(fall)) { app.status('Skriv fallet i promille'); return; }
+    if (!ror) return;
     const ktr = (res && res.kontroll ? res.kontroll : []).filter(c => c.ror === rorId).sort((a, b) => a.s - b.s);
     const j = ktr.findIndex(c => c.punkt === punkt);
-    const neste = j < 0 || !ror ? null : ktr[ror.motsatt ? j - 1 : j + 1];
+    let sHer = j >= 0 ? ktr[j].s : null;
+    if (sHer == null) {
+      const l = res && res.linjer.find(x => x.id === rorId);
+      const i = l ? l.punkter.findIndex(p => p.id === rorId + ':' + punkt) : -1;
+      sHer = i >= 0 ? RorPlan.stasjonering(l.xy)[i] : Number.isFinite(sKjent) ? sKjent : null;
+    }
+    if (sHer == null) { app.status('Punktet er ikke regnet ennå – prøv igjen om et øyeblikk'); return; }
+    const neste = ror.motsatt ? ktr.filter(c => c.s < sHer - 0.01).pop() : ktr.find(c => c.s > sHer + 0.01);
     if (!neste) { app.status('Ingen kontrollpunkt videre i fallretningen – sett en kum eller lås en høyde der først'); return; }
-    const L = Math.abs(neste.s - ktr[j].s);
+    const L = Math.abs(neste.s - sHer);
     const fast = plan.laast.find(x => x.ror === rorId && x.punkt === neste.punkt && x.kilde);
     if (fast) {
       const herFraFast = fast.bunn + fall / 1000 * L;
@@ -690,7 +711,8 @@ const RorPlanUI = {
         + `${Rapport.tall(herFraFast, 2)}, så fallet ned dit blir ${Rapport.tall(fall, 1)} ‰`);
       return;
     }
-    const her = Number.isFinite(bunnHer) ? bunnHer : ktr[j].bunn;
+    const her = Number.isFinite(bunnHer) ? bunnHer : j >= 0 ? ktr[j].bunn : NaN;
+    if (!Number.isFinite(her)) { app.status('Skriv bunn innvendig i punktet først'); return; }
     const bunnNeste = her - fall / 1000 * L;
     app.merk('satte fall');
     this._settLaast(rorId, punkt, her);
