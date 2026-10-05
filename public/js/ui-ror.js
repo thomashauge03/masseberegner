@@ -399,6 +399,10 @@ const RorUI = {
       app.planlegg(30);
     }
     app.visAnleggsvalg();
+    /* «Ny» setter kartet i tegnemodus, og byttet over gjør ikke noe med det
+       når anlegget ble byttet ut på samme plass. Ble det stående, var neste
+       klikk i kartet et vegpunkt. */
+    Kart.settModus('rediger');
     if (Kart.zoomTilRor) Kart.zoomTilRor();
     app.status(melding);
   },

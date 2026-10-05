@@ -808,6 +808,13 @@ const Kart = {
          Vil man sette inn et punkt pa et strekk som alt er tegnet, klikker
          man pa selve linjen i Rediger. Det er en egen handling, og den skal
          ikke skje ved et uhell. */
+      /* Et røranlegg har også `ip` – en tom liste, så kartet ikke faller – og
+         uten denne sperren havnet klikket der som et vegpunkt. */
+      if (this.app.erRor()) {
+        this.settModus('rediger');
+        this.app.status('Rørene tegnes ikke for hånd ennå – de kommer fra innmålingen');
+        return;
+      }
       /* Tegner man, har man valgt. Flagget skal ikke bli hengende og be om et
          valg man alt har tatt med hånda. */
       if (this.app.P.ubestemt) this.app.velgAnleggstype('veg');

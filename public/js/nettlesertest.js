@@ -8212,9 +8212,18 @@ const Nettlesertest = {
     try {
       App.P = App.nyttProsjekt();
       App.visAnleggsvelger(); App.visAnleggsvalg(); App.malTilSkjema();
+      /* «Ny» setter kartet i tegnemodus. Ble det stående etter importen, la
+         neste klikk i kartet et vegpunkt i røranlegget. */
+      Kart.settModus('tegn');
       const ok = await RorUI.importerTekst(this._rorXml(), 'asbuilts_Prove_2026-09-01T10_00_00.000Z.xml', {},
         { sone: 32, maal: 'nytt' });
       this.sjekk('importen gikk gjennom', ok === true);
+      this.sjekk('kartet står ikke i tegnemodus etter importen', Kart.modus === 'rediger', Kart.modus);
+      Kart.modus = 'tegn';                 // som om noe annet satte den
+      Kart.klikk({ latlng: L.latLng(62.0, 6.0) });
+      this.sjekk('et klikk i tegnemodus legger ikke vegpunkt i røranlegget',
+        App.erRor() && App.anlegg().ip.length === 0, String(App.anlegg().ip.length));
+      this.sjekk('og tegnemodusen slås av', Kart.modus === 'rediger', Kart.modus);
       this.sjekk('det tomme anlegget ble byttet ut med rør',
         App.P.anlegg.length === 1 && App.P.anlegg[0].type === 'ror', App.P.anlegg.map(a => a.type).join(','));
       this.sjekk('navnet kommer fra filnavnet', App.anlegg().navn === 'Prove', App.anlegg().navn);
