@@ -431,6 +431,38 @@ console.log('\n16. Hvert objekt på det røret det sitter på');
     JSON.stringify([...plass].map(([k, v]) => [k, v.map(o => o.kode)])));
   paastand('muffen på B står bare på B', plass.get('B').length === 1 && plass.get('B')[0].kode === '180 PE MUFFE');
   paastand('det som er langt unna, står på ingen', ![...plass.values()].flat().some(o => o.kode === 'LANGT'));
+
+  /* Koden avgjør før avstanden. Målt i den ekte fila: en «180 PE MUFFE» lå en
+     drøy halvmeter nærmere 90PE enn 180 PE i samme grøft, og havnet på feil
+     profil – oppå muffen til 90PE. */
+  const R90 = { id: 'R90', kode: '90PE', punkter: [{ z: 1 }, { z: 1 }], xy: [{ x: 0, y: 0 }, { x: 100, y: 0 }] };
+  const R180 = { id: 'R180', kode: '180 PE', punkter: [{ z: 1 }, { z: 1 }], xy: [{ x: 0, y: 1 }, { x: 100, y: 1 }] };
+  const etterKode = Ror.objekterPaaLinjer([R90, R180], [
+    { kode: '180 PE MUFFE', o: 40, n: 0.3, z: 1 }, { kode: 'ANNBORING', o: 60, n: 0.3, z: 1 }
+  ], q => ({ x: q.o, y: q.n }), 3);
+  paastand('180 PE-muffen går til 180 PE selv om 90PE er nærmere',
+    etterKode.get('R180').some(o => o.kode === '180 PE MUFFE'),
+    JSON.stringify([...etterKode].map(([k, v]) => [k, v.map(o => o.kode)])));
+  paastand('en anboring uten dimensjon går til det nærmeste', etterKode.get('R90').some(o => o.kode === 'ANNBORING'));
+}
+
+/* ------------------------------------------------------------------ */
+/* DEN EKTE FILA – bare når stien er gitt. Kundens data ligger ikke i repoet. */
+if (process.env.ROR_FIL) {
+  console.log('\n17. Den ekte fila (ROR_FIL)');
+  const les = Ror.lesLandXML(Ror.dekod(fs.readFileSync(process.env.ROR_FIL)));
+  const ror = { punkter: les.punkter, koder: Ror.koderFra(les.punkter), retting: { av: [], brudd: [], koble: [] } };
+  const b = Ror.byggLinjer(ror, Ror.StandardRormal, iFila);
+  paastand('fila leses', les.punkter.length > 0, String(les.punkter.length));
+  paastand('ingen strekk over 25 m', b.linjer.every(l => l.xy.every((q, i) => i === 0
+    || Math.hypot(q.x - l.xy[i - 1].x, q.y - l.xy[i - 1].y) <= 25)));
+  paastand('sonen er 32', Ror.gjettSone(les.punkter, les.epsg, []).sone === 32);
+  const perKode = {};
+  for (const l of b.linjer) perKode[l.kode] = (perKode[l.kode] || []).concat(l.lengde);
+  for (const [k, ls] of Object.entries(perKode)) {
+    console.log(`       ${k.padEnd(18)} ${String(ls.length).padStart(2)} rør  ${ls.reduce((a, x) => a + x, 0).toFixed(0).padStart(5)} m`);
+  }
+  console.log(`       ${b.objekter.length} objekter, ${b.enslige.length} enslige punkt`);
 }
 
 /* ---------------- sluttsum ---------------- */

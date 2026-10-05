@@ -100,6 +100,31 @@ Knappene over lengdeprofilen:
 | Massebalanse | Løfter/senker hele profilen til skjæring og fylling går opp i opp |
 | Optimaliser | Finjusterer hvert knekkpunkt for billigst mulig løsning |
 
+## Rør fra maskinstyringen
+
+Innmålte rør kan hentes inn fra en LandXML-fil – eksporten «as-built» fra Xsite
+Manage og liknende. Velg **⌀ Nye rør (fra fil)** i anleggslista, «Rør (fra fil)»
+i førstevalget, eller slipp fila på kartet.
+
+* **Punktene blir rør av seg selv.** Fila har bare punkter, og operatøren måler
+  fram og tilbake og hopper mellom rørene i samme grøft – målerekkefølgen kan
+  ikke brukes. Programmet trekker linjene etter hvor punktene ligger: punkt med
+  samme kode som ligger høyst 25 m fra hverandre, henger sammen (minste
+  spenntre). Avstanden kan endres i Rør-fanen.
+* **Høydene er topp rør.** Senter er en halv diameter lenger ned, bunnen en hel.
+  Diameteren leses av koden («180 PE», «SP 160PE») og kan rettes i Koder-fanen.
+* **Overdekningen måles mot Kartverkets terreng (DTM1)** – slik marka var da
+  den ble skannet.
+* **Koordinatsystemet** står sjelden i fila. Programmet bruker det fila oppgir,
+  ellers sonen som legger rørene ved de andre anleggene i prosjektet, ellers
+  UTM 32 – og dialogen sier hva den valgte og hvorfor.
+* **Kobler programmet feil**, rettes det i kartet: slå av et punkt, bryt en
+  strek, koble to ender. Rettingene står seg når en nyere fil importeres –
+  punktene kjennes igjen på id-en i fila, og ingenting slettes stille.
+
+Rørene vises i kart, lengdeprofil og 3D, og får sin egen del i rapporten og
+PDF-en. Grøftemasser og planlegging av nye rør kommer i neste etapper.
+
 ## Hva «billigst» betyr
 
 Optimaliseringen vekter, i den rekkefølgen det gjør vondt:
@@ -225,6 +250,16 @@ eksportene, rapporten og panelene. Den lager sitt eget prosjekt og rydder opp
 etter seg, så den er trygg å kjøre på en maskin med ekte prosjekter.
 
 ```bash
+node test/rorprove.js
+```
+
+Rørene: innlesing av LandXML, kodetolkingen, linjene mot punkter med kjent fasit
+(fram og tilbake, rør om hverandre, stikkledninger i sikksakk), brudd, kobling,
+sone, sammenslåing av en ny fil og overdekningen mot et kunstig terreng.
+`npm test` kjører både denne og selvtesten. Med `ROR_FIL=<sti til en xml>` kjøres
+en ekte fil i tillegg – kundens filer ligger ikke i repoet.
+
+```bash
 node test/demo-ydestad.js
 ```
 
@@ -250,6 +285,8 @@ public/js/veiklasser.js  veiklassene fra landbruksveinormalen
 public/js/lager.js       prosjektlager i nettleseren, import og eksport
 public/js/eksport.js     KOF, LandXML, SOSI og DXF
 public/js/pdfimport.js   avlesning av tegnede kurver i en PDF
+public/js/ror.js         rørene: LandXML, koder, linjer, sone, profil
+public/js/ui-ror*.js     rørene i skjermen: import, faner, profil, 3D
 public/js/farger.js      tegnefargene, hentet fra CSS-variablene
 public/js/nettlesertest.js  gjennomgang av grensesnittet (?test=1)
 public/js/ui-*.js        kart, lengdeprofil, tverrprofil, rapport

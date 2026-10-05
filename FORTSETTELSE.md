@@ -20,11 +20,29 @@ Nettlesertesten kjøres ved å åpne programmet med `?test=1`, eller fra konsoll
 med `Nettlesertest.kjor()`. Utviklingstjeneren startes med `node server.js`
 (port 5178). Programmet ligger også på https://masseberegner.vercel.app.
 
-Ved siste lagring: **363 prøver i selvtesten, 184 i nettlesertesten, alle
-grønne.** Massene på demoen er uendret gjennom hele runden: 1 548 m³ skjæring,
+Ved siste lagring: **609 prøver i selvtesten, 161 i rørprøven
+(`test/rorprove.js`), 1028 i nettlesertesten, alle grønne.** Nettlesertesten
+må kjøres i et vindu som er minst 1000 px bredt – under det legger
+sidepanelet seg oppå, og tre panelprøver blir røde uten at noe er galt. Massene på demoen er uendret gjennom hele runden: 1 548 m³ skjæring,
 1 015 m³ fjell, 135 m³ fylling — rettingene gjelder feilmåter, ikke normalveien.
 
 ## Det som skal gjøres nå
+
+### Rør, etappe 1 – ferdig på grenen `ror-etappe1`
+
+Spec: `docs/superpowers/specs/2026-10-05-ror-etappe1-design.md`.
+Plan: `docs/superpowers/plans/2026-10-05-ror-etappe1.md`.
+
+Import av innmålte rør fra LandXML (Xsite Manage), linjene trukket etter
+geometri, kart, lengdeprofil, 3D, rørfane, koder, retting, rapport og PDF.
+Prøvd på den ekte fila: 90PE blir ett rør på 734 m, 40 FIBER tre på
+891 m, alle 24 punktobjektene kommer med, ingen enslige punkt
+(`ROR_FIL=<sti> node test/rorprove.js`). Neste:
+
+- **Etappe 2 – grøftemasser.** Grøftemal på røranlegget (`mal`), felles grøft
+  for rør som ligger tett, masser mot terreng og fjellmodell.
+- **Etappe 3 – planlegge nye rør.** Tegne rør i kartet og regne grøfta før
+  man graver.
 
 `GJENNOMGANG.md` er lista. 18 uavhengige granskere gikk gjennom hver sin del av
 programmet, og hvert funn ble forsøkt motbevist av to andre — én som skulle

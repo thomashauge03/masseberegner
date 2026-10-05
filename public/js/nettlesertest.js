@@ -168,6 +168,8 @@ const Nettlesertest = {
       'grensesnittbredder', 'panelhoder',
       'tomt', 'tomteksport', 'tomterydding', 'tomtsnittOverbygning',
       'tomt3d', 'veg3d', 'kartlag',
+      'rorArbeidsbilde', 'rorBeregning', 'rorImport', 'rorKart', 'rorFane', 'rorRetting',
+      'rorProfil', 'ror3d', 'rorRapport', 'rorPdf', 'rorForklaring',
       'lovlighet', 'framdrift', 'gamleFilerOgUtskifting', 'opprydding'];
     for (const navn of proever) {
       try {
@@ -8135,6 +8137,10 @@ const Nettlesertest = {
     try {
       const a = App.nyttAnlegg('ror', 'Prøverør');
       App.P.anlegg.push(a);
+      /* Fra Masser-fanen, som ikke finnes i rørbildet – det er DEN overgangen
+         som skal flytte brukeren til Rør. Står Forklaring oppe, blir man
+         stående der, og det er riktig: den finnes i begge bildene. */
+      App.visFane('masser');
       App.byttAnlegg(a.id);
       await this.vent(150);
       const rute = document.querySelector('.rute');
@@ -8161,8 +8167,7 @@ const Nettlesertest = {
       this.sjekk('Rør-fanen er skjult igjen', fane('ror').classList.contains('skjult'));
       this.sjekk('rørknappene er skjult igjen', document.getElementById('verktoyRorImport').classList.contains('skjult'));
     } finally {
-      App.P = JSON.parse(foer);
-      App.visAnleggsvelger(); App.malTilSkjema(); App.tegnAlt();
+      await this._rorTilbake(foer);
     }
   },
 
@@ -8197,8 +8202,7 @@ const Nettlesertest = {
           document.getElementById('nokkeltal').textContent);
       }
     } finally {
-      App.P = JSON.parse(foer);
-      App.visAnleggsvelger(); App.malTilSkjema(); App.tegnAlt(); await App.oppdater();
+      await this._rorTilbake(foer);
     }
   },
 
@@ -8232,8 +8236,7 @@ const Nettlesertest = {
       const farge = Farger.ror('vann');
       this.sjekk('fargene finnes i stilarket', !!farge && farge !== '#888', farge);
     } finally {
-      App.P = JSON.parse(foer);
-      App.visAnleggsvelger(); App.visAnleggsvalg(); App.malTilSkjema(); App.tegnAlt(); await App.oppdater();
+      await this._rorTilbake(foer);
     }
   },
 
@@ -8266,8 +8269,7 @@ const Nettlesertest = {
       Kart.lag.ror.eachLayer(() => igjen++);
       this.sjekk('rørlaget er tomt når vegen står oppe', igjen === 0, String(igjen));
     } finally {
-      App.P = JSON.parse(foer);
-      App.visAnleggsvelger(); App.visAnleggsvalg(); App.malTilSkjema(); App.tegnAlt(); await App.oppdater();
+      await this._rorTilbake(foer);
     }
   },
 
@@ -8308,8 +8310,7 @@ const Nettlesertest = {
         this.sjekk('en kode kan slås av', App.P.ror.koder['32PE'].vis === false);
       }
     } finally {
-      App.P = JSON.parse(foer);
-      App.visAnleggsvelger(); App.visAnleggsvalg(); App.malTilSkjema(); App.tegnAlt(); await App.oppdater();
+      await this._rorTilbake(foer);
     }
   },
 
@@ -8350,9 +8351,7 @@ const Nettlesertest = {
       Kart.settModus('rediger');
       this.sjekk('Rediger slår av rettingsmodusen', !document.getElementById('verktoyRorAv').classList.contains('aktiv'));
     } finally {
-      Kart.settModus('rediger');
-      App.P = JSON.parse(foer);
-      App.visAnleggsvelger(); App.visAnleggsvalg(); App.malTilSkjema(); App.tegnAlt(); await App.oppdater();
+      await this._rorTilbake(foer);
     }
   },
 
@@ -8386,8 +8385,7 @@ const Nettlesertest = {
       this.sjekk('og ikke på 180 PE en meter unna', Rorprofil.dataFor(App, App.resultat, B).objekter.length === 0);
       this.sjekk('velgeren følger valget', /90PE/.test(document.getElementById('ror_velg').selectedOptions[0].textContent));
     } finally {
-      App.P = JSON.parse(foer);
-      App.visAnleggsvelger(); App.visAnleggsvalg(); App.malTilSkjema(); App.tegnAlt(); await App.oppdater();
+      await this._rorTilbake(foer);
     }
   },
 
@@ -8416,9 +8414,7 @@ const Nettlesertest = {
       await this.vent(200);
       this.sjekk('tilbake til profilen', !Ror3d.aktiv && !document.getElementById('rorprofil').classList.contains('skjult'));
     } finally {
-      if (typeof Ror3d !== 'undefined' && Ror3d.aktiv) Ror3d.aktiver(false);
-      App.P = JSON.parse(foer);
-      App.visAnleggsvelger(); App.visAnleggsvalg(); App.malTilSkjema(); App.tegnAlt(); await App.oppdater();
+      await this._rorTilbake(foer);
     }
   },
 
@@ -8456,8 +8452,7 @@ const Nettlesertest = {
       this.sjekk('uten å vente på masser som aldri kommer', Date.now() - t0 < 30000, (Date.now() - t0) + ' ms');
     } finally {
       Rapport.visRapport = gammel;
-      App.P = JSON.parse(foer);
-      App.visAnleggsvelger(); App.visAnleggsvalg(); App.malTilSkjema(); App.tegnAlt(); await App.oppdater();
+      await this._rorTilbake(foer);
     }
   },
 
@@ -8484,8 +8479,7 @@ const Nettlesertest = {
       const alle = await Pdfrapport.lagProsjekt(false);
       this.sjekk('prosjekt-PDF med veg og rør ble laget', !!alle && alle.length > 5000, alle ? alle.length + ' byte' : 'ingen');
     } finally {
-      App.P = JSON.parse(foer);
-      App.visAnleggsvelger(); App.visAnleggsvalg(); App.malTilSkjema(); App.tegnAlt(); await App.oppdater();
+      await this._rorTilbake(foer);
     }
   },
 
@@ -8501,9 +8495,27 @@ const Nettlesertest = {
       this.sjekk('topp rør og overdekning forklares', /Topp rør/.test(tekst) && /Overdekning/.test(tekst));
       this.sjekk('vegens streker står ikke der', !/Etter rensk/.test(tekst));
     } finally {
-      App.P = JSON.parse(foer);
-      App.visAnleggsvelger(); App.visAnleggsvalg(); App.malTilSkjema(); App.tegnAlt(); await App.oppdater();
+      await this._rorTilbake(foer);
     }
+  },
+
+  /**
+   * Legger prosjektet tilbake etter en rørprøve – og stopper det prøven satte
+   * i gang først.
+   *
+   * Import og retting ber om en ny beregning om tretti millisekunder
+   * (`App.planlegg`). Lå den igjen da prosjektet ble lagt tilbake, fyrte den
+   * midt i NESTE prøve og skrev «Beregnet 49 profiler» over statuslinja den
+   * prøven skulle lese – `lovlighet` ble rød i hele runden og grønn alene.
+   */
+  async _rorTilbake(foer) {
+    clearTimeout(App._tidsavbrudd);
+    if (typeof Ror3d !== 'undefined' && Ror3d.aktiv) Ror3d.aktiver(false);
+    if (Kart.modus !== 'rediger') Kart.settModus('rediger');
+    App.P = JSON.parse(foer);
+    App.visAnleggsvelger(); App.visAnleggsvalg(); App.malTilSkjema(); App.tegnAlt();
+    await App.oppdater();
+    clearTimeout(App._tidsavbrudd);
   },
 
   /**

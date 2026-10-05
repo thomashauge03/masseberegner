@@ -577,21 +577,39 @@ function objekterLangs(linje, objekter, tilXY, maks) {
 }
 
 /**
- * Hvert punktobjekt på det røret det sitter på – det NÆRMESTE innen `maks`.
+ * Hvert punktobjekt på det røret det sitter på.
  *
  * To rør i samme grøft ligger en meter fra hverandre, og en muffe på det ene
  * ligger da også innen tre meter fra det andre. Med bare `objekterLangs` sto
  * muffen på 90PE også på profilen til 180 PE ved siden av.
  *
+ * KODEN FØRST, SÅ AVSTANDEN. Blant rørene innen `maks` vinner det som koden
+ * peker på – samme dimensjon, eller samme system – og først om ingen gjør
+ * det, det nærmeste. Målt i den ekte fila: en «180 PE MUFFE» lå en drøy
+ * halvmeter nærmere 90PE enn 180 PE, og havnet oppå muffen til 90PE.
+ *
  * @returns {Map<linjeId, Array>} objektene per rør, sortert langs røret
  */
 function objekterPaaLinjer(linjer, objekter, tilXY, maks) {
   const ut = new Map((linjer || []).map(l => [l.id, []]));
+  const tolket = new Map();
+  const tolk = kode => {
+    if (!tolket.has(kode)) tolket.set(kode, tolkKode(kode));
+    return tolket.get(kode);
+  };
   for (const p of objekter || []) {
+    const t = tolk(p.kode);
+    const passer = l => {
+      const lt = tolk(l.kode);
+      return (!!t.dim && lt.dim === t.dim) || (!!t.system && lt.system === t.system);
+    };
     let best = null;
     for (const l of linjer || []) {
       const [o] = objekterLangs(l, [p], tilXY, maks);
-      if (o && (!best || o.avstand < best.o.avstand)) best = { l, o };
+      if (!o) continue;
+      const kand = { l, o, passer: passer(l) };
+      if (!best || (kand.passer && !best.passer)
+        || (kand.passer === best.passer && o.avstand < best.o.avstand)) best = kand;
     }
     if (best) ut.get(best.l.id).push(best.o);
   }
