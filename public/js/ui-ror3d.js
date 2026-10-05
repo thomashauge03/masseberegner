@@ -214,6 +214,8 @@ const Ror3d = Object.assign(Object.create(Tomt3d), {
         k.strokeStyle = Farger.blekkSvak; k.lineWidth = 1;
         for (const l of res.linjer) {
           l.xy.forEach((q, i) => {
+            // en stake per meter på et tegnet trykkrør ville vært et gjerde
+            if (l.punkter[i].mellom) return;
             const zt = app.terreng.z(q.x, q.y);
             if (!Number.isFinite(zt) || zt <= l.punkter[i].z) return;
             this._verdensstrek(k, [{ x: q.x, y: q.y, z: zt }, { x: q.x, y: q.y, z: l.punkter[i].z }]);

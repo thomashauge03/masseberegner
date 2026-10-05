@@ -1711,8 +1711,11 @@ const Kart = {
         break;
       }
     }
+    // i et tegnet anlegg står punktene bare i linjene
+    const iLinjene = r.plan ? new Map(bygg.linjer.flatMap(l => l.punkter.map(p => [p.id, p]))) : null;
+    const finn = id => (iLinjene ? iLinjene.get(id) : r.punkter.find(p => p.id === id));
     for (const par of just.sammen) {
-      const a = r.punkter.find(p => p.id === par[0]), c = r.punkter.find(p => p.id === par[1]);
+      const a = finn(par[0]), c = finn(par[1]);
       if (!a || !c) continue;
       L.polyline([ll(a), ll(c)], { color: Farger.groft('strekning'), weight: 2, dashArray: '6 4' })
         .bindTooltip('Felles grøft', { sticky: true }).addTo(this.lag.ror);
@@ -1731,8 +1734,12 @@ const Kart = {
       const av = new Set(r.retting.av);
       /* Med «Grøft på strekning» kan bare punktene på rørene velges – de som
          er slått av, og punktobjektene, vises ikke da. */
-      const paaRor = this.modus === 'groftStrekning' ? new Set(bygg.linjer.flatMap(l => l.punkter.map(p => p.id))) : null;
-      for (const p of r.punkter) {
+      const paaRor = this.modus === 'groftStrekning'
+        ? new Set(bygg.linjer.flatMap(l => l.punkter.filter(p => !p.mellom).map(p => p.id))) : null;
+      /* Et tegnet anlegg har ingen målte punkt – der er det knekkpunktene på
+         linjene som kan velges. Mellompunktene flytter seg med terrenget. */
+      const kilde = r.plan ? bygg.linjer.flatMap(l => l.punkter.filter(p => !p.mellom)) : r.punkter;
+      for (const p of kilde) {
         if (paaRor && !paaRor.has(p.id)) continue;
         const er = av.has(p.id);
         L.circleMarker(ll(p), {
@@ -1750,8 +1757,9 @@ const Kart = {
   },
 
   /**
-   * Et tegnet anlegg: rørene uten høyder ennå, og traseen som tegnes nå.
-   * Traseene, punktene, kummene og varslene kommer i oppgave 9.
+   * Et tegnet anlegg oppå rørene: traseene med punktene man drar i, kummene
+   * i riktig størrelse, de låste høydene, varslene fra kontrollene, rørene
+   * som ikke har høyder ennå – og traseen som tegnes nå.
    */
   tegnPlan(r, bygg, res, ll) {
     const lag = this.lag.ror;
@@ -1762,6 +1770,52 @@ const Kart = {
         .bindTooltip(`${escapeHtml(u.kode)} · ${u.grunn === 'dimensjon' ? 'mangler dimensjon – ingen høyder'
           : 'høydene kommer når terrenget er hentet'}`, { sticky: true })
         .addTo(lag);
+    }
+    const app = this.app, plan = r.plan, rediger = this.modus === 'rediger';
+    // traseene: tynn midtlinje – i Rediger setter et klikk på den inn et punkt
+    for (const t of plan.traseer) {
+      const linje = L.polyline(t.punkter.map(p => [p.lat, p.lon]),
+        { color: Farger.blekkSvak, weight: 1.5, opacity: 0.9, dashArray: '2 4', className: 'plantrase' }).addTo(lag);
+      linje.on('click', e => {
+        if (!rediger) return;
+        L.DomEvent.stop(e);
+        if (RorPlanUI.settInnPaaTrase(t.id, e.latlng)) app.status('Satte inn et punkt – dra det dit du vil ha knekken');
+      });
+      for (const p of t.punkter) {
+        const valgt = RorPlanUI.valgt && RorPlanUI.valgt.punkt === p.id;
+        const m = L.marker([p.lat, p.lon], {
+          draggable: rediger, keyboard: false,
+          icon: L.divIcon({ className: '', html: `<div class="plan-punkt${valgt ? ' valgt' : ''}"></div>`, iconSize: [11, 11], iconAnchor: [5.5, 5.5] })
+        }).addTo(lag);
+        if (!rediger) continue;
+        m.on('dragstart', () => app.merk('flyttet tracepunkt'));
+        m.on('drag', ev => { RorPlanUI.flyttPunkt(t.id, p.id, ev.latlng); linje.setLatLngs(t.punkter.map(q => [q.lat, q.lon])); });
+        m.on('dragend', () => { app.tegnAlt(); app.planlegg(30); });
+        m.on('click', () => RorPlanUI.velgPunkt(t.id, p.id));
+      }
+    }
+    // kummene i riktig størrelse
+    for (const k of bygg.kummer || []) {
+      L.circle(Ror.tilLatLon(k, r.sone), { radius: (k.diameter / 1000 + 0.2) / 2, color: Farger.blekk, weight: 1.5,
+        fillColor: Farger.flate, fillOpacity: 0.9, className: 'plankum' })
+        .bindTooltip(`Kum ${escapeHtml(k.id)} · Ø${k.diameter} · bunnløp ${Rapport.tall(k.bunnlop, 2)} · `
+          + `dybde ${Rapport.tall(k.terreng - k.bunnlop, 2)} m`).addTo(lag);
+    }
+    // låste høyder og påkoblinger – hvite er hentet fra et annet rør
+    for (const c of bygg.kontroll || []) {
+      if (!c.laast && !c.fra) continue;
+      const g = Geo.fraUtm(c.x, c.y, app.sone);
+      L.circleMarker([g.lat, g.lon], { radius: 4, color: '#0b0b0c', weight: 1.5, fillColor: c.kilde || c.fra ? '#ffffff' : Farger.blekk,
+        fillOpacity: 1, interactive: false }).addTo(lag);
+    }
+    // varslene fra kontrollene – fargen står aldri alene: teksten følger med
+    if (res && res.plan) {
+      for (const v of res.merknader) {
+        if (!Number.isFinite(v.x) || !Number.isFinite(v.y)) continue;
+        const g = Geo.fraUtm(v.x, v.y, res.sone);
+        L.circleMarker([g.lat, g.lon], { radius: 8, color: Farger.skjaering, weight: 2.5, fill: false, className: 'planvarsel' })
+          .bindTooltip(escapeHtml(v.tekst), { sticky: true }).addTo(lag);
+      }
     }
     const ny = RorPlanUI._ny;
     if (this.modus === 'tegnTrase' && ny && ny.length) {
@@ -1777,9 +1831,13 @@ const Kart = {
   /** Kartet rammer inn rørene – etter import og når et rørprosjekt åpnes. */
   zoomTilRor() {
     const app = this.app;
-    if (!app.erRor() || !app.P.ror || !app.P.ror.punkter.length) return;
+    if (!app.erRor() || !app.P.ror) return;
     const r = app.P.ror;
-    this.kart.fitBounds(L.latLngBounds(r.punkter.map(p => Ror.tilLatLon(p, r.sone))), { padding: [40, 40], maxZoom: 19 });
+    // et tegnet anlegg har ingen målte punkt – rammen er tracepunktene
+    const pkt = r.plan ? r.plan.traseer.flatMap(t => t.punkter.map(p => [p.lat, p.lon]))
+      : r.punkter.map(p => Ror.tilLatLon(p, r.sone));
+    if (!pkt.length) return;
+    this.kart.fitBounds(L.latLngBounds(pkt), { padding: [40, 40], maxZoom: 19 });
   },
 
   zoomTilLinje() {

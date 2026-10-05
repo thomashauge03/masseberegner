@@ -250,11 +250,17 @@ const GroftUI = {
     const r = app.P.ror;
     const u = Geo.tilUtm(latlng.lat, latlng.lng, r.sone);
     const tol = RorUI._toleranse(latlng);
-    const linjer = Ror.byggLinjer(r, app.P.mal, p => ({ x: p.o, y: p.n })).linjer;
+    /* Et tegnet anlegg har ingen målte punkt – linjene kommer fra planen.
+       Punktene står i fila sin sone der også; strekene regnes om dit. */
+    const linjer = r.plan
+      ? app.byggRor().linjer.map(l => Object.assign({}, l, { xy: l.punkter.map(p => ({ x: p.o, y: p.n })) }))
+      : Ror.byggLinjer(r, app.P.mal, p => ({ x: p.o, y: p.n })).linjer;
     if (modus === 'groftStrekning') {
       let best = null;
       for (const l of linjer) {
         for (const p of l.punkter) {
+          // mellompunktene på et tegnet trykkrør flytter seg med terrenget
+          if (p.mellom) continue;
           const d = Math.hypot(p.o - u.x, p.n - u.y);
           if (d <= tol && (!best || d < best.d)) best = { p, l, d };
         }
@@ -290,9 +296,13 @@ const GroftUI = {
              id-er. Et knutepunkt står i flere rør, så er det nærmeste et
              knutepunkt, tas det andre endepunktet om det bare står i dette. */
           const naerA = Math.hypot(l.xy[i - 1].x - u.x, l.xy[i - 1].y - u.y) <= Math.hypot(l.xy[i].x - u.x, l.xy[i].y - u.y);
-          const [p1, p2] = naerA ? [l.punkter[i - 1], l.punkter[i]] : [l.punkter[i], l.punkter[i - 1]];
+          /* Et tegnet trykkrør har mellompunkt, og de endrer seg med terrenget –
+             gå til nærmeste knekkpunkt bakover. */
+          let pi = naerA ? i - 1 : i;
+          while (pi > 0 && l.punkter[pi].mellom) pi--;
+          const p1 = l.punkter[pi], p2 = l.punkter[naerA ? i : i - 1];
           const delt = p => linjer.some(m => m !== l && m.punkter.some(x => x.id === p.id));
-          best = { l, d, p: delt(p1) && !delt(p2) ? p2 : p1 };
+          best = { l, d, p: delt(p1) && !delt(p2) && !p2.mellom ? p2 : p1 };
         }
       }
       if (!best) { app.status('Klikk på en rørstrek'); return; }

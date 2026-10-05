@@ -172,7 +172,7 @@ const Nettlesertest = {
       'rorProfil', 'ror3d', 'rorRapport', 'rorPdf', 'rorForklaring',
       'groftBeregning', 'groftFane', 'groftKoder', 'groftVerktoy', 'groftKnutepunkt', 'groftProfil', 'groft3d',
       'groftRapport',
-      'planBeregning', 'planNyttAnlegg', 'planTegnTrase',
+      'planBeregning', 'planNyttAnlegg', 'planTegnTrase', 'planRediger',
       'lovlighet', 'framdrift', 'gamleFilerOgUtskifting', 'opprydding'];
     for (const navn of proever) {
       try {
@@ -9157,6 +9157,64 @@ const Nettlesertest = {
           && /180 PE/.test(m.tekst)), App.resultat.merknader.map(m => m.tekst).join(' | '));
         await App.angre();
         this.sjekk('angre tar hele traseen bort', App.P.ror.plan.traseer.length === 0);
+      });
+    } finally {
+      await this._rorTilbake(foer);
+    }
+  },
+
+  /** Redigering i kartet: punktene, kummen, sette inn og slette, og snu fallretningen. */
+  async planRediger() {
+    const foer = JSON.stringify(App.P);
+    try {
+      await this._medFlattTerreng(21.5, async () => {
+        const { ll } = await this._planProsjekt();
+        Kart.kart.setView(ll(40, 0), 18);
+        Kart.settModus('rediger');
+        let punkter = 0, kummer = 0;
+        Kart.lag.ror.eachLayer(l => {
+          if (l.options && l.options.draggable) punkter++;
+          if (l.options && l.options.className === 'plankum') kummer++;
+        });
+        this.sjekk('tracepunktene kan dras', punkter === 3, String(punkter));
+        this.sjekk('kummen tegnes', kummer === 1, String(kummer));
+        /* Grøfteverktøyene: et tegnet anlegg har ingen målte punkt, så det er
+           knekkpunktene på rørene som velges. Spillvannet ligger 0,4 m til
+           høyre for traseen – sør, når den går østover. */
+        Kart.settModus('groftStrekning');
+        GroftUI.kartklikk('groftStrekning', ll(0, -0.4));
+        GroftUI.kartklikk('groftStrekning', ll(40, -0.4));
+        const gs = document.getElementById('gsLagre');
+        this.sjekk('«Grøft på strekning» velger knekkpunktene på et tegnet rør',
+          !document.getElementById('dialog').classList.contains('skjult') && !!gs);
+        if (gs) document.getElementById('gsAvbryt').click();
+        Kart.settModus('groftSammen');
+        GroftUI.kartklikk('groftSammen', ll(20, -0.4));
+        GroftUI.kartklikk('groftSammen', ll(20, 0.4));
+        const par = (App.P.ror.groft || { sammen: [] }).sammen[0] || [];
+        this.sjekk('«Felles grøft» lagres mot knekkpunkt, ikke mellompunkt', par.length === 2
+          && par.every(id => /^r\d+:p\d+$/.test(id)), JSON.stringify(par));
+        await App.angre();
+        this.sjekk('og angre tar den bort', !(App.P.ror.groft && App.P.ror.groft.sammen.length));
+        Kart.settModus('rediger');
+        // angre bytter ut prosjektet – planen hentes etter det
+        const plan = App.P.ror.plan, t = plan.traseer[0];
+        App.merk('flyttet tracepunkt');
+        RorPlanUI.flyttPunkt('t1', 'p3', ll(80, 20));
+        this.sjekk('punktet er flyttet', Math.abs(t.punkter[2].lat - ll(80, 20).lat) < 1e-12);
+        const nytt = RorPlanUI.settInnPaaTrase('t1', ll(20, 0.3));
+        this.sjekk('et punkt satt inn på traseen', t.punkter.length === 4 && t.punkter[1].id === nytt);
+        RorPlanUI._vekslKum(plan.ror[0], 'p2');
+        this.sjekk('kummen tas bort når den finnes', plan.kummer.length === 0);
+        RorPlanUI._vekslKum(plan.ror[0], 'p2');
+        this.sjekk('og settes på igjen med anleggets diameter', plan.kummer.length === 1 && plan.kummer[0].diameter === 1000);
+        RorPlanUI.velgPunkt('t1', 'p2');
+        RorPlanUI.slettValgt();
+        this.sjekk('punktet er slettet, og kummen på det', t.punkter.length === 3 && plan.kummer.length === 0);
+        RorPlanUI.kartklikk('snuTrase', ll(50, 10.15));
+        this.sjekk('fallretningen er snudd for begge rørene', plan.ror.every(x => x.motsatt === true));
+        await App.angre();
+        this.sjekk('angre snur den tilbake', App.P.ror.plan.ror.every(x => x.motsatt === false));
       });
     } finally {
       await this._rorTilbake(foer);
