@@ -984,6 +984,11 @@ table.rorkoder th, table.rorkoder td { padding: 4px 6px; border-bottom: 1px soli
 table.rorkoder thead th { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--blekk-svak); }
 table.rorkoder td.tall { text-align: right; font-variant-numeric: tabular-nums; }
 table.rorkoder .minitall { width: 70px; }
+table.plankoder .minitall { width: 52px; }
+/* En tabell som er bredere enn sidepanelet, ruller for seg – ikke hele panelet.
+   `relative`: de skjulte etikettene (sr-only) er absolutt plassert, og uten
+   den ville de stukket ut av rammen og gitt panelet rullefelt likevel. */
+.tabellrull { overflow-x: auto; position: relative; }
 .rorfarge { display: inline-block; width: 14px; height: 6px; margin-right: 7px; vertical-align: middle;
   border-radius: 1px; box-shadow: 0 0 0 1px rgba(0,0,0,.35); }
 fieldset.rormaal { border: 1px solid var(--kant); padding: 6px 10px; margin: 8px 0; }
@@ -1039,6 +1044,13 @@ ul.groftjusteringer li { margin: 3px 0; }
 .planrad input:focus { border-color: var(--hm-raud); }
 .planrad .plankode { width: 9em; }
 .planrad .planside { width: 5em; text-align: right; font-variant-numeric: tabular-nums; }
+/* Rør-fanen for tegnede rør: hvert rør med knappene sine, og kumlista */
+table.kumliste { width: 100%; border-collapse: collapse; font-size: 12px; }
+table.kumliste th, table.kumliste td { padding: 3px 4px; text-align: right; border-bottom: 1px solid var(--kant); }
+table.kumliste th[scope="row"], table.kumliste td:nth-child(2) { text-align: left; }
+table.kumliste .minitall { width: 64px; }
+.planror { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.planror .rorlinje { flex: 1 1 100%; text-align: left; }
 .stasjon-markor { width: 11px; height: 11px; background: #fff; border: 2px solid var(--hm-raud); border-radius: 50%; }
 .stasjonstall {
   font-family: var(--skrift-tittel); font-weight: 700; font-size: 12px; color: #fff;

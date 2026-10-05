@@ -289,6 +289,22 @@ console.log('\n5. Plandelen i prosjektfila');
   paastand('et innmålt anlegg får ingen plan', !('plan' in Q.anlegg[0].ror) && !('plan' in Q.anlegg[0].mal));
 }
 
+console.log('\n6. Fallet fra–til');
+{
+  const p = plan1([[0, 0], [50, 0], [100, 0]], [{ kode: 'SP 160PE' }], { laast: [{ ror: 'r1', punkt: 'p1', bunn: 8.0 },
+    { ror: 'r1', punkt: 'p2', bunn: 7.5 }, { ror: 'r1', punkt: 'p3', bunn: 7.4 }] });
+  const b = bygg(p, flatt);
+  const f = RorPlan.fallSpenn(b.kontroll, b.linjer[0]);
+  sjekk('minste fall', f.min, 2, 1e-9);
+  sjekk('største fall', f.maks, 10, 1e-9);
+  paastand('trykk har ikke fall', RorPlan.fallSpenn(b.kontroll, Object.assign({}, b.linjer[0], {
+    plan: Object.assign({}, b.linjer[0].plan, { regel: 'trykk' }) })) === null);
+  // snudd: fallet regnes i fallretningen, så det samme røret har motfall
+  const s = RorPlan.fallSpenn(b.kontroll, Object.assign({}, b.linjer[0], {
+    plan: Object.assign({}, b.linjer[0].plan, { motsatt: true }) }));
+  paastand('snudd rør: motfall gir negativt fall', s.min === -10 && Math.abs(s.maks + 2) < 1e-9, JSON.stringify(s));
+}
+
 /* ---------------- sluttsum ---------------- */
 console.log(`\n${ok} tester ok, ${feil} feil`);
 process.exit(feil ? 1 : 0);

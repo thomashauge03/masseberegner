@@ -319,8 +319,8 @@ const RorUI = {
     });
   },
 
-  /** Tabellen over kodene – den samme i dialogen og i Koder-fanen. */
-  kodetabellHtml(koder, antall) {
+  /** Tabellen over kodene – den samme i dialogen og i Koder-fanen. `enhet` er det som telles. */
+  kodetabellHtml(koder, antall, enhet = 'Punkt') {
     const valg = (verdi, liste) => liste.map(([v, t]) =>
       `<option value="${escapeAttr(v)}"${v === verdi ? ' selected' : ''}>${escapeHtml(t)}</option>`).join('');
     const farger = Object.entries(Ror.FARGER);
@@ -341,7 +341,7 @@ const RorUI = {
           <input id="${id}v" type="checkbox" data-felt="vis"${k.vis !== false ? ' checked' : ''}></td>
       </tr>`;
     }).join('');
-    return `<table class="rorkoder"><thead><tr><th scope="col">Kode</th><th scope="col">Punkt</th>
+    return `<table class="rorkoder"><thead><tr><th scope="col">Kode</th><th scope="col">${escapeHtml(enhet)}</th>
       <th scope="col">Tegnes som</th><th scope="col">⌀ mm</th><th scope="col">Farge</th><th scope="col">Med</th>
       </tr></thead><tbody>${rader}</tbody></table>`;
   },
@@ -349,8 +349,8 @@ const RorUI = {
   /** Det brukeren har valgt i kodetabellen, som en ny kodetabell. */
   lesKodetabell(rot, koder) {
     const ut = {};
-    // grøftetabellen har også klassen rorkoder for stilens skyld – radene dens er ikke koder
-    for (const tr of rot.querySelectorAll('table.rorkoder:not(.groftkoder) tr[data-kode]')) {
+    // grøfte- og plantabellen har også klassen rorkoder for stilens skyld – radene deres er ikke koder
+    for (const tr of rot.querySelectorAll('table.rorkoder:not(.groftkoder):not(.plankoder) tr[data-kode]')) {
       const kode = tr.dataset.kode;
       const k = Object.assign({}, koder[kode]);
       const f = felt => tr.querySelector(`[data-felt="${felt}"]`);
@@ -532,6 +532,7 @@ const RorUI = {
   _fyllFane(r, bygg, res) {
     const e = document.getElementById('rorInnhold');
     if (!e) return;
+    if (r.plan) { RorPlanUI.fyllFane(e, r, bygg, res); return; }
     const app = this.app;
     const t = (v, d = 0) => Rapport.tall(v, d);
     const bf = (res && res.bakkefaktor) || 1;
@@ -615,12 +616,18 @@ const RorUI = {
   _fyllKoder(r) {
     const e = document.getElementById('rorKoder');
     if (!e) return;
+    // et tegnet anlegg teller rør per kode, et innmålt punkt
     const antall = {};
-    for (const p of r.punkter) antall[p.kode] = (antall[p.kode] || 0) + 1;
-    e.innerHTML = '<p class="notis">Hva hver kode i fila betyr. Endringene gjelder med en gang, og kan angres.</p>'
-      + this.kodetabellHtml(r.koder, antall) + GroftUI.kodeHtml(r.koder);
+    if (r.plan) for (const x of r.plan.ror) antall[x.kode] = (antall[x.kode] || 0) + 1;
+    else for (const p of r.punkter) antall[p.kode] = (antall[p.kode] || 0) + 1;
+    e.innerHTML = `<p class="notis">Hva hver kode${r.plan ? '' : ' i fila'} betyr. Endringene gjelder med en gang, og kan angres.</p>`
+      // tabellen er bredere enn sidepanelet – da ruller den, ikke hele panelet
+      + `<div class="tabellrull">${this.kodetabellHtml(r.koder, antall, r.plan ? 'Rør' : 'Punkt')}</div>` + GroftUI.kodeHtml(r.koder)
+      + (r.plan ? RorPlanUI.kodeHtml(r.koder) : '');
     e.onchange = ev => {
-      if (ev && ev.target && ev.target.closest && ev.target.closest('table.groftkoder')) { GroftUI.endreKode(ev.target); return; }
+      const t = ev && ev.target && ev.target.closest ? ev.target : null;
+      if (t && t.closest('table.groftkoder')) { GroftUI.endreKode(t); return; }
+      if (t && t.closest('table.plankoder')) { RorPlanUI.endreKode(t); return; }
       this.app.merk('endret kode');
       r.koder = this.lesKodetabell(e, r.koder);
       this.app.tegnAlt();

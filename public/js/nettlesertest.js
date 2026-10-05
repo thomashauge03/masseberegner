@@ -172,7 +172,7 @@ const Nettlesertest = {
       'rorProfil', 'ror3d', 'rorRapport', 'rorPdf', 'rorForklaring',
       'groftBeregning', 'groftFane', 'groftKoder', 'groftVerktoy', 'groftKnutepunkt', 'groftProfil', 'groft3d',
       'groftRapport',
-      'planBeregning', 'planNyttAnlegg', 'planTegnTrase', 'planRediger',
+      'planBeregning', 'planNyttAnlegg', 'planTegnTrase', 'planRediger', 'planFane',
       'lovlighet', 'framdrift', 'gamleFilerOgUtskifting', 'opprydding'];
     for (const navn of proever) {
       try {
@@ -9215,6 +9215,53 @@ const Nettlesertest = {
         this.sjekk('fallretningen er snudd for begge rørene', plan.ror.every(x => x.motsatt === true));
         await App.angre();
         this.sjekk('angre snur den tilbake', App.P.ror.plan.ror.every(x => x.motsatt === false));
+      });
+    } finally {
+      await this._rorTilbake(foer);
+    }
+  },
+
+  /** Rør-fanen og Koder-fanen for et tegnet anlegg. */
+  async planFane() {
+    const foer = JSON.stringify(App.P);
+    try {
+      await this._medFlattTerreng(21.5, async () => {
+        await this._planProsjekt();
+        App.visFane('ror');
+        const inn = document.getElementById('rorInnhold');
+        this.sjekk('fanen viser traseen med begge rørene', /Trase 1/.test(inn.textContent)
+          && /SP 160PE/.test(inn.textContent) && /VL 110PE/.test(inn.textContent));
+        this.sjekk('og kumlista', !!inn.querySelector('table.kumliste') && /k1/.test(inn.querySelector('table.kumliste').textContent));
+        this.sjekk('og fallet på selvfallsrøret', /fall 0,0–0,0 ‰/.test(inn.textContent), inn.textContent.slice(0, 400));
+        this.sjekk('grøftedelen er med', !!inn.querySelector('#groftBunntillegg'));
+        const od = inn.querySelector('#planOverdekning');
+        od.value = '2.5';
+        od.dispatchEvent(new Event('change'));
+        this.sjekk('overdekningen lagres', App.P.mal.plan.overdekning === 2.5);
+        clearTimeout(App._tidsavbrudd);
+        await App.beregnRor();
+        const sp = App.resultat.linjer.find(l => l.kode === 'SP 160PE');
+        this.sjekk('og røret legges dypere', Math.abs(sp.punkter[0].z - 19.0) < 1e-6, String(sp.punkter[0].z));
+        document.querySelector('#rorInnhold [data-plansnu="r1"]').click();
+        this.sjekk('Snu snur røret', App.P.ror.plan.ror[0].motsatt === true);
+        document.querySelector('#rorInnhold [data-planslett="r2"]').click();
+        this.sjekk('Slett tar bort røret', App.P.ror.plan.ror.length === 1);
+        await App.angre();
+        this.sjekk('og angre gir det tilbake', App.P.ror.plan.ror.length === 2);
+        App.visFane('rorkoder');
+        this.sjekk('Koder-fanen vises', document.getElementById('rorKoder').getBoundingClientRect().height > 0);
+        const tabell = document.querySelector('#rorKoder table.rorkoder:not(.groftkoder):not(.plankoder)');
+        this.sjekk('kodetabellen teller rør, ikke punkt', !!tabell && /Rør/.test(tabell.querySelector('thead').textContent));
+        const gods = document.querySelector('#rorKoder table.plankoder input[data-plan="gods"]');
+        this.sjekk('kodetabellen har planfeltene', !!gods);
+        const kode = gods.closest('tr').dataset.kode;
+        gods.value = '9.1';
+        gods.dispatchEvent(new Event('change', { bubbles: true }));
+        this.sjekk('og godset lagres på koden', App.P.ror.koder[kode].gods === 9.1, JSON.stringify(App.P.ror.koder[kode]));
+        const regel = document.querySelector(`#rorKoder table.plankoder tr[data-kode="${kode}"] select[data-plan="regel"]`);
+        regel.value = 'trykk';
+        regel.dispatchEvent(new Event('change', { bubbles: true }));
+        this.sjekk('og regelen', App.P.ror.koder[kode].regel === 'trykk');
       });
     } finally {
       await this._rorTilbake(foer);

@@ -495,8 +495,20 @@ const RorPlan = (() => {
     return ut;
   }
 
+  /** Fallet (‰) mellom kontrollpunktene på et selvfallsrør, i fallretningen – minste og største. */
+  function fallSpenn(kontroll, l) {
+    if (!l.plan || l.plan.regel !== 'selvfall') return null;
+    const k = kontroll.filter(c => c.ror === l.id).sort((a, c) => a.s - c.s), f = [];
+    for (let j = 1; j < k.length; j++) {
+      const L = k[j].s - k[j - 1].s;
+      if (L > 0.01) f.push(1000 * (l.plan.motsatt ? k[j].bunn - k[j - 1].bunn : k[j - 1].bunn - k[j].bunn) / L);
+    }
+    return f.length ? { min: Math.min(...f), maks: Math.max(...f) } : null;
+  }
+
   return { StandardPlanmal, GRENSER, nyPlan, nyPlanmal, klem, nyId, alleIder, kodeAv, gods,
-    toppFraBunn, bunnFraTopp, regel, overdekning, minFall, maksFall, forskyv, stasjonering, bygg, kontroller, fjell };
+    toppFraBunn, bunnFraTopp, regel, overdekning, minFall, maksFall, forskyv, stasjonering, bygg, kontroller, fjell,
+    fallSpenn };
 })();
 
 if (typeof module !== 'undefined') module.exports = RorPlan;

@@ -363,6 +363,201 @@ const RorPlanUI = {
     if (this.valgt && this.valgt.punkt === pid) this.valgt = null;
     app.tegnAlt();
     app.planlegg(30);
+  },
+
+  /* ---------------- Rør-fanen ---------------- */
+
+  /** Rør-fanen for et tegnet anlegg: traseene med rørene, kumlista, kontrollene, grøfta og innstillingene. */
+  fyllFane(e, r, bygg, res) {
+    const app = this.app, plan = r.plan, mp = app.P.mal.plan, t = (v, d = 0) => Rapport.tall(v, d);
+    const bf = (res && res.bakkefaktor) || 1;
+    let tr = '';
+    plan.traseer.forEach((tra, ti) => {
+      tr += `<div class="rorgruppe"><div class="rorkode"><b>Trase ${ti + 1}</b><span class="notis">${tra.punkter.length} punkt</span>`
+        + ` <button class="minilenke" data-plannytt="${escapeAttr(tra.id)}">+ Rør</button>`
+        + ` <button class="minilenke" data-plantraseslett="${escapeAttr(tra.id)}">Slett traseen</button></div>`;
+      for (const x of plan.ror.filter(y => y.trase === tra.id)) {
+        const k = RorPlan.kodeAv(r.koder, x.kode), reg = RorPlan.regel(x, k);
+        const l = (res ? res.linjer : bygg.linjer).find(y => y.id === x.id);
+        const pr = res && res.profiler.get(x.id), gr = res && res.groft && res.groft.perLinje.get(x.id);
+        const f = res && l ? RorPlan.fallSpenn(res.kontroll, l) : null;
+        tr += `<div class="planror"><button class="rorlinje${x.id === RorUI.valgt ? ' aktiv' : ''}" data-linje="${escapeAttr(x.id)}">`
+          + `<span class="rorfarge" style="background:${Farger.ror(k.farge)}" aria-hidden="true"></span> <b>${escapeHtml(x.kode)}</b>`
+          + ` · ${reg}${x.motsatt ? ' (snudd)' : ''} · side ${t(x.side || 0, 1)} m`
+          + (l ? ` · ${t(l.lengde * bf, 1)} m` : ' · ingen høyder ennå')
+          + (f ? ` · fall ${Ror.spenn(f.min, f.maks, v => t(v, 1))} ‰` : '')
+          + (pr ? ` · overdekning ${Ror.spenn(pr.minOverdekning, pr.maksOverdekning, v => t(v, 2))} m` : '')
+          + (gr ? ` · graving ${t(gr.gravingLos + gr.sprengning)} m³` : '') + '</button>'
+          + ` <button class="minilenke" data-planendre="${escapeAttr(x.id)}">Endre</button>`
+          + ` <button class="minilenke" data-plansnu="${escapeAttr(x.id)}">Snu</button>`
+          + ` <button class="minilenke" data-planslett="${escapeAttr(x.id)}">Slett</button></div>`;
+      }
+      tr += '</div>';
+    });
+    const kummer = (res && res.kummer) || bygg.kummer || [];
+    const kumtabell = kummer.length
+      ? '<table class="kumliste"><thead><tr><th scope="col">Kum</th><th scope="col">Rør</th><th scope="col">Ø mm</th>'
+        + '<th scope="col">Terreng</th><th scope="col">Bunnløp</th><th scope="col">Dybde</th><th scope="col"><span class="sr-only">Slett</span></th></tr></thead><tbody>'
+        + kummer.map(k => {
+          const ror = plan.ror.find(x => x.id === k.ror), kid = escapeAttr(k.id);
+          return `<tr><th scope="row">${escapeHtml(k.id)}</th><td>${escapeHtml(ror ? ror.kode : '?')}</td>`
+            + `<td><label class="sr-only" for="kd_${kid}">Diameter for ${escapeHtml(k.id)}</label>`
+            + `<input id="kd_${kid}" class="minitall" type="number" min="400" max="3000" step="100" value="${k.diameter}" data-kumdiameter="${kid}"></td>`
+            + `<td>${t(k.terreng, 2)}</td><td>${t(k.bunnlop, 2)}</td><td>${t(k.terreng - k.bunnlop, 2)}</td>`
+            + `<td><button class="minilenke" data-kumslett="${kid}">Slett</button></td></tr>`;
+        }).join('') + '</tbody></table>'
+      : '<p class="notis">Ingen kummer – sett dem med «◯ Kum» i kartet.</p>';
+    const merk = (res ? res.merknader : []).map(m => `<li>${escapeHtml(m.tekst)}</li>`).join('');
+    const felt = (id, navn, verdi, enhet, steg, min, maks) => `<div class="rorinnstilling"><label for="${id}">${navn}</label>`
+      + `<input id="${id}" class="minitall" type="number" min="${min}" max="${maks}" step="${steg}" value="${verdi}"> ${enhet}</div>`;
+    const s = res ? Ror.sammendrag(res) : null;
+    e.innerHTML = `<h3>${escapeHtml(app.anlegg().navn || 'Planlagte rør')}</h3>
+      <p class="notis">Tegnet i Massekalk · ${plan.traseer.length} ${plan.traseer.length === 1 ? 'trase' : 'traseer'}.
+        Høydene ved kummer og låste punkt er bunn innvendig; frie punkt ligger med overdekningen under terrenget.</p>
+      ${s ? `<div class="sumrad"><span>Rør</span><span class="verdi">${s.antall} · ${t(s.lengde)} m</span></div>` : ''}
+      <h3>Traseene</h3>
+      <div class="rorliste">${tr || '<p class="tomtekst">Ingen traseer ennå – tegn en med «✎ Ny trase» i kartet.</p>'}</div>
+      <h3>Kummer</h3>${kumtabell}
+      ${merk ? `<h3>Kontroller og merknader</h3><ul class="rormerknader">${merk}</ul>` : ''}
+      ${GroftUI.html(r, res)}
+      <h3>Innstillinger</h3>
+      ${felt('planOverdekning', 'Overdekning til topp rør – frie punkt og varselgrense', mp.overdekning, 'm', 0.1, 0, 10)}
+      ${felt('planKryss', 'Minste klaring der rør krysser', mp.kryssKlaring, 'm', 0.05, 0, 5)}
+      ${felt('planKumDiameter', 'Diameter på nye kummer', mp.kum.diameter, 'mm', 100, 400, 3000)}
+      ${felt('planArbeidsrom', 'Arbeidsrom rundt kummene', mp.kum.arbeidsrom, 'm', 0.1, 0, 3)}`;
+    GroftUI.koble(e);
+    this.koble(e);
+  },
+
+  /** Knappene og feltene i fanen. Hver endring går gjennom `merk`, så den kan angres. */
+  koble(e) {
+    const app = this.app, plan = this.plan(), mp = app.P.mal.plan;
+    const ferdig = () => { app.tegnAlt(); app.planlegg(30); };
+    const rorAv = id => plan.ror.find(x => x.id === id);
+    for (const b of e.querySelectorAll('[data-linje]')) b.onclick = () => RorUI.velgLinje(b.dataset.linje);
+    for (const b of e.querySelectorAll('[data-plannytt]')) {
+      b.onclick = () => this.rorDialog({ tittel: 'Nytt rør i traseen', flere: true, notis: '', rader: [{ kode: this._sistKode || '', side: 0, regel: '' }],
+        lagre: rader => {
+          app.merk('nytt rør');
+          app.P.ror.koder = Ror.koderFra(rader.map(x => ({ kode: x.kode })), app.P.ror.koder);
+          const brukt = RorPlan.alleIder(plan);
+          for (const x of rader) {
+            const id = RorPlan.nyId(brukt, 'r');
+            brukt.add(id);
+            plan.ror.push({ id, trase: b.dataset.plannytt, kode: x.kode, side: x.side || 0, regel: x.regel, motsatt: false });
+          }
+          this._sistKode = rader[rader.length - 1].kode;
+          ferdig();
+        } });
+    }
+    for (const b of e.querySelectorAll('[data-planendre]')) {
+      b.onclick = () => {
+        const x = rorAv(b.dataset.planendre);
+        if (!x) return;
+        this.rorDialog({ tittel: 'Endre rør', flere: false, notis: '', rader: [{ kode: x.kode, side: x.side, regel: x.regel || '' }],
+          lagre: ([ny]) => {
+            app.merk('endret rør');
+            app.P.ror.koder = Ror.koderFra([{ kode: ny.kode }], app.P.ror.koder);
+            Object.assign(x, { kode: ny.kode, side: ny.side || 0, regel: ny.regel });
+            ferdig();
+          } });
+      };
+    }
+    for (const b of e.querySelectorAll('[data-plansnu]')) {
+      b.onclick = () => { const x = rorAv(b.dataset.plansnu); if (!x) return; app.merk('snudde røret'); x.motsatt = !x.motsatt; ferdig(); };
+    }
+    for (const b of e.querySelectorAll('[data-planslett]')) {
+      b.onclick = () => {
+        const id = b.dataset.planslett;
+        app.merk('slettet rør');
+        plan.ror = plan.ror.filter(x => x.id !== id);
+        plan.kummer = plan.kummer.filter(k => k.ror !== id);
+        plan.laast = plan.laast.filter(l => l.ror !== id);
+        app.status('Røret er slettet – med kummene og de låste høydene på det');
+        ferdig();
+      };
+    }
+    for (const b of e.querySelectorAll('[data-plantraseslett]')) {
+      b.onclick = async () => {
+        const tid = b.dataset.plantraseslett, ror = new Set(plan.ror.filter(x => x.trase === tid).map(x => x.id));
+        if (ror.size && !await app.bekreft(`Slette traseen med ${ror.size} rør? Du kan angre etterpå.`, 'Slett traseen')) return;
+        app.merk('slettet trase');
+        plan.traseer = plan.traseer.filter(x => x.id !== tid);
+        plan.ror = plan.ror.filter(x => x.trase !== tid);
+        plan.kummer = plan.kummer.filter(k => !ror.has(k.ror));
+        plan.laast = plan.laast.filter(l => !ror.has(l.ror));
+        plan.greiner = plan.greiner.filter(g => g.trase !== tid && g.til.trase !== tid);
+        ferdig();
+      };
+    }
+    for (const inp of e.querySelectorAll('[data-kumdiameter]')) {
+      inp.onchange = () => {
+        const k = plan.kummer.find(x => x.id === inp.dataset.kumdiameter), v = RorPlan.klem('diameter', inp.value);
+        if (!k || v === null) { if (k) inp.value = k.diameter; return; }
+        app.merk('endret kumdiameter');
+        k.diameter = v;
+        ferdig();
+      };
+    }
+    for (const b of e.querySelectorAll('[data-kumslett]')) {
+      b.onclick = () => { app.merk('slettet kum'); plan.kummer = plan.kummer.filter(k => k.id !== b.dataset.kumslett); ferdig(); };
+    }
+    const tall = (id, felt, sett) => {
+      const inp = e.querySelector('#' + id);
+      if (!inp) return;
+      inp.onchange = () => {
+        const v = RorPlan.klem(felt, inp.value);
+        if (v === null) { app.status('Ugyldig tall – feltet er satt tilbake'); app.tegnAlt(); return; }
+        app.merk('endret innstilling for planlagte rør');
+        sett(v);
+        ferdig();
+      };
+    };
+    tall('planOverdekning', 'overdekning', v => { mp.overdekning = v; });
+    tall('planKryss', 'kryssKlaring', v => { mp.kryssKlaring = v; });
+    tall('planKumDiameter', 'diameter', v => { mp.kum.diameter = v; });
+    tall('planArbeidsrom', 'arbeidsrom', v => { mp.kum.arbeidsrom = v; });
+  },
+
+  /** Planfeltene per kode. Tomt felt = standarden, som står som plassholder. */
+  kodeHtml(koder) {
+    const navn = { gods: 'Gods mm', regel: 'Regel', overdekning: 'Overdekning m', minFall: 'Minste fall ‰', maksFall: 'Største fall ‰' };
+    const mp = this.app.P.mal.plan;
+    const rader = Object.entries(koder).filter(([, k]) => k.form === 'linje').map(([kode, k], i) => {
+      const uten = f => Object.assign({}, k, { [f]: undefined });
+      const std = { gods: RorPlan.gods(uten('gods')), overdekning: RorPlan.overdekning(uten('overdekning'), mp),
+        minFall: RorPlan.minFall(uten('minFall')), maksFall: '' };
+      const tall = f => `<td><label class="sr-only" for="pl${i}${f}">${navn[f]} for ${escapeHtml(kode)}</label>`
+        + `<input id="pl${i}${f}" class="minitall" type="number" min="0" step="any" data-plan="${f}" `
+        + `value="${Number.isFinite(k[f]) ? k[f] : ''}" placeholder="${std[f]}"></td>`;
+      const reg = `<td><label class="sr-only" for="pl${i}regel">Regel for ${escapeHtml(kode)}</label>`
+        + `<select id="pl${i}regel" class="minivalg" data-plan="regel">`
+        + [['', `standard (${RorPlan.regel({}, uten('regel'))})`], ['selvfall', 'selvfall'], ['trykk', 'trykk']]
+          .map(([v, tekst]) => `<option value="${v}"${(k.regel || '') === v ? ' selected' : ''}>${tekst}</option>`).join('')
+        + '</select></td>';
+      return `<tr data-kode="${escapeAttr(kode)}"><th scope="row">${escapeHtml(kode)}</th>${tall('gods')}${reg}`
+        + `${tall('overdekning')}${tall('minFall')}${tall('maksFall')}</tr>`;
+    }).join('');
+    return '<h3>Planlagte rør per kode</h3><p class="notis">Tomt felt = standarden, som står som plassholder.</p>'
+      + '<div class="tabellrull"><table class="rorkoder plankoder"><thead><tr><th scope="col">Kode</th>'
+      + ['gods', 'regel', 'overdekning', 'minFall', 'maksFall'].map(f => `<th scope="col">${navn[f]}</th>`).join('')
+      + `</tr></thead><tbody>${rader}</tbody></table></div>`;
+  },
+
+  /** Et planfelt i kodetabellen er endret. */
+  endreKode(input) {
+    const app = this.app, kode = input.closest('tr').dataset.kode, f = input.dataset.plan;
+    const k = app.P.ror.koder[kode];
+    if (!k) return;
+    app.merk('endret kode for planlagte rør');
+    if (f === 'regel') {
+      if (input.value === 'selvfall' || input.value === 'trykk') k.regel = input.value; else delete k.regel;
+    } else {
+      const v = RorPlan.klem(f, input.value);
+      if (v === null) delete k[f]; else k[f] = v;
+    }
+    app.tegnAlt();
+    app.planlegg(30);
   }
 };
 
