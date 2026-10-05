@@ -9316,6 +9316,11 @@ const Nettlesertest = {
         od.value = '2.5';
         od.dispatchEvent(new Event('change'));
         this.sjekk('overdekningen lagres', App.P.mal.plan.overdekning === 2.5);
+        // et ugyldig tall settes tilbake i feltet selv, ikke bare i statuslinja
+        const od2 = document.querySelector('#rorInnhold #planOverdekning');
+        od2.value = '-3';
+        od2.dispatchEvent(new Event('change'));
+        this.sjekk('et ugyldig tall settes tilbake i feltet', od2.value === '2.5' && App.P.mal.plan.overdekning === 2.5, od2.value);
         clearTimeout(App._tidsavbrudd);
         await App.beregnRor();
         const sp = App.resultat.linjer.find(l => l.kode === 'SP 160PE');
@@ -9342,6 +9347,17 @@ const Nettlesertest = {
         regel.value = 'trykk';
         regel.dispatchEvent(new Event('change', { bubbles: true }));
         this.sjekk('og regelen', App.P.ror.koder[kode].regel === 'trykk');
+        /* Angre mens «Nytt rør i traseen» står oppe – Ctrl+Z virker også i et
+           felt – bytter ut prosjektet. «Lagre» skal skrive i det som gjelder,
+           ikke i det som ble angret bort. */
+        App.visFane('ror');
+        document.querySelector('#rorInnhold [data-plansnu="r1"]').click();
+        document.querySelector('#rorInnhold [data-plannytt="t1"]').click();
+        await App.angre();
+        document.querySelector('#planRader .plankode').value = 'OV 160PVC';
+        document.getElementById('planLagre').click();
+        this.sjekk('et rør lagret etter angre havner i prosjektet som gjelder', App.P.ror.plan.ror.length === 3
+          && App.P.ror.plan.ror.some(x => x.kode === 'OV 160PVC'), String(App.P.ror.plan.ror.length));
       });
     } finally {
       await this._rorTilbake(foer);

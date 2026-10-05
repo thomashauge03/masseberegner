@@ -458,18 +458,28 @@ const RorPlanUI = {
     this.koble(e);
   },
 
-  /** Knappene og feltene i fanen. Hver endring går gjennom `merk`, så den kan angres. */
+  /**
+   * Knappene og feltene i fanen. Hver endring går gjennom `merk`, så den kan
+   * angres.
+   *
+   * PLANEN SLÅS OPP NÅR NOE GJØRES, IKKE NÅR FANEN TEGNES. Et angre bytter ut
+   * prosjektet, og Ctrl+Z virker også mens en dialog står oppe: «Lagre» i
+   * «Nytt rør» skrev da røret inn i prosjektet som var angret bort, og det
+   * ble aldri lagt til.
+   */
   koble(e) {
-    const app = this.app, plan = this.plan(), mp = app.P.mal.plan;
+    const app = this.app, P = () => this.plan(), mp = () => app.P.mal.plan;
     const ferdig = () => { app.tegnAlt(); app.planlegg(30); };
-    const rorAv = id => plan.ror.find(x => x.id === id);
+    const rorAv = id => P().ror.find(x => x.id === id);
     for (const b of e.querySelectorAll('[data-linje]')) b.onclick = () => RorUI.velgLinje(b.dataset.linje);
     for (const b of e.querySelectorAll('[data-plannytt]')) {
       b.onclick = () => this.rorDialog({ tittel: 'Nytt rør i traseen', flere: true, notis: '', rader: [{ kode: this._sistKode || '', side: 0, regel: '' }],
         lagre: rader => {
+          const plan = P();
+          if (!plan.traseer.some(t => t.id === b.dataset.plannytt)) { app.status('Traseen finnes ikke lenger'); return; }
           app.merk('nytt rør');
           app.P.ror.koder = Ror.koderFra(rader.map(x => ({ kode: x.kode })), app.P.ror.koder);
-          const brukt = RorPlan.alleIder(plan, this.app.P.ror.groft);
+          const brukt = RorPlan.alleIder(plan, app.P.ror.groft);
           for (const x of rader) {
             const id = RorPlan.nyId(brukt, 'r');
             brukt.add(id);
@@ -485,9 +495,11 @@ const RorPlanUI = {
         if (!x) return;
         this.rorDialog({ tittel: 'Endre rør', flere: false, notis: '', rader: [{ kode: x.kode, side: x.side, regel: x.regel || '' }],
           lagre: ([ny]) => {
+            const naa = rorAv(b.dataset.planendre);
+            if (!naa) { app.status('Røret finnes ikke lenger'); return; }
             app.merk('endret rør');
             app.P.ror.koder = Ror.koderFra([{ kode: ny.kode }], app.P.ror.koder);
-            Object.assign(x, { kode: ny.kode, side: ny.side || 0, regel: ny.regel });
+            Object.assign(naa, { kode: ny.kode, side: ny.side || 0, regel: ny.regel });
             ferdig();
           } });
       };
@@ -497,7 +509,7 @@ const RorPlanUI = {
     }
     for (const b of e.querySelectorAll('[data-planslett]')) {
       b.onclick = () => {
-        const id = b.dataset.planslett;
+        const id = b.dataset.planslett, plan = P();
         app.merk('slettet rør');
         plan.ror = plan.ror.filter(x => x.id !== id);
         plan.kummer = plan.kummer.filter(k => k.ror !== id);
@@ -508,8 +520,9 @@ const RorPlanUI = {
     }
     for (const b of e.querySelectorAll('[data-plantraseslett]')) {
       b.onclick = async () => {
-        const tid = b.dataset.plantraseslett, ror = new Set(plan.ror.filter(x => x.trase === tid).map(x => x.id));
-        if (ror.size && !await app.bekreft(`Slette traseen med ${ror.size} rør? Du kan angre etterpå.`, 'Slett traseen')) return;
+        const tid = b.dataset.plantraseslett, antall = P().ror.filter(x => x.trase === tid).length;
+        if (antall && !await app.bekreft(`Slette traseen med ${antall} rør? Du kan angre etterpå.`, 'Slett traseen')) return;
+        const plan = P(), ror = new Set(plan.ror.filter(x => x.trase === tid).map(x => x.id));
         app.merk('slettet trase');
         plan.traseer = plan.traseer.filter(x => x.id !== tid);
         plan.ror = plan.ror.filter(x => x.trase !== tid);
@@ -521,7 +534,7 @@ const RorPlanUI = {
     }
     for (const inp of e.querySelectorAll('[data-kumdiameter]')) {
       inp.onchange = () => {
-        const k = plan.kummer.find(x => x.id === inp.dataset.kumdiameter), v = RorPlan.klem('diameter', inp.value);
+        const k = P().kummer.find(x => x.id === inp.dataset.kumdiameter), v = RorPlan.klem('diameter', inp.value);
         if (!k || v === null) { if (k) inp.value = k.diameter; return; }
         app.merk('endret kumdiameter');
         k.diameter = v;
@@ -529,23 +542,24 @@ const RorPlanUI = {
       };
     }
     for (const b of e.querySelectorAll('[data-kumslett]')) {
-      b.onclick = () => { app.merk('slettet kum'); plan.kummer = plan.kummer.filter(k => k.id !== b.dataset.kumslett); ferdig(); };
+      b.onclick = () => { const plan = P(); app.merk('slettet kum'); plan.kummer = plan.kummer.filter(k => k.id !== b.dataset.kumslett); ferdig(); };
     }
-    const tall = (id, felt, sett) => {
+    // et ugyldig tall settes tilbake i feltet selv – fanen tegnes ikke på nytt av det
+    const tall = (id, felt, les, sett) => {
       const inp = e.querySelector('#' + id);
       if (!inp) return;
       inp.onchange = () => {
         const v = RorPlan.klem(felt, inp.value);
-        if (v === null) { app.status('Ugyldig tall – feltet er satt tilbake'); app.tegnAlt(); return; }
+        if (v === null) { inp.value = les(); app.status('Ugyldig tall – feltet er satt tilbake'); return; }
         app.merk('endret innstilling for planlagte rør');
         sett(v);
         ferdig();
       };
     };
-    tall('planOverdekning', 'overdekning', v => { mp.overdekning = v; });
-    tall('planKryss', 'kryssKlaring', v => { mp.kryssKlaring = v; });
-    tall('planKumDiameter', 'diameter', v => { mp.kum.diameter = v; });
-    tall('planArbeidsrom', 'arbeidsrom', v => { mp.kum.arbeidsrom = v; });
+    tall('planOverdekning', 'overdekning', () => mp().overdekning, v => { mp().overdekning = v; });
+    tall('planKryss', 'kryssKlaring', () => mp().kryssKlaring, v => { mp().kryssKlaring = v; });
+    tall('planKumDiameter', 'diameter', () => mp().kum.diameter, v => { mp().kum.diameter = v; });
+    tall('planArbeidsrom', 'arbeidsrom', () => mp().kum.arbeidsrom, v => { mp().kum.arbeidsrom = v; });
   },
 
   /** Planfeltene per kode. Tomt felt = standarden, som står som plassholder. */
