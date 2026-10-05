@@ -23,9 +23,9 @@ med `Nettlesertest.kjor()`. Utviklingstjeneren startes med `node server.js`
 (port 5178). Programmet ligger også på https://masseberegner.vercel.app.
 
 Ved siste lagring: **609 prøver i selvtesten, 194 i rørprøven
-(`test/rorprove.js`), 129 i grøfteprøven (`test/groftprove.js`), 90 i
+(`test/rorprove.js`), 133 i grøfteprøven (`test/groftprove.js`), 97 i
 planprøven (`test/rorplanprove.js`), 53 i anleggsprøven og 258 i tomteprøven,
-alle grønne; 1197 av 1198 i nettlesertesten.** Den ene, «klikk i modellen
+alle grønne; 1215 av 1216 i nettlesertesten.** Den ene, «klikk i modellen
 flytter snittet dit» i `veg3d`, feiler likt på `main` når vinduet emuleres
 1440 × 900 i en mindre rute – klikket lander én rad ved siden av. 3D-prøvene
 må ha fanen framme; i en bakgrunnsfane tegnes ingen rammer. Nettlesertesten
@@ -59,6 +59,22 @@ Underveis, utenfor planen: grøfteverktøyene måtte få linjene fra planen (de
 bygde dem av målte punkt, og et tegnet anlegg har ingen); PDF-skriveren kjente
 ikke ‰; rapportbunnen sa «innmålte punkt … topp rør» også om tegnede rør; og
 anleggslista la et nytt anlegg ved siden av det tomme når førstevalget sto oppe.
+
+En kodegjennomgang av hele grenen fant ingen kritiske feil og seks alvorlige,
+alle rettet med prøver: kumgropa overså fjellet og «egen grøft» på strekningen
+den står på (sprengningen ble mindre med en kum); en ny id kunne overta en
+gammel grøftejustering; en ødelagt plan i fila veltet åpningen; en påkobling
+mistet kilden når høyden ble låst på nytt (falske «treffer»); påkoblingen
+gjaldt bare rørets eget punkt, ikke hele traseen; og et punkt satt inn fra
+profilen fikk tom høyde og «fall videre» som aldri virket. Av de mindre er
+disse rettet: sletting uten spørsmål, rør med annen kode låst på en påkobling,
+dobbeltpunkt, traseen over rørene i kartet, dialoger som skrev i et angret
+prosjekt, ugyldige tall som ble stående, rør oppå hverandre uten varsel,
+terrengnøkkelen og en svak greinprøve.
+
+Ikke gjort: andre tegnede anlegg regnes mot terrenget til det aktive i
+kryssingskontrollen (mangler det, får de ingen linjer der), og et klikk nær et
+innmålt punkt fester også midtpunkt (ufarlig – bare endene kobles).
 
 Igjen: **3b** – eksport til maskinstyring og stikning, og **3c** – planlagt mot
 innmålt.
