@@ -111,7 +111,9 @@ i førstevalget, eller slipp fila på kartet.
   ikke brukes. Programmet trekker linjene etter hvor punktene ligger: punkt med
   samme kode som ligger høyst 25 m fra hverandre, henger sammen (minste
   spenntre). Avstanden kan endres i Rør-fanen.
-* **Høydene er topp rør.** Senter er en halv diameter lenger ned, bunnen en hel.
+* **Punktene er toppen av røret, målt midt over senterlinja.** Sett ovenfra ligger
+  de i senter av røret; i høyden er de topp rør. Senter er en halv diameter lenger
+  ned, bunnen en hel.
   Diameteren leses av koden («180 PE», «SP 160PE») og kan rettes i Koder-fanen.
 * **Overdekningen måles mot Kartverkets terreng (DTM1)** – slik marka var da
   den ble skannet.

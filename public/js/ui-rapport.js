@@ -742,7 +742,8 @@ ${merknader ? `<h2>Merknader</h2><table><thead><tr><th>Profil</th><th>Type</th><
         + 'Skjæringen måles fra den avdekkede flaten, altså etter at matjorda er tatt av.');
     }
     if (har('ror')) {
-      midt.push('Rørene er tegnet fra innmålte punkt i fila fra maskinstyringen. Høydene er topp rør; '
+      midt.push('Rørene er tegnet fra innmålte punkt i fila fra maskinstyringen. Punktene ligger i senter '
+        + 'av røret sett ovenfra, og høydene er topp rør; '
         + 'overdekningen er målt mot Kartverkets terrengmodell (DTM1), som viser terrenget slik det var '
         + 'da området ble skannet.');
     }

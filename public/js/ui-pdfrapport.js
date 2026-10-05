@@ -964,7 +964,7 @@ const Pdfrapport = {
     nySide();
     if (r.delt && r.delt.anleggsnavn) this._anleggstittel(P, tilstand, innmarg, r.delt.anleggsnavn);
     P.tekst(this.MARG, tilstand.y, `Innmålte punkt fra maskinstyringen · EUREF89 UTM${app.sone}`
-      + ' · høydene er topp rør (NN2000)', { storrelse: 7.6, farge: this.GRA });
+      + ' · punktene er topp rør, midt over senterlinja (NN2000)', { storrelse: 7.6, farge: this.GRA });
     tilstand.y += 6;
     band([
       ['Rør', String(s.antall), ''],

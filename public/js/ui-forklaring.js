@@ -292,7 +292,8 @@ const Forklaring = {
     }
     ut += '</div><div class="sumkort"><h4>Ordene</h4>';
     for (const [ord, tekst] of [
-      ['Topp rør', 'Punktene i fila er målt på toppen av røret. Senter er en halv diameter lenger ned, bunnen en hel.'],
+      ['Topp rør', 'Punktene i fila er målt på toppen av røret, midt over senterlinja: sett ovenfra ligger de '
+        + 'i senter av røret. Senter er en halv diameter lenger ned, bunnen en hel.'],
       ['Overdekning', 'Fra topp rør opp til terrenget – Kartverkets laserterreng, slik det var da området ble '
         + 'skannet. Er terrenget endret etterpå, er tallet det også.'],
       ['Under null', 'Røret ligger over terrenget i modellen. Oftest er terrenget endret etter skanning, '

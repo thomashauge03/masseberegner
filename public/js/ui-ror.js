@@ -263,8 +263,8 @@ const RorUI = {
         <p class="notis">${escapeHtml(filnavn)}${les.program ? ' · ' + escapeHtml(les.program) : ''}${les.dato ? ' · ' + escapeHtml(les.dato) : ''}</p>
         <p><b>${les.punkter.length}</b> innmålte punkt i <b>${Object.keys(antall).length}</b> koder.
           ${hoppet.length ? `<span class="raud">Hoppet over: ${hoppet.join(', ')}.</span>` : ''}</p>
-        <p class="notis">Høydene er topp rør. Linjene trekkes mellom punkt med samme kode som ligger
-          høyst ${maks} m fra hverandre.</p>
+        <p class="notis">Punktene er toppen av røret, målt midt over senterlinja – sett ovenfra ligger de
+          i senter. Linjene trekkes mellom punkt med samme kode som ligger høyst ${maks} m fra hverandre.</p>
         <div class="rorsone">
           <label for="rorSoneValg">Koordinatsystem</label>
           <select id="rorSoneValg" class="minivalg">${[32, 33, 35].map(s =>

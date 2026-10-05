@@ -24,7 +24,7 @@ filformatet.
 | Spørsmål | Svar |
 |---|---|
 | Hva skal rørene brukes til? | Vise dem, regne grøftemasser, planlegge nye – i etapper, visning først |
-| Hvor på røret er punktene målt? | **Toppen av røret.** Senter = topp − D/2, bunn = topp − D |
+| Hvor på røret er punktene målt? | **Toppen av røret, midt over senterlinja.** Sett ovenfra ligger punktene i senter av røret (linjene trekkes gjennom dem); i høyden er de topp. Senter = topp − D/2, bunn = topp − D, rett under punktet |
 | Retting når appen kobler feil | **Enkle grep:** slå av punkt, bryte en strek, koble to ender. Grepene overlever ny import |
 | Overdekning måles mot | **Kartverkets terreng (DTM1)**, det samme som resten av appen |
 | Rapport og PDF i etappe 1 | **Ja, enkel del:** oversiktsplan, tabell per rør, lengdeprofiler |
