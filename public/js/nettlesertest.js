@@ -8489,6 +8489,23 @@ const Nettlesertest = {
     }
   },
 
+  /** Tegnforklaringen i rørbildet viser kodene i anlegget og ordene i tallene. */
+  async rorForklaring() {
+    const foer = JSON.stringify(App.P);
+    try {
+      App.P = App.nyttProsjekt();
+      await RorUI.importerTekst(this._rorXml(), 'asbuilts_Prove.xml', {}, { sone: 32, maal: 'nytt' });
+      App.visFane('forklaring');
+      const tekst = document.getElementById('forklaringInnhold').textContent;
+      this.sjekk('kodene i anlegget står i forklaringen', /90PE/.test(tekst) && /180 PE/.test(tekst), tekst.slice(0, 80));
+      this.sjekk('topp rør og overdekning forklares', /Topp rør/.test(tekst) && /Overdekning/.test(tekst));
+      this.sjekk('vegens streker står ikke der', !/Etter rensk/.test(tekst));
+    } finally {
+      App.P = JSON.parse(foer);
+      App.visAnleggsvelger(); App.visAnleggsvalg(); App.malTilSkjema(); App.tegnAlt(); await App.oppdater();
+    }
+  },
+
   /**
    * En oppdiktet as-built-fil ved Ydestad, der demoen ligger og terrenget
    * finnes. Samme oppskrift som proverPunkter() i test/rorprove.js: to rør i

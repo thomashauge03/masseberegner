@@ -245,6 +245,7 @@ const Forklaring = {
   vis(app) {
     const boks = document.getElementById('forklaringInnhold');
     if (!boks) return;
+    if (app.erRor && app.erRor()) { boks.innerHTML = this._ror(app); return; }
     const tomt = app.erTomt();
     const modus = tomt ? 'tomt' : 'veg';
     let ut = '<p class="notis">Hva strekene, fargene og ordene betyr. '
@@ -274,6 +275,34 @@ const Forklaring = {
       ut += '</div>';
     }
     boks.innerHTML = ut;
+  },
+
+  /** I rørbildet: kodene i DETTE anlegget, og ordene som trengs for å lese tallene. */
+  _ror(app) {
+    const r = app.P.ror;
+    const system = { vann: 'vann', spill: 'spillvann', overvann: 'overvann', drens: 'drens',
+      felles: 'felles avløp', kabel: 'kabelrør' };
+    let ut = '<p class="notis">Hva strekene, fargene og ordene betyr i rørbildet.</p>';
+    ut += '<div class="sumkort"><h4>Kodene i dette anlegget</h4>';
+    for (const [kode, k] of Object.entries(r.koder || {})) {
+      const hva = k.form === 'punkt' ? 'Punkt på røret' : 'Rør' + (k.dim ? ` ⌀${k.dim} mm` : '');
+      ut += `<div class="forklaringsrad"><span class="prove ${k.form === 'punkt' ? 'flate' : 'strek'}" `
+        + `style="--f:${Farger.ror(k.farge)}"></span><div><b>${escapeHtml(kode)}</b>${hva}`
+        + `${system[k.system] ? ' · ' + system[k.system] : ''}${k.vis === false ? ' · slått av' : ''}</div></div>`;
+    }
+    ut += '</div><div class="sumkort"><h4>Ordene</h4>';
+    for (const [ord, tekst] of [
+      ['Topp rør', 'Punktene i fila er målt på toppen av røret. Senter er en halv diameter lenger ned, bunnen en hel.'],
+      ['Overdekning', 'Fra topp rør opp til terrenget – Kartverkets laserterreng, slik det var da området ble '
+        + 'skannet. Er terrenget endret etterpå, er tallet det også.'],
+      ['Under null', 'Røret ligger over terrenget i modellen. Oftest er terrenget endret etter skanning, '
+        + 'eller punktet er feilmålt.'],
+      ['Enslig punkt', `Et punkt uten nabo med samme kode innen ${app.P.mal.maksAvstand} m. Det står som en ring i kartet.`],
+      ['Bryt, koble og slå av', 'Rettinger du har gjort selv. De lagres mot punktenes id i fila, så de står seg '
+        + 'når en nyere fil importeres.'],
+      ['Høyden overdrevet', 'Profilen og 3D-bildet strekker høyden så røret får form. Hvor mye står i tegningen.']
+    ]) ut += `<div class="forklaringsrad"><div><b>${ord}</b>${tekst}</div></div>`;
+    return ut + '</div>';
   },
 
   /**

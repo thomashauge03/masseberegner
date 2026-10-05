@@ -431,6 +431,8 @@ const RorUI = {
     this._fyllVelger(bygg.linjer, res);
     this._fyllFane(r, bygg, res);
     this._fyllKoder(r);
+    // står forklaringen oppe, skal den vise kodene i dette anlegget – ikke forrige
+    if (document.querySelector('.fane.aktiv[data-fane="forklaring"]')) Forklaring.vis(app);
   },
 
   /** Velger et rør: kartet framhever det, profilen og 3D viser det. */
