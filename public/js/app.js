@@ -1224,7 +1224,8 @@ const App = {
        ikke, og en knapp som legger inn noe man ikke ser, er verre enn ingen. */
     bytt('verktoySondering', !ror);
     bytt('verktoyPlass', !ror);
-    for (const id of ['verktoyRorImport', 'verktoyRorAv', 'verktoyRorBryt', 'verktoyRorKoble']) bytt(id, ror);
+    for (const id of ['verktoyRorImport', 'verktoyRorAv', 'verktoyRorBryt', 'verktoyRorKoble',
+      'verktoyGroftStrekning', 'verktoyGroftSammen']) bytt(id, ror);
     if (tomt) { this.tomtTilSkjema(); this.visTomtemasser(); }
     if (ror && typeof RorUI !== 'undefined') RorUI.vis();
 

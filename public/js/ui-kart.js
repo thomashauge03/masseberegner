@@ -555,7 +555,7 @@ const Kart = {
     for (const [id, navn] of [['verktoyTegn', 'tegn'], ['verktoyFlytt', 'rediger'],
       ['verktoySondering', 'sondering'], ['verktoyPlass', 'plass'], ['verktoyTomt', 'tegnTomt'],
       ['verktoyMaal', 'maal'], ['verktoyRorAv', 'rorAv'], ['verktoyRorBryt', 'rorBryt'],
-      ['verktoyRorKoble', 'rorKoble']]) {
+      ['verktoyRorKoble', 'rorKoble'], ['verktoyGroftStrekning', 'groftStrekning'], ['verktoyGroftSammen', 'groftSammen']]) {
       const el = document.getElementById(id);
       if (el) {
         el.classList.toggle('aktiv', navn === m);
@@ -579,6 +579,16 @@ const Kart = {
     if (m === 'rorAv') this.app.status('Klikk på et målt punkt for å slå det av eller på. Rediger avslutter.');
     if (m === 'rorBryt') this.app.status('Klikk på rørstreken der den ikke skal henge sammen.');
     if (m === 'rorKoble') this.app.status('Klikk på enden av det ene røret, så på enden av det andre.');
+    if (m === 'groftStrekning') {
+      this.app.status('Klikk på et målt punkt, så på et annet på samme rør – mellom dem kan grøfta få egne mål.');
+    }
+    if (m === 'groftSammen') {
+      this.app.status('Klikk på det ene røret, så på det andre – de får én grøft med flat bunn der de går side om side.');
+    }
+    if (typeof GroftUI !== 'undefined') {
+      if (m !== 'groftStrekning') GroftUI._strekFra = null;
+      if (m !== 'groftSammen') GroftUI._sammenFra = null;
+    }
     /* De målte punktene vises bare mens man retter – ellers ville fire hundre
        prikker druknet rørene. */
     if (m !== 'rorKoble' && typeof RorUI !== 'undefined') RorUI._kobleFra = null;
@@ -793,6 +803,10 @@ const Kart = {
     const P = this.app.P;
     if (this.modus === 'rorAv' || this.modus === 'rorBryt' || this.modus === 'rorKoble') {
       RorUI.kartklikk(this.modus, e.latlng);
+      return;
+    }
+    if (this.modus === 'groftStrekning' || this.modus === 'groftSammen') {
+      GroftUI.kartklikk(this.modus, e.latlng);
       return;
     }
     if (this.modus === 'tegn') {
@@ -1619,7 +1633,22 @@ const Kart = {
     const kode = k => r.koder[k] || Ror.tolkKode(k);
     const t = (v, d) => Rapport.tall(v, d);
     const bf = (res && res.bakkefaktor) || 1;
-    const rett = this.modus === 'rorAv' || this.modus === 'rorBryt' || this.modus === 'rorKoble';
+    // punktene vises også når man velger strekning – det er dem man klikker på
+    const rett = ['rorAv', 'rorBryt', 'rorKoble', 'groftStrekning'].includes(this.modus);
+    // med et verktøy på er et klikk på røret til verktøyet, ikke et valg av røret
+    const verktoy = rett || this.modus === 'groftSammen';
+    /* GRØFTEKANTEN – der gravingen møter terrenget. Regnes én gang per
+       resultat, i sonen resultatet ble regnet i; den ligger under rørene. */
+    if (res && res.groft) {
+      if (!res.groft._kanter) {
+        Object.defineProperty(res.groft, '_kanter', { value: Groft.kanter(res.groft.modell), enumerable: false });
+      }
+      const llU = q => { const g = Geo.fraUtm(q.x, q.y, res.sone); return [g.lat, g.lon]; };
+      for (const kant of res.groft._kanter) {
+        L.polyline(kant.map(llU), { color: Farger.groft('kant'), weight: 1.5, opacity: 0.9, dashArray: '4 3',
+          interactive: false, className: 'groftkant' }).addTo(this.lag.ror);
+      }
+    }
     for (const l of bygg.linjer) {
       const k = kode(l.kode);
       const valgt = l.id === RorUI.valgt;
@@ -1635,7 +1664,7 @@ const Kart = {
       strek.bindTooltip(escapeHtml(l.kode) + (k.dim ? ' · ⌀' + k.dim : '') + ' · ' + t(l.lengde * bf, 1) + ' m'
         + (pr && Number.isFinite(pr.minOverdekning)
           ? ` · overdekning ${Ror.spenn(pr.minOverdekning, pr.maksOverdekning, v => t(v, 2))} m` : ''), { sticky: true });
-      strek.on('click', () => { if (!rett && RorUI.velgLinje) RorUI.velgLinje(l.id); });
+      strek.on('click', () => { if (!verktoy && RorUI.velgLinje) RorUI.velgLinje(l.id); });
     }
     for (const p of bygg.objekter) {
       L.marker(ll(p), {
@@ -1646,6 +1675,33 @@ const Kart = {
     for (const p of bygg.enslige) {
       L.circleMarker(ll(p), { radius: 4, color: Farger.ror(kode(p.kode).farge), weight: 2, fillOpacity: 0 })
         .bindTooltip(`${escapeHtml(p.kode)} · enslig punkt – ingen nabo innen ${app.P.mal.maksAvstand} m`)
+        .addTo(this.lag.ror);
+    }
+    /* Grøftejusteringene: strekningene som et bredt bånd over røret, og de
+       sammenslåtte rørene med en stiplet strek mellom punktene som ble klikket. */
+    const just = r.groft || Groft.nyGroft();
+    for (const st of just.strekninger) {
+      for (const l of bygg.linjer) {
+        const ia = l.punkter.findIndex(p => p.id === st.fra), ib = l.punkter.findIndex(p => p.id === st.til);
+        if (ia < 0 || ib < 0) continue;
+        L.polyline(l.punkter.slice(Math.min(ia, ib), Math.max(ia, ib) + 1).map(ll),
+          { color: Farger.groft('strekning'), weight: 12, opacity: 0.35 })
+          .bindTooltip(`Grøft på strekning: ${escapeHtml(GroftUI.strekningTekst(st))}`, { sticky: true }).addTo(this.lag.ror);
+        break;
+      }
+    }
+    for (const par of just.sammen) {
+      const a = r.punkter.find(p => p.id === par[0]), c = r.punkter.find(p => p.id === par[1]);
+      if (!a || !c) continue;
+      L.polyline([ll(a), ll(c)], { color: Farger.groft('strekning'), weight: 2, dashArray: '6 4' })
+        .bindTooltip('Felles grøft', { sticky: true }).addTo(this.lag.ror);
+    }
+    if (this.modus === 'groftStrekning' && GroftUI._strekFra) {
+      L.circleMarker(ll(GroftUI._strekFra.p), { radius: 8, color: '#ffffff', weight: 2.5, fill: false, interactive: false })
+        .addTo(this.lag.ror);
+    }
+    if (this.modus === 'groftSammen' && GroftUI._sammenFra) {
+      L.polyline(GroftUI._sammenFra.l.punkter.map(ll), { color: '#ffffff', weight: 3, opacity: 0.9, interactive: false })
         .addTo(this.lag.ror);
     }
     /* I RETTINGEN SKAL HVERT MÅLTE PUNKT SES – også de som er slått av, ellers

@@ -94,6 +94,7 @@ const Farger = {
   get annetAnlegg() { return this.hent('data-annet'); },
   /** Fargen til et rør – nøkkelen er en av `Ror.FARGER`, f.eks. 'vann' eller 'p2'. */
   ror(nokkel) { return this.hent('ror-' + (nokkel || 'p1')); },
+  groft(nokkel) { return this.hent('groft-' + nokkel); },
 
   get terreng() { return this.hent('data-terreng'); },
   get rensk() { return this.hent('data-rensk'); },

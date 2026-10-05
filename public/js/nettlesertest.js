@@ -170,7 +170,7 @@ const Nettlesertest = {
       'tomt3d', 'veg3d', 'kartlag',
       'rorArbeidsbilde', 'rorBeregning', 'rorImport', 'rorSone', 'rorKart', 'rorFane', 'rorRetting',
       'rorProfil', 'ror3d', 'rorRapport', 'rorPdf', 'rorForklaring',
-      'groftBeregning', 'groftFane', 'groftKoder',
+      'groftBeregning', 'groftFane', 'groftKoder', 'groftVerktoy',
       'lovlighet', 'framdrift', 'gamleFilerOgUtskifting', 'opprydding'];
     for (const navn of proever) {
       try {
@@ -8934,6 +8934,59 @@ const Nettlesertest = {
         const g = App.resultat.groft;
         this.sjekk('og røret er ikke med i grøfta', !g.perKode.has('90PE') && g.utenDimensjon.some(u => u.kode === '90PE'));
         this.sjekk('merknaden sier hvor mye', g.merknader.some(m => m.type === 'dimensjon' && /90PE/.test(m.tekst)));
+      });
+    } finally {
+      await this._rorTilbake(foer);
+    }
+  },
+
+  /** «Grøft på strekning» og «Felles grøft» i kartet. */
+  async groftVerktoy() {
+    const foer = JSON.stringify(App.P);
+    try {
+      await this._medFlattTerreng(21.5, async () => {
+        App.P = App.nyttProsjekt();
+        await RorUI.importerTekst(this._rorXml(), 'asbuilts_Prove.xml', {}, { sone: 32, maal: 'nytt' });
+        clearTimeout(App._tidsavbrudd);
+        await App.beregnRor();
+        const o = Geo.tilUtm(58.1412, 7.0705, 32);
+        const ll = (x, y) => { const g = Geo.fraUtm(o.x + x, o.y + y, 32); return L.latLng(g.lat, g.lon); };
+        this.sjekk('knappene vises i rørbildet', !document.getElementById('verktoyGroftStrekning').classList.contains('skjult'));
+        Kart.kart.setView(ll(40, 0), 19);
+        Kart.settModus('groftStrekning');
+        GroftUI.kartklikk('groftStrekning', ll(20, 0));
+        this.sjekk('første punkt er valgt', !!GroftUI._strekFra);
+        GroftUI.kartklikk('groftStrekning', ll(60, 0));
+        const boks = document.getElementById('dialog');
+        this.sjekk('dialogen åpnes', !boks.classList.contains('skjult') && !!document.getElementById('gsFjell'));
+        if (!document.getElementById('gsFjell')) return;
+        document.getElementById('gsFjell').value = '0.5';
+        document.getElementById('gsLagre').click();
+        this.sjekk('strekningen er lagret', App.P.ror.groft.strekninger.length === 1
+          && App.P.ror.groft.strekninger[0].fjell === 0.5);
+        clearTimeout(App._tidsavbrudd);
+        await App.beregnRor();
+        this.sjekk('og fjellet gir sprengning', App.resultat.groft.sum.sprengning > 1, String(App.resultat.groft.sum.sprengning));
+        App.visFane('ror');
+        this.sjekk('strekningen står i lista', /fjell 0,5 m ned/.test(document.getElementById('rorInnhold').textContent));
+        let strek = 0;
+        Kart.lag.ror.eachLayer(l => {
+          if (l.getTooltip && l.getTooltip() && /Grøft på strekning/.test(String(l.getTooltip().getContent()))) strek++;
+        });
+        this.sjekk('og i kartet', strek === 1, String(strek));
+        let kant = 0;
+        Kart.lag.ror.eachLayer(l => { if (l.options && l.options.className === 'groftkant') kant++; });
+        this.sjekk('grøftekanten tegnes', kant > 0, String(kant));
+        document.querySelector('#rorInnhold [data-groftslett="0"]').click();
+        this.sjekk('Slett fjerner den', App.P.ror.groft.strekninger.length === 0);
+        await App.angre();
+        this.sjekk('og angre gir den tilbake', App.P.ror.groft.strekninger.length === 1);
+        Kart.settModus('groftSammen');
+        GroftUI.kartklikk('groftSammen', ll(150, 0));
+        GroftUI.kartklikk('groftSammen', ll(50, 6));
+        this.sjekk('felles grøft lagres', App.P.ror.groft.sammen.length === 1);
+        Kart.settModus('rediger');
+        this.sjekk('Rediger slår av verktøyet', !document.getElementById('verktoyGroftSammen').classList.contains('aktiv'));
       });
     } finally {
       await this._rorTilbake(foer);

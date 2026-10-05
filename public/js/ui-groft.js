@@ -14,6 +14,10 @@ const GroftUI = {
 
   init(app) {
     this.app = app;
+    const id = x => document.getElementById(x);
+    for (const [knapp, modus] of [['verktoyGroftStrekning', 'groftStrekning'], ['verktoyGroftSammen', 'groftSammen']]) {
+      if (id(knapp)) id(knapp).onclick = () => Kart.settModus(Kart.modus === modus ? 'rediger' : modus);
+    }
     return this;
   },
 
@@ -25,7 +29,8 @@ const GroftUI = {
 
   /** Hva en strekning setter: «helning 1:0,5 · fjell 0,8 m ned · egen grøft». */
   strekningTekst(st) {
-    const t = v => Rapport.tall(v, 2);
+    // uten nuller bak: «0,5», ikke «0,50» – tallene er det brukeren skrev
+    const t = v => String(+v.toFixed(2)).replace('.', ',');
     const m = st.mal || {}, deler = [];
     if (Number.isFinite(m.helning)) deler.push(m.helning === 0 ? 'loddrett' : `helning 1:${t(m.helning)}`);
     if (Number.isFinite(m.bunntillegg)) deler.push(`arbeidsrom ${t(m.bunntillegg)} m`);
@@ -175,6 +180,121 @@ const GroftUI = {
     app.planlegg(30);
   },
 
-  /** Dialogen for en strekning – oppgave 9. */
-  dialog() {}
+  /**
+   * Klikk i kartet med «Grøft på strekning» eller «Felles grøft». Som
+   * rettingene: alt i fila sin egen sone, der punktene står.
+   */
+  kartklikk(modus, latlng) {
+    const app = this.app;
+    if (!app.erRor()) return;
+    const r = app.P.ror;
+    const u = Geo.tilUtm(latlng.lat, latlng.lng, r.sone);
+    const tol = RorUI._toleranse(latlng);
+    const linjer = Ror.byggLinjer(r, app.P.mal, p => ({ x: p.o, y: p.n })).linjer;
+    if (modus === 'groftStrekning') {
+      let best = null;
+      for (const l of linjer) {
+        for (const p of l.punkter) {
+          const d = Math.hypot(p.o - u.x, p.n - u.y);
+          if (d <= tol && (!best || d < best.d)) best = { p, l, d };
+        }
+      }
+      if (!best) { app.status('Klikk nærmere et målt punkt på et rør'); return; }
+      if (!this._strekFra) {
+        this._strekFra = best;
+        app.status(`Valgte et punkt på ${best.l.kode} – klikk på det andre punktet på samme rør`);
+        Kart.tegnRor();
+        return;
+      }
+      const a = this._strekFra;
+      this._strekFra = null;
+      Kart.tegnRor();
+      if (a.l.id !== best.l.id) { app.status('Begge punktene må ligge på samme rør'); return; }
+      if (a.p.id === best.p.id) { app.status('Det var samme punkt – velg et annet'); return; }
+      this.dialog({ fra: a.p.id, til: best.p.id, mal: {}, fjell: null, egen: false }, null);
+      return;
+    }
+    if (modus === 'groftSammen') {
+      let best = null;
+      for (const l of linjer) {
+        for (let i = 1; i < l.xy.length; i++) {
+          const d = Ror.avstandTilStrekk(u, l.xy[i - 1], l.xy[i]);
+          if (d > tol || (best && d >= best.d)) continue;
+          // punktet nærmest klikket står for røret – sammenslåingen lagres mot id-er
+          const naerA = Math.hypot(l.xy[i - 1].x - u.x, l.xy[i - 1].y - u.y) <= Math.hypot(l.xy[i].x - u.x, l.xy[i].y - u.y);
+          best = { l, d, p: naerA ? l.punkter[i - 1] : l.punkter[i] };
+        }
+      }
+      if (!best) { app.status('Klikk på en rørstrek'); return; }
+      if (!this._sammenFra) {
+        this._sammenFra = best;
+        app.status(`Valgte ${best.l.kode} – klikk på røret det deler grøft med`);
+        Kart.tegnRor();
+        return;
+      }
+      const a = this._sammenFra;
+      this._sammenFra = null;
+      if (a.l.id === best.l.id) { app.status('Det var samme rør – velg det andre'); Kart.tegnRor(); return; }
+      app.merk('felles grøft');
+      if (!r.groft) r.groft = Groft.nyGroft();
+      r.groft.sammen.push([a.p.id, best.p.id]);
+      app.status(`${a.l.kode} og ${best.l.kode} har felles grøft der de går side om side`);
+      app.tegnAlt();
+      app.planlegg(30);
+    }
+  },
+
+  /**
+   * Dialogen for en strekning – ny fra kartet (indeks null) eller en fra lista.
+   * Tomt felt = som resten av anlegget; plassholderen viser hva det blir.
+   */
+  dialog(st, indeks) {
+    const app = this.app, r = app.P.ror;
+    const boks = document.getElementById('dialog');
+    const innhold = document.getElementById('dialoginnhold');
+    document.getElementById('dialogtittel').textContent = 'Grøft på strekning';
+    const m = st.mal || {}, arv = Groft.malFor(app.P.mal.groft, null, null);
+    const verdi = v => (Number.isFinite(v) ? String(v) : '');
+    const felt = (id, navn, v, plass, enhet) => `<div class="rorinnstilling"><label for="${id}">${navn}</label>`
+      + `<input id="${id}" class="minitall" type="number" min="0" step="0.05" value="${verdi(v)}" placeholder="${plass}"> ${enhet}</div>`;
+    const hvor = this._plassering(st.fra, st.til);
+    innhold.innerHTML = `<p class="notis">${hvor ? escapeHtml(hvor) + ' – ' : ''}tomt felt = som resten av anlegget.</p>`
+      + felt('gsHelning', 'Helning (0 = loddrett)', m.helning, String(arv.helning), ': 1')
+      + felt('gsBunntillegg', 'Arbeidsrom på hver side', m.bunntillegg, String(arv.bunntillegg), 'm')
+      + felt('gsFundament', 'Fundament', m.fundament, String(arv.fundament), 'm')
+      + felt('gsOmfylling', 'Omfylling over røret', m.omfylling, String(arv.omfylling), 'm')
+      + felt('gsFjell', 'Dybde til fjell (0 = fjell i dagen)', st.fjell, 'ikke kjent', 'm')
+      + `<div class="rorinnstilling"><label><input type="checkbox" id="gsEgen"${st.egen ? ' checked' : ''}> `
+      + 'Egen grøft – graves for seg selv om den overlapper en annen</label></div>'
+      + '<div class="knapperad" style="justify-content:flex-end">'
+      + (indeks != null ? '<button class="knapp" id="gsSlett">Slett</button>' : '')
+      + '<button class="knapp" id="gsAvbryt">Avbryt</button><button class="knapp primaer" id="gsLagre">Lagre</button></div>';
+    const lukk = () => boks.classList.add('skjult');
+    innhold.querySelector('#gsAvbryt').onclick = lukk;
+    if (indeks != null) {
+      innhold.querySelector('#gsSlett').onclick = () => {
+        app.merk('slettet grøft på strekning');
+        r.groft.strekninger.splice(indeks, 1);
+        lukk(); app.tegnAlt(); app.planlegg(30);
+      };
+    }
+    innhold.querySelector('#gsLagre').onclick = () => {
+      const les = (id, f) => Groft.klem(f, innhold.querySelector('#' + id).value);
+      const mal = {};
+      for (const [id, f] of [['gsHelning', 'helning'], ['gsBunntillegg', 'bunntillegg'],
+        ['gsFundament', 'fundament'], ['gsOmfylling', 'omfylling']]) {
+        const v = les(id, f);
+        if (v !== null) mal[f] = v;
+      }
+      const ny = { fra: st.fra, til: st.til, mal, fjell: les('gsFjell', 'fjell'), egen: innhold.querySelector('#gsEgen').checked };
+      app.merk(indeks != null ? 'endret grøft på strekning' : 'grøft på strekning');
+      if (!r.groft) r.groft = Groft.nyGroft();
+      if (indeks != null) r.groft.strekninger[indeks] = ny; else r.groft.strekninger.push(ny);
+      lukk();
+      app.tegnAlt();
+      app.planlegg(30);
+      app.status('Grøfta på strekningen er lagret – massene regnes på nytt');
+    };
+    boks.classList.remove('skjult');
+  }
 };

@@ -118,6 +118,15 @@
   --ror-p5: #7cc24a;
   --ror-p6: #b9b9c2;
   --ror-punkt: #fafafa;
+  /* Grøfta: jordfarger, så den ikke tar fargene fra rørene */
+  --groft-kant: #c8a46e;
+  --groft-strekning: #e0b23d;
+  --groft-fundament: #9b8f7a;
+  --groft-omfylling: #d9c79b;
+  --groft-gjenfylling: #6b6355;
+  --groft-bunn: #b07a3c;
+  --groft-fjell: #9aa0a6;
+  --groft-grop: #b8875a;
 
   /* ── AREALDEKKE: hva bakken ER før noen har gravd i den ──────────
      Skog, vann, dyrka mark, eksisterende veg. Kilden er AR5 fra NIBIO,
@@ -189,6 +198,14 @@
   --ror-p5: #4f8f24;
   --ror-p6: #6f6f78;
   --ror-punkt: #0b0b0c;
+  --groft-kant: #8a5a1c;
+  --groft-strekning: #a0700f;
+  --groft-fundament: #8c7f68;
+  --groft-omfylling: #c9b27a;
+  --groft-gjenfylling: #e6dfd2;
+  --groft-bunn: #7a4a14;
+  --groft-fjell: #5c6166;
+  --groft-grop: #a8784a;
   /* Same arealdekket, løfta til papiret si lyshet – same forhold som
      --data-terrengflate blir løfta med. Kulørskiljet er urørt. */
   --areal-skog: #9eb287;
@@ -252,6 +269,14 @@
     --ror-p5: #4f8f24;
     --ror-p6: #6f6f78;
     --ror-punkt: #0b0b0c;
+    --groft-kant: #8a5a1c;
+    --groft-strekning: #a0700f;
+    --groft-fundament: #8c7f68;
+    --groft-omfylling: #c9b27a;
+    --groft-gjenfylling: #e6dfd2;
+    --groft-bunn: #7a4a14;
+    --groft-fjell: #5c6166;
+    --groft-grop: #a8784a;
   }
 }
 
