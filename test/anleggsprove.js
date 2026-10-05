@@ -116,7 +116,7 @@ console.log('\n7. Hvert felt i lista er et ekte vindu');
 
      Målt: uten `plasser` i koden fanger denne raden det; løkka alene gjorde det
      ikke. */
-  const MAA_FINNAST = ['ip', 'vip', 'mal', 'tomt', 'tverrfall', 'plasser'];
+  const MAA_FINNAST = ['ip', 'vip', 'mal', 'tomt', 'ror', 'tverrfall', 'plasser'];
   const har = new Set(Prosjektform.FELT || []);
   const mangler = MAA_FINNAST.filter(f => !har.has(f));
   sjekk('alle feltene programmet trenger er vinduer', mangler.length === 0,

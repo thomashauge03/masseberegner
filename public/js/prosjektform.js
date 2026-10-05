@@ -29,6 +29,10 @@ function _tomt() {
   if (typeof StandardTomtemal !== 'undefined') return { StandardTomtemal, nyTomt };
   return require('./tomt.js');
 }
+function _ror() {
+  if (typeof Ror !== 'undefined') return Ror;
+  return require('./ror.js');
+}
 
 /**
  * En mal fra en eldre fil, brakt opp til dagens navn.
@@ -78,7 +82,8 @@ function klargjor(P) {
      HELT NYTT prosjekt har ingen geometri og forblir ubestemt – det er
      nettopp da spørsmålet er på sin plass. */
   if (Array.isArray(P.anlegg) && P.anlegg.some(a => (a.ip && a.ip.length)
-    || (a.tomt && a.tomt.punkter && a.tomt.punkter.length))) {
+    || (a.tomt && a.tomt.punkter && a.tomt.punkter.length)
+    || (a.ror && a.ror.punkter && a.ror.punkter.length))) {
     delete P.ubestemt;
   }
 
@@ -111,11 +116,14 @@ function klargjor(P) {
     P.aktivt = 'a1';
     P.versjon = 2;
   }
-  /* Males FØR malene flettes: etterpa har hvert anlegg nøkkelen uansett. */
-  const manglerUtskifting = P.anlegg.some(a => a && a.mal
+  /* Males FØR malene flettes: etterpa har hvert anlegg nøkkelen uansett.
+     RØR HAR INGEN UTSKIFTING. Rørmalen har ingen `utskifting`-nøkkel og skal
+     ikke ha det – uten unntaket ville hvert prosjekt med et røranlegg blitt
+     meldt som «lagret før masseutskiftingen fantes» ved hver åpning. */
+  const manglerUtskifting = P.anlegg.some(a => a && a.type !== 'ror' && !a.ror && a.mal
     && typeof a.mal === 'object' && !('utskifting' in a.mal));
   for (const a of P.anlegg) {
-    if (!a.type) a.type = a.tomt ? 'tomt' : 'veg';
+    if (!a.type) a.type = a.tomt ? 'tomt' : a.ror ? 'ror' : 'veg';
     if (a.type === 'tomt') {
       a.mal = Object.assign({}, StandardTomtemal, a.mal || {});
       /* Nivaet ma flettes for seg. Object.assign gar bare ett niva ned, sa
@@ -127,6 +135,21 @@ function klargjor(P) {
       a.tomt.nivaa = nivaa;
       if (!Array.isArray(a.tomt.punkter)) a.tomt.punkter = [];
       if (!Array.isArray(a.tomt.kanter)) a.tomt.kanter = [];
+      a.ip = a.ip || [];      // se nyttAnlegg: tomme lister, ikke undefined
+      a.vip = a.vip || [];
+    } else if (a.type === 'ror') {
+      /* RØRET FÅR SIN EGEN MAL, IKKE VEGENS.
+         Uten denne greina gikk røret inn i `else` under og fikk hele vegmalen
+         flettet inn – et rør med vegbredde og grøftedybde, og skjemaene ville
+         lest dem som om de betydde noe. Etappe 2 legger grøfta inn her. */
+      const R = _ror();
+      a.mal = Object.assign({}, R.StandardRormal, a.mal || {});
+      a.ror = Object.assign(R.nyRor(), a.ror || {});
+      if (!Array.isArray(a.ror.punkter)) a.ror.punkter = [];
+      if (!Array.isArray(a.ror.kilder)) a.ror.kilder = [];
+      if (!a.ror.koder || typeof a.ror.koder !== 'object') a.ror.koder = {};
+      a.ror.retting = Object.assign({ av: [], brudd: [], koble: [] }, a.ror.retting || {});
+      for (const k of ['av', 'brudd', 'koble']) if (!Array.isArray(a.ror.retting[k])) a.ror.retting[k] = [];
       a.ip = a.ip || [];      // se nyttAnlegg: tomme lister, ikke undefined
       a.vip = a.vip || [];
     } else {
@@ -201,7 +224,7 @@ function klargjor(P) {
 /* Feltene som er VINDUER inn i det aktive anlegget. Lista står her og ikke
    inne i løkka, så en prøve kan lese den og kreve at hvert felt virker – da
    kan ikke et nytt felt legges til uten at det blir prøvd. */
-const FELT = ['ip', 'vip', 'mal', 'tomt', 'tverrfall', 'plasser'];
+const FELT = ['ip', 'vip', 'mal', 'tomt', 'ror', 'tverrfall', 'plasser'];
 
 const Prosjektform = { klargjor, moderniserMal, FELT };
 

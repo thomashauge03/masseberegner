@@ -148,8 +148,8 @@ const App = {
   nyttAnlegg(type, navn, id) {
     const a = {
       id: id || 'a' + Date.now().toString(36) + Math.floor(Math.random() * 1000).toString(36),
-      type: type === 'tomt' ? 'tomt' : 'veg',
-      navn: navn || (type === 'tomt' ? 'Tomt' : 'Veg')
+      type: type === 'tomt' ? 'tomt' : type === 'ror' ? 'ror' : 'veg',
+      navn: navn || (type === 'tomt' ? 'Tomt' : type === 'ror' ? 'Rør' : 'Veg')
     };
     if (a.type === 'tomt') {
       a.tomt = nyTomt();
@@ -161,6 +161,12 @@ const App = {
          ingen av dem har noen grunn til a vite hva slags anlegg de star i.
          Tomme lister er det samme som en veg uten knekkpunkt: ingenting a
          tegne, ingenting a regne, ingen feilmelding. */
+      a.ip = [];
+      a.vip = [];
+    } else if (a.type === 'ror') {
+      a.ror = Ror.nyRor();
+      a.mal = Object.assign({}, Ror.StandardRormal);
+      // tomme lister av samme grunn som for tomta over
       a.ip = [];
       a.vip = [];
     } else {
@@ -212,7 +218,8 @@ const App = {
        HELT NYTT prosjekt har ingen geometri og forblir ubestemt – det er
        nettopp da spørsmålet er på sin plass. */
     if (Array.isArray(P.anlegg) && P.anlegg.some(a => (a.ip && a.ip.length)
-      || (a.tomt && a.tomt.punkter && a.tomt.punkter.length))) {
+      || (a.tomt && a.tomt.punkter && a.tomt.punkter.length)
+      || (a.ror && a.ror.punkter && a.ror.punkter.length))) {
       delete P.ubestemt;
     }
     if (typeof Tegner3d !== 'undefined') {
@@ -247,6 +254,9 @@ const App = {
 
   /** Er det en tomt vi jobber med na? */
   erTomt() { const a = this.anlegg(); return !!a && a.type === 'tomt'; },
+
+  /** Er det rør vi jobber med nå? */
+  erRor() { const a = this.anlegg(); return !!a && a.type === 'ror'; },
 
   /* ================================================================
      ET FERDIG ANLEGG ER DET NYE TERRENGET
@@ -1147,7 +1157,8 @@ const App = {
        autolagringen skrive over fila. Selve flagget er rettet i `apne`; denne
        vakten står fordi et datatap ikke skal henge på ett enkelt sted. */
     const harNoe = a && ((a.ip && a.ip.length)
-      || (a.tomt && a.tomt.punkter && a.tomt.punkter.length));
+      || (a.tomt && a.tomt.punkter && a.tomt.punkter.length)
+      || (a.ror && a.ror.punkter && a.ror.punkter.length));
     if (a && a.type !== type && !harNoe) {
       /* Anlegget er tomt – ingenting er tegnet ennå – så det byttes ut i stedet
          for å konverteres. En konvertering ville måttet flytte felt som ikke
@@ -1172,8 +1183,8 @@ const App = {
       : 'Klikk i kartet for å legge inn knekkpunkt. Dobbeltklikk for å avslutte.');
   },
 
-  /** Merket foran et anlegg i lista – samme tegn som den gamle bryteren brukte. */
-  anleggsmerke(a) { return a && a.type === 'tomt' ? '⬟' : '▬'; },
+  /** Merket foran et anlegg i lista – samme tegn som den gamle bryteren brukte. Rør er ⌀. */
+  anleggsmerke(a) { return a && a.type === 'tomt' ? '⬟' : a && a.type === 'ror' ? '⌀' : '▬'; },
 
   /**
    * Anleggslista: hvert anlegg i prosjektet, med en vei inn til hvert av dem.
@@ -1354,7 +1365,11 @@ const App = {
     const a = this.P.anlegg.find(x => x.id === id);
     if (!a) return;
     if (this.P.anlegg.length < 2) { this.status('Prosjektet må ha minst ett anlegg'); return; }
-    const harNoe = (a.ip && a.ip.length) || (a.tomt && a.tomt.punkter && a.tomt.punkter.length);
+    /* Rørene MÅ med her. Uten dem ble et røranlegg med fire hundre innmålte
+       punkt slettet uten et spørsmål – det så tomt ut for en sjekk som bare
+       kjente knekkpunkt og tomtehjørner. */
+    const harNoe = (a.ip && a.ip.length) || (a.tomt && a.tomt.punkter && a.tomt.punkter.length)
+      || (a.ror && a.ror.punkter && a.ror.punkter.length);
     if (harNoe && this.bekreft) {
       const ja = await this.bekreft('Slette «' + (a.navn || a.type) + '»? '
         + 'Alt som er tegnet på det blir borte – men du kan angre etterpå.', 'Slett');
@@ -2238,7 +2253,7 @@ const App = {
       + '<span class="pdelt">delt</span></div>';
     ut += '<div class="prosjektrader">';
     for (const r of p.rader) {
-      const merke = r.type === 'tomt' ? '⬟' : '▬';
+      const merke = this.anleggsmerke(r);
       if (r.status !== 'ok') {
         ut += `<div class="prosjektrad${r.aktivt ? ' aktiv' : ''}">`
           + `<span class="anleggsnr">${r.nr}</span>`
@@ -6356,11 +6371,15 @@ const App = {
      den lante. */
   autolagringPause: 0,
 
-  /** Har prosjektet noe i det hele tatt - en veglinje eller en tomt? */
+  /** Har prosjektet noe i det hele tatt – en veglinje, en tomt eller innmålte rør? */
   harInnhold() {
     if (!this.P || !this.P.anlegg) return false;
+    /* Uten rørene her ble et prosjekt med bare rør aldri autolagret: det så
+       tomt ut, og alt man hadde importert og rettet ventet på en lagring som
+       ikke kom. */
     return this.P.anlegg.some(a =>
-      (a.ip && a.ip.length) || (a.tomt && a.tomt.punkter && a.tomt.punkter.length));
+      (a.ip && a.ip.length) || (a.tomt && a.tomt.punkter && a.tomt.punkter.length)
+      || (a.ror && a.ror.punkter && a.ror.punkter.length));
   },
 
   harUlagret() {

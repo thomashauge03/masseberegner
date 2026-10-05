@@ -380,6 +380,35 @@ console.log('\n13. Terreng langs rørene');
     bestilt && [...bestilt].join(' '));
 }
 
+/* ------------------------------------------------------------------ */
+console.log('\n14. Røranlegget i prosjektfila');
+{
+  const Prosjektform = require(js('prosjektform.js'));
+  const M = require(js('masser.js'));
+  const lag = () => ({ navn: 'x', anlegg: [
+    { id: 'v1', type: 'veg', ip: [], vip: [], mal: Object.assign({}, M.StandardMal) },
+    { id: 'r1', type: 'ror', navn: 'VA', ror: { sone: 32, punkter: [{ id: 'a', kode: '90PE', n: 1, o: 2, z: 3, nr: 1 }] } }
+  ], aktivt: 'r1' });
+  const P = Prosjektform.klargjor(lag());
+  const r = P.anlegg[1];
+  paastand('røranlegget beholder punktene', r.ror.punkter.length === 1);
+  paastand('og får tomme rettinger', ['av', 'brudd', 'koble'].every(k => Array.isArray(r.ror.retting[k])));
+  paastand('og kilder og koder', Array.isArray(r.ror.kilder) && typeof r.ror.koder === 'object');
+  sjekk('og rørmalen', r.mal.maksAvstand, 25, 0);
+  paastand('ikke vegmalen', !('vegbredde' in r.mal));
+  paastand('og tomme lister for vegfeltene', Array.isArray(r.ip) && Array.isArray(r.vip));
+  paastand('P.ror er et vindu inn i det aktive anlegget', P.ror === r.ror);
+  paastand('P.ror står ikke på toppnivå i fila', !/^\{[^{]*"ror"/.test(JSON.stringify(P)));
+  paastand('et røranlegg gjør ikke prosjektet «eldre enn utskiftingen»', P.utskiftingErNy === false);
+  Prosjektform.klargjor(P);
+  paastand('heller ikke ved andre klargjøring (angre)', P.utskiftingErNy === false);
+  const Q = Prosjektform.klargjor({ navn: 'y', ubestemt: true, aktivt: 'r1',
+    anlegg: [{ id: 'r1', type: 'ror', ror: { punkter: [{ id: 'a', kode: 'X', n: 1, o: 2, z: 3, nr: 1 }] } }] });
+  paastand('et prosjekt med innmålte rør er ikke ubestemt', !Q.ubestemt);
+  const R = Prosjektform.klargjor({ navn: 'z', aktivt: 'r1', anlegg: [{ id: 'r1', ror: { punkter: [] } }] });
+  paastand('et anlegg uten type men med ror-felt blir rør', R.anlegg[0].type === 'ror');
+}
+
 /* ---------------- sluttsum ---------------- */
 console.log(`\n${ok} tester ok, ${feil} feil`);
 process.exit(feil ? 1 : 0);
