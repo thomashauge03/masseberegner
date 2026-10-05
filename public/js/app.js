@@ -658,6 +658,8 @@ const App = {
     if (!this.P || !Array.isArray(this.P.anlegg)) return f;
     const T = (typeof Tegner3d !== 'undefined') ? Tegner3d : null;
     for (const a of this._bygdFoer()) {
+      // rør er ingen flate – de er under bakken og endrer ikke terrenget for noen
+      if (a.type === 'ror') continue;
       /* Bygges ÉN gang per tilstand. `prosjektterreng` kalles inne i
          massebalansens halveringssøk – uten hurtiglageret ville hele naboen
          blitt regnet om for hver eneste prøvekote. */
@@ -2173,6 +2175,8 @@ const App = {
     let nr = 0;
     for (const a of this.P.anlegg) {
       nr++;
+      // rør har ingen masser i etappe 1 – de skal verken telles eller meldes som uregnet
+      if (a.type === 'ror') continue;
       if (med && !med.has(a.id)) continue;
       const erAktivt = a.id === this.P.aktivt && this.resultat && this.resultat.sum;
       const s = erAktivt ? this.resultat.sum : a._sum;
@@ -2243,7 +2247,8 @@ const App = {
   visProsjektmasser() {
     const e = document.getElementById('prosjektmasser');
     if (!e) return;
-    if (!this.P || !Array.isArray(this.P.anlegg) || this.P.anlegg.length < 2) {
+    if (!this.P || !Array.isArray(this.P.anlegg)
+      || this.P.anlegg.filter(a => a.type !== 'ror').length < 2) {
       e.innerHTML = ''; return;
     }
     const p = this.prosjektsum();
@@ -2305,8 +2310,23 @@ const App = {
   visNokkeltal() {
     const e = document.getElementById('nokkeltal');
     if (!e) return;
+    /* I rørbildet er det rørene som er tallene – det finnes ingen masser ennå. */
+    if (this.erRor()) {
+      const r = this.resultat;
+      if (!r || r.type !== 'ror') { e.className = 'nokkeltal tom'; e.innerHTML = ''; return; }
+      const s = Ror.sammendrag(r);
+      const m = v => (Number.isFinite(v) ? Rapport.tall(v, 2) : '–');
+      this._skrivNokkeltal(e, [
+        ['Rør', Rapport.tall(s.lengde), 'm', false],
+        ['Antall', String(s.antall), 'rør', false],
+        ['Minste overdekning', m(s.minOd), 'm', s.minOd < 0],
+        ['Største overdekning', m(s.maksOd), 'm', false]
+      ]);
+      return;
+    }
     const r = this.resultat;
-    const flere = this.P && Array.isArray(this.P.anlegg) && this.P.anlegg.length > 1;
+    const flere = this.P && Array.isArray(this.P.anlegg)
+      && this.P.anlegg.filter(a => a.type !== 'ror').length > 1;
     const t = v => Rapport.tall(v);
     if (!flere) {
       if (!r || !r.sum) { e.className = 'nokkeltal tom'; e.innerHTML = ''; return; }
@@ -2519,6 +2539,18 @@ const App = {
       const T = this.terrengOverTomta();
       return Geo.bakkefaktor(tp.x, tp.y, this.sone, T ? T.middel : 0);
     }
+    /* Rørene ligger der de ligger – faktoren regnes midt i punktene, på
+       middelhøyden deres. Rørlengden i rapporten er da lengden på bakken,
+       som vegens er. */
+    if (this.erRor()) {
+      const r = this.P.ror;
+      if (!r || !r.punkter.length) return 1;
+      const tilXY = Ror.lagTilXY(r.sone, this.sone);
+      let sx = 0, sy = 0, sz = 0;
+      for (const p of r.punkter) { const q = tilXY(p); sx += q.x; sy += q.y; sz += p.z; }
+      const n = r.punkter.length;
+      return Geo.bakkefaktor(sx / n, sy / n, this.sone, sz / n);
+    }
     if (!this.linje || !this.linje.lengde) return 1;
     const p = this.linje.punktVed(this.linje.lengde / 2);
     let h = 0;
@@ -2627,6 +2659,7 @@ const App = {
        Angret man en kotebytte på en tomt, ble koten riktig tilbakestilt – og
        alle tallene forsvant. */
     if (this.erTomt()) { await this.beregnTomt(); return; }
+    if (this.erRor()) { await this.beregnRor(); return; }
     this.byggLinje();
     Kart.tegn();
     if (!this.linje || this.linje.lengde <= 1) {
@@ -3171,6 +3204,72 @@ const App = {
     this.visTomtemasser();
     this.tomthoydeTilSkjema();
     this.status(`Tomta regnet på ${Math.round(performance.now() - t0)} ms`);
+    return this.resultat;
+  },
+
+  /**
+   * Bygger rørene, laster terrenget langs dem og regner profilene.
+   *
+   * Egen vei inn, som `beregnTomt`: vegberegningen henger på en senterlinje
+   * som ikke finnes her. Linjene lagres ikke – de regnes av punktene, kodene
+   * og rettingene hver gang, så de aldri kan komme i utakt med dataene.
+   */
+  async beregnRor() {
+    if (!this.erRor()) return null;
+    const r = this.P.ror;
+    const vis = () => {
+      Kart.tegn();
+      if (typeof RorUI !== 'undefined') RorUI.vis();
+      if (typeof Rorprofil !== 'undefined') Rorprofil.tegn();
+      if (typeof Ror3d !== 'undefined' && Ror3d.aktiv) Ror3d.tegn();
+      this.visNokkeltal();
+      this.visProsjektmasser();
+    };
+    if (!r || !r.punkter.length) { this.resultat = null; vis(); return null; }
+    this._settSone(Ror.tilLatLon(r.punkter[0], r.sone)[1]);
+    const tilXY = Ror.lagTilXY(r.sone, this.sone);
+    const bygg = Ror.byggLinjer(r, this.P.mal, tilXY);
+    if (!this.terreng || this.terreng.sone !== this.sone || this.terreng.res !== 1) {
+      this.terreng = new Terreng(this.sone, 1);
+    }
+    /* Halvbredden er 3D-konteksten: terrenget rundt rørene i modellen skal
+       finnes uten en ny nedlasting når man slår på 3D. */
+    const halv = Math.max(10, (typeof Ror3d !== 'undefined' && Ror3d.kontekst) || 40);
+    const nokkel = 'ror#' + this.sone + '#' + halv + '#'
+      + bygg.linjer.map(l => l.id + ':' + l.punkter.length + ':' + l.lengde.toFixed(2)).join('|');
+    const anleggFoer = this.P.aktivt;
+    if (nokkel !== this._terrengnokkel && bygg.linjer.length) {
+      const varSynlig = !document.getElementById('framdrift').classList.contains('skjult');
+      this.framdrift(true, 'Henter terrengdata fra Kartverket…', 0);
+      try {
+        await this.terreng.lastKorridorer(bygg.linjer.map(l => Ror.korridor(l.xy)), halv, (f, tot) =>
+          this.framdrift(true, `Henter terrengdata fra Kartverket… ${f}/${tot}`, tot ? f / tot : 1));
+      } finally { if (!varSynlig) this.framdrift(false); }
+      /* Samme vakt som i `oppdater()`: byttet man anlegg mens nedlastingen
+         gikk, hører ikke dette svaret hjemme noe sted. */
+      if (this.P.aktivt !== anleggFoer) return null;
+      this._terrengnokkel = nokkel;
+      if (this.terreng.mangler.size) {
+        this.status(`⚠ Fikk ikke ${this.terreng.mangler.size} terrengfliser – deler av rørene mangler terreng`);
+      }
+    }
+    /* KARTVERKETS TERRENG, IKKE PROSJEKTTERRENGET.
+       `prosjektterreng()` svarer med en ferdig veg eller tomt der den finnes.
+       Overdekningen skal måles mot marka slik den er skannet – det er det
+       brukeren valgte, og en veg som bare er tegnet, ligger ikke over røret. */
+    const terrengZ = (x, y) => this.terreng.z(x, y);
+    const profiler = new Map();
+    for (const l of bygg.linjer) {
+      const k = r.koder[l.kode] || Ror.tolkKode(l.kode);
+      profiler.set(l.id, Ror.profil(l, terrengZ, k.dim));
+    }
+    this.resultat = {
+      type: 'ror', bygg, linjer: bygg.linjer, profiler, sone: this.sone,
+      bakkefaktor: this.bakkefaktor(),
+      merknader: Ror.merknader(bygg, profiler, this.P.mal.maksAvstand)
+    };
+    this.merkResultat();
+    vis();
     return this.resultat;
   },
 
@@ -6576,7 +6675,7 @@ const App = {
     this.tomHistorikk();
     this.malTilSkjema();
     await this.oppdater();
-    Kart.zoomTilLinje();
+    if (this.erRor()) { if (Kart.zoomTilRor) Kart.zoomTilRor(); } else Kart.zoomTilLinje();
     /* Sies ETTER oppdateringen, sa meldingen ikke blir overskrevet av
        statuslinjene beregningen legger ut underveis. */
     if (this.P.utskiftingErNy) {

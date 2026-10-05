@@ -8162,6 +8162,62 @@ const Nettlesertest = {
     }
   },
 
+  /** Et røranlegg regnes: linjer, terreng og profiler. */
+  async rorBeregning() {
+    const foer = JSON.stringify(App.P);
+    try {
+      const a = App.nyttAnlegg('ror', 'Beregning');
+      const les = Ror.lesLandXML(this._rorXml());
+      a.ror.punkter = les.punkter;
+      a.ror.koder = Ror.koderFra(les.punkter);
+      App.P.anlegg.push(a);
+      App.byttAnlegg(a.id);
+      await this.ventPaBeregning(30000);
+      const r = App.resultat;
+      this.sjekk('resultatet er et rørresultat', r && r.type === 'ror');
+      this.sjekk('fire rør', r && r.linjer.length === 4, r && String(r.linjer.length));
+      this.sjekk('en profil per rør', r && r.linjer.every(l => r.profiler.has(l.id)));
+      const pr = r && r.profiler.get(r.linjer[0].id);
+      this.sjekk('terrenget fantes langs røret', pr && Number.isFinite(pr.minOverdekning), pr && String(pr.minOverdekning));
+      this.sjekk('resultatet hører til røranlegget', r && r._anlegg === a.id);
+      this.sjekk('bakkefaktoren er nær 1', r && Math.abs(r.bakkefaktor - 1) < 0.002, r && String(r.bakkefaktor));
+      this.sjekk('nøkkeltallene viser rør', /Rør/.test(document.getElementById('nokkeltal').textContent));
+    } finally {
+      App.P = JSON.parse(foer);
+      App.visAnleggsvelger(); App.malTilSkjema(); App.tegnAlt(); await App.oppdater();
+    }
+  },
+
+  /**
+   * En oppdiktet as-built-fil ved Ydestad, der demoen ligger og terrenget
+   * finnes. Samme oppskrift som proverPunkter() i test/rorprove.js: to rør i
+   * samme grøft målt om hverandre, et rør med samme kode 300 m unna, en
+   * stikkledning i sikksakk og en muffe. 50 punkt, fire rør.
+   */
+  _rorXml() {
+    const o = Geo.tilUtm(58.1412, 7.0705, 32);
+    const rader = [];
+    let nr = 0;
+    const p = (kode, x, y, z) => {
+      nr++;
+      rader.push(`<CgPoint name="prove-${nr}" surveyOrder="${nr}" code="${kode}" timeStamp="2026-09-01T10:00:00.000Z">`
+        + `${(o.y + y).toFixed(3)} ${(o.x + x).toFixed(3)} ${z.toFixed(3)}</CgPoint>`);
+    };
+    for (let x = 0; x <= 100; x += 10) p('90PE', x, 0, 20 - x * 0.01);
+    for (let x = 0; x <= 96; x += 12) p('180 PE', x, 1, 19.5);
+    for (let x = 200; x >= 110; x -= 10) p('90PE', x, 0, 20 - x * 0.01);
+    for (let x = 192; x >= 108; x -= 12) p('180 PE', x, 1, 19.5);
+    p('32PE', 50, 12, 20.2); p('32PE', 50, 0.5, 20); p('32PE', 50, 8, 20.1); p('32PE', 50, 4, 20.05);
+    for (let x = 500; x <= 560; x += 10) p('90PE', x, 0, 15);
+    p('90PE MUFFE', 100, 0, 19);
+    return `<?xml version="1.0" encoding="utf-8"?>
+<LandXML xmlns="http://www.landxml.org/schema/LandXML-1.2" version="1.2" date="2026-09-01">
+<Units><Metric linearUnit="meter"/></Units><Application name="Xsite Manage"/>
+<CgPoints name="Default">
+${rader.join('\n')}
+</CgPoints></LandXML>`;
+  },
+
   /* ---------------- 13. opprydding ---------------- */
   async opprydding() {
     if (this._testnavn) await Lager.slett(this._testnavn);
