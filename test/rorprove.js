@@ -243,6 +243,62 @@ console.log('\n7. Retting: av, brudd og kobling');
     .linjer.filter(l => l.kode === '90PE').length, 0, 0);
 }
 
+/* ------------------------------------------------------------------ */
+console.log('\n8. Koordinater og sone');
+{
+  const p = { n: 6488855.307, o: 429458.503 };
+  const lik = Ror.lagTilXY(32, 32)(p);
+  paastand('samme sone rører ikke tallene', lik.x === p.o && lik.y === p.n);
+  const ll = Ror.tilLatLon(p, 32);
+  sjekk('breddegrad i sone 32', ll[0], 58.5344902, 1e-6);
+  sjekk('lengdegrad i sone 32', ll[1], 7.7884438, 1e-6);
+  const i33 = Ror.lagTilXY(32, 33)(p);
+  sjekk('øst i sone 33', i33.x, 80607.345, 0.01);
+  sjekk('nord i sone 33', i33.y, 6510777.683, 0.01);
+
+  paastand('vanlige UTM-tall er i orden', Ror.sjekkKoordinater([p]) === null);
+  const galt = Ror.sjekkKoordinater([p, { n: 1234567.8, o: 100000 }]);
+  paastand('NTM-aktige tall gir en forklaring', typeof galt === 'string' && /ikke ser ut som UTM/.test(galt), galt);
+
+  const pts = [p];
+  paastand('EPSG fra fila vinner', Ror.gjettSone(pts, 25833, []).sone === 33);
+  paastand('og grunnen er fila', Ror.gjettSone(pts, 25833, []).grunn === 'fila');
+  paastand('5972 er UTM32 med NN2000', Ror.gjettSone(pts, 5972, []).sone === 32);
+  const agder = Ror.gjettSone(pts, null, [{ lat: 58.53, lon: 7.79 }]);
+  paastand('nær et anlegg i Agder: sone 32', agder.sone === 32 && agder.grunn === 'prosjektet', JSON.stringify(agder));
+  const sverige = Ror.gjettSone(pts, null, [{ lat: 58.53, lon: 13.79 }]);
+  paastand('nær et anlegg i Sverige: sone 33', sverige.sone === 33, JSON.stringify(sverige));
+  const ingen = Ror.gjettSone(pts, null, []);
+  paastand('uten noe å gå etter: 32', ingen.sone === 32 && ingen.grunn === 'standard');
+  const langt = Ror.gjettSone(pts, null, [{ lat: 69.9, lon: 23.3 }]);
+  paastand('anlegg over 100 km unna teller ikke', langt.grunn === 'standard', JSON.stringify(langt));
+}
+
+/* ------------------------------------------------------------------ */
+console.log('\n9. Ny import av samme anlegg');
+{
+  const gamle = [{ id: 'a', kode: 'X', n: 1, o: 1, z: 1 }, { id: 'b', kode: 'X', n: 2, o: 2, z: 2 }];
+  const nye = [{ id: 'b', kode: 'X', n: 2, o: 2, z: 2.5 }, { id: 'c', kode: 'X', n: 3, o: 3, z: 3 }];
+  const s = Ror.slaSammen(gamle, nye);
+  sjekk('tre punkt etterpå', s.punkter.length, 3, 0);
+  paastand('nye, kjente og endrede telles', s.nye === 1 && s.kjente === 1 && s.endret === 1, JSON.stringify(s));
+  sjekk('det endrede får ny høyde', s.punkter.find(q => q.id === 'b').z, 2.5, 0);
+  sjekk('de gamle røres ikke', gamle[1].z, 2, 0);
+  paastand('ingenting slettes stille', s.punkter.some(q => q.id === 'a'));
+}
+
+/* ------------------------------------------------------------------ */
+console.log('\n10. Navn fra filnavnet');
+{
+  for (const [inn, ut] of [
+    ['asbuilts_VA Prøvefelt_2026-09-15T08_30_00.000Z.xml', 'VA Prøvefelt'],
+    ['C:\\Users\\x\\Downloads\\asbuilts_Fiber_2026-01-02.xml', 'Fiber'],
+    ['as-built Hytte 4.xml', 'Hytte 4'],
+    ['ror_langs_vegen.xml', 'ror langs vegen'],
+    ['asbuilts_2026-09-15T08_30_00.000Z.xml', 'Rør']
+  ]) paastand(`«${inn}» → «${ut}»`, Ror.navnFraFil(inn) === ut, Ror.navnFraFil(inn));
+}
+
 /* ---------------- sluttsum ---------------- */
 console.log(`\n${ok} tester ok, ${feil} feil`);
 process.exit(feil ? 1 : 0);

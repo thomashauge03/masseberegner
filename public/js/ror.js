@@ -360,8 +360,120 @@ function byggLinjer(ror, mal, tilXY) {
   };
 }
 
+/* ---------------- koordinater ---------------- */
+
+/**
+ * Punktet fra fila som x/y i den sonen programmet regner i.
+ *
+ * Er sonene like, røres ikke tallene – det er det vanlige, og da finnes det
+ * ingen omregning å tape noe på. Er de ulike, går veien om grader; avviket er
+ * under 0,01 mm.
+ */
+function lagTilXY(fraSone, tilSone) {
+  if (fraSone === tilSone) return p => ({ x: p.o, y: p.n });
+  const G = _geo();
+  return p => {
+    const ll = G.fraUtm(p.o, p.n, fraSone);
+    const u = G.tilUtm(ll.lat, ll.lon, tilSone);
+    return { x: u.x, y: u.y };
+  };
+}
+
+/** [lat, lon] – rekkefølgen Leaflet vil ha. */
+function tilLatLon(p, sone) {
+  const ll = _geo().fraUtm(p.o, p.n, sone);
+  return [ll.lat, ll.lon];
+}
+
+/**
+ * Ser tallene ut som UTM i Norge? Svarer null, eller en melding som sier hva
+ * som er galt.
+ *
+ * En fil i NTM har nordverdier rundt 1,2 millioner. Lest som UTM havner den i
+ * havet utenfor Afrika, og ingenting i kartet ville forklart hvorfor rørene
+ * er borte. Det skal stoppes ved døra med en forklaring.
+ */
+function sjekkKoordinater(punkter) {
+  const feil = (punkter || []).filter(p => !(p.n > 6.3e6 && p.n < 8.0e6 && p.o > -2e5 && p.o < 1.3e6));
+  if (!feil.length) return null;
+  const nord = Math.round(feil[0].n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+  return `${feil.length} av ${punkter.length} punkt har koordinater som ikke ser ut som UTM i Norge `
+    + `(nord ${nord}). Er fila i NTM eller et lokalt system? Det støttes ikke ennå – `
+    + 'eksporter i EUREF89 UTM fra maskinstyringen.';
+}
+
+const _EPSG_SONE = { 25832: 32, 25833: 33, 25835: 35, 5972: 32, 5973: 33, 5975: 35,
+  32632: 32, 32633: 33, 32635: 35 };
+
+/**
+ * Hvilken UTM-sone fila er i.
+ *
+ * Fila fra Xsite sier det ikke. Tallene alene kan ikke avgjøre det heller: en
+ * østverdi på 411 000 er gyldig i alle sonene, bare et annet sted. Rekkefølgen
+ * er derfor (1) det fila selv oppgir, (2) sonen som legger punktene nærmest
+ * de andre anleggene i prosjektet, (3) 32 – vanligst sør i landet. Dialogen
+ * viser svaret og grunnen, og kartet viser hvor rørene havnet.
+ */
+function gjettSone(punkter, epsg, naboer) {
+  if (epsg && _EPSG_SONE[epsg]) return { sone: _EPSG_SONE[epsg], grunn: 'fila' };
+  if (naboer && naboer.length && punkter && punkter.length) {
+    const G = _geo();
+    let sn = 0, so = 0;
+    for (const p of punkter) { sn += p.n; so += p.o; }
+    const n = sn / punkter.length, o = so / punkter.length;
+    let best = null;
+    for (const sone of [32, 33, 35]) {
+      const ll = G.fraUtm(o, n, sone);
+      for (const q of naboer) {
+        const dy = (ll.lat - q.lat) * 111.2;
+        const dx = (ll.lon - q.lon) * 111.2 * Math.cos(ll.lat * Math.PI / 180);
+        const d = Math.hypot(dx, dy);
+        if (!best || d < best.d) best = { sone, d };
+      }
+    }
+    if (best && best.d < 100) return { sone: best.sone, grunn: 'prosjektet' };
+  }
+  return { sone: 32, grunn: 'standard' };
+}
+
+/* ---------------- ny import ---------------- */
+
+/**
+ * Slår en ny fil sammen med det anlegget har.
+ *
+ * Xsite eksporterer alt som er målt på prosjektet hver gang, så den neste fila
+ * inneholder den forrige. Punktene kjennes igjen på id-en: nye legges til,
+ * kjente får de nye tallene, og INGENTING slettes stille. Er et punkt slettet
+ * i Xsite, slår man det av her – et punkt som bare forsvant, er det verste
+ * utfallet.
+ */
+function slaSammen(gamle, nye) {
+  const ut = new Map((gamle || []).map(p => [p.id, p]));
+  let antallNye = 0, kjente = 0, endret = 0;
+  for (const p of nye || []) {
+    const g = ut.get(p.id);
+    if (!g) { ut.set(p.id, Object.assign({}, p)); antallNye++; continue; }
+    kjente++;
+    if (g.n !== p.n || g.o !== p.o || g.z !== p.z || g.kode !== p.kode) {
+      ut.set(p.id, Object.assign({}, g, p));
+      endret++;
+    }
+  }
+  return { punkter: [...ut.values()], nye: antallNye, kjente, endret };
+}
+
+/** «asbuilts_VA Prøvefelt_2026-09-15T08_30_00.000Z.xml» → «VA Prøvefelt». */
+function navnFraFil(filnavn) {
+  let s = String(filnavn || '').replace(/^.*[\\/]/, '').replace(/\.[^.]+$/, '');
+  s = s.replace(/^as[-_ ]?builts?[-_ ]*/i, '');
+  s = s.replace(/[-_ ]*\d{4}-\d{2}-\d{2}(T[\d_:.-]+Z?)?$/i, '');
+  s = s.replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
+  return s || 'Rør';
+}
+
 const Ror = {
   lesLandXML, dekod, tolkKode, koderFra, byggLinjer, avstandTilStrekk,
+  lagTilXY, tilLatLon, sjekkKoordinater, gjettSone, slaSammen, navnFraFil,
   nyRor, StandardRormal, FARGER
 };
 
