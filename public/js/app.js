@@ -72,6 +72,9 @@ const App = {
     this.P = JSON.parse(forrige.tekst);
     this.historikk._sist = forrige.tekst;
     this.visAnleggsvelger();          // angre kan ha byttet hvilket anlegg som er oppe
+    /* og om prosjektet er bestemt: angres en rørimport i et nytt prosjekt, er
+       det ubestemt igjen, og uten førstevalget sto man uten vei videre */
+    this.visAnleggsvalg();
     this.byggLinje();
     this.vprofil = new Vertikalprofil(this.P.vip);
     this.malTilSkjema();

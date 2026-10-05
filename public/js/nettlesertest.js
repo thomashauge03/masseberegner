@@ -8270,6 +8270,14 @@ const Nettlesertest = {
       this.sjekk('navnet kommer fra filnavnet', App.anlegg().navn === 'Prove', App.anlegg().navn);
       this.sjekk('prosjektet er ikke ubestemt lenger', !App.P.ubestemt);
       this.sjekk('førstevalget er borte', document.getElementById('velganlegg').classList.contains('skjult'));
+      /* Angres importen, er prosjektet ubestemt igjen, og da må førstevalget
+         komme tilbake – ellers står man i et prosjekt uten vei videre. */
+      await App.angre();
+      this.sjekk('angre importen gir førstevalget tilbake', App.P.ubestemt === true
+        && !document.getElementById('velganlegg').classList.contains('skjult'));
+      await App.gjorOm();
+      this.sjekk('og gjør om tar det bort igjen', !App.P.ubestemt && App.erRor()
+        && document.getElementById('velganlegg').classList.contains('skjult'));
       this.sjekk('alle 50 punktene ble med', App.P.ror.punkter.length === 50, String(App.P.ror.punkter.length));
       this.sjekk('kodene fikk tolkning og farge', App.P.ror.koder['90PE'] && App.P.ror.koder['90PE'].form === 'linje'
         && App.P.ror.koder['90PE MUFFE'].farge === 'punkt');
