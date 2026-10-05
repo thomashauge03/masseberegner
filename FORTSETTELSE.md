@@ -20,8 +20,8 @@ Nettlesertesten kjøres ved å åpne programmet med `?test=1`, eller fra konsoll
 med `Nettlesertest.kjor()`. Utviklingstjeneren startes med `node server.js`
 (port 5178). Programmet ligger også på https://masseberegner.vercel.app.
 
-Ved siste lagring: **609 prøver i selvtesten, 182 i rørprøven
-(`test/rorprove.js`), 1057 i nettlesertesten, alle grønne.** Nettlesertesten
+Ved siste lagring: **609 prøver i selvtesten, 194 i rørprøven
+(`test/rorprove.js`), 1069 i nettlesertesten, alle grønne.** Nettlesertesten
 må kjøres i et vindu som er minst 1000 px bredt – under det legger
 sidepanelet seg oppå, og tre panelprøver blir røde uten at noe er galt. Massene på demoen er uendret gjennom hele runden: 1 548 m³ skjæring,
 1 015 m³ fjell, 135 m³ fylling — rettingene gjelder feilmåter, ikke normalveien.
@@ -47,7 +47,15 @@ ett punkt utenfor UTM stoppet hele fila; en gammel beregning kunne skrive
 over en ny; og feltene i en prosjektfil ble brukt uten kontroll. I samme
 runde: «Legg til» av en fil i en annen sone regnes om i stedet for å flytte
 hele anlegget, eksportknappene skriver ikke lenger en veg-fil av et
-røranlegg, og en retting synes i kartet med en gang. Neste:
+røranlegg, og en retting synes i kartet med en gang.
+
+En andre gjennomgang av rettingene fant ingen kritiske feil, men to hull da
+to beregninger gikk over hverandre: framdriftsboksen kunne bli stående over
+hele skjermen (gjaldt alle fire terrenghenterne, også veg og tomt – nå én
+hjelper, `medHenteboks`), og et sonebytte fram og tilbake kunne gi et tomt
+terreng med en nøkkel som sa at alt var lastet. Begge er rettet, sammen med
+de mindre funnene. Ikke gjort: id-en bruker `~` mellom endene, og to
+punktnavn som selv inneholder `~` kunne i teorien gi samme id. Neste:
 
 - **Etappe 2 – grøftemasser.** Grøftemal på røranlegget (`mal`), felles grøft
   for rør som ligger tett, masser mot terreng og fjellmodell.
