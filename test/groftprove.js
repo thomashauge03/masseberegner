@@ -458,6 +458,30 @@ console.log('\n6b. Kummene');
   sjekk('og regnestykket går opp', s.gravingLos + s.sprengning,
     s.fundament + s.omfylling + s.gjenfylling + s.rorvolum + s.kumvolum, 1e-6);
 }
+{
+  /* Kummen arver strekningen den står på: fjellet som er markert der, og
+     «egen grøft». Uten det ble kumgropa regnet som løsmasse i fjell – så
+     sprengningen ble MINDRE med en kum – og en egen grøft talte gropa to ganger. */
+  const linjer = [rett('a', '160PE', 100, TOPP)];
+  const q = punktVed(50, 0);
+  const kum = [{ id: 'k1', x: q.x, y: q.y, bunnlop: TOPP - D + 0.005, diameter: 1000, eier: 'a' }];
+  const regn = (strekninger, kummer) => Groft.beregn({ linjer, koder: koder160, terrengZ: flatt, rute: 0.2,
+    justering: { strekninger, sammen: [] }, kummer });
+  const fjell = [{ fra: 'a-0', til: 'a-10', mal: {}, fjell: 0.5, egen: false }];
+  const fU = regn(fjell, []), fM = regn(fjell, kum);
+  paastand('kum i fjell: sprengningen øker', fM.sum.sprengning > fU.sum.sprengning + 1,
+    `${fU.sum.sprengning.toFixed(1)} → ${fM.sum.sprengning.toFixed(1)}`);
+  paastand('og løsmassen bare i laget over fjellet', fM.sum.gravingLos - fU.sum.gravingLos < 5,
+    `${fU.sum.gravingLos.toFixed(1)} → ${fM.sum.gravingLos.toFixed(1)}`);
+  const nU = regn([], []), nM = regn([], kum);
+  const egen = [{ fra: 'a-4', til: 'a-6', mal: {}, fjell: null, egen: true }];
+  const eU = regn(egen, []), eM = regn(egen, kum);
+  sjekk('kum i egen grøft: gropa telles én gang', eM.sum.gravingLos - eU.sum.gravingLos,
+    nM.sum.gravingLos - nU.sum.gravingLos, 1.5);
+  const s = eM.sum;
+  sjekk('og regnestykket går opp', s.gravingLos + s.sprengning,
+    s.fundament + s.omfylling + s.gjenfylling + s.rorvolum + s.kumvolum, 1e-6);
+}
 
 console.log('\n7. Massebalansen');
 {

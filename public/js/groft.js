@@ -291,16 +291,31 @@ const Groft = (() => {
     /* 4b. KUMMENE: en rund grop per kum – et segment uten lengde, med flat
        bunn ut til ytre radius + arbeidsrom og skråning derfra. Bunnen er
        kumbunnen (0,25 m under bunnløpet) minus fundamentet. Kummen sitter på et
-       rør og føres på det; den er ikke med i rørets stasjoner. */
+       rør og føres på det; den er ikke med i rørets stasjoner.
+
+       KUMMEN ARVER STREKNINGEN DEN STÅR PÅ – fundamentet, helningen, fjellet
+       og «egen grøft» fra segmentene på hver side av knekkpunktet. Gropa er
+       som regel det dypeste i sine ruter, og det dypeste segmentets fjell er
+       det som gjelder der: uten arven ble fjellet under kummen regnet som
+       løsmasse, og sprengningen ble MINDRE med en kum enn uten. Og med en
+       annen gruppe enn den egne grøfta ble gropa gravd – og talt – for seg. */
     const arbeidsrom = Number.isFinite(o.kumArbeidsrom) ? o.kumArbeidsrom : 0.5;
     for (const K of o.kummer || []) {
       const r = ror.findIndex(rr => rr.linje.id === K.eier);
       if (r < 0 || !Number.isFinite(K.bunnlop) || !Number.isFinite(K.x) || !Number.isFinite(K.y)) continue;
-      const m = malFor(o.mal, ror[r].kodemal, null);
+      const xy = ror[r].linje.xy;
+      let iK = 0;
+      xy.forEach((q, i) => { if (Math.hypot(q.x - K.x, q.y - K.y) < Math.hypot(xy[iK].x - K.x, xy[iK].y - K.y)) iK = i; });
+      const naboer = [iK - 1, iK].filter(i => i >= 0 && i < ror[r].segmenter.length).map(i => seg[ror[r].segmenter[i]]);
+      const fj = naboer.map(s => s.fjell).filter(v => v != null);
+      const egen = naboer.find(s => s.gruppe > 0);
+      const kilde = egen || naboer.find(s => s.fjell != null) || naboer[0];
+      const m = kilde ? { fundament: kilde.fund, helning: kilde.hel } : malFor(o.mal, ror[r].kodemal, null);
       const ytre = (K.diameter > 0 ? K.diameter : 1000) / 1000 + 0.2, bunn = K.bunnlop - 0.25;
       const sg = lagSegment({ x: K.x, y: K.y }, { x: K.x, y: K.y }, bunn, bunn, {
         r, i: -1, eier: r, sa: 0, sb: 0, D: 0, w: ytre / 2 + arbeidsrom, fund: m.fundament, omf: 0,
-        hel: m.helning, fjell: null, gruppe: 0, virtuell: false, kum: { id: K.id, ytre, bunn }
+        hel: m.helning, fjell: fj.length ? fj.reduce((a, b) => a + b, 0) / fj.length : null,
+        gruppe: egen ? egen.gruppe : 0, virtuell: false, kum: { id: K.id, ytre, bunn }
       });
       sg.TA = sg.TB = T(K.x, K.y);
       seg.push(sg);
