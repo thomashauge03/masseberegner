@@ -3240,7 +3240,17 @@ const App = {
       this.visProsjektmasser();
     };
     if (!r || !r.punkter.length) { this.resultat = null; vis(); return null; }
-    this._settSone(Ror.tilLatLon(r.punkter[0], r.sone)[1]);
+    /* SONEN FØLGER RØRENE NÅR DE ER ALENE I PROSJEKTET.
+       `_settSone` setter den én gang. Ble fila lest i feil sone, sto
+       regnesonen igjen etter at sonen var rettet i rørfanen: punktene ved
+       Ydestad lest i sone 33 ligger på 13° Ø, og alt ble regnet videre i
+       sone 33 – uten terreng langs et eneste rør. Har prosjektet en veg eller
+       en tomt, er det den som bestemmer, som før. */
+    const lon = Ror.tilLatLon(r.punkter[0], r.sone)[1];
+    const andre = this.P.anlegg.some(a => a.type !== 'ror'
+      && ((a.ip && a.ip.length) || (a.tomt && a.tomt.punkter && a.tomt.punkter.length)));
+    if (!andre && Number.isFinite(lon)) { this.sone = Geo.sone(lon); this._soneSatt = true; }
+    else this._settSone(lon);
     const tilXY = Ror.lagTilXY(r.sone, this.sone);
     const bygg = Ror.byggLinjer(r, this.P.mal, tilXY);
     if (!this.terreng || this.terreng.sone !== this.sone || this.terreng.res !== 1) {

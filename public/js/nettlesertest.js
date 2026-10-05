@@ -168,7 +168,7 @@ const Nettlesertest = {
       'grensesnittbredder', 'panelhoder',
       'tomt', 'tomteksport', 'tomterydding', 'tomtsnittOverbygning',
       'tomt3d', 'veg3d', 'kartlag',
-      'rorArbeidsbilde', 'rorBeregning', 'rorImport', 'rorKart', 'rorFane', 'rorRetting',
+      'rorArbeidsbilde', 'rorBeregning', 'rorImport', 'rorSone', 'rorKart', 'rorFane', 'rorRetting',
       'rorProfil', 'ror3d', 'rorRapport', 'rorPdf', 'rorForklaring',
       'lovlighet', 'framdrift', 'gamleFilerOgUtskifting', 'opprydding'];
     for (const navn of proever) {
@@ -8246,6 +8246,49 @@ const Nettlesertest = {
       this.sjekk('fargene finnes i stilarket', !!farge && farge !== '#888', farge);
     } finally {
       await this._rorTilbake(foer);
+    }
+  },
+
+  /**
+   * Sonen rørene regnes i, følger fila når prosjektet bare har rør.
+   *
+   * Sonen settes én gang per prosjekt. Ble fila lest i feil sone ved
+   * importen, sto regnesonen igjen etter at sonen ble rettet i rørfanen:
+   * punktene ved Ydestad lest i sone 33 ligger på 13° Ø, og alt ble regnet
+   * i sone 33 videre.
+   */
+  async rorSone() {
+    const foer = JSON.stringify(App.P);
+    const soneFoer = App.sone, satt = App._soneSatt;
+    try {
+      App.P = App.nyttProsjekt();
+      App._soneSatt = false;
+      await RorUI.importerTekst(this._rorXml(), 'asbuilts_Prove.xml', {}, { sone: 33, maal: 'nytt' });
+      await this.ventPaBeregning(30000);
+      this.sjekk('feil sone i fila gir feil regnesone', App.sone === 33, String(App.sone));
+      App.visFane('ror');
+      const valg = document.getElementById('rorSoneFane');
+      valg.value = '32';
+      valg.dispatchEvent(new Event('change'));
+      await this.ventPaBeregning(30000);
+      this.sjekk('rettes sonen i rørfanen, følger regnesonen med', App.sone === 32, String(App.sone));
+      const r = App.resultat;
+      this.sjekk('og resultatet er regnet i den', r && r.type === 'ror' && r.sone === 32, r && String(r.sone));
+      const pr = r && r.profiler.get(r.linjer[0].id);
+      this.sjekk('og terrenget finnes langs røret', pr && Number.isFinite(pr.minOverdekning),
+        pr && String(pr.minOverdekning));
+      /* Har prosjektet en veg, er det vegen som bestemmer, som før. */
+      const veg = App.nyttAnlegg('veg', 'Veg i sone 32');
+      veg.ip = [{ lat: 58.14, lon: 7.07, r: 0 }, { lat: 58.141, lon: 7.072, r: 0 }];
+      App.P.anlegg.push(veg);
+      App.sone = 32; App._soneSatt = true;
+      App.P.ror.sone = 33;
+      App._terrengnokkel = '';
+      await App.beregnRor();
+      this.sjekk('med en veg i prosjektet står sonen fast', App.sone === 32, String(App.sone));
+    } finally {
+      await this._rorTilbake(foer);
+      App.sone = soneFoer; App._soneSatt = satt;
     }
   },
 
