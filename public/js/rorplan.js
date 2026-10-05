@@ -356,8 +356,147 @@ const RorPlan = (() => {
       kummer, kontroll, utenHoyde, merknader, moter };
   }
 
+  /** Motfall er motfall først under dette (‰) – avrunding er ikke motfall. */
+  const MOTFALL = -0.05;
+
+  /** Skjæringen mellom to strekk: { t, u } langs hvert, eller null. */
+  function kryssPunkt(a0, a1, b0, b1) {
+    const rx = a1.x - a0.x, ry = a1.y - a0.y, sx = b1.x - b0.x, sy = b1.y - b0.y;
+    const nevner = rx * sy - ry * sx;
+    if (Math.abs(nevner) < 1e-12) return null;
+    const qx = b0.x - a0.x, qy = b0.y - a0.y;
+    const t = (qx * sy - qy * sx) / nevner, u = (qx * ry - qy * rx) / nevner;
+    return t >= 0 && t <= 1 && u >= 0 && u <= 1 ? { t, u } : null;
+  }
+  const ramme = xy => xy.reduce((r, q) => ({ x0: Math.min(r.x0, q.x), x1: Math.max(r.x1, q.x),
+    y0: Math.min(r.y0, q.y), y1: Math.max(r.y1, q.y) }), { x0: Infinity, x1: -Infinity, y0: Infinity, y1: -Infinity });
+
+  /**
+   * Kontrollene på de planlagte rørene. Fjellet kommer fra grøfta – se `fjell`.
+   *
+   * OVERDEKNING prøves hver meter langs røret, mot rørets grense (det samme
+   * tallet de frie punktene legges på), og slås sammen til strekk. FALL er for
+   * selvfall, mellom kontrollpunktene, i fallretningen. KRYSSING finnes i plan
+   * mot hvert annet rør; klaringen er avstanden mellom utsidene i krysset.
+   *
+   * @param {object} o
+   *   bygg        – svaret fra `bygg`
+   *   koder, mal  – anleggets kodetabell og `mal.plan`
+   *   terrengZ    – i regnesonen
+   *   andre       – rør i andre anlegg: [{ id, kode, D, xy, topp: [z per punkt], navn }]
+   */
+  function kontroller(o) {
+    const b = o.bygg, ut = [], T = o.terrengZ || (() => NaN);
+    const m0 = v => fmt(v, 0), m1 = v => fmt(v, 1), m2 = v => fmt(v, 2);
+    // OVERDEKNING
+    for (const l of b.linjer) {
+      const grense = l.plan.grense, s = stasjonering(l.xy);
+      let fra = null, til = null, min = Infinity, ved = null;
+      const lukk = () => {
+        if (fra == null) return;
+        ut.push({ type: 'overdekning', linje: l.id, fra, til, x: ved.x, y: ved.y,
+          tekst: `${l.kode}: overdekning ned til ${m2(min)} m på ${m0(fra)}–${m0(til)} m (grense ${m2(grense)} m).` });
+        fra = null; min = Infinity;
+      };
+      const prov = (sv, x, y, topp) => {
+        const c = T(x, y) - topp;
+        if (!Number.isFinite(c) || c >= grense - 0.01) { lukk(); return; }
+        if (fra == null) fra = sv;
+        til = sv;
+        if (c < min) { min = c; ved = { x, y }; }
+      };
+      for (let i = 0; i + 1 < l.xy.length; i++) {
+        const L = s[i + 1] - s[i], a = l.xy[i], c = l.xy[i + 1], za = l.punkter[i].z, zc = l.punkter[i + 1].z;
+        for (let d = 0; d < L - 1e-9; d += STEG) {
+          const u = d / L;
+          prov(s[i] + d, a.x + (c.x - a.x) * u, a.y + (c.y - a.y) * u, za + (zc - za) * u);
+        }
+      }
+      const e = l.xy.length - 1;
+      prov(s[e], l.xy[e].x, l.xy[e].y, l.punkter[e].z);
+      lukk();
+    }
+    // FALL OG MOTFALL
+    for (const l of b.linjer) {
+      if (l.plan.regel !== 'selvfall') continue;
+      const k = kodeAv(o.koder, l.kode), lav = minFall(k), hoy = maksFall(k);
+      const ktr = b.kontroll.filter(c => c.ror === l.id).sort((a, c) => a.s - c.s);
+      for (let j = 1; j < ktr.length; j++) {
+        const a = ktr[j - 1], c = ktr[j], L = c.s - a.s;
+        if (!(L > 0.01)) continue;
+        const fall = 1000 * (l.plan.motsatt ? c.bunn - a.bunn : a.bunn - c.bunn) / L;
+        const v = { linje: l.id, fra: a.s, til: c.s, x: (a.x + c.x) / 2, y: (a.y + c.y) / 2 };
+        const hvor = `på ${m0(a.s)}–${m0(c.s)} m`;
+        if (fall < MOTFALL) {
+          ut.push(Object.assign(v, { type: 'motfall', tekst: `${l.kode}: motfall ${m1(-fall)} ‰ ${hvor}.` }));
+        } else if (lav > 0 && fall < lav - 0.005) {
+          ut.push(Object.assign(v, { type: 'fall', tekst: `${l.kode}: fall ${m1(fall)} ‰ ${hvor} – under ${m1(lav)} ‰.` }));
+        } else if (hoy != null && fall > hoy + 0.005) {
+          ut.push(Object.assign(v, { type: 'fall', tekst: `${l.kode}: fall ${m1(fall)} ‰ ${hvor} – over ${m1(hoy)} ‰.` }));
+        }
+      }
+    }
+    // KRYSSING
+    const grense = o.mal && Number.isFinite(o.mal.kryssKlaring) ? o.mal.kryssKlaring : StandardPlanmal.kryssKlaring;
+    const egne = b.linjer.map(l => ({ id: l.id, kode: l.kode, D: kodeAv(o.koder, l.kode).dim / 1000, xy: l.xy,
+      topp: l.punkter.map(p => p.z), egen: true }));
+    const alle = egne.concat(o.andre || []).map(x => Object.assign({ boks: ramme(x.xy) }, x));
+    const moter = b.moter || [];
+    for (let ia = 0; ia < egne.length; ia++) {
+      const A = alle[ia], sA = stasjonering(A.xy);
+      for (let ib = 0; ib < alle.length; ib++) {
+        const B = alle[ib];
+        if (B.egen && ib <= ia) continue;   // hvert par av planlagte én gang
+        if (A.boks.x1 < B.boks.x0 || B.boks.x1 < A.boks.x0 || A.boks.y1 < B.boks.y0 || B.boks.y1 < A.boks.y0) continue;
+        for (let i = 0; i + 1 < A.xy.length; i++) {
+          for (let j = 0; j + 1 < B.xy.length; j++) {
+            const kr = kryssPunkt(A.xy[i], A.xy[i + 1], B.xy[j], B.xy[j + 1]);
+            if (!kr) continue;
+            const P = { x: A.xy[i].x + (A.xy[i + 1].x - A.xy[i].x) * kr.t, y: A.xy[i].y + (A.xy[i + 1].y - A.xy[i].y) * kr.t };
+            if (moter.some(m => Math.hypot(m.x - P.x, m.y - P.y) <= m.r)) continue;
+            const tA = A.topp[i] + (A.topp[i + 1] - A.topp[i]) * kr.t, tB = B.topp[j] + (B.topp[j + 1] - B.topp[j]) * kr.u;
+            if (!Number.isFinite(tA) || !Number.isFinite(tB)) continue;
+            const klaring = Math.max(tA - A.D - tB, tB - B.D - tA);
+            if (klaring >= grense) continue;
+            const sv = sA[i] + (sA[i + 1] - sA[i]) * kr.t;
+            // et kryss i et knekkpunkt på det andre røret finnes i to strekk – ett varsel
+            if (ut.some(v => v.type === 'kryss' && v.linje === A.id && v.mot === B.id && Math.abs(v.fra - sv) < 0.5)) continue;
+            const hvem = `${B.kode}${B.navn ? ' (' + B.navn + ')' : ''}`;
+            ut.push({ type: 'kryss', linje: A.id, mot: B.id, fra: sv, til: sv, x: P.x, y: P.y, tekst: klaring < 0
+              ? `${A.kode} treffer ${hvem} ved ${m0(sv)} m.`
+              : `${A.kode} krysser ${hvem} med ${m2(klaring)} m klaring ved ${m0(sv)} m (grense ${m2(grense)} m).` });
+          }
+        }
+      }
+    }
+    return ut;
+  }
+
+  /** Fjell i grøfta, per rør – en opplysning, ikke en feil: hvor langt og hvor mye. */
+  function fjell(g, b) {
+    const ut = [];
+    if (!g || !g.profiler) return ut;
+    for (const l of b.linjer) {
+      const pr = g.profiler.get(l.id), per = g.perLinje.get(l.id);
+      if (!pr || !per) continue;
+      let lengde = 0, fra = null, til = null;
+      for (let i = 0; i + 1 < pr.length; i++) {
+        const q = pr[i];
+        if (q.fjell == null || !Number.isFinite(q.gravebunn) || q.fjell <= q.gravebunn) continue;
+        lengde += pr[i + 1].s - q.s;
+        if (fra == null) fra = q.s;
+        til = pr[i + 1].s;
+      }
+      if (lengde > 0.5) {
+        ut.push({ type: 'fjell', linje: l.id, fra, til,
+          tekst: `${l.kode}: grøfta går i fjell på ${fmt(lengde, 0)} m – sprengning ${fmt(per.sprengning, 0)} m³.` });
+      }
+    }
+    return ut;
+  }
+
   return { StandardPlanmal, GRENSER, nyPlan, nyPlanmal, klem, nyId, alleIder, kodeAv, gods,
-    toppFraBunn, bunnFraTopp, regel, overdekning, minFall, maksFall, forskyv, stasjonering, bygg };
+    toppFraBunn, bunnFraTopp, regel, overdekning, minFall, maksFall, forskyv, stasjonering, bygg, kontroller, fjell };
 })();
 
 if (typeof module !== 'undefined') module.exports = RorPlan;

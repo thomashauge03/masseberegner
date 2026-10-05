@@ -198,6 +198,63 @@ const flatt = () => 10;
   paastand('«Med» slått av: røret er ikke med', b.linjer.length === 0 && b.utenHoyde.length === 0);
 }
 
+console.log('\n4. Kontrollene');
+{
+  // overdekning: selvfall rett mellom to låste ender, terrenget har en dump midt på
+  const topp8 = RorPlan.bunnFraTopp(8, SP);
+  const p = plan1([[0, 0], [100, 0]], [{ kode: 'SP 160PE' }],
+    { laast: [{ ror: 'r1', punkt: 'p1', bunn: topp8 }, { ror: 'r1', punkt: 'p2', bunn: topp8 }] });
+  const T = x => (x >= 40 && x <= 60 ? 9 : 10);
+  const od = RorPlan.kontroller({ bygg: bygg(p, T), koder: {}, mal: RorPlan.nyPlanmal(), terrengZ: T, andre: [] })
+    .filter(v => v.type === 'overdekning');
+  paastand('overdekning: ett strekk i dumpa', od.length === 1, JSON.stringify(od));
+  sjekk('fra', od[0].fra, 40, 1e-9);
+  sjekk('til', od[0].til, 60, 1e-9);
+  paastand('teksten sier hvor lite, og grensen', /1,00 m/.test(od[0].tekst) && /2,00 m/.test(od[0].tekst), od[0].tekst);
+}
+{
+  // fall: motfall, for lite, for mye, og fallretningen snudd
+  const fall = (b0, b1, ekstra = {}, koder = {}) => RorPlan.kontroller({
+    bygg: bygg(plan1([[0, 0], [100, 0]], [Object.assign({ kode: 'SP 160PE' }, ekstra)],
+      { laast: [{ ror: 'r1', punkt: 'p1', bunn: b0 }, { ror: 'r1', punkt: 'p2', bunn: b1 }] }), flatt, { koder }),
+    koder, mal: RorPlan.nyPlanmal(), terrengZ: flatt, andre: [] });
+  paastand('motfall', fall(7.0, 7.2).some(v => v.type === 'motfall'));
+  paastand('fall under 10 ‰', fall(7.3, 7.0).some(v => v.type === 'fall' && /3,0 ‰/.test(v.tekst)));
+  paastand('nok fall: ingen varsel', !fall(8.5, 7.0).some(v => v.type === 'fall' || v.type === 'motfall'));
+  const maks = { 'SP 160PE': Object.assign({}, SP, { maksFall: 4, minFall: 0 }) };
+  paastand('over største fall', fall(7.5, 7.0, {}, maks).some(v => v.type === 'fall' && /over 4,0 ‰/.test(v.tekst)));
+  paastand('fallretningen snudd: motfallet er borte', !fall(7.0, 7.2, { motsatt: true }).some(v => v.type === 'motfall'));
+  paastand('trykk sjekkes ikke for fall', !fall(7.0, 7.2, { regel: 'trykk' }).some(v => v.type === 'motfall' || v.type === 'fall'));
+}
+{
+  // kryssing: et planlagt rør (topp 8,0, bunn 7,84) over et innmålt med kjent høyde
+  const b = bygg(plan1([[0, 0], [100, 0]], [{ kode: 'SP 160PE' }]), flatt);
+  const kr = toppB => RorPlan.kontroller({ bygg: b, koder: {}, mal: RorPlan.nyPlanmal(), terrengZ: flatt,
+    andre: [{ id: 'x', kode: '110PE', D: 0.11, xy: [{ x: 50, y: -20 }, { x: 50, y: 20 }], topp: [toppB, toppB], navn: 'Innmålt' }] })
+    .filter(v => v.type === 'kryss');
+  paastand('klaring 0,24 m: varsel', kr(7.6).length === 1 && /0,24 m/.test(kr(7.6)[0].tekst), JSON.stringify(kr(7.6)));
+  paastand('klaring 0,84 m: ingen', kr(7.0).length === 0);
+  paastand('rørene treffer hverandre', kr(7.9).length === 1 && /treffer/.test(kr(7.9)[0].tekst));
+  sjekk('varselet står i krysset', kr(7.6)[0].x, 50, 1e-9);
+  // en grein som møter hovedrøret, er ikke et kryss – heller ikke når koden er en annen
+  const g = Object.assign(RorPlan.nyPlan(), {
+    traseer: [{ id: 't1', punkter: [{ id: 'p1', lat: 0, lon: 0 }, { id: 'p2', lat: 0, lon: 100 }] },
+      { id: 't2', punkter: [{ id: 'p3', lat: 0, lon: 50 }, { id: 'p4', lat: 30, lon: 50 }] }],
+    ror: [{ id: 'r1', trase: 't1', kode: 'SP 160PE', side: 0 }, { id: 'r2', trase: 't2', kode: 'VL 110PE', side: 0 }],
+    greiner: [{ trase: 't2', ende: 'start', til: { trase: 't1', punkt: 'p1' } }]
+  });
+  paastand('en grein som møter hovedrøret, er ikke et kryss', !RorPlan.kontroller({ bygg: bygg(g, flatt), koder: {},
+    mal: RorPlan.nyPlanmal(), terrengZ: flatt, andre: [] }).some(v => v.type === 'kryss'));
+}
+{
+  // fjell fra grøfta: en opplysning per rør
+  const b = bygg(plan1([[0, 0], [100, 0]], [{ kode: 'SP 160PE' }]), flatt);
+  const pr = [];
+  for (let s = 0; s <= 100; s++) pr.push({ s, gravebunn: 7.69, fjell: s >= 20 && s < 50 ? 8.5 : null });
+  const f = RorPlan.fjell({ profiler: new Map([['r1', pr]]), perLinje: new Map([['r1', { sprengning: 24.6 }]]) }, b);
+  paastand('fjell: lengde og sprengning', f.length === 1 && /30 m/.test(f[0].tekst) && /25 m³/.test(f[0].tekst), JSON.stringify(f));
+}
+
 /* ---------------- sluttsum ---------------- */
 console.log(`\n${ok} tester ok, ${feil} feil`);
 process.exit(feil ? 1 : 0);
