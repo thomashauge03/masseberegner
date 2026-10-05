@@ -170,7 +170,7 @@ const Nettlesertest = {
       'tomt3d', 'veg3d', 'kartlag',
       'rorArbeidsbilde', 'rorBeregning', 'rorImport', 'rorSone', 'rorKart', 'rorFane', 'rorRetting',
       'rorProfil', 'ror3d', 'rorRapport', 'rorPdf', 'rorForklaring',
-      'groftBeregning',
+      'groftBeregning', 'groftFane',
       'lovlighet', 'framdrift', 'gamleFilerOgUtskifting', 'opprydding'];
     for (const navn of proever) {
       try {
@@ -8865,6 +8865,41 @@ const Nettlesertest = {
           `${s.lengde} / ${ror}`);
         this.sjekk('grøftemalen ligger på anlegget', App.P.mal.groft && App.P.mal.groft.helning === 1);
         this.sjekk('justeringene er tomme', App.P.ror.groft.strekninger.length === 0);
+      });
+    } finally {
+      await this._rorTilbake(foer);
+    }
+  },
+
+  /** Grøftedelen i Rør-fanen: feltene, tallene, og at en endring regnes om og kan angres. */
+  async groftFane() {
+    const foer = JSON.stringify(App.P);
+    try {
+      await this._medFlattTerreng(21.5, async () => {
+        App.P = App.nyttProsjekt();
+        await RorUI.importerTekst(this._rorXml(), 'asbuilts_Prove.xml', {}, { sone: 32, maal: 'nytt' });
+        clearTimeout(App._tidsavbrudd);
+        await App.beregnRor();
+        App.visFane('ror');
+        const fane = document.getElementById('rorInnhold');
+        this.sjekk('grøftedelen står i Rør-fanen', /Grøft/.test(fane.textContent) && !!fane.querySelector('#groftHelning'));
+        this.sjekk('med graving i m³', /Graving løsmasse/.test(fane.textContent));
+        this.sjekk('og løpemeter etter dybde', /Grøft etter dybde/.test(fane.textContent));
+        this.sjekk('og massebalansen', /Massebalanse/.test(fane.textContent));
+        this.sjekk('hvert rør i lista har sin graving', /graving \d/.test(fane.querySelector('.rorliste').textContent));
+        const foerGraving = App.resultat.groft.sum.gravingLos;
+        const felt = fane.querySelector('#groftHelning');
+        felt.value = '0.5'; felt.dispatchEvent(new Event('change', { bubbles: true }));
+        this.sjekk('helningen lagres i grøftemalen', App.P.mal.groft.helning === 0.5);
+        clearTimeout(App._tidsavbrudd);
+        await App.beregnRor();
+        this.sjekk('og grøfta blir smalere', App.resultat.groft.sum.gravingLos < foerGraving - 1,
+          `${App.resultat.groft.sum.gravingLos} / ${foerGraving}`);
+        await App.angre();
+        this.sjekk('angre gir 1:1 tilbake', App.P.mal.groft.helning === 1);
+        const tull = document.getElementById('rorInnhold').querySelector('#groftFundament');
+        tull.value = 'abc'; tull.dispatchEvent(new Event('change', { bubbles: true }));
+        this.sjekk('et felt som ikke er et tall, endrer ingenting', App.P.mal.groft.fundament === 0.15);
       });
     } finally {
       await this._rorTilbake(foer);

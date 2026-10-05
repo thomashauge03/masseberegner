@@ -976,6 +976,13 @@ button.rorlinje.aktiv { background: var(--flate-2); box-shadow: inset 2px 0 0 va
 .rorinnstilling { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 6px 0; }
 ul.rormerknader { margin: 4px 0 8px 18px; padding: 0; }
 
+/* ── grøfta ───────────────────────────────────────────────── */
+table.groftkodetall { width: 100%; border-collapse: collapse; font-size: 12px; }
+table.groftkodetall th, table.groftkodetall td { padding: 3px 4px; text-align: right; border-bottom: 1px solid var(--kant); }
+table.groftkodetall th:first-child, table.groftkodetall th[scope="row"] { text-align: left; }
+ul.groftjusteringer { margin: 4px 0; padding-left: 18px; font-size: 12px; }
+ul.groftjusteringer li { margin: 3px 0; }
+
 .framdriftboks {
   background: var(--flate-opp); border: 2px solid var(--kant-sterk);
   padding: 18px 22px; width: 360px; text-align: center; box-shadow: 6px 6px 0 0 rgba(0,0,0,.5);

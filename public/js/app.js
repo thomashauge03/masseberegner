@@ -2050,6 +2050,7 @@ const App = {
     Pdfrapport.init(this);
     PdfUI.init(this);
     RorUI.init(this);
+    GroftUI.init(this);
     Rorprofil.init(this);
     Ror3d.init(this);
     this.koblingerUI();

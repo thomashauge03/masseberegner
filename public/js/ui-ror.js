@@ -547,9 +547,11 @@ const RorUI = {
         + `<b>${escapeHtml(k)}</b><span class="notis">${kd.dim ? '⌀' + kd.dim + ' · ' : ''}${t(sum)} m</span></div>`;
       linjer.forEach((l, i) => {
         const pr = res && res.profiler.get(l.id);
+        const gr = res && res.groft && res.groft.perLinje.get(l.id);
         liste += `<button class="rorlinje${l.id === this.valgt ? ' aktiv' : ''}" data-linje="${escapeAttr(l.id)}">`
           + `${linjer.length > 1 ? (i + 1) + '. ' : ''}${t(l.lengde * bf, 1)} m · ${l.punkter.length} punkt`
-          + (pr ? ` · overdekning ${Ror.spenn(pr.minOverdekning, pr.maksOverdekning, v => t(v, 2))} m` : '') + '</button>';
+          + (pr ? ` · overdekning ${Ror.spenn(pr.minOverdekning, pr.maksOverdekning, v => t(v, 2))} m` : '')
+          + (gr ? ` · graving ${t(gr.gravingLos + gr.sprengning)} m³` : '') + '</button>';
       });
       liste += '</div>';
     }
@@ -564,6 +566,7 @@ const RorUI = {
       <h3>Rørene</h3>
       <div class="rorliste">${liste || '<p class="tomtekst">Ingen rør – sjekk kodene og maks avstand.</p>'}</div>
       ${merknader ? `<h3>Merknader</h3><ul class="rormerknader">${merknader}</ul>` : ''}
+      ${GroftUI.html(r, res)}
       <h3>Innstillinger</h3>
       <div class="rorinnstilling"><label for="rorSoneFane">Koordinatsystem i fila</label>
         <select id="rorSoneFane" class="minivalg">${[32, 33, 35].map(z =>
@@ -577,6 +580,7 @@ const RorUI = {
         <button class="knapp" id="rorTilbakestill"${ret.av.length + ret.brudd.length + ret.koble.length ? '' : ' disabled'}>Tilbakestill rettinger</button>
         <button class="knapp" id="rorImportNy">Importer nyere fil…</button>
       </div>`;
+    GroftUI.koble(e);
     for (const b of e.querySelectorAll('[data-linje]')) b.onclick = () => this.velgLinje(b.dataset.linje);
     e.querySelector('#rorSoneFane').onchange = ev => {
       app.merk('endret koordinatsystem');
