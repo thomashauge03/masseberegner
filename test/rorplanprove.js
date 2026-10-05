@@ -225,6 +225,15 @@ console.log('\n4. Kontrollene');
   paastand('over største fall', fall(7.5, 7.0, {}, maks).some(v => v.type === 'fall' && /over 4,0 ‰/.test(v.tekst)));
   paastand('fallretningen snudd: motfallet er borte', !fall(7.0, 7.2, { motsatt: true }).some(v => v.type === 'motfall'));
   paastand('trykk sjekkes ikke for fall', !fall(7.0, 7.2, { regel: 'trykk' }).some(v => v.type === 'motfall' || v.type === 'fall'));
+  /* Høydene låses på hel millimeter. 10 ‰ over 40,35 m er 403,5 mm – lagret
+     som 403 mm er det 9,99 ‰, og «fall 10,0 ‰ – under 10,0 ‰» er tull. */
+  const spenn = (L, b0, b1) => RorPlan.kontroller({
+    bygg: bygg(plan1([[0, 0], [L, 0]], [{ kode: 'SP 160PE' }],
+      { laast: [{ ror: 'r1', punkt: 'p1', bunn: b0 }, { ror: 'r1', punkt: 'p2', bunn: b1 }] }), flatt),
+    koder: {}, mal: RorPlan.nyPlanmal(), terrengZ: flatt, andre: [] }).filter(v => v.type === 'fall' || v.type === 'motfall');
+  paastand('millimeteravrunding er ikke for lite fall', spenn(40.35, 7.0, 6.597).length === 0, JSON.stringify(spenn(40.35, 7.0, 6.597)));
+  paastand('på et kort strekk er en millimeter mer enn en promille', spenn(2, 7.0, 6.981).length === 0);
+  paastand('men for lite fall er fortsatt for lite', spenn(2, 7.0, 6.985).some(v => v.type === 'fall'));
 }
 {
   // kryssing: et planlagt rør (topp 8,0, bunn 7,84) over et innmålt med kjent høyde

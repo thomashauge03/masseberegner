@@ -356,7 +356,8 @@ const RorPlan = (() => {
       kummer, kontroll, utenHoyde, merknader, moter };
   }
 
-  /** Motfall er motfall først under dette (‰) – avrunding er ikke motfall. */
+  /** Motfall er motfall først under dette (‰) – avrunding er ikke motfall. På
+      korte strekk er grensen større: se toleransen i `kontroller`. */
   const MOTFALL = -0.05;
 
   /** Skjæringen mellom to strekk: { t, u } langs hvert, eller null. */
@@ -427,11 +428,14 @@ const RorPlan = (() => {
         const fall = 1000 * (l.plan.motsatt ? c.bunn - a.bunn : a.bunn - c.bunn) / L;
         const v = { linje: l.id, fra: a.s, til: c.s, x: (a.x + c.x) / 2, y: (a.y + c.y) / 2 };
         const hvor = `på ${m0(a.s)}–${m0(c.s)} m`;
-        if (fall < MOTFALL) {
+        /* Høydene låses på hel millimeter, så fallet over strekket kan ikke
+           treffes bedre enn 1 mm / L. Innenfor det er avviket avrunding. */
+        const tol = Math.max(-MOTFALL, 1 / L);
+        if (fall < -tol) {
           ut.push(Object.assign(v, { type: 'motfall', tekst: `${l.kode}: motfall ${m1(-fall)} ‰ ${hvor}.` }));
-        } else if (lav > 0 && fall < lav - 0.005) {
+        } else if (lav > 0 && fall < lav - tol) {
           ut.push(Object.assign(v, { type: 'fall', tekst: `${l.kode}: fall ${m1(fall)} ‰ ${hvor} – under ${m1(lav)} ‰.` }));
-        } else if (hoy != null && fall > hoy + 0.005) {
+        } else if (hoy != null && fall > hoy + tol) {
           ut.push(Object.assign(v, { type: 'fall', tekst: `${l.kode}: fall ${m1(fall)} ‰ ${hvor} – over ${m1(hoy)} ‰.` }));
         }
       }

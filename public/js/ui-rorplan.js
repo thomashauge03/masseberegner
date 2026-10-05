@@ -558,6 +558,127 @@ const RorPlanUI = {
     }
     app.tegnAlt();
     app.planlegg(30);
+  },
+
+  /* ---------------- høydene i profilen ---------------- */
+
+  /**
+   * Punktfeltet for et punkt på et tegnet rør: bunn innvendig, lås og lås opp,
+   * for selvfall fallet videre, og «Hent på nytt» for en påkobling.
+   */
+  punktfelt(rorId, punkt) {
+    const app = this.app, plan = this.plan(), res = app.resultat;
+    const ror = plan.ror.find(x => x.id === rorId);
+    if (!ror) return;
+    const k = RorPlan.kodeAv(app.P.ror.koder, ror.kode);
+    const L = plan.laast.find(x => x.ror === rorId && x.punkt === punkt);
+    const kum = plan.kummer.find(x => x.ror === rorId && x.punkt === punkt);
+    const c = res && res.kontroll ? res.kontroll.find(x => x.ror === rorId && x.punkt === punkt) : null;
+    const l = res && res.linjer.find(x => x.id === rorId);
+    const lp = l && l.punkter.find(p => p.id === rorId + ':' + punkt);
+    const bunnNa = L ? L.bunn : c ? c.bunn : lp ? RorPlan.bunnFraTopp(lp.z, k) : NaN;
+    const selvfall = RorPlan.regel(ror, k) === 'selvfall';
+    const boks = document.getElementById('dialog'), innhold = document.getElementById('dialoginnhold');
+    document.getElementById('dialogtittel').textContent = `${ror.kode} · ${kum ? 'kum ' + kum.id : 'punkt ' + punkt}`;
+    innhold.innerHTML = `<p class="notis">${L ? (L.kilde ? 'Låst – hentet fra et innmålt rør.' : 'Låst.')
+      : 'Fri – følger overdekningen under terrenget.'}</p>`
+      + `<div class="rorinnstilling"><label for="ppBunn">Bunn innvendig</label><input id="ppBunn" class="minitall" type="number" step="0.01" `
+      + `value="${Number.isFinite(bunnNa) ? bunnNa.toFixed(3) : ''}"> moh</div>`
+      + (selvfall ? '<div class="rorinnstilling"><label for="ppFall">Fall videre i fallretningen</label>'
+        + '<input id="ppFall" class="minitall" type="number" step="0.5" min="0"> ‰ <button class="knapp" id="ppFallKnapp">Sett</button></div>' : '')
+      + '<div class="knapperad" style="justify-content:flex-end">'
+      + (L && L.kilde ? '<button class="knapp" id="ppHent">Hent på nytt</button>' : '')
+      + (L ? '<button class="knapp" id="ppLaasOpp">Lås opp</button>' : '')
+      + '<button class="knapp" id="ppAvbryt">Avbryt</button><button class="knapp primaer" id="ppLaas">Lås</button></div>';
+    const lukk = () => boks.classList.add('skjult');
+    const tall = id => parseFloat(String(innhold.querySelector('#' + id).value).replace(',', '.'));
+    innhold.querySelector('#ppAvbryt').onclick = lukk;
+    innhold.querySelector('#ppLaas').onclick = () => {
+      const v = tall('ppBunn');
+      if (!Number.isFinite(v)) { app.status('Skriv bunn innvendig i meter over havet'); return; }
+      lukk(); this.laas(rorId, punkt, v);
+    };
+    if (L) innhold.querySelector('#ppLaasOpp').onclick = () => { lukk(); this.laasOpp(rorId, punkt); };
+    if (L && L.kilde) innhold.querySelector('#ppHent').onclick = () => { lukk(); this.hentPaNytt(rorId, punkt); };
+    if (selvfall) {
+      innhold.querySelector('#ppFallKnapp').onclick = () => { const f = tall('ppFall'); lukk(); this.fallVidere(rorId, punkt, f, tall('ppBunn')); };
+    }
+    boks.classList.remove('skjult');
+  },
+
+  /** Låser bunn innvendig i et punkt. En høyde man skriver selv, er ikke lenger hentet fra et annet rør. */
+  laas(rorId, punkt, bunn) {
+    const app = this.app;
+    app.merk('låste høyde');
+    this._settLaast(rorId, punkt, bunn);
+    app.tegnAlt();
+    app.planlegg(30);
+    app.status(`Bunn innvendig låst på ${Rapport.tall(bunn, 2)}`);
+  },
+
+  _settLaast(rorId, punkt, bunn) {
+    const plan = this.plan(), ny = { ror: rorId, punkt, bunn: Math.round(bunn * 1000) / 1000 };
+    const i = plan.laast.findIndex(x => x.ror === rorId && x.punkt === punkt);
+    if (i >= 0) plan.laast[i] = ny; else plan.laast.push(ny);
+  },
+
+  laasOpp(rorId, punkt) {
+    const app = this.app, plan = this.plan();
+    app.merk('låste opp høyde');
+    plan.laast = plan.laast.filter(x => !(x.ror === rorId && x.punkt === punkt));
+    app.tegnAlt();
+    app.planlegg(30);
+    app.status('Høyden følger overdekningen igjen');
+  },
+
+  /**
+   * Fall videre: låser dette punktet der det står, og neste kontrollpunkt i
+   * fallretningen så fallet mellom dem blir det som er skrevet.
+   */
+  fallVidere(rorId, punkt, fall, bunnHer) {
+    const app = this.app, res = app.resultat, ror = this.plan().ror.find(x => x.id === rorId);
+    if (!Number.isFinite(fall)) { app.status('Skriv fallet i promille'); return; }
+    const ktr = (res && res.kontroll ? res.kontroll : []).filter(c => c.ror === rorId).sort((a, b) => a.s - b.s);
+    const j = ktr.findIndex(c => c.punkt === punkt);
+    const neste = j < 0 || !ror ? null : ktr[ror.motsatt ? j - 1 : j + 1];
+    if (!neste) { app.status('Ingen kontrollpunkt videre i fallretningen – sett en kum eller lås en høyde der først'); return; }
+    const her = Number.isFinite(bunnHer) ? bunnHer : ktr[j].bunn;
+    const bunnNeste = her - fall / 1000 * Math.abs(neste.s - ktr[j].s);
+    app.merk('satte fall');
+    this._settLaast(rorId, punkt, her);
+    this._settLaast(rorId, neste.punkt, bunnNeste);
+    app.tegnAlt();
+    app.planlegg(30);
+    app.status(`Fall ${Rapport.tall(fall, 1)} ‰ – bunnløpet i neste kontrollpunkt er låst på ${Rapport.tall(bunnNeste, 2)}`);
+  },
+
+  /** Henter høyden i en påkobling på nytt fra det innmålte røret. */
+  hentPaNytt(rorId, punkt) {
+    const app = this.app, plan = this.plan();
+    const L = plan.laast.find(x => x.ror === rorId && x.punkt === punkt);
+    if (!L || !L.kilde) return;
+    const a = app.P.anlegg.find(x => x.id === L.kilde.anlegg);
+    const p = a && a.ror && !a.ror.plan ? a.ror.punkter.find(x => x.id === L.kilde.punkt) : null;
+    if (!p) { app.status('Punktet røret er koblet på, finnes ikke lenger'); return; }
+    app.merk('hentet påkoblingen på nytt');
+    L.bunn = Math.round(RorPlan.bunnFraTopp(p.z, RorPlan.kodeAv(a.ror.koder, p.kode)) * 1000) / 1000;
+    L.kilde.topp = p.z;
+    app.tegnAlt();
+    app.planlegg(30);
+    app.status(`Påkoblingen er hentet på nytt: bunn innvendig ${Rapport.tall(L.bunn, 2)}`);
+  },
+
+  /** Setter inn et tracepunkt der røret er i profilen – på stasjon s langs røret. */
+  settInnVed(rorId, s) {
+    const app = this.app, res = app.resultat, ror = this.plan().ror.find(x => x.id === rorId);
+    const l = res && res.linjer.find(x => x.id === rorId);
+    if (!ror || !l) return null;
+    const st = RorPlan.stasjonering(l.xy);
+    let i = 1;
+    while (i < st.length - 1 && st[i] < s) i++;
+    const a = l.xy[i - 1], b = l.xy[i], len = st[i] - st[i - 1], u = len > 0 ? (s - st[i - 1]) / len : 0;
+    const g = Geo.fraUtm(a.x + (b.x - a.x) * u, a.y + (b.y - a.y) * u, res.sone);
+    return this.settInnPaaTrase(ror.trase, L.latLng(g.lat, g.lon));
   }
 };
 

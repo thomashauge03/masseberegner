@@ -233,7 +233,7 @@ Endres terrenget eller overdekningen, flytter de frie høydene seg; de låste st
 | Kontroll | Varsler når | Grense |
 |---|---|---|
 | Overdekning | `T − topp` er under grensen (1 cm å gå på), slått sammen til strekk | Rørets overdekning – det samme tallet de frie punktene legges på |
-| Fall | Selvfall: motfall (under −0,05 ‰), fall under `minFall`, eller over `maksFall` når den er satt | Standard `minFall`: spillvann og felles 10 ‰, overvann og drens 5 ‰. Trykk sjekkes ikke |
+| Fall | Selvfall: motfall, fall under `minFall`, eller over `maksFall` når den er satt – med toleransen max(0,05 ‰, 1 mm / L), siden høydene låses på hel millimeter | Standard `minFall`: spillvann og felles 10 ‰, overvann og drens 5 ‰. Trykk sjekkes ikke |
 | Kryssing | Et planlagt rør krysser et annet – innmålt i et annet anlegg, eller planlagt – med klaring under grensen, eller treffer det | `kryssKlaring`, 0,3 m; klaringen er avstanden mellom utsidene i krysset |
 | Fjell | Grøfta går i fjell (fra etappe 2: strekninger og sonderinger) | Ingen – en opplysning: rør, lengde i fjell og sprengning |
 

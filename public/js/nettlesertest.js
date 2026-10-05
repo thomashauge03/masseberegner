@@ -172,7 +172,7 @@ const Nettlesertest = {
       'rorProfil', 'ror3d', 'rorRapport', 'rorPdf', 'rorForklaring',
       'groftBeregning', 'groftFane', 'groftKoder', 'groftVerktoy', 'groftKnutepunkt', 'groftProfil', 'groft3d',
       'groftRapport',
-      'planBeregning', 'planNyttAnlegg', 'planTegnTrase', 'planRediger', 'planFane',
+      'planBeregning', 'planNyttAnlegg', 'planTegnTrase', 'planRediger', 'planFane', 'planProfil',
       'lovlighet', 'framdrift', 'gamleFilerOgUtskifting', 'opprydding'];
     for (const navn of proever) {
       try {
@@ -9262,6 +9262,67 @@ const Nettlesertest = {
         regel.value = 'trykk';
         regel.dispatchEvent(new Event('change', { bubbles: true }));
         this.sjekk('og regelen', App.P.ror.koder[kode].regel === 'trykk');
+      });
+    } finally {
+      await this._rorTilbake(foer);
+    }
+  },
+
+  /** Profilen til et tegnet rør: kontrollpunktene, punktfeltet, fall videre, klikk og dra. */
+  async planProfil() {
+    const foer = JSON.stringify(App.P);
+    try {
+      await this._medFlattTerreng(21.5, async () => {
+        await this._planProsjekt();
+        RorUI.velgLinje('r1');
+        const SP = RorPlan.kodeAv(App.P.ror.koder, 'SP 160PE');
+        const data = () => Rorprofil.dataFor(App, App.resultat, App.resultat.linjer.find(x => x.id === 'r1'));
+        this.sjekk('profilen får kontrollpunktene: endene og kummen', data().plan && data().plan.kontroll.length === 3);
+        RorPlanUI.punktfelt('r1', 'p3');
+        const felt = document.getElementById('ppBunn');
+        this.sjekk('punktfeltet viser bunn innvendig', !!felt
+          && Math.abs(parseFloat(felt.value) - RorPlan.bunnFraTopp(19.5, SP)) < 0.001, felt && felt.value);
+        felt.value = '19.0';
+        document.getElementById('ppLaas').click();
+        this.sjekk('høyden er låst', App.P.ror.plan.laast.some(x => x.ror === 'r1' && x.punkt === 'p3' && x.bunn === 19));
+        clearTimeout(App._tidsavbrudd);
+        await App.beregnRor();
+        RorPlanUI.punktfelt('r1', 'p1');
+        document.getElementById('ppFall').value = '30';
+        document.getElementById('ppFallKnapp').click();
+        const L1 = App.P.ror.plan.laast.find(x => x.ror === 'r1' && x.punkt === 'p1');
+        const L2 = App.P.ror.plan.laast.find(x => x.ror === 'r1' && x.punkt === 'p2');
+        const k = App.resultat.kontroll.filter(c => c.ror === 'r1');
+        const ds = k.find(c => c.punkt === 'p2').s - k.find(c => c.punkt === 'p1').s;
+        this.sjekk('fall videre låser begge ender av strekket', !!L1 && !!L2 && Math.abs((L1.bunn - L2.bunn) / ds - 0.030) < 1e-4);
+        clearTimeout(App._tidsavbrudd);
+        await App.beregnRor();
+        this.sjekk('og motfallet opp til p3 varsles', App.resultat.merknader.some(m => m.type === 'motfall' && m.linje === 'r1'));
+        const tekst = Rorprofil.tegnPaa(Rorprofil.lerret, data(), { peker: 100, bunn: 48 });
+        this.sjekk('avlesningen gir bunn innvendig og fallet i promille', /bunn innv\. /.test(tekst) && /fall 30,0 ‰/.test(tekst)
+          && !/ %/.test(tekst), tekst);
+        // klikk på et kontrollpunkt i profilen åpner punktfeltet; dra låser det lavere
+        Rorprofil.tegn();
+        const sk = Rorprofil._skala, c3 = data().plan.kontroll.find(c => c.punkt === 'p3');
+        const rect = Rorprofil.lerret.getBoundingClientRect();
+        const mus = (type, dy) => Rorprofil.lerret.dispatchEvent(new MouseEvent(type,
+          { clientX: rect.left + sk.X(c3.s), clientY: rect.top + sk.Y(c3.topp) + dy, bubbles: true }));
+        mus('mousedown', 0); mus('mouseup', 0);
+        this.sjekk('klikk på et kontrollpunkt åpner punktfeltet', !document.getElementById('dialog').classList.contains('skjult')
+          && !!document.getElementById('ppBunn'));
+        document.getElementById('dialog').classList.add('skjult');
+        mus('mousedown', 0); mus('mousemove', 25);
+        this.sjekk('mens man drar, står den nye høyden under profilen',
+          /Slipp for å låse/.test(document.getElementById('rorEtikett').textContent));
+        mus('mouseup', 25);
+        const L3 = App.P.ror.plan.laast.find(x => x.ror === 'r1' && x.punkt === 'p3');
+        this.sjekk('dra ned låser det lavere, på hel centimeter', !!L3 && L3.bunn < 19 && Math.abs(L3.bunn * 100 - Math.round(L3.bunn * 100)) < 1e-9,
+          L3 && String(L3.bunn));
+        // for høyt: 1,35 m overdekning under grensen på 2,0
+        RorPlanUI.laas('r1', 'p3', 20.0);
+        clearTimeout(App._tidsavbrudd);
+        await App.beregnRor();
+        this.sjekk('for lite overdekning varsles', App.resultat.merknader.some(m => m.type === 'overdekning' && m.linje === 'r1'));
       });
     } finally {
       await this._rorTilbake(foer);
