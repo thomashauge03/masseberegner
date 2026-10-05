@@ -8237,6 +8237,40 @@ const Nettlesertest = {
     }
   },
 
+  /** Rørene i kartet: én strek per rør, objektene, og rørene som bakgrunn for en veg. */
+  async rorKart() {
+    const foer = JSON.stringify(App.P);
+    try {
+      App.P = App.nyttProsjekt();
+      await RorUI.importerTekst(this._rorXml(), 'asbuilts_Prove.xml', {}, { sone: 32, maal: 'nytt' });
+      await this.ventPaBeregning(30000);
+      const streker = [], merker = [];
+      Kart.lag.ror.eachLayer(l => {
+        if (l instanceof L.Polyline && l.options.interactive !== false) streker.push(l);
+        if (l instanceof L.Marker) merker.push(l);
+      });
+      this.sjekk('én strek per rør', streker.length === 4, String(streker.length));
+      this.sjekk('muffen står i kartet', merker.length === 1, String(merker.length));
+      const tips = String(streker[0] && streker[0].getTooltip() && streker[0].getTooltip().getContent());
+      this.sjekk('verktøytipset har koden som tekst', /90PE|180 PE|32PE/.test(tips), tips);
+      this.sjekk('og overdekningen', /overdekning/.test(tips), tips);
+      this.sjekk('kartet viser rørene', !!streker[0] && Kart.kart.getBounds().intersects(streker[0].getBounds()));
+      const v = App.nyttAnlegg('veg', 'Veg');
+      App.P.anlegg.push(v);
+      App.byttAnlegg(v.id);
+      await this.vent(150);
+      let bak = 0;
+      Kart.lag.andre.eachLayer(l => { if (l instanceof L.Polyline) bak++; });
+      this.sjekk('rørene tegnes dempet bak vegen', bak >= 4, String(bak));
+      let igjen = 0;
+      Kart.lag.ror.eachLayer(() => igjen++);
+      this.sjekk('rørlaget er tomt når vegen står oppe', igjen === 0, String(igjen));
+    } finally {
+      App.P = JSON.parse(foer);
+      App.visAnleggsvelger(); App.visAnleggsvalg(); App.malTilSkjema(); App.tegnAlt(); await App.oppdater();
+    }
+  },
+
   /**
    * En oppdiktet as-built-fil ved Ydestad, der demoen ligger og terrenget
    * finnes. Samme oppskrift som proverPunkter() i test/rorprove.js: to rør i

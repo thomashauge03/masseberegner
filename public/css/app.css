@@ -981,6 +981,9 @@ fieldset.rormaal label { display: block; padding: 2px 0; }
   width: 11px; height: 11px; background: #fafafa; border: 2px solid var(--hm-raud);
   box-shadow: 0 0 4px rgba(0,0,0,.7);
 }
+/* Punktobjekt på et rør – muffe, anboring, stakekum. Firkant, ikke sirkel:
+   sirkelen er et målt punkt i rettingen. */
+.ror-objekt { width: 9px; height: 9px; background: var(--ror-punkt); border: 1.5px solid #0b0b0c; box-sizing: border-box; }
 .stasjon-markor { width: 11px; height: 11px; background: #fff; border: 2px solid var(--hm-raud); border-radius: 50%; }
 .stasjonstall {
   font-family: var(--skrift-tittel); font-weight: 700; font-size: 12px; color: #fff;

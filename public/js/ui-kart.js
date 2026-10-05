@@ -1354,6 +1354,16 @@ const Kart = {
         const f = L.polyline(p, stil).addTo(this.lag.andre);
         f.on('click', bytt);
         midt = f.getBounds().getCenter();
+      } else if (a.type === 'ror' && a.ror && a.ror.punkter && a.ror.punkter.length) {
+        /* Rørene under vegen er nettopp det man vil se når vegen tegnes. */
+        const b = Ror.byggLinjer(a.ror, a.mal || Ror.StandardRormal, Ror.lagTilXY(a.ror.sone, a.ror.sone));
+        const ramme = L.latLngBounds([]);
+        for (const l of b.linjer) {
+          const p = l.punkter.map(q => Ror.tilLatLon(q, a.ror.sone));
+          L.polyline(p, Object.assign({}, stil, { dashArray: null, weight: 2 })).on('click', bytt).addTo(this.lag.andre);
+          ramme.extend(p);
+        }
+        if (ramme.isValid()) midt = ramme.getCenter();
       }
       /* Et anlegg uten geometri har ingenting å tegne, og skal heller ikke få
          et navnemerke svevende midt i kartet. */
@@ -1371,13 +1381,25 @@ const Kart = {
 
     this.tegnAndreAnlegg();
     this.tegnTomt();
-    if (app.erTomt()) {
+    this.tegnRor();
+    if (app.erTomt() || app.erRor()) {
       // vegens lag skal ikke henge igjen fra forrige anlegg
       this.ipMarkorer.forEach(m => this.kart.removeLayer(m));
       this.ipMarkorer = [];
       for (const n of ['linje', 'linjeSkygge', 'hjelpelinje', 'venstreFot', 'hoyreFot']) this.lag[n].setLatLngs([]);
       this.lag.vegkant.clearLayers();
       this.lag.stasjoner.clearLayers();
+      if (app.erRor()) {
+        /* Tomtas lag og vegens markører hører ikke til rørbildet. Se
+           kommentaren under om lag som henger igjen fra forrige anlegg. */
+        if (this.lag.tomtemal) this.lag.tomtemal.clearLayers();
+        if (this.lag.skraningsfot) this.lag.skraningsfot.clearLayers();
+        if (this.lag.tomtefarger) { this.kart.removeLayer(this.lag.tomtefarger); this.lag.tomtefarger = null; }
+        this.fjellMarkorer.forEach(m => this.kart.removeLayer(m));
+        this.fjellMarkorer = [];
+        this.plassMarkorer.forEach(m => this.kart.removeLayer(m));
+        this.plassMarkorer = [];
+      }
       return;
     }
 
@@ -1550,6 +1572,81 @@ const Kart = {
     const c = q => { const ll = Geo.fraUtm(q.x, q.y, app.sone); return [ll.lat, ll.lon]; };
     L.polyline([c(a), c(b)], { color: '#fff', weight: 1.4, dashArray: '5 4', opacity: .85 }).addTo(this.lag.markorPos);
     L.marker(c(p), { icon: L.divIcon({ className: '', html: '<div class="stasjon-markor"></div>', iconSize: [11, 11], iconAnchor: [5.5, 5.5] }), interactive: false }).addTo(this.lag.markorPos);
+  },
+
+  /**
+   * Rørene i det aktive røranlegget.
+   *
+   * Linjene bygges av punktene her og nå – ikke fra et lagret resultat – så
+   * en retting synes i kartet med en gang, før terrenget er lastet og
+   * profilene regnet. Resultatet brukes bare til tallene i verktøytipset.
+   */
+  tegnRor() {
+    const app = this.app;
+    if (!this.lag.ror) this.lag.ror = L.layerGroup().addTo(this.kart);
+    this.lag.ror.clearLayers();
+    if (!app.erRor() || !app.P.ror) return;
+    const r = app.P.ror;
+    const res = app.resultat && app.resultat.type === 'ror' ? app.resultat : null;
+    const bygg = res ? res.bygg : Ror.byggLinjer(r, app.P.mal, Ror.lagTilXY(r.sone, r.sone));
+    const ll = p => Ror.tilLatLon(p, r.sone);
+    const kode = k => r.koder[k] || Ror.tolkKode(k);
+    const t = (v, d) => Rapport.tall(v, d);
+    const bf = (res && res.bakkefaktor) || 1;
+    const rett = this.modus === 'rorAv' || this.modus === 'rorBryt' || this.modus === 'rorKoble';
+    for (const l of bygg.linjer) {
+      const k = kode(l.kode);
+      const valgt = l.id === RorUI.valgt;
+      const vekt = Math.max(2, Math.min(6, 1.5 + (k.dim || 50) / 50)) + (valgt ? 2 : 0);
+      const punkter = l.punkter.map(ll);
+      /* Mørk kant under, som senterlinja har: en blå strek forsvinner i et
+         vann på kartet, en gul i et jorde. */
+      L.polyline(punkter, { color: '#0b0b0c', weight: vekt + 2.5, opacity: 0.45, interactive: false })
+        .addTo(this.lag.ror);
+      const strek = L.polyline(punkter, { color: Farger.ror(k.farge), weight: vekt, opacity: 0.95 })
+        .addTo(this.lag.ror);
+      const pr = res && res.profiler.get(l.id);
+      strek.bindTooltip(escapeHtml(l.kode) + (k.dim ? ' · ⌀' + k.dim : '') + ' · ' + t(l.lengde * bf, 1) + ' m'
+        + (pr && Number.isFinite(pr.minOverdekning)
+          ? ` · overdekning ${t(pr.minOverdekning, 2)}–${t(pr.maksOverdekning, 2)} m` : ''), { sticky: true });
+      strek.on('click', () => { if (!rett && RorUI.velgLinje) RorUI.velgLinje(l.id); });
+    }
+    for (const p of bygg.objekter) {
+      L.marker(ll(p), {
+        keyboard: false,
+        icon: L.divIcon({ className: '', html: '<div class="ror-objekt"></div>', iconSize: [9, 9], iconAnchor: [4.5, 4.5] })
+      }).bindTooltip(`${escapeHtml(p.kode)} · ${t(p.z, 2)} moh`, { direction: 'top' }).addTo(this.lag.ror);
+    }
+    for (const p of bygg.enslige) {
+      L.circleMarker(ll(p), { radius: 4, color: Farger.ror(kode(p.kode).farge), weight: 2, fillOpacity: 0 })
+        .bindTooltip(`${escapeHtml(p.kode)} · enslig punkt – ingen nabo innen ${app.P.mal.maksAvstand} m`)
+        .addTo(this.lag.ror);
+    }
+    /* I RETTINGEN SKAL HVERT MÅLTE PUNKT SES – også de som er slått av, ellers
+       kan de aldri slås på igjen. */
+    if (rett) {
+      const av = new Set(r.retting.av);
+      for (const p of r.punkter) {
+        const er = av.has(p.id);
+        L.circleMarker(ll(p), {
+          radius: er ? 4 : 3, color: er ? '#9a9aa3' : '#0b0b0c', weight: er ? 1.5 : 1,
+          fillColor: er ? '#ffffff' : Farger.ror(kode(p.kode).farge), fillOpacity: er ? 0.25 : 1,
+          interactive: false
+        }).addTo(this.lag.ror);
+      }
+      if (RorUI._kobleFra) {
+        L.circleMarker(ll(RorUI._kobleFra.p), { radius: 8, color: '#ffffff', weight: 2.5, fill: false, interactive: false })
+          .addTo(this.lag.ror);
+      }
+    }
+  },
+
+  /** Kartet rammer inn rørene – etter import og når et rørprosjekt åpnes. */
+  zoomTilRor() {
+    const app = this.app;
+    if (!app.erRor() || !app.P.ror || !app.P.ror.punkter.length) return;
+    const r = app.P.ror;
+    this.kart.fitBounds(L.latLngBounds(r.punkter.map(p => Ror.tilLatLon(p, r.sone))), { padding: [40, 40], maxZoom: 19 });
   },
 
   zoomTilLinje() {
