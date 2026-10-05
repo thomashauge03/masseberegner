@@ -108,7 +108,33 @@ class Terreng {
 
   /** Laster alle fliser som trengs for et belte langs linjeføringen. */
   async lastKorridor(linje, halvbredde, framdrift) {
+    /* Fliser som slo feil sist far en ny sjanse. En kortvarig nettfeil skal
+       ikke gjøre at et omrade star tomt resten av økta.
+
+       Merk at «ingen dekning» ikke kommer hit som en feil: da svarer tjenesten
+       pent med en flis der hver eneste piksel er null, og serveren gjør den om
+       til manglende data. En feil pa dette stedet er derfor alltid teknisk. */
+    return this._lastFliser(this.korridorFliser(linje, halvbredde), framdrift);
+  }
+
+  /**
+   * Belter langs mange linjer på én gang – rørene i et anlegg.
+   *
+   * ÉN NEDLASTING, IKKE ÉN PER RØR. `_lastFliser` nullstiller `mangler` hver
+   * gang den kalles, så med ett kall per rør ville bare det siste rørets hull
+   * blitt meldt. Og to rør i samme grøft deler de samme flisene.
+   */
+  async lastKorridorer(linjer, halvbredde, framdrift) {
     const trengs = new Set();
+    for (const l of linjer || []) if (l && l.lengde > 0) this.korridorFliser(l, halvbredde, trengs);
+    return this._lastFliser(trengs, framdrift);
+  }
+
+  /**
+   * Flisene et belte langs en linje trenger – uten å laste dem. Utskilt fra
+   * `lastKorridor` så flere linjer kan bli ett nedlastingssett.
+   */
+  korridorFliser(linje, halvbredde, trengs = new Set()) {
     const marg = 2;
     const stegS = Math.min(16, Math.max(2, linje.lengde / 400));
     /* ET REKTANGELSVEIP, IKKE PUNKTPRØVER PÅ TVERS.
@@ -165,14 +191,7 @@ class Terreng {
         }
       }
     }
-
-    /* Fliser som slo feil sist far en ny sjanse. En kortvarig nettfeil skal
-       ikke gjøre at et omrade star tomt resten av økta.
-
-       Merk at «ingen dekning» ikke kommer hit som en feil: da svarer tjenesten
-       pent med en flis der hver eneste piksel er null, og serveren gjør den om
-       til manglende data. En feil pa dette stedet er derfor alltid teknisk. */
-    return this._lastFliser(trengs, framdrift);
+    return trengs;
   }
 
   /**

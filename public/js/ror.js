@@ -471,9 +471,161 @@ function navnFraFil(filnavn) {
   return s || 'Rør';
 }
 
+/* ---------------- profil og overdekning ---------------- */
+
+/**
+ * Røret som en linje `Terreng.korridorFliser` kan gå langs: lengde og
+ * `punktVed(s)` med retning som `Math.atan2(dy, dx)` – samme form som
+ * `Linjeforing` har, så terrengkoden ikke trenger å vite at det er et rør.
+ */
+function korridor(xy) {
+  const s = [0];
+  for (let i = 1; i < xy.length; i++) s.push(s[i - 1] + Math.hypot(xy[i].x - xy[i - 1].x, xy[i].y - xy[i - 1].y));
+  return {
+    lengde: s[s.length - 1],
+    punktVed(ss) {
+      if (xy.length < 2) return { x: xy[0].x, y: xy[0].y, retning: 0 };
+      let i = 1;
+      while (i < s.length - 1 && s[i] < ss) i++;
+      const a = xy[i - 1], b = xy[i], seg = s[i] - s[i - 1];
+      const t = seg > 0 ? Math.max(0, Math.min(1, (ss - s[i - 1]) / seg)) : 0;
+      return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, retning: Math.atan2(b.y - a.y, b.x - a.x) };
+    }
+  };
+}
+
+/**
+ * Lengdeprofilen til ett rør: topp, senter og bunn mot terrenget.
+ *
+ * Prøvd i hvert målte punkt og hver meter mellom. Toppen er rett linje mellom
+ * de målte punktene – det er alt vi vet; å runde den av ville funnet på et rør
+ * ingen har målt.
+ *
+ * Overdekningen er terreng minus topp rør. Mangler terrenget, er den NaN –
+ * aldri null. En null her ville sett ut som et rør som ligger i dagen.
+ *
+ * `utenTerreng` og `overTerreng` er meter: hver prøve står for strekket fram
+ * til neste.
+ */
+function profil(linje, terrengZ, dimMm, steg) {
+  const st = steg > 0 ? steg : 1;
+  const D = Number.isFinite(dimMm) && dimMm > 0 ? dimMm / 1000 : 0;
+  const xy = linje.xy, pts = linje.punkter;
+  const s = [0];
+  for (let i = 1; i < xy.length; i++) s.push(s[i - 1] + Math.hypot(xy[i].x - xy[i - 1].x, xy[i].y - xy[i - 1].y));
+  const prove = (ss, x, y, topp, maalt) => {
+    const t = terrengZ(x, y);
+    const terreng = Number.isFinite(t) ? t : NaN;
+    return { s: ss, x, y, topp, senter: topp - D / 2, bunn: topp - D, terreng,
+      overdekning: Number.isFinite(terreng) ? terreng - topp : NaN, maalt };
+  };
+  const prover = [];
+  for (let i = 0; i < xy.length; i++) {
+    prover.push(prove(s[i], xy[i].x, xy[i].y, pts[i].z, true));
+    if (i === xy.length - 1) break;
+    const seg = s[i + 1] - s[i];
+    for (let d = st; d < seg - 1e-9; d += st) {
+      const t = d / seg;
+      prover.push(prove(s[i] + d, xy[i].x + (xy[i + 1].x - xy[i].x) * t,
+        xy[i].y + (xy[i + 1].y - xy[i].y) * t, pts[i].z + (pts[i + 1].z - pts[i].z) * t, false));
+    }
+  }
+  const fall = [];
+  for (let i = 1; i < pts.length; i++) {
+    const ds = s[i] - s[i - 1];
+    fall.push({ fra: s[i - 1], til: s[i], fall: ds > 0.01 ? (pts[i].z - pts[i - 1].z) / ds : NaN });
+  }
+  let minOd = Infinity, maksOd = -Infinity, utenTerreng = 0, overTerreng = 0;
+  for (let k = 0; k < prover.length; k++) {
+    const bredde = k < prover.length - 1 ? prover[k + 1].s - prover[k].s : 0;
+    const od = prover[k].overdekning;
+    if (!Number.isFinite(od)) { utenTerreng += bredde; continue; }
+    if (od < minOd) minOd = od;
+    if (od > maksOd) maksOd = od;
+    if (od < 0) overTerreng += bredde;
+  }
+  return {
+    lengde: s[s.length - 1], stasjoner: s, prover, fall,
+    minOverdekning: Number.isFinite(minOd) ? minOd : NaN,
+    maksOverdekning: Number.isFinite(maksOd) ? maksOd : NaN,
+    utenTerreng, overTerreng
+  };
+}
+
+/** Punktobjektene (muffer, anboringer …) som ligger på røret, med stasjon. */
+function objekterLangs(linje, objekter, tilXY, maks) {
+  const grense = maks > 0 ? maks : 3;
+  const s = [0];
+  for (let i = 1; i < linje.xy.length; i++) {
+    s.push(s[i - 1] + Math.hypot(linje.xy[i].x - linje.xy[i - 1].x, linje.xy[i].y - linje.xy[i - 1].y));
+  }
+  const ut = [];
+  for (const p of objekter || []) {
+    const q = tilXY(p);
+    let best = null;
+    for (let i = 1; i < linje.xy.length; i++) {
+      const a = linje.xy[i - 1], b = linje.xy[i];
+      const d = avstandTilStrekk(q, a, b);
+      if (d > grense || (best && d >= best.d)) continue;
+      const L = Math.hypot(b.x - a.x, b.y - a.y);
+      const t = L > 0 ? Math.max(0, Math.min(1, ((q.x - a.x) * (b.x - a.x) + (q.y - a.y) * (b.y - a.y)) / (L * L))) : 0;
+      best = { d, s: s[i - 1] + t * L };
+    }
+    if (best) ut.push({ s: best.s, z: p.z, kode: p.kode, avstand: best.d, punkt: p });
+  }
+  return ut.sort((a, b) => a.s - b.s);
+}
+
+/** Tallene for hele anlegget: antall rør, lengde på bakken, overdekning. */
+function sammendrag(res) {
+  const bf = (res && res.bakkefaktor) || 1;
+  const linjer = (res && res.linjer) || [];
+  let lengde = 0, minOd = Infinity, maksOd = -Infinity;
+  for (const l of linjer) {
+    lengde += l.lengde * bf;
+    const pr = res.profiler && res.profiler.get(l.id);
+    if (pr && Number.isFinite(pr.minOverdekning)) minOd = Math.min(minOd, pr.minOverdekning);
+    if (pr && Number.isFinite(pr.maksOverdekning)) maksOd = Math.max(maksOd, pr.maksOverdekning);
+  }
+  return { antall: linjer.length, lengde,
+    minOd: Number.isFinite(minOd) ? minOd : NaN, maksOd: Number.isFinite(maksOd) ? maksOd : NaN };
+}
+
+/** Det brukeren bør vite om – samme liste i fanen, rapporten og PDF-en. */
+function merknader(bygg, profiler, maksAvstand) {
+  const ut = [];
+  const m = v => String(Math.round(v * 10) / 10).replace('.', ',');
+  if (bygg.enslige && bygg.enslige.length) {
+    ut.push({ type: 'enslig', tekst: `${bygg.enslige.length} punkt har ingen nabo med samme kode innen `
+      + `${maksAvstand} m – de står som enslige punkt i kartet.` });
+  }
+  if (bygg.bruddUtenTreff) {
+    ut.push({ type: 'retting', tekst: `${bygg.bruddUtenTreff} brudd gjelder ikke lenger – `
+      + 'punktene det gjaldt er borte eller henger ikke sammen.' });
+  }
+  if (bygg.koblingUtenTreff) {
+    ut.push({ type: 'retting', tekst: `${bygg.koblingUtenTreff} koblinger gjelder ikke lenger – `
+      + 'punktene det gjaldt er borte.' });
+  }
+  for (const l of bygg.linjer || []) {
+    const pr = profiler && profiler.get(l.id);
+    if (!pr) continue;
+    if (pr.overTerreng > 0.5) {
+      ut.push({ type: 'over', linje: l.id, tekst: `${l.kode}: røret ligger over terrenget i modellen på `
+        + `${m(pr.overTerreng)} m – terrenget er trolig endret etter skanning, eller punktet er feil.` });
+    }
+    if (pr.utenTerreng > 0.5) {
+      ut.push({ type: 'hull', linje: l.id, tekst: `${l.kode}: terrengdata mangler på ${m(pr.utenTerreng)} m `
+        + '– overdekningen er ukjent der.' });
+    }
+  }
+  return ut;
+}
+
 const Ror = {
   lesLandXML, dekod, tolkKode, koderFra, byggLinjer, avstandTilStrekk,
   lagTilXY, tilLatLon, sjekkKoordinater, gjettSone, slaSammen, navnFraFil,
+  korridor, profil, objekterLangs, sammendrag, merknader,
   nyRor, StandardRormal, FARGER
 };
 

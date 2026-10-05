@@ -299,6 +299,87 @@ console.log('\n10. Navn fra filnavnet');
   ]) paastand(`«${inn}» → «${ut}»`, Ror.navnFraFil(inn) === ut, Ror.navnFraFil(inn));
 }
 
+/* ------------------------------------------------------------------ */
+console.log('\n11. Profil og overdekning');
+{
+  const linje = {
+    punkter: [{ z: 100 }, { z: 99 }, { z: 99.5 }],
+    xy: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 20, y: 0 }]
+  };
+  const skraa = (x) => 101 + 0.1 * x;
+  const p = Ror.profil(linje, (x, y) => skraa(x), 110);
+  sjekk('lengden', p.lengde, 20, 1e-12);
+  sjekk('en prøve per meter og i hvert målte punkt', p.prover.length, 21, 0);
+  const ved = s => p.prover.find(q => Math.abs(q.s - s) < 1e-9);
+  sjekk('overdekning ved start', ved(0).overdekning, 1.0, 1e-9);
+  sjekk('overdekning ved 5 m (topp interpolert)', ved(5).overdekning, 2.0, 1e-9);
+  sjekk('overdekning ved 10 m', ved(10).overdekning, 3.0, 1e-9);
+  sjekk('overdekning ved slutten', ved(20).overdekning, 3.5, 1e-9);
+  sjekk('senter er en halv diameter under toppen', ved(0).senter, 100 - 0.055, 1e-9);
+  sjekk('bunn er en hel diameter under', ved(0).bunn, 100 - 0.11, 1e-9);
+  paastand('de målte punktene er merket', p.prover.filter(q => q.maalt).length === 3);
+  sjekk('minste overdekning', p.minOverdekning, 1.0, 1e-9);
+  sjekk('største overdekning', p.maksOverdekning, 3.5, 1e-9);
+  sjekk('fallet på første strekk', p.fall[0].fall, -0.1, 1e-12);
+  sjekk('og på andre', p.fall[1].fall, 0.05, 1e-12);
+
+  const hull = Ror.profil(linje, (x) => (x >= 12 && x <= 15 ? NaN : skraa(x)), 110);
+  sjekk('meter uten terreng', hull.utenTerreng, 4, 1e-9);
+  paastand('ukjent overdekning er NaN, ikke null', Number.isNaN(hull.prover.find(q => q.s === 13).overdekning));
+
+  // 99,65 og ikke 99,6: ved s = 4 er toppen 99,6, og der ville flyttallsstøy avgjort svaret
+  const over = Ror.profil(linje, () => 99.65, 110);
+  sjekk('meter der røret ligger over terrenget', over.overTerreng, 4, 1e-9);
+  sjekk('og minste overdekning er negativ', over.minOverdekning, -0.35, 1e-9);
+}
+
+/* ------------------------------------------------------------------ */
+console.log('\n12. Objekter langs røret, sammendrag og merknader');
+{
+  const linje = { id: 'L', kode: '90PE', punkter: [{ z: 1 }, { z: 1 }], xy: [{ x: 0, y: 0 }, { x: 100, y: 0 }], lengde: 100 };
+  const obj = Ror.objekterLangs(linje, [
+    { kode: 'MUFFE', o: 40, n: 1, z: 1.2 }, { kode: 'LANGT', o: 40, n: 10, z: 0 }, { kode: 'ANBORING', o: 10, n: -2, z: 1.1 }
+  ], q => ({ x: q.o, y: q.n }), 3);
+  sjekk('bare objektene innen 3 m', obj.length, 2, 0);
+  paastand('sortert langs røret', obj[0].kode === 'ANBORING' && obj[1].kode === 'MUFFE');
+  sjekk('stasjonen til muffen', obj[1].s, 40, 1e-9);
+
+  const profiler = new Map([['L', { minOverdekning: -0.2, maksOverdekning: 2.4, overTerreng: 3, utenTerreng: 0 }]]);
+  const s = Ror.sammendrag({ linjer: [linje], profiler, bakkefaktor: 1.0004 });
+  sjekk('lengden er korrigert til bakken', s.lengde, 100.04, 1e-9);
+  paastand('antall og overdekning', s.antall === 1 && s.minOd === -0.2 && s.maksOd === 2.4);
+
+  const m = Ror.merknader({ linjer: [linje], enslige: [{}], bruddUtenTreff: 1, koblingUtenTreff: 0 }, profiler, 25);
+  paastand('enslige punkt nevnes', m.some(x => x.type === 'enslig' && /25 m/.test(x.tekst)));
+  paastand('brudd som ikke gjelder nevnes', m.some(x => x.type === 'retting'));
+  paastand('røret over terrenget nevnes med koden', m.some(x => x.type === 'over' && /^90PE/.test(x.tekst)));
+}
+
+/* ------------------------------------------------------------------ */
+console.log('\n13. Terreng langs rørene');
+{
+  const { Terreng } = require(js('terreng.js'));
+  const k = Ror.korridor([{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }]);
+  sjekk('korridoren er like lang som røret', k.lengde, 20, 1e-12);
+  const q = k.punktVed(15);
+  paastand('punkt og retning midt på andre strekk', Math.abs(q.x - 10) < 1e-9 && Math.abs(q.y - 5) < 1e-9
+    && Math.abs(q.retning - Math.PI / 2) < 1e-12, JSON.stringify(q));
+  paastand('forbi enden holder seg på enden', Math.abs(k.punktVed(99).y - 10) < 1e-9);
+  const ett = Ror.korridor([{ x: 3, y: 4 }]);
+  paastand('ett punkt gir lengde 0 uten å kaste', ett.lengde === 0 && ett.punktVed(0).x === 3);
+
+  const T = new Terreng(32, 1);
+  const f = T.korridorFliser(Ror.korridor([{ x: 100, y: 100 }, { x: 600, y: 100 }]), 10);
+  paastand('flisene langs et rett rør', f.size === 3 && ['0_0', '1_0', '2_0'].every(n => f.has(n)), [...f].join(' '));
+
+  let bestilt = null;
+  T._lastFliser = async trengs => { bestilt = trengs; return { hentet: trengs.size, mangler: 0 }; };
+  await T.lastKorridorer([Ror.korridor([{ x: 100, y: 100 }, { x: 600, y: 100 }]),
+    Ror.korridor([{ x: 100, y: 300 }, { x: 120, y: 300 }])], 10);
+  paastand('to rør gir ÉN bestilling med flisene til begge', bestilt && bestilt.has('0_1') && bestilt.has('2_0'),
+    bestilt && [...bestilt].join(' '));
+}
+
 /* ---------------- sluttsum ---------------- */
 console.log(`\n${ok} tester ok, ${feil} feil`);
 process.exit(feil ? 1 : 0);
