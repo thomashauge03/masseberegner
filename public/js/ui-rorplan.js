@@ -158,7 +158,12 @@ const RorPlanUI = {
   /**
    * Lagrer en ny trase med rørene. Endene som traff noe, festes: til en annen
    * trase som grein, til et innmålt rør som låst høyde på røret med samme kode
-   * (ellers det første) – med kilden, så merknadene kan si fra om den endres.
+   * – med kilden, så merknadene kan si fra om den endres.
+   *
+   * HAR INGEN AV RØRENE KODEN, LÅSES INGENTING. Her tok det første røret
+   * høyden: en ende på en vannledning ga spillvannsrøret vannledningens
+   * bunnløp. Samme system og dimensjon med en annen skrivemåte («SP 160 PE»)
+   * er samme rør.
    */
   lagreTrase(punkter, rader) {
     const app = this.app, r = app.P.ror, plan = r.plan;
@@ -176,13 +181,18 @@ const RorPlanUI = {
       plan.ror.push(ror);
       return ror;
     });
+    // det som ikke ble festet, står i statuslinja til slutt – ikke skrevet over av den
+    const notater = [];
     for (const [i, ende] of [[0, 'start'], [punkter.length - 1, 'slutt']]) {
       const f = punkter[i].fest;
       if (!f) continue;
       if (f.trase) { plan.greiner.push({ trase: t.id, ende, til: { trase: f.trase, punkt: f.punkt } }); continue; }
       const k = RorPlan.kodeAv(f.koder, f.kode);
-      if (!(k.dim > 0)) { app.status(`Påkoblingen har koden ${f.kode} uten dimensjon – høyden ble ikke hentet`); continue; }
-      const ror = nye.find(x => x.kode === f.kode) || nye[0];
+      if (!(k.dim > 0)) { notater.push(`påkoblingen har koden ${f.kode} uten dimensjon, så høyden ble ikke hentet`); continue; }
+      const kodeAv = x => RorPlan.kodeAv(r.koder, x.kode);
+      const ror = nye.find(x => x.kode === f.kode)
+        || nye.find(x => kodeAv(x).dim === k.dim && kodeAv(x).system && kodeAv(x).system === k.system);
+      if (!ror) { notater.push(`enden ligger på ${f.kode}, men ingen av rørene har den koden – høyden ble ikke hentet`); continue; }
       plan.laast.push({ ror: ror.id, punkt: t.punkter[i].id, bunn: +RorPlan.bunnFraTopp(f.topp, k).toFixed(3),
         kilde: { anlegg: f.anlegg, punkt: f.punkt, topp: f.topp } });
     }
@@ -190,7 +200,8 @@ const RorPlanUI = {
     RorUI.valgt = nye[0].id;
     app.tegnAlt();
     app.planlegg(30);
-    app.status(`Traseen er lagret med ${nye.length} rør – høydene kommer når terrenget er hentet`);
+    app.status(`Traseen er lagret med ${nye.length} rør – høydene kommer når terrenget er hentet`
+      + (notater.length ? ' · ' + notater.join(' · ') : ''));
   },
 
   /* ---------------- redigering i kartet ---------------- */
@@ -304,7 +315,12 @@ const RorPlanUI = {
     }
   },
 
-  /** Setter inn et punkt der traseen er nærmest klikket – på linja, så rørene ligger der de lå. */
+  /**
+   * Setter inn et punkt der traseen er nærmest klikket – på linja, så rørene
+   * ligger der de lå. Lander klikket på et punkt som finnes (eller forbi en
+   * ende), er svaret det punktet: et punkt til der ville gitt et strekk uten
+   * lengde, og røret ved siden av fikk en pigg i knekken.
+   */
   settInnPaaTrase(tid, latlng) {
     const app = this.app, plan = this.plan(), t = plan.traseer.find(x => x.id === tid);
     if (!t) return null;
@@ -316,6 +332,9 @@ const RorPlanUI = {
       const s = L2 > 0 ? Math.max(0, Math.min(1, ((u.x - a.x) * dx + (u.y - a.y) * dy) / L2)) : 0;
       const q = { x: a.x + dx * s, y: a.y + dy * s }, d = Math.hypot(u.x - q.x, u.y - q.y);
       if (!best || d < best.d) best = { i, q, d };
+    }
+    for (const j of [best.i - 1, best.i]) {
+      if (Math.hypot(best.q.x - xy[j].x, best.q.y - xy[j].y) < 0.05) return t.punkter[j].id;
     }
     app.merk('satte inn tracepunkt');
     const id = RorPlan.nyId(RorPlan.alleIder(plan, this.app.P.ror.groft), 'p');

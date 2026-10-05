@@ -9179,6 +9179,18 @@ const Nettlesertest = {
         await App.angre();
         await App.angre();
         this.sjekk('angre tar hele traseen bort', App.P.ror.plan.traseer.length === 0);
+        /* En ende på vannledningen 90PE, men bare et spillvannsrør i traseen:
+           det skal ikke låses på vannledningens høyde. Her tok det første røret
+           høyden når ingen hadde samme kode. */
+        Kart.settModus('tegnTrase');
+        RorPlanUI.tegnKlikk(ll(100, 0));
+        RorPlanUI.tegnKlikk(ll(100, 30));
+        RorPlanUI.avsluttTrase();
+        document.querySelector('#planRader .plankode').value = 'SP 160PE';
+        document.getElementById('planLagre').click();
+        const linja = document.getElementById('statuslinje').textContent;
+        this.sjekk('en ende på et rør med en annen kode låses ikke på det', App.P.ror.plan.traseer.length === 1
+          && App.P.ror.plan.laast.length === 0 && /ingen av rørene/.test(linja), linja);
       });
     } finally {
       await this._rorTilbake(foer);
@@ -9200,6 +9212,21 @@ const Nettlesertest = {
         });
         this.sjekk('tracepunktene kan dras', punkter === 3, String(punkter));
         this.sjekk('kummen tegnes', kummer === 1, String(kummer));
+        /* Traseen ligger under rørene. Lå den øverst, traff et klikk midt på et
+           rør med sideavstand 0 traseen og satte inn et punkt i stedet for å
+           velge røret. Der traseen er dekket, setter et dobbeltklikk på røret
+           inn punktet. */
+        let traselag = null, strek = null;
+        Kart.lag.ror.eachLayer(l => {
+          if (l.options && l.options.className === 'plantrase') traselag = l;
+          if (l.options && l.options.rorId === 'r1') strek = l;
+        });
+        this.sjekk('traseen ligger under rørene', !!traselag && traselag.options.pane === 'plantraser'
+          && +Kart.kart.getPane('plantraser').style.zIndex < +getComputedStyle(Kart.kart.getPane('overlayPane')).zIndex);
+        const tr0 = App.P.ror.plan.traseer[0], n0 = tr0.punkter.length;
+        if (strek) strek.fire('dblclick', { latlng: ll(20, -0.4), originalEvent: new MouseEvent('dblclick') });
+        this.sjekk('dobbeltklikk på røret setter inn et punkt i traseen', tr0.punkter.length === n0 + 1);
+        await App.angre();
         /* Grøfteverktøyene: et tegnet anlegg har ingen målte punkt, så det er
            knekkpunktene på rørene som velges. Spillvannet ligger 0,4 m til
            høyre for traseen – sør, når den går østover. */
@@ -9226,6 +9253,11 @@ const Nettlesertest = {
         this.sjekk('punktet er flyttet', Math.abs(t.punkter[2].lat - ll(80, 20).lat) < 1e-12);
         const nytt = RorPlanUI.settInnPaaTrase('t1', ll(20, 0.3));
         this.sjekk('et punkt satt inn på traseen', t.punkter.length === 4 && t.punkter[1].id === nytt);
+        /* Et klikk forbi enden, eller på et punkt som finnes, lander på det
+           punktet – et punkt til der ville gitt et strekk uten lengde, og en
+           pigg i røret ved siden av i en knekk. */
+        const igjen = RorPlanUI.settInnPaaTrase('t1', ll(-5, 0));
+        this.sjekk('klikk på et punkt som finnes, setter ikke inn et til', t.punkter.length === 4 && igjen === 'p1', igjen);
         RorPlanUI._vekslKum(plan.ror[0], 'p2');
         this.sjekk('kummen tas bort når den finnes', plan.kummer.length === 0);
         RorPlanUI._vekslKum(plan.ror[0], 'p2');

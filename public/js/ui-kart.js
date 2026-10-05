@@ -1679,8 +1679,18 @@ const Kart = {
          vann på kartet, en gul i et jorde. */
       L.polyline(punkter, { color: '#0b0b0c', weight: vekt + 2.5, opacity: 0.45, interactive: false })
         .addTo(this.lag.ror);
-      const strek = L.polyline(punkter, { color: Farger.ror(k.farge), weight: vekt, opacity: 0.95 })
+      const strek = L.polyline(punkter, { color: Farger.ror(k.farge), weight: vekt, opacity: 0.95, rorId: l.id })
         .addTo(this.lag.ror);
+      // et tegnet rør: dobbeltklikk i Rediger setter inn et punkt i traseen under det
+      if (r.plan && l.plan) {
+        strek.on('dblclick', e => {
+          if (this.modus !== 'rediger') return;
+          L.DomEvent.stop(e);
+          const t = r.plan.traseer.find(x => x.id === l.plan.trase), n = t ? t.punkter.length : 0;
+          RorPlanUI.settInnPaaTrase(l.plan.trase, e.latlng);
+          if (t && t.punkter.length > n) app.status('Satte inn et punkt i traseen – dra det dit du vil ha knekken');
+        });
+      }
       const pr = res && res.profiler.get(l.id);
       strek.bindTooltip(escapeHtml(l.kode) + (k.dim ? ' · ⌀' + k.dim : '') + ' · ' + t(l.lengde * bf, 1) + ' m'
         + (pr && Number.isFinite(pr.minOverdekning)
@@ -1772,14 +1782,21 @@ const Kart = {
         .addTo(lag);
     }
     const app = this.app, plan = r.plan, rediger = this.modus === 'rediger';
+    /* Traseene ligger i en egen rute UNDER rørene. Lå de øverst, traff et
+       klikk midt på et rør med sideavstand 0 traseen og satte inn et punkt i
+       stedet for å velge røret. Der traseen er dekket, setter et dobbeltklikk
+       på røret inn punktet (se tegnRor). */
+    if (!this.kart.getPane('plantraser')) this.kart.createPane('plantraser').style.zIndex = 395;
     // traseene: tynn midtlinje – i Rediger setter et klikk på den inn et punkt
     for (const t of plan.traseer) {
-      const linje = L.polyline(t.punkter.map(p => [p.lat, p.lon]),
-        { color: Farger.blekkSvak, weight: 1.5, opacity: 0.9, dashArray: '2 4', className: 'plantrase' }).addTo(lag);
+      const linje = L.polyline(t.punkter.map(p => [p.lat, p.lon]), { color: Farger.blekkSvak, weight: 1.5, opacity: 0.9,
+        dashArray: '2 4', className: 'plantrase', pane: 'plantraser' }).addTo(lag);
       linje.on('click', e => {
         if (!rediger) return;
         L.DomEvent.stop(e);
-        if (RorPlanUI.settInnPaaTrase(t.id, e.latlng)) app.status('Satte inn et punkt – dra det dit du vil ha knekken');
+        const n = t.punkter.length;
+        RorPlanUI.settInnPaaTrase(t.id, e.latlng);
+        if (t.punkter.length > n) app.status('Satte inn et punkt – dra det dit du vil ha knekken');
       });
       for (const p of t.punkter) {
         const v = RorPlanUI.valgtHer(), valgt = !!v && v.trase === t.id && v.punkt === p.id;
