@@ -9209,9 +9209,15 @@ const Nettlesertest = {
         this.sjekk('kummen tas bort når den finnes', plan.kummer.length === 0);
         RorPlanUI._vekslKum(plan.ror[0], 'p2');
         this.sjekk('og settes på igjen med anleggets diameter', plan.kummer.length === 1 && plan.kummer[0].diameter === 1000);
+        // en grøftejustering peker på punktet – den blir stående, og ingen nye overtar id-en
+        App.P.ror.groft = { strekninger: [{ fra: 'r1:p1', til: 'r1:p2', mal: {}, fjell: 0.5, egen: false }], sammen: [] };
         RorPlanUI.velgPunkt('t1', 'p2');
         RorPlanUI.slettValgt();
         this.sjekk('punktet er slettet, og kummen på det', t.punkter.length === 3 && plan.kummer.length === 0);
+        const nyId = RorPlanUI.settInnPaaTrase('t1', ll(10, 0.2));
+        this.sjekk('et nytt punkt overtar ikke id-en en grøftejustering peker på', !!nyId && nyId !== 'p2', nyId);
+        RorPlanUI.velgPunkt('t1', nyId);
+        RorPlanUI.slettValgt();
         RorPlanUI.kartklikk('snuTrase', ll(50, 10.15));
         this.sjekk('fallretningen er snudd for begge rørene', plan.ror.every(x => x.motsatt === true));
         await App.angre();

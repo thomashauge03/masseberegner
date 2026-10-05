@@ -165,7 +165,7 @@ const RorPlanUI = {
     app.merk('ny trase');
     // den første traseen bestemmer sonen punktene tegnes i
     if (!plan.traseer.length) r.sone = Geo.sone(punkter[0].lon);
-    const brukt = RorPlan.alleIder(plan);
+    const brukt = RorPlan.alleIder(plan, this.app.P.ror.groft);
     const ny = id => { brukt.add(id); return id; };
     const t = { id: ny(RorPlan.nyId(brukt, 't')), punkter: [] };
     for (const p of punkter) t.punkter.push({ id: ny(RorPlan.nyId(brukt, 'p')), lat: p.lat, lon: p.lon });
@@ -246,7 +246,7 @@ const RorPlanUI = {
       app.status('Kummen er tatt bort');
     } else {
       app.merk('ny kum');
-      const id = RorPlan.nyId(RorPlan.alleIder(plan), 'k');
+      const id = RorPlan.nyId(RorPlan.alleIder(plan, this.app.P.ror.groft), 'k');
       plan.kummer.push({ id, ror: ror.id, punkt, diameter: app.P.mal.plan.kum.diameter });
       app.status(`Kum ${id} på ${ror.kode} – bunnløpet følger overdekningen til det låses i profilen`);
     }
@@ -318,7 +318,7 @@ const RorPlanUI = {
       if (!best || d < best.d) best = { i, q, d };
     }
     app.merk('satte inn tracepunkt');
-    const id = RorPlan.nyId(RorPlan.alleIder(plan), 'p');
+    const id = RorPlan.nyId(RorPlan.alleIder(plan, this.app.P.ror.groft), 'p');
     const g = Geo.fraUtm(best.q.x, best.q.y, sone);
     t.punkter.splice(best.i, 0, { id, lat: g.lat, lon: g.lon });
     app.tegnAlt();
@@ -450,7 +450,7 @@ const RorPlanUI = {
         lagre: rader => {
           app.merk('nytt rør');
           app.P.ror.koder = Ror.koderFra(rader.map(x => ({ kode: x.kode })), app.P.ror.koder);
-          const brukt = RorPlan.alleIder(plan);
+          const brukt = RorPlan.alleIder(plan, this.app.P.ror.groft);
           for (const x of rader) {
             const id = RorPlan.nyId(brukt, 'r');
             brukt.add(id);

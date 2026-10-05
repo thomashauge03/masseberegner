@@ -47,12 +47,26 @@ const RorPlan = (() => {
     return prefiks + n;
   }
 
-  /** Alle id-ene i planen – prefiksene skiller traseer, punkt, rør og kummer. */
-  function alleIder(plan) {
+  /**
+   * Alle id-ene i planen – prefiksene skiller traseer, punkt, rør og kummer.
+   *
+   * MED `groft` OGSÅ ID-ENE GRØFTEJUSTERINGENE PEKER PÅ. En strekning eller
+   * en felles grøft lagres mot rør:punkt, og den blir stående når punktet
+   * slettes – med en merknad om at den ikke finner punktene sine. Fikk et nytt
+   * punkt den samme id-en, gjaldt den gamle justeringen igjen, på et annet
+   * sted: fjell på en strekning ingen hadde markert. Derfor er de brukt.
+   */
+  function alleIder(plan, groft) {
     const ut = new Set();
     for (const t of plan.traseer) { ut.add(t.id); for (const p of t.punkter) ut.add(p.id); }
     for (const r of plan.ror) ut.add(r.id);
     for (const k of plan.kummer) ut.add(k.id);
+    if (groft) {
+      // «r1:p3» – og et mellompunkt «r1:p3+5», selv om de ikke skal lagres
+      const ref = id => { for (const del of String(id).split(':')) ut.add(del.replace(/\+.*$/, '')); };
+      for (const st of groft.strekninger || []) { ref(st.fra); ref(st.til); }
+      for (const par of groft.sammen || []) for (const id of par || []) ref(id);
+    }
     return ut;
   }
 

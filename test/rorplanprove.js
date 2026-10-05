@@ -53,6 +53,15 @@ console.log('\n1. Malen, kodene og bunn ↔ topp');
   plan.traseer.push({ id: 't1', punkter: [{ id: 'p1', lat: 0, lon: 0 }, { id: 'p2', lat: 0, lon: 1 }] });
   plan.ror.push({ id: 'r1', trase: 't1', kode: 'SP 160PE', side: 0 });
   paastand('alle id-ene i planen', ['t1', 'p1', 'p2', 'r1'].every(x => RorPlan.alleIder(plan).has(x)));
+  /* Grøftejusteringene peker på rør:punkt også etter at punktet er slettet.
+     Fikk et nytt punkt den samme id-en, gjaldt den gamle justeringen – fjell
+     på en strekning ingen hadde markert. Id-ene de peker på, er brukt. */
+  const groft = { strekninger: [{ fra: 'r1:p3', til: 'r4:p5' }], sammen: [['r1:p6', 'r7:p8+2']] };
+  const medGroft = RorPlan.alleIder(plan, groft);
+  paastand('id-ene grøftejusteringene peker på, er brukt', ['p3', 'p5', 'r4', 'p6', 'r7', 'p8'].every(x => medGroft.has(x))
+    && !medGroft.has('p8+2'));
+  paastand('så et nytt punkt får en id ingen justering peker på', RorPlan.nyId(medGroft, 'p') === 'p4'
+    && RorPlan.nyId(medGroft, 'r') === 'r2');
   paastand('en ny planmal er en kopi', RorPlan.nyPlanmal() !== RorPlan.StandardPlanmal
     && RorPlan.nyPlanmal().kum !== RorPlan.StandardPlanmal.kum && RorPlan.nyPlanmal().kum.diameter === 1000);
 }
