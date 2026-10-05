@@ -255,6 +255,40 @@ console.log('\n4. Kontrollene');
   paastand('fjell: lengde og sprengning', f.length === 1 && /30 m/.test(f[0].tekst) && /25 m³/.test(f[0].tekst), JSON.stringify(f));
 }
 
+console.log('\n5. Plandelen i prosjektfila');
+{
+  const Prosjektform = require(js('prosjektform.js'));
+  const P = Prosjektform.klargjor({ navn: 'p', aktivt: 'a1', anlegg: [{ id: 'a1', type: 'ror',
+    mal: { plan: { overdekning: '2,4', kryssKlaring: -1, kum: { diameter: 50 } } },
+    ror: { punkter: [], koder: { 'SP 160PE': { dim: 160, form: 'linje', gods: 'x', minFall: '12', regel: 'tull' } },
+      plan: {
+        traseer: [{ id: 't1', punkter: [{ id: 'p1', lat: 58.1, lon: 7.0 }, { id: 'p2', lat: '58,2', lon: 7.1 }, { id: 'p3', lat: 99, lon: 7 }] },
+          { id: 't2', punkter: [{ id: 'p4', lat: 58, lon: 7 }] }, null],
+        ror: [{ id: 'r1', trase: 't1', kode: 'SP 160PE', side: 40, regel: 'trykk', motsatt: 'ja' },
+          { id: 'r2', trase: 't9', kode: 'VL 110PE' }, { id: 'r3', trase: 't1', kode: '' }],
+        kummer: [{ id: 'k1', ror: 'r1', punkt: 'p2', diameter: 9000 }, { id: 'k2', ror: 'r1', punkt: 'p9' }],
+        laast: [{ ror: 'r1', punkt: 'p1', bunn: '7,5', kilde: { anlegg: 'a2', punkt: 'X', topp: 7.7 } },
+          { ror: 'r1', punkt: 'p1', bunn: 'x' }],
+        greiner: [{ trase: 't1', ende: 'midt', til: { trase: 't2', punkt: 'p4' } }]
+      } } }] });
+  const a = P.anlegg[0], pl = a.ror.plan;
+  paastand('traser med for få gyldige punkt tas bort, og punkt utenfor kloden',
+    pl.traseer.length === 1 && pl.traseer[0].punkter.length === 2);
+  sjekk('tekst med komma blir tall', pl.traseer[0].punkter[1].lat, 58.2, 1e-12);
+  paastand('rør uten trase eller kode tas bort', pl.ror.length === 1 && pl.ror[0].id === 'r1');
+  paastand('sideavstanden klemmes, regel og retning ryddes',
+    pl.ror[0].side === 10 && pl.ror[0].regel === 'trykk' && pl.ror[0].motsatt === false);
+  paastand('kum som ikke treffer, tas bort; diameteren klemmes', pl.kummer.length === 1 && pl.kummer[0].diameter === 3000);
+  paastand('låst høyde: én per punkt, med kilde', pl.laast.length === 1 && pl.laast[0].bunn === 7.5 && pl.laast[0].kilde.topp === 7.7);
+  paastand('grein med ugyldig ende tas bort', pl.greiner.length === 0);
+  paastand('planmalen klemmes og får standarden', a.mal.plan.overdekning === 2.4 && a.mal.plan.kryssKlaring === 0.3
+    && a.mal.plan.kum.diameter === 1000 && a.mal.plan.kum.arbeidsrom === 0.5, JSON.stringify(a.mal.plan));
+  const k = a.ror.koder['SP 160PE'];
+  paastand('kodefeltene ryddes', !('gods' in k) && k.minFall === 12 && !('regel' in k), JSON.stringify(k));
+  const Q = Prosjektform.klargjor({ navn: 'q', aktivt: 'a1', anlegg: [{ id: 'a1', type: 'ror', ror: { punkter: [] } }] });
+  paastand('et innmålt anlegg får ingen plan', !('plan' in Q.anlegg[0].ror) && !('plan' in Q.anlegg[0].mal));
+}
+
 /* ---------------- sluttsum ---------------- */
 console.log(`\n${ok} tester ok, ${feil} feil`);
 process.exit(feil ? 1 : 0);

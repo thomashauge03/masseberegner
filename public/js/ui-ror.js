@@ -400,9 +400,7 @@ const RorUI = {
          regel som `velgAnleggstype` – ellers ville et ferskt prosjekt med rør
          hatt en tom veg liggende foran seg i lista. */
       const na = app.anlegg();
-      const tomt = na && !(na.ip && na.ip.length)
-        && !(na.tomt && na.tomt.punkter && na.tomt.punkter.length)
-        && !(na.ror && na.ror.punkter && na.ror.punkter.length);
+      const tomt = na && !app._harGeometri(na);
       if (P.ubestemt && tomt) { a.id = na.id; P.anlegg[P.anlegg.indexOf(na)] = a; }
       else P.anlegg.push(a);
       melding = `${les.punkter.length} punkt importert som «${navn}»`;

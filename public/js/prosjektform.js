@@ -80,6 +80,103 @@ function _rettGroft(a, G) {
   };
 }
 
+function _rorplan() {
+  if (typeof RorPlan !== 'undefined') return RorPlan;
+  return require('./rorplan.js');
+}
+
+/**
+ * Plandelen i et tegnet røranlegg, gjort om til det programmet tåler.
+ *
+ * Som grøftejusteringene: en prosjektfil kan være redigert for hånd. Et
+ * punkt uten to tall kan ikke tegnes; et rør, en kum eller en låst høyde som
+ * peker på noe som ikke finnes, ville gitt en linje uten trase eller en grop
+ * uten rør. Det som ikke treffer, tas bort; tall utenfor grensene klemmes.
+ */
+function _rettPlan(a, RP) {
+  const erObjekt = v => !!v && typeof v === 'object' && !Array.isArray(v);
+  const id = v => (v != null && typeof v !== 'object' && String(v) !== '' ? String(v) : null);
+  const tall = v => {
+    const x = typeof v === 'string' ? parseFloat(v.replace(',', '.')) : v;
+    return typeof x === 'number' && Number.isFinite(x) ? x : null;
+  };
+  const liste = v => (Array.isArray(v) ? v : []);
+  const p = erObjekt(a.ror.plan) ? a.ror.plan : {};
+  const traseer = [], punktTil = new Map();
+  for (const t of liste(p.traseer)) {
+    const tid = erObjekt(t) ? id(t.id) : null;
+    if (!tid || traseer.some(x => x.id === tid)) continue;
+    const punkter = [];
+    for (const q of liste(t.punkter)) {
+      if (!erObjekt(q)) continue;
+      const pid = id(q.id), lat = tall(q.lat), lon = tall(q.lon);
+      if (!pid || punktTil.has(pid) || punkter.some(x => x.id === pid)) continue;
+      if (lat === null || lon === null || Math.abs(lat) > 90 || Math.abs(lon) > 180) continue;
+      punkter.push({ id: pid, lat, lon });
+    }
+    if (punkter.length < 2) continue;
+    traseer.push({ id: tid, punkter });
+    for (const q of punkter) punktTil.set(q.id, tid);
+  }
+  const ror = [];
+  for (const r of liste(p.ror)) {
+    if (!erObjekt(r)) continue;
+    const rid = id(r.id), trase = id(r.trase), kode = r.kode != null ? String(r.kode).trim() : '';
+    if (!rid || !kode || !traseer.some(t => t.id === trase) || ror.some(x => x.id === rid)) continue;
+    // `klem` klemmer 40 ned til 10, men avviser alt under −10: det settes til −10, ikke midt i traseen
+    const side = RP.klem('side', r.side);
+    ror.push({ id: rid, trase, kode, side: side === null ? (tall(r.side) < 0 ? -10 : 0) : side,
+      regel: r.regel === 'selvfall' || r.regel === 'trykk' ? r.regel : null, motsatt: r.motsatt === true });
+  }
+  const paaRoret = (rid, pid) => { const r = ror.find(x => x.id === rid); return !!r && punktTil.get(pid) === r.trase; };
+  const kummer = [];
+  for (const k of liste(p.kummer)) {
+    if (!erObjekt(k)) continue;
+    const kid = id(k.id), rid = id(k.ror), pid = id(k.punkt);
+    if (!kid || !paaRoret(rid, pid) || kummer.some(x => x.id === kid)) continue;
+    const d = RP.klem('diameter', k.diameter);
+    kummer.push({ id: kid, ror: rid, punkt: pid, diameter: d === null ? RP.StandardPlanmal.kum.diameter : d });
+  }
+  const laast = [];
+  for (const l of liste(p.laast)) {
+    if (!erObjekt(l)) continue;
+    const rid = id(l.ror), pid = id(l.punkt), bunn = tall(l.bunn);
+    if (!paaRoret(rid, pid) || bunn === null || laast.some(x => x.ror === rid && x.punkt === pid)) continue;
+    const ut = { ror: rid, punkt: pid, bunn };
+    const k = l.kilde;
+    if (erObjekt(k) && id(k.anlegg) && id(k.punkt) && tall(k.topp) !== null) {
+      ut.kilde = { anlegg: id(k.anlegg), punkt: id(k.punkt), topp: tall(k.topp) };
+    }
+    laast.push(ut);
+  }
+  const greiner = [];
+  for (const g of liste(p.greiner)) {
+    if (!erObjekt(g) || !erObjekt(g.til)) continue;
+    const tid = id(g.trase), ende = g.ende === 'start' || g.ende === 'slutt' ? g.ende : null;
+    const til = { trase: id(g.til.trase), punkt: id(g.til.punkt) };
+    if (!ende || !traseer.some(t => t.id === tid) || til.trase === tid || punktTil.get(til.punkt) !== til.trase) continue;
+    if (greiner.some(x => x.trase === tid && x.ende === ende)) continue;
+    greiner.push({ trase: tid, ende, til });
+  }
+  a.ror.plan = { traseer, ror, kummer, laast, greiner };
+  const m = erObjekt(a.mal.plan) ? a.mal.plan : {}, kum = erObjekt(m.kum) ? m.kum : {};
+  const std = RP.StandardPlanmal, ell = (v, s) => (v === null ? s : v);
+  a.mal.plan = {
+    overdekning: ell(RP.klem('overdekning', m.overdekning), std.overdekning),
+    kryssKlaring: ell(RP.klem('kryssKlaring', m.kryssKlaring), std.kryssKlaring),
+    kum: { diameter: ell(RP.klem('diameter', kum.diameter), std.kum.diameter),
+      arbeidsrom: ell(RP.klem('arbeidsrom', kum.arbeidsrom), std.kum.arbeidsrom) }
+  };
+  for (const k of Object.values(a.ror.koder)) {
+    for (const f of ['gods', 'overdekning', 'minFall', 'maksFall']) {
+      if (!(f in k)) continue;
+      const v = RP.klem(f, k[f]);
+      if (v === null) delete k[f]; else k[f] = v;
+    }
+    if ('regel' in k && k.regel !== 'selvfall' && k.regel !== 'trykk') delete k.regel;
+  }
+}
+
 /**
  * Feltene i et røranlegg fra fil, gjort om til det programmet regner med.
  *
@@ -262,6 +359,8 @@ function klargjor(P) {
       for (const k of ['av', 'brudd', 'koble']) if (!Array.isArray(a.ror.retting[k])) a.ror.retting[k] = [];
       _rettRorfelt(a, R);
       _rettGroft(a, _groft());
+      // et tegnet anlegg har en plan; et innmålt får ingen
+      if (a.ror.plan) _rettPlan(a, _rorplan());
       a.ip = a.ip || [];      // se nyttAnlegg: tomme lister, ikke undefined
       a.vip = a.vip || [];
     } else {

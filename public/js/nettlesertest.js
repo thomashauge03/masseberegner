@@ -172,6 +172,7 @@ const Nettlesertest = {
       'rorProfil', 'ror3d', 'rorRapport', 'rorPdf', 'rorForklaring',
       'groftBeregning', 'groftFane', 'groftKoder', 'groftVerktoy', 'groftKnutepunkt', 'groftProfil', 'groft3d',
       'groftRapport',
+      'planBeregning',
       'lovlighet', 'framdrift', 'gamleFilerOgUtskifting', 'opprydding'];
     for (const navn of proever) {
       try {
@@ -9015,6 +9016,59 @@ const Nettlesertest = {
         this.sjekk('avlesningen viser gravedybden', /gravedybde/.test(document.getElementById('rorEtikett').textContent),
           document.getElementById('rorEtikett').textContent);
         Rorprofil.peker = null;
+      });
+    } finally {
+      await this._rorTilbake(foer);
+    }
+  },
+
+  /**
+   * Et tegnet anlegg med én trase: spillvann og vann i samme grøft, og en kum
+   * på spillvannet. Kalles inne i `_medFlattTerreng`.
+   */
+  async _planProsjekt() {
+    App.P = App.nyttProsjekt();
+    const a = App.nyttAnlegg('rorplan', 'Planlagte rør', App.P.anlegg[0].id);
+    App.P.anlegg[0] = a; App.P.aktivt = a.id; delete App.P.ubestemt;
+    const o = Geo.tilUtm(58.1412, 7.0705, 32);
+    const gr = (x, y) => Geo.fraUtm(o.x + x, o.y + y, 32);
+    a.ror.sone = 32;
+    a.ror.plan.traseer.push({ id: 't1', punkter: [[0, 0], [40, 0], [80, 10]].map(([x, y], i) => {
+      const g = gr(x, y);
+      return { id: 'p' + (i + 1), lat: g.lat, lon: g.lon };
+    }) });
+    a.ror.koder = Ror.koderFra([{ kode: 'SP 160PE' }, { kode: 'VL 110PE' }], {});
+    a.ror.plan.ror.push({ id: 'r1', trase: 't1', kode: 'SP 160PE', side: 0.4, regel: null, motsatt: false },
+      { id: 'r2', trase: 't1', kode: 'VL 110PE', side: -0.4, regel: null, motsatt: false });
+    a.ror.plan.kummer.push({ id: 'k1', ror: 'r1', punkt: 'p2', diameter: 1000 });
+    App.visAnleggsvelger(); App.malTilSkjema(); App.tegnAlt();
+    clearTimeout(App._tidsavbrudd);
+    await App.beregnRor();
+    return { a, ll: (x, y) => { const g = gr(x, y); return L.latLng(g.lat, g.lon); } };
+  },
+
+  /** Et tegnet anlegg regnes som et innmålt: linjer, profiler, grøft, kummer og kontroller. */
+  async planBeregning() {
+    const foer = JSON.stringify(App.P);
+    try {
+      await this._medFlattTerreng(21.5, async () => {
+        await this._planProsjekt();
+        const res = App.resultat;
+        this.sjekk('resultatet er et rørresultat med plan', !!res && res.type === 'ror' && res.plan === true);
+        this.sjekk('to rør', res.linjer.length === 2, String(res.linjer.length));
+        const sp = res.linjer.find(l => l.kode === 'SP 160PE');
+        this.sjekk('selvfall: topp 2,0 m under terrenget i enden', Math.abs(sp.punkter[0].z - 19.5) < 1e-6, String(sp.punkter[0].z));
+        this.sjekk('grøfta er regnet, med kummen', res.groft.sum.gravingLos > 50 && res.groft.sum.kumvolum > 1,
+          JSON.stringify(res.groft.sum));
+        this.sjekk('kumlista', res.kummer.length === 1 && Math.abs(res.kummer[0].terreng - 21.5) < 1e-6);
+        this.sjekk('en profil per rør', res.profiler.size === 2);
+        this.sjekk('anlegget har innhold – det autolagres', App.harInnhold());
+        this.sjekk('erPlan', App.erPlan() === true);
+        // lagring og åpning: fila går gjennom den samme klargjøringen som når et prosjekt åpnes
+        const apnet = App.klargjorProsjekt(Object.assign(App.nyttProsjekt(), JSON.parse(JSON.stringify(App.P))));
+        const pl = apnet.anlegg[0].ror.plan;
+        this.sjekk('planen står seg gjennom lagring og åpning', pl.traseer.length === 1 && pl.ror.length === 2
+          && pl.kummer.length === 1 && apnet.anlegg[0].mal.plan.overdekning === 2 && !apnet.ubestemt);
       });
     } finally {
       await this._rorTilbake(foer);

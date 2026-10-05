@@ -149,10 +149,12 @@ const App = {
    */
 
   nyttAnlegg(type, navn, id) {
+    // et tegnet røranlegg ('rorplan') er et røranlegg med en plan – se RorPlan
+    const ror = type === 'ror' || type === 'rorplan';
     const a = {
       id: id || 'a' + Date.now().toString(36) + Math.floor(Math.random() * 1000).toString(36),
-      type: type === 'tomt' ? 'tomt' : type === 'ror' ? 'ror' : 'veg',
-      navn: navn || (type === 'tomt' ? 'Tomt' : type === 'ror' ? 'Rør' : 'Veg')
+      type: type === 'tomt' ? 'tomt' : ror ? 'ror' : 'veg',
+      navn: navn || (type === 'tomt' ? 'Tomt' : type === 'rorplan' ? 'Planlagte rør' : ror ? 'Rør' : 'Veg')
     };
     if (a.type === 'tomt') {
       a.tomt = nyTomt();
@@ -170,6 +172,8 @@ const App = {
       a.ror = Ror.nyRor();
       a.ror.groft = Groft.nyGroft();
       a.mal = Object.assign({}, Ror.StandardRormal, { groft: Object.assign({}, Groft.StandardGroftmal) });
+      /* Et tegnet anlegg har en plan; et innmålt har punktene fra fila. */
+      if (type === 'rorplan') { a.ror.plan = RorPlan.nyPlan(); a.mal.plan = RorPlan.nyPlanmal(); }
       // tomme lister av samme grunn som for tomta over
       a.ip = [];
       a.vip = [];
@@ -221,9 +225,7 @@ const App = {
        import, for angre, og for hver annen vei et prosjekt kan komme inn. Et
        HELT NYTT prosjekt har ingen geometri og forblir ubestemt – det er
        nettopp da spørsmålet er på sin plass. */
-    if (Array.isArray(P.anlegg) && P.anlegg.some(a => (a.ip && a.ip.length)
-      || (a.tomt && a.tomt.punkter && a.tomt.punkter.length)
-      || (a.ror && a.ror.punkter && a.ror.punkter.length))) {
+    if (Array.isArray(P.anlegg) && P.anlegg.some(a => this._harGeometri(a))) {
       delete P.ubestemt;
     }
     if (typeof Tegner3d !== 'undefined') {
@@ -261,6 +263,15 @@ const App = {
 
   /** Er det rør vi jobber med nå? */
   erRor() { const a = this.anlegg(); return !!a && a.type === 'ror'; },
+
+  /** Er det et tegnet røranlegg vi jobber med nå? */
+  erPlan() { const a = this.anlegg(); return !!a && a.type === 'ror' && !!(a.ror && a.ror.plan); },
+
+  /** Har anlegget noe tegnet eller importert – en veg, en tomt, innmålte eller tegnede rør? */
+  _harGeometri(a) {
+    return !!a && !!((a.ip && a.ip.length) || (a.tomt && a.tomt.punkter && a.tomt.punkter.length)
+      || (a.ror && a.ror.punkter && a.ror.punkter.length) || (a.ror && a.ror.plan && a.ror.plan.traseer.length));
+  },
 
   /* ================================================================
      ET FERDIG ANLEGG ER DET NYE TERRENGET
@@ -1166,9 +1177,7 @@ const App = {
        en angrepost: neste endring skjøv tapet inn i historikken og lot
        autolagringen skrive over fila. Selve flagget er rettet i `apne`; denne
        vakten står fordi et datatap ikke skal henge på ett enkelt sted. */
-    const harNoe = a && ((a.ip && a.ip.length)
-      || (a.tomt && a.tomt.punkter && a.tomt.punkter.length)
-      || (a.ror && a.ror.punkter && a.ror.punkter.length));
+    const harNoe = this._harGeometri(a);
     if (a && a.type !== type && !harNoe) {
       /* Anlegget er tomt – ingenting er tegnet ennå – så det byttes ut i stedet
          for å konverteres. En konvertering ville måttet flytte felt som ikke
@@ -3247,7 +3256,47 @@ const App = {
   /** Rørene bygd av dataene, i regnesonen – én vei inn for kart, fane og beregning. */
   byggRor() {
     const r = this.P.ror;
+    if (r.plan) return this.byggPlan(this.anlegg());
     return Ror.byggLinjer(r, this.P.mal, Ror.lagTilXY(r.sone, this.sone));
+  },
+
+  /**
+   * Et tegnet anlegg som linjer i regnesonen – se RorPlan.bygg. Høydene kommer
+   * fra terrenget som er hentet; før det er hentet, har rørene ingen høyder,
+   * men tegnes likevel (`utenHoyde`).
+   */
+  byggPlan(a) {
+    const r = a.ror;
+    const terr = this.terreng && this.terreng.sone === this.sone ? this.terreng : null;
+    return RorPlan.bygg({
+      plan: r.plan, koder: r.koder, mal: a.mal.plan,
+      tilSone: (lat, lon) => { const u = Geo.tilUtm(lat, lon, r.sone); return { o: u.x, n: u.y }; },
+      tilXY: Ror.lagTilXY(r.sone, this.sone),
+      terrengZ: terr ? (x, y) => terr.z(x, y) : () => NaN,
+      innmalt: (anlegg, punkt) => this._innmaltTopp(anlegg, punkt)
+    });
+  },
+
+  /** Topp rør i et innmålt punkt i et annet anlegg nå – eller null om det er borte. */
+  _innmaltTopp(anleggId, punktId) {
+    const a = this.P.anlegg.find(x => x.id === anleggId);
+    const p = a && a.type === 'ror' && a.ror && !a.ror.plan ? a.ror.punkter.find(x => x.id === punktId) : null;
+    return p ? p.z : null;
+  },
+
+  /** Rørene i de andre røranleggene, i regnesonen – til kryssingskontrollen. */
+  _andreRor() {
+    const ut = [];
+    for (const a of this.P.anlegg) {
+      if (a.type !== 'ror' || a.id === this.P.aktivt || !a.ror) continue;
+      const b = a.ror.plan ? this.byggPlan(a) : Ror.byggLinjer(a.ror, a.mal, Ror.lagTilXY(a.ror.sone, this.sone));
+      for (const l of b.linjer) {
+        const k = a.ror.koder[l.kode] || Ror.tolkKode(l.kode);
+        if (!(k.dim > 0)) continue;
+        ut.push({ id: a.id + '/' + l.id, kode: l.kode, D: k.dim / 1000, xy: l.xy, topp: l.punkter.map(p => p.z), navn: a.navn });
+      }
+    }
+    return ut;
   },
 
   /**
@@ -3269,7 +3318,9 @@ const App = {
       const p = (a.ip && a.ip[0]) || (a.tomt && a.tomt.punkter && a.tomt.punkter[0]);
       if (p) { this._settSone(p.lon); return; }
     }
-    const lon = Ror.tilLatLon(r.punkter[0], r.sone)[1];
+    // et tegnet anlegg har ingen innmålte punkt – det første tracepunktet bestemmer
+    const forste = r.plan && r.plan.traseer[0] ? r.plan.traseer[0].punkter[0] : null;
+    const lon = forste ? forste.lon : r.punkter[0] ? Ror.tilLatLon(r.punkter[0], r.sone)[1] : NaN;
     if (Number.isFinite(lon)) { this.sone = Geo.sone(lon); this._soneSatt = true; }
   },
 
@@ -3296,9 +3347,9 @@ const App = {
       this.visNokkeltal();
       this.visProsjektmasser();
     };
-    if (!r || !r.punkter.length) { this.resultat = null; vis(); return null; }
+    if (!r || (!r.punkter.length && !(r.plan && r.plan.traseer.length))) { this.resultat = null; vis(); return null; }
     this._settRorsone(r);
-    const bygg = this.byggRor();
+    let bygg = this.byggRor();
     if (!this.terreng || this.terreng.sone !== this.sone || this.terreng.res !== 1) {
       this.terreng = new Terreng(this.sone, 1);
       /* Nøkkelen sier hva som er lastet inn i det GAMLE terrenget. Sto den
@@ -3310,12 +3361,18 @@ const App = {
     /* Halvbredden er 3D-konteksten: terrenget rundt rørene i modellen skal
        finnes uten en ny nedlasting når man slår på 3D. */
     const halv = Math.max(10, (typeof Ror3d !== 'undefined' && Ror3d.kontekst) || 40);
-    const nokkel = 'ror#' + this.sone + '#' + halv + '#'
-      + bygg.linjer.map(l => l.id + ':' + l.punkter.length + ':' + l.lengde.toFixed(2)).join('|');
+    /* Rørene uten høyder er med i korridoren: et tegnet anlegg har ingen
+       høyder før terrenget er hentet, og uten dem ville ingenting blitt hentet.
+       Nøkkelen for et tegnet anlegg er traseene – linjene endrer seg med
+       terrenget (mellompunktene), og da ville samme terreng blitt bedt om igjen. */
+    const traser = bygg.linjer.concat(bygg.utenHoyde || []);
+    const nokkel = 'ror#' + this.sone + '#' + halv + '#' + (r.plan
+      ? JSON.stringify(r.plan.traseer) + JSON.stringify(r.plan.ror.map(x => [x.id, x.side]))
+      : bygg.linjer.map(l => l.id + ':' + l.punkter.length + ':' + l.lengde.toFixed(2)).join('|'));
     const anleggFoer = this.P.aktivt;
-    if (nokkel !== this._terrengnokkel && bygg.linjer.length) {
+    if (nokkel !== this._terrengnokkel && traser.length) {
       await this.medHenteboks('Henter terrengdata fra Kartverket',
-        fram => this.terreng.lastKorridorer(bygg.linjer.map(l => Ror.korridor(l.xy)), halv, fram));
+        fram => this.terreng.lastKorridorer(traser.map(l => Ror.korridor(l.xy)), halv, fram));
       /* Samme vakt som i `oppdater()`: byttet man anlegg mens nedlastingen
          gikk, hører ikke dette svaret hjemme noe sted. Det gjør det heller
          ikke når en nyere beregning er startet, eller når anlegget er byttet
@@ -3332,6 +3389,8 @@ const App = {
        Overdekningen skal måles mot marka slik den er skannet – det er det
        brukeren valgte, og en veg som bare er tegnet, ligger ikke over røret. */
     const terrengZ = (x, y) => this.terreng.z(x, y);
+    // høydene til et tegnet anlegg kommer fra terrenget – nå som det er hentet, bygges det på nytt
+    if (r.plan) bygg = this.byggRor();
     const profiler = new Map();
     for (const l of bygg.linjer) {
       const k = r.koder[l.kode] || Ror.tolkKode(l.kode);
@@ -3348,21 +3407,29 @@ const App = {
     const fm = this.fjellmodellIUtm();
     const bakkefaktor = this.bakkefaktor();
     const lastet = this.terreng ? [this.terreng.fliser.size, this.terreng.mangler.size] : null;
+    const kummer = (bygg.kummer || []).map(k => ({ id: k.id, x: k.x, y: k.y, bunnlop: k.bunnlop, diameter: k.diameter, eier: k.ror }));
     const groftNokkel = JSON.stringify([bygg.linjer.map(l => [l.id, l.punkter.map(p => [p.id, p.z]), l.xy]), r.koder,
       this.P.mal.groft, r.groft, fm.punkter, fm.rekkevidde, this._terrengnokkel, lastet, this.sone, this.P.faktorer,
-      bakkefaktor]);
+      bakkefaktor, kummer, r.plan ? this.P.mal.plan : null]);
     if (groftNokkel !== this._groftNokkel || !this._groftResultat) {
       this._groftResultat = Groft.beregn({
         linjer: bygg.linjer, koder: r.koder, mal: this.P.mal.groft, justering: r.groft,
-        terrengZ, fjellSondert: (x, y) => fm.sondert(x, y), faktorer: this.P.faktorer, bakkefaktor
+        terrengZ, fjellSondert: (x, y) => fm.sondert(x, y), faktorer: this.P.faktorer, bakkefaktor,
+        kummer, kumArbeidsrom: r.plan ? this.P.mal.plan.kum.arbeidsrom : undefined
       });
       this._groftNokkel = groftNokkel;
     }
     this.resultat = {
       type: 'ror', bygg, linjer: bygg.linjer, profiler, sone: this.sone,
       bakkefaktor,
-      merknader: Ror.merknader(bygg, profiler, this.P.mal.maksAvstand),
-      groft: this._groftResultat
+      /* Et tegnet anlegg har kontrollene i stedet for importens merknader –
+         enslige punkt og rettinger finnes ikke der. */
+      merknader: r.plan
+        ? bygg.merknader.concat(RorPlan.kontroller({ bygg, koder: r.koder, mal: this.P.mal.plan, terrengZ,
+          andre: this._andreRor() }), RorPlan.fjell(this._groftResultat, bygg))
+        : Ror.merknader(bygg, profiler, this.P.mal.maksAvstand),
+      groft: this._groftResultat,
+      plan: !!r.plan, kummer: bygg.kummer || [], kontroll: bygg.kontroll || []
     };
     this.merkResultat();
     vis();
@@ -6592,9 +6659,7 @@ const App = {
     /* Uten rørene her ble et prosjekt med bare rør aldri autolagret: det så
        tomt ut, og alt man hadde importert og rettet ventet på en lagring som
        ikke kom. */
-    return this.P.anlegg.some(a =>
-      (a.ip && a.ip.length) || (a.tomt && a.tomt.punkter && a.tomt.punkter.length)
-      || (a.ror && a.ror.punkter && a.ror.punkter.length));
+    return this.P.anlegg.some(a => this._harGeometri(a));
   },
 
   harUlagret() {
