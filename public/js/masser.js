@@ -196,6 +196,25 @@ class Fjellmodell {
     }
     return this.standarddybde;
   }
+
+  /**
+   * Dybden fra sonderingene alene, eller null der ingen når.
+   *
+   * Rør bruker bare det som faktisk er målt. Standarddybden på 0,5 m ville
+   * gjort nesten hele ei grøft på 1,5–2 m til fjell.
+   */
+  sondert(x, y) {
+    let sumV = 0, sumW = 0;
+    for (const p of this.punkter) {
+      if (!Number.isFinite(p.dybde)) continue;
+      const d = Math.hypot(p.x - x, p.y - y);
+      if (d > this.rekkevidde) continue;
+      if (d < 0.05) return p.dybde;
+      const w = 1 / (d * d);
+      sumV += w * p.dybde; sumW += w;
+    }
+    return sumW > 0 ? sumV / sumW : null;
+  }
 }
 
 /* ------------------------------------------------------------------ *
