@@ -170,6 +170,7 @@ const Nettlesertest = {
       'tomt3d', 'veg3d', 'kartlag',
       'rorArbeidsbilde', 'rorBeregning', 'rorImport', 'rorSone', 'rorKart', 'rorFane', 'rorRetting',
       'rorProfil', 'ror3d', 'rorRapport', 'rorPdf', 'rorForklaring',
+      'groftBeregning',
       'lovlighet', 'framdrift', 'gamleFilerOgUtskifting', 'opprydding'];
     for (const navn of proever) {
       try {
@@ -8822,6 +8823,49 @@ const Nettlesertest = {
       this.sjekk('kodene i anlegget står i forklaringen', /90PE/.test(tekst) && /180 PE/.test(tekst), tekst.slice(0, 80));
       this.sjekk('topp rør og overdekning forklares', /Topp rør/.test(tekst) && /Overdekning/.test(tekst));
       this.sjekk('vegens streker står ikke der', !/Etter rensk/.test(tekst));
+    } finally {
+      await this._rorTilbake(foer);
+    }
+  },
+
+  /**
+   * Flatt terreng i en prøve: grøfta får kjente dybder, og ingenting hentes
+   * fra Kartverket. Prøvefila har topp rør fra 15 til 20,2.
+   */
+  async _medFlattTerreng(z, f) {
+    const ekteZ = Terreng.prototype.z, ekteLast = Terreng.prototype.lastKorridorer;
+    Terreng.prototype.z = () => z;
+    Terreng.prototype.lastKorridorer = async function () {};
+    App._terrengnokkel = ''; App._groftNokkel = '';
+    try { return await f(); }
+    finally {
+      Terreng.prototype.z = ekteZ; Terreng.prototype.lastKorridorer = ekteLast;
+      App._terrengnokkel = ''; App._groftNokkel = '';
+    }
+  },
+
+  /** Grøfta regnes med rørene: tallene finnes, og felles grøft telles én gang. */
+  async groftBeregning() {
+    const foer = JSON.stringify(App.P);
+    try {
+      await this._medFlattTerreng(21.5, async () => {
+        App.P = App.nyttProsjekt();
+        await RorUI.importerTekst(this._rorXml(), 'asbuilts_Prove.xml', {}, { sone: 32, maal: 'nytt' });
+        clearTimeout(App._tidsavbrudd);
+        await App.beregnRor();
+        const g = App.resultat && App.resultat.groft;
+        this.sjekk('resultatet har grøfta', !!g);
+        if (!g) return;
+        const s = g.sum;
+        this.sjekk('det graves', s.gravingLos > 100, String(s.gravingLos));
+        this.sjekk('graving = fyll + røret', Math.abs(s.gravingLos + s.sprengning - s.fundament - s.omfylling
+          - s.gjenfylling - s.rorvolum) < 0.01);
+        const ror = App.resultat.linjer.reduce((a, l) => a + l.lengde, 0);
+        this.sjekk('90PE og 180 PE i samme grøft gir kortere grøft enn rørene til sammen', s.lengde < ror - 50,
+          `${s.lengde} / ${ror}`);
+        this.sjekk('grøftemalen ligger på anlegget', App.P.mal.groft && App.P.mal.groft.helning === 1);
+        this.sjekk('justeringene er tomme', App.P.ror.groft.strekninger.length === 0);
+      });
     } finally {
       await this._rorTilbake(foer);
     }

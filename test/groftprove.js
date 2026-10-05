@@ -234,6 +234,33 @@ console.log('\n7. Massebalansen');
   sjekk('halvparten brukbar: resten kjøpes', b2.kjopGjenfylling, 70 - 50 * 0.95, 1e-9);
 }
 
+console.log('\n8. Grøftefeltene i prosjektfila');
+{
+  const Prosjektform = require(js('prosjektform.js'));
+  const P = Prosjektform.klargjor({ navn: 'g', aktivt: 'r1', anlegg: [{ id: 'r1', type: 'ror',
+    mal: { groft: { helning: '0,5', fundament: 9, omfylling: 'tull' } },
+    ror: { punkter: [], koder: { '90PE': { dim: 90, form: 'linje', groft: { bunntillegg: '0.1', helning: null, x: 1 } },
+      '32PE': { dim: 32, form: 'linje', groft: 'tull' } },
+      groft: { strekninger: [{ fra: 'a', til: 'b', mal: { helning: 5, tull: 1 }, fjell: '0,8', egen: 'ja' }, null, { fra: {} }],
+        sammen: [['a', 'b'], ['c'], 'x'] } } }] });
+  const a = P.anlegg[0];
+  sjekk('helning som tekst blir tall', a.mal.groft.helning, 0.5, 1e-12);
+  sjekk('fundament over grensen klemmes', a.mal.groft.fundament, 1, 0);
+  sjekk('omfylling som ikke er tall får standarden', a.mal.groft.omfylling, 0.3, 0);
+  sjekk('brukbar får standarden', a.mal.groft.brukbar, 1, 0);
+  paastand('kodemål: bare lovlige felt', JSON.stringify(a.ror.koder['90PE'].groft) === '{"bunntillegg":0.1}',
+    JSON.stringify(a.ror.koder['90PE'].groft));
+  paastand('kodemål som ikke er et objekt tas bort', !('groft' in a.ror.koder['32PE']));
+  sjekk('strekninger som ikke er gyldige, tas bort', a.ror.groft.strekninger.length, 1, 0);
+  const st = a.ror.groft.strekninger[0];
+  paastand('strekningen klemmes og ryddes', st.mal.helning === 3 && !('tull' in st.mal) && st.fjell === 0.8 && st.egen === false,
+    JSON.stringify(st));
+  sjekk('par som ikke er par, tas bort', a.ror.groft.sammen.length, 1, 0);
+  const Q = Prosjektform.klargjor({ navn: 'h', aktivt: 'r1', anlegg: [{ id: 'r1', type: 'ror', ror: { punkter: [] } }] });
+  paastand('et gammelt røranlegg får grøftemal og tomme justeringer', Q.anlegg[0].mal.groft.helning === 1
+    && Q.anlegg[0].ror.groft.strekninger.length === 0 && Q.anlegg[0].ror.groft.sammen.length === 0);
+}
+
 /* DEN EKTE FILA – bare når stien er gitt. Kundens data ligger ikke i repoet.
    Terrenget er det nærmeste målte punktet + 1,5 m: et rimelig terreng uten
    å hente noe fra Kartverket. */

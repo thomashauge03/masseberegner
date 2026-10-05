@@ -33,6 +33,50 @@ function _ror() {
   if (typeof Ror !== 'undefined') return Ror;
   return require('./ror.js');
 }
+function _groft() {
+  if (typeof Groft !== 'undefined') return Groft;
+  return require('./groft.js');
+}
+
+/**
+ * Grøftefeltene i et røranlegg, gjort om til det regnestykket tåler.
+ *
+ * Som rørfeltene: en prosjektfil kan være redigert for hånd eller sendt fra
+ * en kollega. Et tall utenfor grensene klemmes; det som ikke er et tall,
+ * faller tilbake på nivået over – anlegget på standarden, koden og
+ * strekningen på anlegget.
+ */
+function _rettGroft(a, G) {
+  const lagret = a.mal.groft && typeof a.mal.groft === 'object' ? a.mal.groft : {};
+  const m = Object.assign({}, G.StandardGroftmal);
+  for (const f of Object.keys(G.StandardGroftmal)) {
+    const v = G.klem(f, lagret[f]);
+    if (v !== null) m[f] = v;
+  }
+  a.mal.groft = m;
+  const malFelt = kilde => {
+    const ut = {};
+    if (kilde && typeof kilde === 'object' && !Array.isArray(kilde)) {
+      for (const f of G.MALFELT) { const v = G.klem(f, kilde[f]); if (v !== null) ut[f] = v; }
+    }
+    return ut;
+  };
+  for (const k of Object.values(a.ror.koder)) {
+    if (!('groft' in k)) continue;
+    const g = malFelt(k.groft);
+    if (Object.keys(g).length) k.groft = g; else delete k.groft;
+  }
+  const j = a.ror.groft && typeof a.ror.groft === 'object' && !Array.isArray(a.ror.groft) ? a.ror.groft : {};
+  const id = v => v != null && typeof v !== 'object';
+  a.ror.groft = {
+    strekninger: (Array.isArray(j.strekninger) ? j.strekninger : [])
+      .filter(s => s && typeof s === 'object' && id(s.fra) && id(s.til))
+      .map(s => ({ fra: String(s.fra), til: String(s.til), mal: malFelt(s.mal),
+        fjell: G.klem('fjell', s.fjell), egen: s.egen === true })),
+    sammen: (Array.isArray(j.sammen) ? j.sammen : [])
+      .filter(p => Array.isArray(p) && p.length === 2 && p.every(id)).map(p => p.map(String))
+  };
+}
 
 /**
  * Feltene i et røranlegg fra fil, gjort om til det programmet regner med.
@@ -215,6 +259,7 @@ function klargjor(P) {
       a.ror.retting = Object.assign({ av: [], brudd: [], koble: [] }, a.ror.retting || {});
       for (const k of ['av', 'brudd', 'koble']) if (!Array.isArray(a.ror.retting[k])) a.ror.retting[k] = [];
       _rettRorfelt(a, R);
+      _rettGroft(a, _groft());
       a.ip = a.ip || [];      // se nyttAnlegg: tomme lister, ikke undefined
       a.vip = a.vip || [];
     } else {

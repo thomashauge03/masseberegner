@@ -168,7 +168,8 @@ const App = {
       a.vip = [];
     } else if (a.type === 'ror') {
       a.ror = Ror.nyRor();
-      a.mal = Object.assign({}, Ror.StandardRormal);
+      a.ror.groft = Groft.nyGroft();
+      a.mal = Object.assign({}, Ror.StandardRormal, { groft: Object.assign({}, Groft.StandardGroftmal) });
       // tomme lister av samme grunn som for tomta over
       a.ip = [];
       a.vip = [];
@@ -3331,10 +3332,24 @@ const App = {
       const k = r.koder[l.kode] || Ror.tolkKode(l.kode);
       profiler.set(l.id, Ror.profil(l, terrengZ, k.dim));
     }
+    /* GRØFTA – av de samme linjene, i regnesonen. Regnes bare på nytt når noe
+       den bygger på er endret: linjene og høydene, kodene, grøftemalen,
+       justeringene, sonderingene eller terrenget. */
+    const fm = this.fjellmodellIUtm();
+    const groftNokkel = JSON.stringify([bygg.linjer.map(l => [l.id, l.punkter.map(p => p.z)]), r.koder,
+      this.P.mal.groft, r.groft, fm.punkter, fm.rekkevidde, this._terrengnokkel, this.sone]);
+    if (groftNokkel !== this._groftNokkel || !this._groftResultat) {
+      this._groftResultat = Groft.beregn({
+        linjer: bygg.linjer, koder: r.koder, mal: this.P.mal.groft, justering: r.groft,
+        terrengZ, fjellSondert: (x, y) => fm.sondert(x, y), faktorer: this.P.faktorer
+      });
+      this._groftNokkel = groftNokkel;
+    }
     this.resultat = {
       type: 'ror', bygg, linjer: bygg.linjer, profiler, sone: this.sone,
       bakkefaktor: this.bakkefaktor(),
-      merknader: Ror.merknader(bygg, profiler, this.P.mal.maksAvstand)
+      merknader: Ror.merknader(bygg, profiler, this.P.mal.maksAvstand),
+      groft: this._groftResultat
     };
     this.merkResultat();
     vis();
