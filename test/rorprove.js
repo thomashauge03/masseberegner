@@ -119,6 +119,130 @@ console.log('\n3. Kodene fra operatøren');
   paastand('resten av koden blir variant', Ror.tolkKode('180 PE DIFUSJON').variant === 'DIFUSJON');
 }
 
+/* ------------------------------------------------------------------ */
+console.log('\n4. Farger og koder');
+{
+  const k = Ror.koderFra([{ kode: '180 PE' }, { kode: '90PE' }, { kode: '40 FIBER' },
+    { kode: 'SP 160PE' }, { kode: '90PE MUFFE' }, { kode: '180 PE DIFUSJON' }, { kode: '90PE' }]);
+  paastand('rør uten system får palettfarger i rekkefølge',
+    k['180 PE'].farge === 'p1' && k['90PE'].farge === 'p2' && k['180 PE DIFUSJON'].farge === 'p3',
+    JSON.stringify([k['180 PE'].farge, k['90PE'].farge, k['180 PE DIFUSJON'].farge]));
+  paastand('fiber er kabelrør, SP er spillvann', k['40 FIBER'].farge === 'kabel' && k['SP 160PE'].farge === 'spill');
+  paastand('muffen er et punkt', k['90PE MUFFE'].farge === 'punkt' && k['90PE MUFFE'].form === 'punkt');
+  paastand('alt vises fra start', Object.values(k).every(x => x.vis === true));
+  const k2 = Ror.koderFra([{ kode: '90PE' }, { kode: '32PE' }],
+    { '90PE': { form: 'linje', dim: 90, farge: 'p5', vis: false } });
+  paastand('det brukeren har rettet, står', k2['90PE'].farge === 'p5' && k2['90PE'].vis === false);
+  paastand('en ny kode tar første ledige farge', k2['32PE'].farge === 'p1', k2['32PE'].farge);
+  paastand('FARGER har et navn for hver nøkkel', ['vann', 'spill', 'overvann', 'drens', 'kabel', 'felles',
+    'p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'punkt'].every(f => typeof Ror.FARGER[f] === 'string'));
+}
+
+/* ------------------------------------------------------------------ */
+console.log('\n5. Avstand til et strekk');
+{
+  sjekk('rett over strekket', Ror.avstandTilStrekk({ x: 5, y: 3 }, { x: 0, y: 0 }, { x: 10, y: 0 }), 3, 1e-12);
+  sjekk('forbi enden måles til enden', Ror.avstandTilStrekk({ x: -4, y: 3 }, { x: 0, y: 0 }, { x: 10, y: 0 }), 5, 1e-12);
+  sjekk('et strekk uten lengde er et punkt', Ror.avstandTilStrekk({ x: 3, y: 4 }, { x: 0, y: 0 }, { x: 0, y: 0 }), 5, 1e-12);
+}
+
+/* ------------------------------------------------------------------ */
+/* Oppdiktede punkter som oppfører seg som den ekte fila: to rør i samme
+   grøft målt om hverandre og fram og tilbake, et rør med samme kode 300 m
+   unna, stikkledninger målt i sikksakk, og en muffe. */
+function proverPunkter() {
+  const ut = [];
+  let nr = 0;
+  const p = (kode, x, y, z) => ut.push({ id: 'p' + String(++nr).padStart(3, '0'), kode, n: y, o: x, z, tid: '', nr });
+  for (let x = 0; x <= 100; x += 10) p('90PE', x, 0, 500 - x * 0.01);       // A framover
+  for (let x = 0; x <= 96; x += 12) p('180 PE', x, 1, 499.5);               // B framover, 1 m ved siden av
+  for (let x = 200; x >= 110; x -= 10) p('90PE', x, 0, 500 - x * 0.01);     // A bakover
+  for (let x = 192; x >= 108; x -= 12) p('180 PE', x, 1, 499.5);            // B bakover
+  p('32PE', 50, 12, 500.2); p('32PE', 50, 0.5, 500); p('32PE', 50, 8, 500.1); p('32PE', 50, 4, 500.05);
+  p('32PE', 150, -12, 500.2); p('32PE', 150, -0.5, 500); p('32PE', 150, -6, 500.1);
+  for (let x = 500; x <= 560; x += 10) p('90PE', x, 0, 495);               // C, 300 m unna
+  p('90PE MUFFE', 100, 0, 499);
+  return ut;
+}
+const iFila = p => ({ x: p.o, y: p.n });
+const finn = (pts, kode, x, y) => pts.find(q => q.kode === kode && q.o === x && q.n === y).id;
+
+console.log('\n6. Linjene trekkes etter geometri');
+{
+  const pts = proverPunkter();
+  const ror = { punkter: pts, koder: Ror.koderFra(pts), retting: { av: [], brudd: [], koble: [] } };
+  const b = Ror.byggLinjer(ror, Ror.StandardRormal, iFila);
+  const av = kode => b.linjer.filter(l => l.kode === kode);
+  sjekk('fem linjer i alt', b.linjer.length, 5, 0);
+  sjekk('90PE blir to linjer – A og C, ikke ett hopp på 300 m', av('90PE').length, 2, 0);
+  const A = av('90PE').find(l => l.punkter.some(q => q.o === 0));
+  sjekk('A går hele veien', A.lengde, 200, 1e-9);
+  sjekk('og har alle 21 punktene', A.punkter.length, 21, 0);
+  paastand('A starter der målingen startet', A.punkter[0].o === 0 && A.punkter[A.punkter.length - 1].o === 200);
+  sjekk('C er 60 m', av('90PE').find(l => l !== A).lengde, 60, 1e-9);
+  sjekk('180 PE er én linje på 192 m', av('180 PE').length === 1 ? av('180 PE')[0].lengde : NaN, 192, 1e-9);
+  const stubber = av('32PE');
+  sjekk('to stikkledninger', stubber.length, 2, 0);
+  for (const s of stubber) sjekk('hver stikkledning er rett, ikke sikksakk', s.lengde, 11.5, 1e-9);
+  const ys = stubber.find(s => s.punkter[0].o === 50).punkter.map(q => q.n);
+  paastand('punktene står i rekkefølge langs stikkledningen',
+    ys.every((y, i) => i === 0 || y < ys[i - 1]) || ys.every((y, i) => i === 0 || y > ys[i - 1]), ys.join(' '));
+  paastand('ingen strekk over 25 m', b.linjer.every(l => l.xy.every((q, i) => i === 0
+    || Math.hypot(q.x - l.xy[i - 1].x, q.y - l.xy[i - 1].y) <= 25)));
+  sjekk('muffen er et objekt', b.objekter.length, 1, 0);
+  sjekk('ingen enslige', b.enslige.length, 0, 0);
+  paastand('id-en er kode og minste punkt-id', A.id === '90PE:p001', A.id);
+  paastand('samme svar to ganger', JSON.stringify(Ror.byggLinjer(ror, Ror.StandardRormal, iFila)) === JSON.stringify(b));
+}
+
+console.log('\n7. Retting: av, brudd og kobling');
+{
+  const pts = proverPunkter();
+  const grunn = () => ({ punkter: pts, koder: Ror.koderFra(pts), retting: { av: [], brudd: [], koble: [] } });
+
+  const r1 = grunn();
+  r1.retting.av.push(finn(pts, '90PE', 50, 0));
+  const b1 = Ror.byggLinjer(r1, Ror.StandardRormal, iFila);
+  const A1 = b1.linjer.find(l => l.kode === '90PE' && l.punkter.some(q => q.o === 0));
+  sjekk('et punkt slått av tas ut av røret', A1.punkter.length, 20, 0);
+  sjekk('men røret henger fortsatt sammen', A1.lengde, 200, 1e-9);
+
+  const r2 = grunn();
+  r2.retting.brudd.push([finn(pts, '90PE', 100, 0), finn(pts, '90PE', 110, 0)]);
+  const b2 = Ror.byggLinjer(r2, Ror.StandardRormal, iFila);
+  sjekk('et brudd deler A i to', b2.linjer.filter(l => l.kode === '90PE').length, 3, 0);
+  const del1 = b2.linjer.find(l => l.punkter.some(q => q.o === 100 && q.kode === '90PE'));
+  paastand('bruddet kan ikke kobles rundt via en nabo (90 → 110 er bare 20 m)',
+    del1.punkter.every(q => q.o <= 100), del1.punkter.map(q => q.o).join(' '));
+
+  const r3 = grunn();
+  r3.retting.koble.push([finn(pts, '90PE', 200, 0), finn(pts, '90PE', 500, 0)]);
+  const b3 = Ror.byggLinjer(r3, Ror.StandardRormal, iFila);
+  const hele = b3.linjer.filter(l => l.kode === '90PE');
+  sjekk('en kobling gjør A og C til ett rør', hele.length, 1, 0);
+  sjekk('over hele lengden', hele[0].lengde, 560, 1e-9);
+
+  const r4 = grunn();
+  r4.retting.brudd.push(['finnes-ikke', 'heller-ikke']);
+  r4.retting.koble.push(['borte', 'vekk']);
+  const b4 = Ror.byggLinjer(r4, Ror.StandardRormal, iFila);
+  sjekk('et brudd uten treff telles', b4.bruddUtenTreff, 1, 0);
+  sjekk('en kobling uten treff telles', b4.koblingUtenTreff, 1, 0);
+
+  const r5 = grunn();
+  r5.punkter = pts.concat([{ id: 'ensom', kode: '90PE', n: 1000, o: 1000, z: 1, nr: 999 }]);
+  sjekk('et punkt uten nabo blir enslig', Ror.byggLinjer(r5, Ror.StandardRormal, iFila).enslige.length, 1, 0);
+
+  const r6 = grunn();
+  r6.koder['32PE'].vis = false;
+  paastand('en kode som er slått av, tegnes ikke',
+    !Ror.byggLinjer(r6, Ror.StandardRormal, iFila).linjer.some(l => l.kode === '32PE'));
+
+  const r7 = grunn();
+  sjekk('mindre maks avstand deler røret', Ror.byggLinjer(r7, { maksAvstand: 9 }, iFila)
+    .linjer.filter(l => l.kode === '90PE').length, 0, 0);
+}
+
 /* ---------------- sluttsum ---------------- */
 console.log(`\n${ok} tester ok, ${feil} feil`);
 process.exit(feil ? 1 : 0);

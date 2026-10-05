@@ -167,6 +167,202 @@ function tolkKode(kode) {
   return { form: erPunkt || !dim ? 'punkt' : 'linje', dim, materiale, system, variant };
 }
 
-const Ror = { lesLandXML, dekod, tolkKode };
+/* ---------------- fargene ---------------- */
+
+/* Fargene en kode kan få. Nøklene er navn på CSS-variabler (--ror-…), se
+   app.css – stilarket er eneste sted en farge defineres, som for alt annet. */
+const FARGER = {
+  vann: 'Vann (blå)', spill: 'Spillvann (brun)', overvann: 'Overvann (turkis)',
+  drens: 'Drens (oliven)', kabel: 'Kabelrør (lilla)', felles: 'Felles avløp (mørkebrun)',
+  p1: 'Rødoransje', p2: 'Gul', p3: 'Rosa', p4: 'Lyseblå', p5: 'Lime', p6: 'Lys grå',
+  punkt: 'Punkt (hvit)'
+};
+const _PALETT = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6'];
+
+/**
+ * Kodetabellen for et sett punkter: tolkningen pluss farge og «vis».
+ *
+ * Rør med kjent system får systemets farge – alt vann er blått. Rør uten
+ * system får hver sin palettfarge i den rekkefølgen de dukker opp, så to
+ * ukjente rør i samme grøft aldri får samme farge. Det som står i `finnes`,
+ * er brukerens, og røres ikke.
+ */
+function koderFra(punkter, finnes) {
+  const ut = Object.assign({}, finnes || {});
+  const brukt = new Set(Object.values(ut).map(k => k && k.farge));
+  let neste = 0;
+  const ledig = () => {
+    for (let i = 0; i < _PALETT.length; i++) {
+      const f = _PALETT[(neste + i) % _PALETT.length];
+      if (!brukt.has(f)) { neste = (neste + i + 1) % _PALETT.length; return f; }
+    }
+    return _PALETT[(neste++) % _PALETT.length];
+  };
+  for (const p of punkter || []) {
+    if (ut[p.kode]) continue;
+    const t = tolkKode(p.kode);
+    const farge = t.form === 'punkt' ? 'punkt' : (t.system || ledig());
+    brukt.add(farge);
+    ut[p.kode] = Object.assign(t, { farge, vis: true });
+  }
+  return ut;
+}
+
+/* ---------------- anlegget ---------------- */
+
+/* Innstillingene til et røranlegg. Etappe 2 utvider den med grøfta. */
+const StandardRormal = { maksAvstand: 25 };
+
+/** Dataene til et nytt røranlegg. Linjene lagres ikke – de regnes av dette. */
+function nyRor() {
+  return { sone: 32, kilder: [], punkter: [], koder: {}, retting: { av: [], brudd: [], koble: [] } };
+}
+
+/* ---------------- linjene ---------------- */
+
+/** Vannrett avstand fra q til strekket a–b. */
+function avstandTilStrekk(q, a, b) {
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const L2 = dx * dx + dy * dy;
+  const t = L2 > 0 ? Math.max(0, Math.min(1, ((q.x - a.x) * dx + (q.y - a.y) * dy) / L2)) : 0;
+  return Math.hypot(q.x - (a.x + t * dx), q.y - (a.y + t * dy));
+}
+
+const _par = (a, b) => (a < b ? a + '\u0001' + b : b + '\u0001' + a);
+
+/**
+ * Rørene, trukket av punktene.
+ *
+ * Per kode: minste spenntre over alle par som ligger innenfor maks avstand.
+ * Treet følger røret fordi naboene langs røret alltid er nærmere enn noe
+ * annet med samme kode. Så deles det i polylinjer mellom knutene (grad ≠ 2).
+ *
+ * RETTINGENE:
+ * - `av`: punktet er ikke med i noe.
+ * - `koble`: kanten legges inn FØRST, også over maks avstand.
+ * - `brudd`: kanten tas ut ETTER at treet er bygd. Tas den ut før, kobler
+ *   treet bare rundt bruddet via nærmeste nabo – på et rør med 10 m mellom
+ *   punktene er 90 → 110 bare 20 m, og streken flytter seg i stedet for å
+ *   brytes. Tatt ut etterpå deler den treet, og det er det brukeren ba om.
+ *
+ * @param {{punkter, koder, retting}} ror
+ * @param {{maksAvstand:number}} mal
+ * @param {(p) => {x:number, y:number}} tilXY  punktet i arbeidssonen
+ */
+function byggLinjer(ror, mal, tilXY) {
+  const maks = Math.max(1, (mal && mal.maksAvstand) || StandardRormal.maksAvstand);
+  const retting = (ror && ror.retting) || {};
+  const av = new Set(retting.av || []);
+  const brudd = new Set((retting.brudd || []).map(([a, b]) => _par(a, b)));
+  const koble = retting.koble || [];
+  const perKode = new Map();
+  const objekter = [];
+  for (const p of (ror && ror.punkter) || []) {
+    if (av.has(p.id)) continue;
+    const k = (ror.koder && ror.koder[p.kode]) || tolkKode(p.kode);
+    if (k.vis === false) continue;
+    if (k.form !== 'linje') { objekter.push(p); continue; }
+    if (!perKode.has(p.kode)) perKode.set(p.kode, []);
+    perKode.get(p.kode).push(p);
+  }
+  const linjer = [], enslige = [];
+  const bruddTraff = new Set(), koblingTraff = new Set();
+  for (const [kode, pts] of perKode) {
+    const n = pts.length;
+    const xy = pts.map(tilXY);
+    const plass = new Map(pts.map((p, i) => [p.id, i]));
+    // kandidatene: alle par innen maks avstand, funnet i et rutenett så det ikke blir n²
+    const ruter = new Map();
+    xy.forEach((q, i) => {
+      const k = Math.floor(q.x / maks) + ',' + Math.floor(q.y / maks);
+      if (!ruter.has(k)) ruter.set(k, []);
+      ruter.get(k).push(i);
+    });
+    const kanter = [];
+    for (let i = 0; i < n; i++) {
+      const cx = Math.floor(xy[i].x / maks), cy = Math.floor(xy[i].y / maks);
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          for (const j of ruter.get((cx + dx) + ',' + (cy + dy)) || []) {
+            if (j <= i) continue;
+            const d = Math.hypot(xy[i].x - xy[j].x, xy[i].y - xy[j].y);
+            if (d <= maks) kanter.push([d, i, j]);
+          }
+        }
+      }
+    }
+    // lik avstand avgjøres av rekkefølgen i fila – samme svar hver gang
+    kanter.sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]);
+    const far = Array.from({ length: n }, (_, i) => i);
+    const rotAv = x => { while (far[x] !== x) { far[x] = far[far[x]]; x = far[x]; } return x; };
+    const nabo = Array.from({ length: n }, () => []);
+    const knytt = (i, j) => {
+      const a = rotAv(i), b = rotAv(j);
+      if (a === b) return false;
+      far[a] = b; nabo[i].push(j); nabo[j].push(i);
+      return true;
+    };
+    for (const [a, b] of koble) {
+      const i = plass.get(a), j = plass.get(b);
+      if (i === undefined || j === undefined) continue;
+      koblingTraff.add(_par(a, b));
+      knytt(i, j);
+    }
+    for (const [, i, j] of kanter) knytt(i, j);
+    for (let i = 0; i < n; i++) {
+      nabo[i] = nabo[i].filter(j => {
+        const p = _par(pts[i].id, pts[j].id);
+        if (!brudd.has(p)) return true;
+        bruddTraff.add(p);
+        return false;
+      });
+    }
+    const brukt = new Set();
+    const kant = (i, j) => (i < j ? i + ',' + j : j + ',' + i);
+    const gaa = (start, neste) => {
+      const sti = [start, neste];
+      brukt.add(kant(start, neste));
+      let forrige = start, her = neste;
+      while (nabo[her].length === 2) {
+        const videre = nabo[her][0] === forrige ? nabo[her][1] : nabo[her][0];
+        if (brukt.has(kant(her, videre))) break;
+        brukt.add(kant(her, videre));
+        sti.push(videre);
+        forrige = her; her = videre;
+      }
+      return sti;
+    };
+    const stier = [];
+    for (let i = 0; i < n; i++) {
+      if (nabo[i].length === 0) { enslige.push(pts[i]); continue; }
+      if (nabo[i].length === 2) continue;
+      for (const j of nabo[i]) if (!brukt.has(kant(i, j))) stier.push(gaa(i, j));
+    }
+    for (let sti of stier) {
+      // fra den enden som ble målt først – oftest den operatøren begynte i
+      if (pts[sti[sti.length - 1]].nr < pts[sti[0]].nr) sti = sti.slice().reverse();
+      const lp = sti.map(i => pts[i]), lxy = sti.map(i => xy[i]);
+      let lengde = 0, lengde3d = 0;
+      for (let k = 1; k < lp.length; k++) {
+        const d = Math.hypot(lxy[k].x - lxy[k - 1].x, lxy[k].y - lxy[k - 1].y);
+        lengde += d;
+        lengde3d += Math.hypot(d, lp[k].z - lp[k - 1].z);
+      }
+      const minId = lp.reduce((m, p) => (p.id < m ? p.id : m), lp[0].id);
+      linjer.push({ id: kode + ':' + minId, kode, punkter: lp, xy: lxy, lengde, lengde3d });
+    }
+  }
+  linjer.sort((a, b) => (a.kode < b.kode ? -1 : a.kode > b.kode ? 1 : b.lengde - a.lengde));
+  return {
+    linjer, enslige, objekter,
+    bruddUtenTreff: (retting.brudd || []).filter(([a, b]) => !bruddTraff.has(_par(a, b))).length,
+    koblingUtenTreff: koble.filter(([a, b]) => !koblingTraff.has(_par(a, b))).length
+  };
+}
+
+const Ror = {
+  lesLandXML, dekod, tolkKode, koderFra, byggLinjer, avstandTilStrekk,
+  nyRor, StandardRormal, FARGER
+};
 
 if (typeof module !== 'undefined') module.exports = Ror;
