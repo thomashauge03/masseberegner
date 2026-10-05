@@ -8388,6 +8388,12 @@ const Nettlesertest = {
       this.sjekk('det nye punktet er regnet om til anleggets sone',
         !!ny && Math.abs(ny.o - (forsteFoer.o + 20)) < 0.002 && Math.abs(ny.n - forsteFoer.n) < 0.002,
         ny ? `${(ny.o - forsteFoer.o).toFixed(3)} m øst, ${(ny.n - forsteFoer.n).toFixed(3)} m nord` : 'mangler');
+      /* Punktene står da ikke lenger slik de var i fila, og det skal stå et
+         sted – ellers sa rapporten at fila var i UTM 32. */
+      const kilde33 = App.P.ror.kilder[App.P.ror.kilder.length - 1];
+      this.sjekk('kilden noterer omregningen', !!kilde33.regnetOm && kilde33.regnetOm.fra === 33
+        && kilde33.regnetOm.til === 32, JSON.stringify(kilde33));
+      this.sjekk('og rørfanen viser den', /regnet om fra UTM 33 til UTM 32/.test(document.getElementById('rorInnhold').textContent));
       /* «Nye rør (fra fil)» i anleggslista foreslo å legge punktene inn i
          røranlegget som sto oppe, og et nytt anlegg arvet alle kodene til det
          gamle – med null punkt hver. */

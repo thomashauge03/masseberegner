@@ -16,7 +16,9 @@
  * KOORDINATENE STÅR SOM I FILA.
  * Veg og tomt lagrer grader. Et as-built er dokumentasjon, og sonen skal kunne
  * rettes etter import uten tap – så her står nord og øst slik maskinen målte
- * dem, sammen med sonen de gjelder i.
+ * dem, sammen med sonen de gjelder i. Unntaket: et anlegg har én sone, og en
+ * fil i en annen sone som legges til, regnes om til den. Kilden noterer det
+ * (`regnetOm`), og rapporten viser det.
  */
 
 const Ror = (() => {
@@ -487,6 +489,13 @@ const Ror = (() => {
     return { punkter: [...ut.values()], nye: antallNye, kjente, endret };
   }
 
+  /** En kilde som én linje: fil · program · dato · antall – og omregningen, om den ble gjort. */
+  function kildetekst(k) {
+    return [k.fil, k.program, k.dato, `${k.antall} punkt`,
+      k.regnetOm && `regnet om fra UTM ${k.regnetOm.fra} til UTM ${k.regnetOm.til}`]
+      .filter(Boolean).join(' · ');
+  }
+
   /** «asbuilts_VA Prøvefelt_2026-09-15T08_30_00.000Z.xml» → «VA Prøvefelt». */
   function navnFraFil(filnavn) {
     let s = String(filnavn || '').replace(/^.*[\\/]/, '').replace(/\.[^.]+$/, '');
@@ -704,7 +713,7 @@ const Ror = (() => {
 
   return {
     lesLandXML, dekod, tolkKode, koderFra, byggLinjer, avstandTilStrekk,
-    lagTilXY, tilLatLon, erUtm, sjekkKoordinater, gjettSone, slaSammen, navnFraFil,
+    lagTilXY, tilLatLon, erUtm, sjekkKoordinater, gjettSone, slaSammen, kildetekst, navnFraFil,
     korridor, profil, objekterLangs, objekterPaaLinjer, sammendrag, merknader, spenn,
     nyRor, StandardRormal, FARGER
   };

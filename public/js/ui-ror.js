@@ -381,6 +381,8 @@ const RorUI = {
       const sam = Ror.slaSammen(a.ror.punkter, nye);
       a.ror.punkter = sam.punkter;
       a.ror.koder = Object.assign({}, a.ror.koder, svar.koder);
+      // punktene står ikke lenger slik de var i fila – det skal stå et sted
+      if (fra !== til) kilde.regnetOm = { fra, til };
       a.ror.kilder.push(kilde);
       melding = `${sam.nye} nye punkt, ${sam.kjente} fantes fra før`
         + (sam.endret ? `, ${sam.endret} med nye tall` : '')
@@ -553,8 +555,7 @@ const RorUI = {
       liste += '</div>';
     }
     const merknader = (res ? res.merknader : []).map(m => `<li>${escapeHtml(m.tekst)}</li>`).join('');
-    const kilder = r.kilder.map(k => `${escapeHtml(k.fil)}${k.program ? ' · ' + escapeHtml(k.program) : ''}`
-      + `${k.dato ? ' · ' + escapeHtml(k.dato) : ''} · ${escapeHtml(k.antall)} punkt`).join('<br>');
+    const kilder = r.kilder.map(k => escapeHtml(Ror.kildetekst(k))).join('<br>');
     const ret = r.retting;
     e.innerHTML = `
       <h3>${escapeHtml(app.anlegg().navn || 'Rør')}</h3>

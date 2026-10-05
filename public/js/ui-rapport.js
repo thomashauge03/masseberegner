@@ -1034,8 +1034,7 @@ ${merknader ? `<h2>Merknader</h2><table><thead><tr><th>Type</th><th>Merknad</th>
     const bf = res.bakkefaktor || 1;
     const dato = new Date().toLocaleDateString('nb-NO', { day: '2-digit', month: 'long', year: 'numeric' });
     const teg = this.lagRortegninger(res);
-    const kilder = r.kilder.map(k => `${escapeHtml(k.fil)}${k.program ? ' · ' + escapeHtml(k.program) : ''}`
-      + `${k.dato ? ' · ' + escapeHtml(k.dato) : ''} · ${escapeHtml(k.antall)} punkt`).join('<br>');
+    const kilder = r.kilder.map(k => escapeHtml(Ror.kildetekst(k))).join('<br>');
     const rader = res.linjer.map((l, i) => {
       const k = r.koder[l.kode] || Ror.tolkKode(l.kode);
       const pr = res.profiler.get(l.id);
@@ -1056,7 +1055,7 @@ ${merknader ? `<h2>Merknader</h2><table><thead><tr><th>Type</th><th>Merknad</th>
       seksjon: valg && valg.seksjon
     }, `
 <h2>Kilde</h2>
-<p class="liten">${kilder}<br>Koordinatene i fila er EUREF89 UTM${r.sone}.</p>
+<p class="liten">${kilder}<br>Punktene står i EUREF89 UTM${r.sone}.</p>
 <h2>Oversikt</h2>
 <img class="rorplan" src="${teg.plan}" alt="Rørene sett ovenfra">
 <h2>Rørene</h2>

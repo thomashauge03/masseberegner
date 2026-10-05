@@ -518,6 +518,16 @@ console.log('\n15. Spenn som kan leses');
 }
 
 /* ------------------------------------------------------------------ */
+console.log('\n15b. Kilden som tekst');
+{
+  paastand('fil, program, dato og antall', Ror.kildetekst({ fil: 'a.xml', program: 'Xsite Manage', dato: '2026-09-15', antall: 12 })
+    === 'a.xml · Xsite Manage · 2026-09-15 · 12 punkt');
+  paastand('det som mangler, utelates', Ror.kildetekst({ fil: 'a.xml', antall: 3 }) === 'a.xml · 3 punkt');
+  paastand('en omregning står med', Ror.kildetekst({ fil: 'b.xml', antall: 1, regnetOm: { fra: 33, til: 32 } })
+    === 'b.xml · 1 punkt · regnet om fra UTM 33 til UTM 32');
+}
+
+/* ------------------------------------------------------------------ */
 console.log('\n16. Hvert objekt på det røret det sitter på');
 {
   const A = { id: 'A', punkter: [{ z: 1 }, { z: 1 }], xy: [{ x: 0, y: 0 }, { x: 100, y: 0 }] };
