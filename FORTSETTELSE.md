@@ -20,8 +20,8 @@ Nettlesertesten kjøres ved å åpne programmet med `?test=1`, eller fra konsoll
 med `Nettlesertest.kjor()`. Utviklingstjeneren startes med `node server.js`
 (port 5178). Programmet ligger også på https://masseberegner.vercel.app.
 
-Ved siste lagring: **609 prøver i selvtesten, 161 i rørprøven
-(`test/rorprove.js`), 1028 i nettlesertesten, alle grønne.** Nettlesertesten
+Ved siste lagring: **609 prøver i selvtesten, 182 i rørprøven
+(`test/rorprove.js`), 1057 i nettlesertesten, alle grønne.** Nettlesertesten
 må kjøres i et vindu som er minst 1000 px bredt – under det legger
 sidepanelet seg oppå, og tre panelprøver blir røde uten at noe er galt. Massene på demoen er uendret gjennom hele runden: 1 548 m³ skjæring,
 1 015 m³ fjell, 135 m³ fylling — rettingene gjelder feilmåter, ikke normalveien.
@@ -37,7 +37,17 @@ Import av innmålte rør fra LandXML (Xsite Manage), linjene trukket etter
 geometri, kart, lengdeprofil, 3D, rørfane, koder, retting, rapport og PDF.
 Prøvd på den ekte fila: 90PE blir ett rør på 734 m, 40 FIBER tre på
 891 m, alle 24 punktobjektene kommer med, ingen enslige punkt
-(`ROR_FIL=<sti> node test/rorprove.js`). Neste:
+(`ROR_FIL=<sti> node test/rorprove.js`).
+
+En kodegjennomgang av hele grenen fant én kritisk feil og fem alvorlige, og
+alle er rettet med en prøve hver: rør i en gren fikk samme id og samme
+profil; kartet sto i tegnemodus etter import i et nytt prosjekt, så neste
+klikk ble et vegpunkt; regnesonen fulgte ikke med når sonen ble rettet;
+ett punkt utenfor UTM stoppet hele fila; en gammel beregning kunne skrive
+over en ny; og feltene i en prosjektfil ble brukt uten kontroll. I samme
+runde: «Legg til» av en fil i en annen sone regnes om i stedet for å flytte
+hele anlegget, eksportknappene skriver ikke lenger en veg-fil av et
+røranlegg, og en retting synes i kartet med en gang. Neste:
 
 - **Etappe 2 – grøftemasser.** Grøftemal på røranlegget (`mal`), felles grøft
   for rør som ligger tett, masser mot terreng og fjellmodell.

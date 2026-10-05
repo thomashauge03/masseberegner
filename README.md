@@ -117,13 +117,19 @@ i førstevalget, eller slipp fila på kartet.
   den ble skannet.
 * **Koordinatsystemet** står sjelden i fila. Programmet bruker det fila oppgir,
   ellers sonen som legger rørene ved de andre anleggene i prosjektet, ellers
-  UTM 32 – og dialogen sier hva den valgte og hvorfor.
+  UTM 32 – og dialogen sier hva den valgte og hvorfor. Legges en fil i en annen
+  sone til et røranlegg, regnes de nye punktene om til anleggets sone.
+* **Punkt med koordinater utenfor UTM i Norge** – en måling uten fix som ble
+  skrevet som 0 0 0 – hoppes over og telles. Er halvparten eller mer utenfor,
+  er fila i et annet system (NTM, lokalt), og den avvises med en forklaring.
 * **Kobler programmet feil**, rettes det i kartet: slå av et punkt, bryt en
   strek, koble to ender. Rettingene står seg når en nyere fil importeres –
   punktene kjennes igjen på id-en i fila, og ingenting slettes stille.
 
-Rørene vises i kart, lengdeprofil og 3D, og får sin egen del i rapporten og
-PDF-en. Grøftemasser og planlegging av nye rør kommer i neste etapper.
+Rørene vises i kart, lengdeprofil og 3D (piltastene blar mellom dem), og får
+sin egen del i rapporten og PDF-en. De kan ikke eksporteres til KOF, LandXML,
+SOSI eller DXF ennå – knappene sier fra, og samleeksporten hopper over dem.
+Grøftemasser og planlegging av nye rør kommer i neste etapper.
 
 ## Hva «billigst» betyr
 
