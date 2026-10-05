@@ -119,7 +119,9 @@ const Tverrprofil = {
 
   flytt(retning) {
     const res = this.app.resultat;
-    if (!res) return;
+    /* Bare en veg har en liste med profiler. En tomt har ingen, og pilene
+       kastet en TypeError ved hvert trykk i tomtebildet. */
+    if (!res || !Array.isArray(res.profiler) || !res.profiler.length) return;
     let i = res.profiler.findIndex(p => Math.abs(p.s - this.app.tverrStasjon) < 1e-6);
     if (i < 0) i = 0;
     i = Math.max(0, Math.min(res.profiler.length - 1, i + retning));

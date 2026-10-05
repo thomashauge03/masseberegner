@@ -7986,6 +7986,19 @@ const Nettlesertest = {
       JSON.stringify(t.merknader));
     this.sjekk('polygonet ble tegnet', Kart.lag.tomt.getLatLngs()[0].length === 4);
     this.sjekk('hjørnene kan dras', Kart.lag.tomtHjorner.getLayers().length === 4);
+    /* Pilene går til tverrprofilen, og en tomt har ingen liste med profiler.
+       Hvert trykk kastet en TypeError. */
+    {
+      await App.oppdater();
+      let kastet = null;
+      const fang = e => { kastet = e.message; e.preventDefault(); };
+      window.addEventListener('error', fang);
+      try {
+        document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+        await this.vent(50);
+      } finally { window.removeEventListener('error', fang); }
+      this.sjekk('piltastene kaster ingen feil i tomtebildet', !kastet, kastet);
+    }
 
     /* Et polygon som krysser seg selv har ikke ett entydig areal -
        skolisseformelen gir differansen mellom løkkene, ikke summen. Da blir
@@ -8380,6 +8393,16 @@ const Nettlesertest = {
       const forrige = RorUI.valgt;
       RorUI.blaa(1);
       this.sjekk('▶ går videre', RorUI.valgt !== forrige);
+      /* Pilene gikk til tverrprofilen og kastet en TypeError ved hvert trykk. */
+      let kastet = null;
+      const fang = e => { kastet = e.message; e.preventDefault(); };
+      window.addEventListener('error', fang);
+      const foerPil = RorUI.valgt;
+      try {
+        document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+        await this.vent(50);
+      } finally { window.removeEventListener('error', fang); }
+      this.sjekk('venstre pil blar til forrige rør', !kastet && RorUI.valgt !== foerPil, kastet || RorUI.valgt);
       const maks = document.getElementById('rorMaksAvstand');
       maks.value = '9'; maks.dispatchEvent(new Event('change'));
       this.sjekk('maks avstand lagres i malen', App.P.mal.maksAvstand === 9);

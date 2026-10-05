@@ -7264,8 +7264,14 @@ const App = {
         e.preventDefault(); Kart._avsluttMaal(); return;
       }
       if (e.key === 'Escape') { Kart.settModus('rediger'); if (this._nullstillVisning) this._nullstillVisning(); }
-      if (e.key === 'ArrowRight') Tverrprofil.flytt(1);
-      if (e.key === 'ArrowLeft') Tverrprofil.flytt(-1);
+      if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+        const steg = e.key === 'ArrowRight' ? 1 : -1;
+        /* I rørbildet blar pilene mellom rørene, som ◀ ▶ over profilen. De gikk
+           til tverrprofilen, som leste rørenes profiler som en liste og kastet
+           en TypeError ved hvert trykk. */
+        if (this.erRor()) RorUI.blaa(steg);
+        else Tverrprofil.flytt(steg);
+      }
     });
   }
 };
