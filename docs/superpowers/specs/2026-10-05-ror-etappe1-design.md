@@ -88,7 +88,7 @@ forkastet på målte tall.
   mal: { …StandardRormal },          // innstillingene; etappe 2 utvider den med grøfta
   ror: {
     sone: 32,                        // UTM-sonen koordinatene i fila står i
-    kilder: [{ fil, program, dato, importert, antall }],
+    kilder: [{ fil, program, dato, importert, antall, regnetOm? }],
     punkter: [{ id, kode, n, o, z, tid, nr }],  // urørt fra fila: nord, øst, høyde, tid, surveyOrder
     koder: { '90PE': { form: 'linje', dim: 90, materiale: 'PE', system: '', farge: 'p2', vis: true }, … },
     retting: { av: [id…], brudd: [[idA, idB]…], koble: [[idA, idB]…] }
@@ -101,8 +101,13 @@ forkastet på målte tall.
   gjør. Grunn: as-built er dokumentasjon, og sonen skal kunne rettes etter import uten tap.
   Til kartet: `Geo.fraUtm(o, n, sone)`. Til regning: samme sone som `App.sone` gir tallene
   rett; annen sone går via grader (`Geo.tilUtm`), avvik under 0,01 mm.
-- `App.sone` settes fra første punkt når røranlegget er aktivt (`Geo.sone(lon)`), som
-  `_settSone` gjør for tomta.
+  Unntak: et anlegg har én sone. Legges en fil i en annen sone til, regnes de nye punktene
+  om til anleggets sone, og kilden får `regnetOm: { fra, til }`, som rørfanen og
+  rapporten viser.
+- `App.sone`: har prosjektet en veg eller en tomt, er det den som bestemmer (`_settSone`
+  med dens lengdegrad). Er rørene alene, følger regnesonen dem hver gang (`Geo.sone(lon)`
+  av første punkt) – ellers ble den stående etter at sonen var rettet i rørfanen.
+- Kart, rørfane og beregning bygger linjene på samme måte, i regnesonen (`App.byggRor`).
 - **Linjene lagres ikke.** De regnes ut fra punktene, kodene og rettingene hver gang –
   da kan de aldri komme i utakt med dataene.
 - `ror` blir et av vinduene i `Prosjektform.FELT`, så `P.ror` peker inn i det aktive
@@ -182,8 +187,10 @@ dem; da fikk rørene samme id.)
   sonen som legger punktene nærmest de andre anleggene i prosjektet (innen 100 km);
   (3) ellers 32. Dialogen viser gjetningen i en nedtrekksliste (32/33/35) med posisjonen
   i grader, og kartet zoomer dit etter import. Sonen kan endres i rørfanen etterpå.
-- Nordverdi utenfor 6,4–8,0 mill. (f.eks. NTM, ~1,2 mill.): feil med forklaring, ikke
-  stille feilplassering.
+- Koordinater som ikke ser ut som UTM i Norge (`Ror.erUtm`: nord 6,3–8,0 mill., øst
+  −200 000–1 300 000): enkeltpunkt – en måling uten fix skrevet som `0 0 0` – hoppes over
+  og telles i dialogen og statuslinja. Er halvparten eller mer utenfor (f.eks. NTM, nord
+  ~1,2 mill.), avvises fila med forklaring – ikke stille feilplassering.
 - `Ror.navnFraFil('asbuilts_VA Prøvefelt_2026-09-15T08_30_00.000Z.xml')` → `VA Prøvefelt`.
 
 ### 5.5 Profil og overdekning – `Ror.profil(linje, terrengZ, steg = 1)`
@@ -269,7 +276,10 @@ Ny hjelper: `App.erRor()`, ved siden av `erTomt()`.
 | Ingen `CgPoint` | «Fant ingen innmålte punkter i fila.» |
 | Enhet ikke meter | «Fila er i ‹enhet›. Bare meter støttes.» |
 | Punkt uten høyde / ugyldige tall / doble id-er | Telles og vises i dialogen; punktene hoppes over |
-| Nordverdi som ikke er UTM i Norge | Feil med tallet og forklaring (NTM støttes ikke ennå) |
+| Enkeltpunkt utenfor UTM i Norge (`0 0 0`) | Telles og vises i dialogen og statuslinja; punktene hoppes over |
+| Halvparten eller mer utenfor UTM i Norge | Feil med tallet og forklaring (NTM støttes ikke ennå) |
+| Fil i en annen sone lagt til et anlegg | Punktene regnes om til anleggets sone; dialogen, statuslinja, rørfanen og rapporten sier det |
+| Rørene forsøkt eksportert til KOF/LandXML/SOSI/DXF/CSV | «Rørene kan ikke eksporteres til filformatene ennå – bruk rapporten eller PDF-en.» |
 | Hull i terrenget langs røret | Overdekning vises som ukjent der; merknad med antall meter |
 | Overdekning under null | Merknad: «røret ligger over terrenget i modellen – terrenget er trolig endret etter skanning, eller punktet er feil» |
 | Brudd/kobling som ikke treffer lenger etter ny import | Merknad med antall |
