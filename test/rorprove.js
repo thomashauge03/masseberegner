@@ -518,6 +518,12 @@ console.log('\n16. Hvert objekt på det røret det sitter på');
     etterKode.get('R180').some(o => o.kode === '180 PE MUFFE'),
     JSON.stringify([...etterKode].map(([k, v]) => [k, v.map(o => o.kode)])));
   paastand('en anboring uten dimensjon går til det nærmeste', etterKode.get('R90').some(o => o.kode === 'ANNBORING'));
+  /* Kodetabellen vinner over tolkningen. Har brukeren rettet dimensjonen på
+     et rør, skal muffene med den dimensjonen finne det – ikke det nærmeste. */
+  const rettet = Ror.objekterPaaLinjer([R90, R180], [{ kode: '110 PE MUFFE', o: 40, n: 0.7, z: 1 }],
+    q => ({ x: q.o, y: q.n }), 3, { '90PE': { form: 'linje', dim: 110, system: '' } });
+  paastand('dimensjonen fra kodetabellen gjelder', rettet.get('R90').some(o => o.kode === '110 PE MUFFE'),
+    JSON.stringify([...rettet].map(([k, v]) => [k, v.map(o => o.kode)])));
 }
 
 /* ------------------------------------------------------------------ */

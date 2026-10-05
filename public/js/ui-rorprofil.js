@@ -39,7 +39,7 @@ const Rorprofil = {
        gang per resultat; den er den samme for alle profilene. */
     if (!res._objektplass) {
       Object.defineProperty(res, '_objektplass', { configurable: true, enumerable: false,
-        value: Ror.objekterPaaLinjer(res.linjer, res.bygg.objekter, Ror.lagTilXY(r.sone, res.sone), 3) });
+        value: Ror.objekterPaaLinjer(res.linjer, res.bygg.objekter, Ror.lagTilXY(r.sone, res.sone), 3, r.koder) });
     }
     return {
       linje, kode, profil: res.profiler.get(linje.id),

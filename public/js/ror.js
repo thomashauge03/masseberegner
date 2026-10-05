@@ -613,13 +613,16 @@ const Ror = (() => {
    * det, det nærmeste. Målt i den ekte fila: en «180 PE MUFFE» lå en drøy
    * halvmeter nærmere 90PE enn 180 PE, og havnet oppå muffen til 90PE.
    *
+   * Kodetabellen (`koder`) vinner over tolkningen: har brukeren rettet
+   * dimensjonen på et rør, er det den muffene skal kjenne det igjen på.
+   *
    * @returns {Map<linjeId, Array>} objektene per rør, sortert langs røret
    */
-  function objekterPaaLinjer(linjer, objekter, tilXY, maks) {
+  function objekterPaaLinjer(linjer, objekter, tilXY, maks, koder) {
     const ut = new Map((linjer || []).map(l => [l.id, []]));
     const tolket = new Map();
     const tolk = kode => {
-      if (!tolket.has(kode)) tolket.set(kode, tolkKode(kode));
+      if (!tolket.has(kode)) tolket.set(kode, (koder && koder[kode]) || tolkKode(kode));
       return tolket.get(kode);
     };
     for (const p of objekter || []) {
