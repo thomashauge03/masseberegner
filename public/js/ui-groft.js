@@ -18,6 +18,14 @@ const GroftUI = {
     for (const [knapp, modus] of [['verktoyGroftStrekning', 'groftStrekning'], ['verktoyGroftSammen', 'groftSammen']]) {
       if (id(knapp)) id(knapp).onclick = () => Kart.settModus(Kart.modus === modus ? 'rediger' : modus);
     }
+    if (id('r3_groft')) {
+      id('r3_groft').onclick = e => {
+        Ror3d.lag.groft = !Ror3d.lag.groft;
+        e.currentTarget.classList.toggle('aktiv', Ror3d.lag.groft);
+        e.currentTarget.setAttribute('aria-pressed', Ror3d.lag.groft ? 'true' : 'false');
+        Ror3d.tegn();
+      };
+    }
     return this;
   },
 

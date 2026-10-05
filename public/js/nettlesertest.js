@@ -170,7 +170,7 @@ const Nettlesertest = {
       'tomt3d', 'veg3d', 'kartlag',
       'rorArbeidsbilde', 'rorBeregning', 'rorImport', 'rorSone', 'rorKart', 'rorFane', 'rorRetting',
       'rorProfil', 'ror3d', 'rorRapport', 'rorPdf', 'rorForklaring',
-      'groftBeregning', 'groftFane', 'groftKoder', 'groftVerktoy', 'groftProfil',
+      'groftBeregning', 'groftFane', 'groftKoder', 'groftVerktoy', 'groftProfil', 'groft3d',
       'lovlighet', 'framdrift', 'gamleFilerOgUtskifting', 'opprydding'];
     for (const navn of proever) {
       try {
@@ -8958,6 +8958,34 @@ const Nettlesertest = {
         this.sjekk('avlesningen viser gravedybden', /gravedybde/.test(document.getElementById('rorEtikett').textContent),
           document.getElementById('rorEtikett').textContent);
         Rorprofil.peker = null;
+      });
+    } finally {
+      await this._rorTilbake(foer);
+    }
+  },
+
+  /** Laget «Grøft» i 3D senker terrenget der det graves. */
+  async groft3d() {
+    const foer = JSON.stringify(App.P);
+    try {
+      await this._medFlattTerreng(21.5, async () => {
+        App.P = App.nyttProsjekt();
+        await RorUI.importerTekst(this._rorXml(), 'asbuilts_Prove.xml', {}, { sone: 32, maal: 'nytt' });
+        clearTimeout(App._tidsavbrudd);
+        await App.beregnRor();
+        Ror3d.aktiver(true);
+        const knapp = document.getElementById('r3_groft');
+        this.sjekk('knappen finnes', !!knapp);
+        knapp.click();
+        this.sjekk('laget slås på', Ror3d.lag.groft === true && knapp.getAttribute('aria-pressed') === 'true');
+        const g = Ror3d._gitter(1);
+        const lag = Ror3d._lagliste(g)[0];
+        let lavere = 0;
+        for (let k = 0; k < g.zT.length; k++) if (g.finnes[k] && lag.hoyde[k] < g.zT[k] - 0.05) lavere++;
+        this.sjekk('terrenget er senket der det graves', lavere > 10, String(lavere));
+        knapp.click();
+        this.sjekk('og av igjen', Ror3d.lag.groft === false);
+        Ror3d.aktiver(false);
       });
     } finally {
       await this._rorTilbake(foer);

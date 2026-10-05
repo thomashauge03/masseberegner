@@ -24,7 +24,7 @@ const Ror3d = Object.assign(Object.create(Tomt3d), {
      nesten ligger i bakken. Valget står i verktøylinja. */
   overdriv: 2,
   kamX: 0, kamY: 0,
-  lag: { terreng: true, staker: true, arealdekke: false, andre: false },
+  lag: { terreng: true, staker: true, arealdekke: false, andre: false, groft: false },
 
   init(app) {
     this.app = app;
@@ -160,7 +160,10 @@ const Ror3d = Object.assign(Object.create(Tomt3d), {
       `Høyden ${t2(this.overdriv, 1)}× · rørene ligger under bakken og ses gjennom den`];
   },
 
-  /** Ett lag: terrenget. Rørene er streker i overlegget, ikke flater. */
+  /**
+   * Ett lag: terrenget – eller, med «Grøft» på, terrenget med grøfta gravd ut.
+   * Rørene er streker i overlegget, ikke flater.
+   */
   _lagliste(g) {
     if (!this.lag.terreng) return [];
     const rgb = Farger.terrengFlateRgb;
@@ -170,6 +173,29 @@ const Ror3d = Object.assign(Object.create(Tomt3d), {
       return (255 << 24) | (bl << 16) | (gg << 8) | r;
     };
     const bakken = (this.lag.arealdekke && Tegner3d._arealkart) ? this._arealfarge(g) : enkel;
+    /* GRØFTA SOM ÅPEN GROP: terrenget senkes til gravenivået der det graves,
+       og gropa får sin egen farge. Regnes én gang per gitter og resultat. */
+    const res = this.app.resultat;
+    if (this.lag.groft && res && res.groft) {
+      if (this._gropGitter !== g || this._gropRes !== res.groft) {
+        const zG = new Float32Array(g.zT.length), gravd = new Uint8Array(g.zT.length);
+        for (let k = 0; k < zG.length; k++) {
+          zG[k] = g.zT[k];
+          if (!g.finnes[k]) continue;
+          const z = Groft.nivaa(res.groft.modell, g.wx[k], g.wy[k]);
+          if (Number.isFinite(z) && z < g.zT[k]) { zG[k] = z; gravd[k] = 1; }
+        }
+        this._gropGitter = g; this._gropRes = res.groft; this._grop = { zG, gravd };
+      }
+      const grop = this._grop, gr = Farger.rgb('groft-grop');
+      // z er gropas eget høydefelt, så lyset regnes på gropa og ikke på terrenget
+      const farge = (k00, k10, k01, k11, z) => {
+        if (!grop.gravd[k00]) return bakken(k00, k10, k01, k11, z);
+        const ly = this._lys(g, k00, k10, k01, z, this._kamNa);
+        return (255 << 24) | (Math.min(255, gr[2] * ly) << 16) | (Math.min(255, gr[1] * ly) << 8) | Math.min(255, gr[0] * ly);
+      };
+      return [{ hoyde: grop.zG, farge, blanding: 0 }];
+    }
     return [{ hoyde: g.zT, farge: bakken, blanding: 0 }];
   },
 
