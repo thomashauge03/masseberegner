@@ -287,6 +287,16 @@ console.log('\n4. Kontrollene');
   });
   paastand('en grein som møter hovedrøret, er ikke et kryss', !RorPlan.kontroller({ bygg: bygg(g, flatt), koder: {},
     mal: RorPlan.nyPlanmal(), terrengZ: flatt, andre: [] }).some(v => v.type === 'kryss'));
+  // og en ekte T: greina festet midt på hovedrøret, som går videre forbi den
+  const T = Object.assign(RorPlan.nyPlan(), {
+    traseer: [{ id: 't1', punkter: [{ id: 'p1', lat: 0, lon: 0 }, { id: 'p5', lat: 0, lon: 50 }, { id: 'p2', lat: 0, lon: 100 }] },
+      { id: 't2', punkter: [{ id: 'p3', lat: 0, lon: 50 }, { id: 'p4', lat: 30, lon: 50 }] }],
+    ror: [{ id: 'r1', trase: 't1', kode: 'SP 160PE', side: 0 }, { id: 'r2', trase: 't2', kode: 'VL 110PE', side: 0 }],
+    greiner: [{ trase: 't2', ende: 'start', til: { trase: 't1', punkt: 'p5' } }]
+  });
+  const kT = RorPlan.kontroller({ bygg: bygg(T, flatt), koder: {}, mal: RorPlan.nyPlanmal(), terrengZ: flatt, andre: [] })
+    .filter(v => v.type === 'kryss');
+  paastand('en grein midt på hovedrøret – en T – er ikke et kryss', kT.length === 0, JSON.stringify(kT.map(v => v.tekst)));
 }
 {
   // fjell fra grøfta: en opplysning per rør

@@ -3398,8 +3398,12 @@ const App = {
        Nøkkelen for et tegnet anlegg er traseene – linjene endrer seg med
        terrenget (mellompunktene), og da ville samme terreng blitt bedt om igjen. */
     const traser = bygg.linjer.concat(bygg.utenHoyde || []);
+    /* Kodene som er slått av, er med i nøkkelen: et rør som var skjult mens
+       terrenget ble hentet, fikk ellers aldri korridoren sin når det ble slått
+       på igjen – nøkkelen var den samme. */
     const nokkel = 'ror#' + this.sone + '#' + halv + '#' + (r.plan
       ? JSON.stringify(r.plan.traseer) + JSON.stringify(r.plan.ror.map(x => [x.id, x.side]))
+        + JSON.stringify(Object.keys(r.koder).filter(k => r.koder[k].vis === false))
       : bygg.linjer.map(l => l.id + ':' + l.punkter.length + ':' + l.lengde.toFixed(2)).join('|'));
     const anleggFoer = this.P.aktivt;
     if (nokkel !== this._terrengnokkel && traser.length) {
