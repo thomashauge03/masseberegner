@@ -82,8 +82,7 @@ function _rettRorfelt(a, R) {
     if (!k || typeof k !== 'object' || Array.isArray(k)) { delete a.ror.koder[kode]; continue; }
     const tolket = R.tolkKode(kode);
     if (k.form !== 'linje' && k.form !== 'punkt') k.form = tolket.form;
-    const d = tall(k.dim);
-    k.dim = d !== null && d > 0 && d <= 3000 ? d : null;
+    k.dim = R.dimensjon(k.dim);
     if (!Object.prototype.hasOwnProperty.call(R.FARGER, k.farge)) {
       k.farge = k.form === 'punkt' ? 'punkt'
         : Object.prototype.hasOwnProperty.call(R.FARGER, tolket.system) ? tolket.system : 'p6';

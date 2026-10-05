@@ -8583,6 +8583,14 @@ const Nettlesertest = {
         kodeVis.checked = false; kodeVis.dispatchEvent(new Event('change', { bubbles: true }));
         this.sjekk('en kode kan slås av', App.P.ror.koder['32PE'].vis === false);
       }
+      /* Samme grense for dimensjonen som når prosjektet åpnes – ellers sto
+         5 000 mm til neste angre, og forsvant da uten et ord. */
+      const dim = document.querySelector('#rorKoder tr[data-kode="90PE"] [data-felt="dim"]');
+      if (dim) {
+        dim.value = '5000'; dim.dispatchEvent(new Event('change', { bubbles: true }));
+        this.sjekk('en dimensjon over 3 000 mm tas ikke imot', App.P.ror.koder['90PE'].dim === null,
+          String(App.P.ror.koder['90PE'].dim));
+      }
     } finally {
       await this._rorTilbake(foer);
     }

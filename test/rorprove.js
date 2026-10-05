@@ -518,6 +518,17 @@ console.log('\n15. Spenn som kan leses');
 }
 
 /* ------------------------------------------------------------------ */
+console.log('\n15a. Dimensjonen');
+{
+  /* Samme regel i kodetabellen og i klargjøringen. Tabellen tok 5 000 mm, og
+     klargjøringen tok den bort igjen ved neste angre. */
+  paastand('tall og tekst', Ror.dimensjon(110) === 110 && Ror.dimensjon('160') === 160);
+  paastand('over 3 000 mm er ingen dimensjon', Ror.dimensjon(5000) === null);
+  paastand('null og tekst som ikke er tall heller ikke', Ror.dimensjon(0) === null && Ror.dimensjon('abc') === null
+    && Ror.dimensjon(null) === null);
+}
+
+/* ------------------------------------------------------------------ */
 console.log('\n15b. Kilden som tekst');
 {
   paastand('fil, program, dato og antall', Ror.kildetekst({ fil: 'a.xml', program: 'Xsite Manage', dato: '2026-09-15', antall: 12 })

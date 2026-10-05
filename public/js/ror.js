@@ -489,6 +489,12 @@ const Ror = (() => {
     return { punkter: [...ut.values()], nye: antallNye, kjente, endret };
   }
 
+  /** En dimensjon i mm, eller null: over 0 og høyst 3 000, som tall eller tekst. */
+  function dimensjon(v) {
+    const d = typeof v === 'string' ? parseFloat(v) : v;
+    return typeof d === 'number' && Number.isFinite(d) && d > 0 && d <= 3000 ? d : null;
+  }
+
   /** En kilde som én linje: fil · program · dato · antall – og omregningen, om den ble gjort. */
   function kildetekst(k) {
     return [k.fil, k.program, k.dato, `${k.antall} punkt`,
@@ -713,7 +719,7 @@ const Ror = (() => {
 
   return {
     lesLandXML, dekod, tolkKode, koderFra, byggLinjer, avstandTilStrekk,
-    lagTilXY, tilLatLon, erUtm, sjekkKoordinater, gjettSone, slaSammen, kildetekst, navnFraFil,
+    lagTilXY, tilLatLon, erUtm, sjekkKoordinater, gjettSone, slaSammen, dimensjon, kildetekst, navnFraFil,
     korridor, profil, objekterLangs, objekterPaaLinjer, sammendrag, merknader, spenn,
     nyRor, StandardRormal, FARGER
   };

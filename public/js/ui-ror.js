@@ -350,8 +350,7 @@ const RorUI = {
       const k = Object.assign({}, koder[kode]);
       const f = felt => tr.querySelector(`[data-felt="${felt}"]`);
       k.form = f('form').value === 'punkt' ? 'punkt' : 'linje';
-      const d = parseFloat(f('dim').value);
-      k.dim = Number.isFinite(d) && d > 0 ? d : null;
+      k.dim = Ror.dimensjon(f('dim').value);       // samme grense som når prosjektet åpnes
       k.farge = f('farge').value;
       k.vis = f('vis').checked;
       ut[kode] = k;
