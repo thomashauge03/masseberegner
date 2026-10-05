@@ -964,6 +964,18 @@ table.rorkoder .minitall { width: 70px; }
 fieldset.rormaal { border: 1px solid var(--kant); padding: 6px 10px; margin: 8px 0; }
 fieldset.rormaal label { display: block; padding: 2px 0; }
 
+/* ── rørfanen ─────────────────────────────────────────────── */
+.rorliste { display: flex; flex-direction: column; gap: 8px; }
+.rorgruppe { border-left: 2px solid var(--kant); padding-left: 8px; }
+.rorkode { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.rorkode .notis { margin-left: auto; }
+button.rorlinje { display: block; width: 100%; text-align: left; background: none; border: 0;
+  color: var(--blekk); padding: 4px 6px; font: inherit; font-size: 12.5px; cursor: pointer; }
+button.rorlinje:hover { background: var(--flate-2); }
+button.rorlinje.aktiv { background: var(--flate-2); box-shadow: inset 2px 0 0 var(--hm-raud); }
+.rorinnstilling { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 6px 0; }
+ul.rormerknader { margin: 4px 0 8px 18px; padding: 0; }
+
 .framdriftboks {
   background: var(--flate-opp); border: 2px solid var(--kant-sterk);
   padding: 18px 22px; width: 360px; text-align: center; box-shadow: 6px 6px 0 0 rgba(0,0,0,.5);

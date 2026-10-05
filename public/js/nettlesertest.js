@@ -8271,6 +8271,48 @@ const Nettlesertest = {
     }
   },
 
+  /** Rørfanen: lista, valget, innstillingene og kodene. */
+  async rorFane() {
+    const foer = JSON.stringify(App.P);
+    try {
+      App.P = App.nyttProsjekt();
+      await RorUI.importerTekst(this._rorXml(), 'asbuilts_Prove.xml', {}, { sone: 32, maal: 'nytt' });
+      await this.ventPaBeregning(30000);
+      const fane = document.getElementById('rorInnhold');
+      const knapper = fane.querySelectorAll('[data-linje]');
+      this.sjekk('fanen lister fire rør', knapper.length === 4, String(knapper.length));
+      this.sjekk('koden står som tekst i lista', /90PE/.test(fane.textContent) && /180 PE/.test(fane.textContent));
+      this.sjekk('velgeren over profilen har fire valg', document.getElementById('ror_velg').options.length === 4);
+      this.sjekk('det lengste røret er valgt fra start', RorUI.valgt === App.resultat.linjer
+        .slice().sort((a, b) => b.lengde - a.lengde)[0].id, RorUI.valgt);
+      knapper[knapper.length - 1].click();
+      this.sjekk('et klikk i lista velger røret', RorUI.valgt === knapper[knapper.length - 1].dataset.linje);
+      const forrige = RorUI.valgt;
+      RorUI.blaa(1);
+      this.sjekk('▶ går videre', RorUI.valgt !== forrige);
+      const maks = document.getElementById('rorMaksAvstand');
+      maks.value = '9'; maks.dispatchEvent(new Event('change'));
+      this.sjekk('maks avstand lagres i malen', App.P.mal.maksAvstand === 9);
+      await this.ventPaBeregning(30000);
+      await this.vent(400);
+      this.sjekk('og linjene trekkes på nytt', App.resultat.linjer.filter(l => l.kode === '90PE').length === 0,
+        String(App.resultat.linjer.length));
+      await App.angre();
+      await this.vent(400);
+      this.sjekk('angre gir 25 m tilbake', App.P.mal.maksAvstand === 25);
+      App.visFane('rorkoder');
+      const kodeVis = document.querySelector('#rorKoder tr[data-kode="32PE"] [data-felt="vis"]');
+      this.sjekk('Koder-fanen har tabellen', !!kodeVis);
+      if (kodeVis) {
+        kodeVis.checked = false; kodeVis.dispatchEvent(new Event('change', { bubbles: true }));
+        this.sjekk('en kode kan slås av', App.P.ror.koder['32PE'].vis === false);
+      }
+    } finally {
+      App.P = JSON.parse(foer);
+      App.visAnleggsvelger(); App.visAnleggsvalg(); App.malTilSkjema(); App.tegnAlt(); await App.oppdater();
+    }
+  },
+
   /**
    * En oppdiktet as-built-fil ved Ydestad, der demoen ligger og terrenget
    * finnes. Samme oppskrift som proverPunkter() i test/rorprove.js: to rør i

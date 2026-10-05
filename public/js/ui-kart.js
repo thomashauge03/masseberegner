@@ -1608,7 +1608,7 @@ const Kart = {
       const pr = res && res.profiler.get(l.id);
       strek.bindTooltip(escapeHtml(l.kode) + (k.dim ? ' · ⌀' + k.dim : '') + ' · ' + t(l.lengde * bf, 1) + ' m'
         + (pr && Number.isFinite(pr.minOverdekning)
-          ? ` · overdekning ${t(pr.minOverdekning, 2)}–${t(pr.maksOverdekning, 2)} m` : ''), { sticky: true });
+          ? ` · overdekning ${Ror.spenn(pr.minOverdekning, pr.maksOverdekning, v => t(v, 2))} m` : ''), { sticky: true });
       strek.on('click', () => { if (!rett && RorUI.velgLinje) RorUI.velgLinje(l.id); });
     }
     for (const p of bygg.objekter) {

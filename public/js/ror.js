@@ -591,6 +591,17 @@ function sammendrag(res) {
     minOd: Number.isFinite(minOd) ? minOd : NaN, maksOd: Number.isFinite(maksOd) ? maksOd : NaN };
 }
 
+/**
+ * Et spenn som «0,5–2,3», eller «−1,2 til 2,3» når ett av tallene er
+ * negativt. «−19,91–−19,71» leses som én lang strek med minustegn i, og
+ * nettopp et negativt spenn er det som må kunne leses – det er røret som
+ * ligger over terrenget.
+ */
+function spenn(min, maks, fmt) {
+  if (!Number.isFinite(min) || !Number.isFinite(maks)) return '–';
+  return (min < 0 || maks < 0) ? `${fmt(min)} til ${fmt(maks)}` : `${fmt(min)}–${fmt(maks)}`;
+}
+
 /** Det brukeren bør vite om – samme liste i fanen, rapporten og PDF-en. */
 function merknader(bygg, profiler, maksAvstand) {
   const ut = [];
@@ -625,7 +636,7 @@ function merknader(bygg, profiler, maksAvstand) {
 const Ror = {
   lesLandXML, dekod, tolkKode, koderFra, byggLinjer, avstandTilStrekk,
   lagTilXY, tilLatLon, sjekkKoordinater, gjettSone, slaSammen, navnFraFil,
-  korridor, profil, objekterLangs, sammendrag, merknader,
+  korridor, profil, objekterLangs, sammendrag, merknader, spenn,
   nyRor, StandardRormal, FARGER
 };
 

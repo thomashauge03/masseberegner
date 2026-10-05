@@ -409,6 +409,15 @@ console.log('\n14. Røranlegget i prosjektfila');
   paastand('et anlegg uten type men med ror-felt blir rør', R.anlegg[0].type === 'ror');
 }
 
+/* ------------------------------------------------------------------ */
+console.log('\n15. Spenn som kan leses');
+{
+  const f = v => String(v).replace('.', ',').replace('-', '−');
+  paastand('to positive tall får tankestrek', Ror.spenn(0.5, 2.25, f) === '0,5–2,25', Ror.spenn(0.5, 2.25, f));
+  paastand('et negativt tall får «til»', Ror.spenn(-1.5, 2, f) === '−1,5 til 2', Ror.spenn(-1.5, 2, f));
+  paastand('ukjent er en strek', Ror.spenn(NaN, NaN, f) === '–', Ror.spenn(NaN, NaN, f));
+}
+
 /* ---------------- sluttsum ---------------- */
 console.log(`\n${ok} tester ok, ${feil} feil`);
 process.exit(feil ? 1 : 0);

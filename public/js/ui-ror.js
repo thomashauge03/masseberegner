@@ -43,6 +43,9 @@ const RorUI = {
         await this.importerFil(f, {});
       });
     }
+    if (id('ror_velg')) id('ror_velg').onchange = e => this.velgLinje(e.target.value);
+    if (id('ror_forrige')) id('ror_forrige').onclick = () => this.blaa(-1);
+    if (id('ror_neste')) id('ror_neste').onclick = () => this.blaa(1);
     return this;
   },
 
@@ -295,6 +298,154 @@ const RorUI = {
     return navn + ' ' + n;
   },
 
-  /** Rørfanen og velgeren over profilen. Fylles i oppgave 10. */
-  vis() {}
+  /**
+   * Rørfanen, Koder-fanen og velgeren over profilen.
+   *
+   * Leser resultatet når det finnes, ellers linjene bygget her og nå – fanen
+   * skal ikke stå tom mens terrenget lastes.
+   */
+  vis() {
+    const app = this.app;
+    if (!app || !app.erRor()) return;
+    const r = app.P.ror;
+    const res = app.resultat && app.resultat.type === 'ror' ? app.resultat : null;
+    const bygg = res ? res.bygg : Ror.byggLinjer(r, app.P.mal, Ror.lagTilXY(r.sone, r.sone));
+    if (!bygg.linjer.some(l => l.id === this.valgt)) {
+      const lengst = bygg.linjer.slice().sort((a, b) => b.lengde - a.lengde)[0];
+      this.valgt = lengst ? lengst.id : null;
+    }
+    this._fyllVelger(bygg.linjer, res);
+    this._fyllFane(r, bygg, res);
+    this._fyllKoder(r);
+  },
+
+  /** Velger et rør: kartet framhever det, profilen og 3D viser det. */
+  velgLinje(id) {
+    this.valgt = id;
+    const v = document.getElementById('ror_velg');
+    if (v && v.value !== id) v.value = id;
+    for (const b of document.querySelectorAll('#rorInnhold [data-linje]')) {
+      b.classList.toggle('aktiv', b.dataset.linje === id);
+    }
+    Kart.tegnRor();
+    if (typeof Rorprofil !== 'undefined') Rorprofil.tegn();
+    if (typeof Ror3d !== 'undefined' && Ror3d.aktiv) Ror3d.tegn();
+  },
+
+  /** ◀ og ▶ – går rundt i lista. */
+  blaa(retning) {
+    const v = document.getElementById('ror_velg');
+    if (!v || !v.options.length) return;
+    const i = Math.max(0, [...v.options].findIndex(o => o.value === this.valgt));
+    const n = v.options.length;
+    this.velgLinje(v.options[(i + retning + n) % n].value);
+  },
+
+  _navn(l, res) {
+    const bf = (res && res.bakkefaktor) || 1;
+    return `${l.kode} · ${Rapport.tall(l.lengde * bf, 0)} m`;
+  },
+
+  _fyllVelger(linjer, res) {
+    const v = document.getElementById('ror_velg');
+    if (!v) return;
+    v.innerHTML = linjer.map(l =>
+      `<option value="${escapeAttr(l.id)}">${escapeHtml(this._navn(l, res))}</option>`).join('');
+    if (this.valgt) v.value = this.valgt;
+  },
+
+  _fyllFane(r, bygg, res) {
+    const e = document.getElementById('rorInnhold');
+    if (!e) return;
+    const app = this.app;
+    const t = (v, d = 0) => Rapport.tall(v, d);
+    const bf = (res && res.bakkefaktor) || 1;
+    const kode = k => r.koder[k] || Ror.tolkKode(k);
+    const s = res ? Ror.sammendrag(res) : null;
+    const grupper = new Map();
+    for (const l of bygg.linjer) {
+      if (!grupper.has(l.kode)) grupper.set(l.kode, []);
+      grupper.get(l.kode).push(l);
+    }
+    let liste = '';
+    for (const [k, linjer] of grupper) {
+      const kd = kode(k);
+      const sum = linjer.reduce((a, l) => a + l.lengde * bf, 0);
+      liste += `<div class="rorgruppe"><div class="rorkode"><span class="rorfarge" style="background:${Farger.ror(kd.farge)}" aria-hidden="true"></span>`
+        + `<b>${escapeHtml(k)}</b><span class="notis">${kd.dim ? '⌀' + kd.dim + ' · ' : ''}${t(sum)} m</span></div>`;
+      linjer.forEach((l, i) => {
+        const pr = res && res.profiler.get(l.id);
+        liste += `<button class="rorlinje${l.id === this.valgt ? ' aktiv' : ''}" data-linje="${escapeAttr(l.id)}">`
+          + `${linjer.length > 1 ? (i + 1) + '. ' : ''}${t(l.lengde * bf, 1)} m · ${l.punkter.length} punkt`
+          + (pr ? ` · overdekning ${Ror.spenn(pr.minOverdekning, pr.maksOverdekning, v => t(v, 2))} m` : '') + '</button>';
+      });
+      liste += '</div>';
+    }
+    const merknader = (res ? res.merknader : []).map(m => `<li>${escapeHtml(m.tekst)}</li>`).join('');
+    const kilder = r.kilder.map(k => `${escapeHtml(k.fil)}${k.program ? ' · ' + escapeHtml(k.program) : ''}`
+      + `${k.dato ? ' · ' + escapeHtml(k.dato) : ''} · ${k.antall} punkt`).join('<br>');
+    const ret = r.retting;
+    e.innerHTML = `
+      <h3>${escapeHtml(app.anlegg().navn || 'Rør')}</h3>
+      <p class="notis">${kilder || 'Ingen fil importert ennå.'}</p>
+      ${s ? `<div class="sumrad"><span>Rør</span><span class="verdi">${s.antall} · ${t(s.lengde)} m</span></div>
+      <div class="sumrad"><span>Overdekning</span><span class="verdi">${Ror.spenn(s.minOd, s.maksOd, v => t(v, 2))} m</span></div>` : ''}
+      <h3>Rørene</h3>
+      <div class="rorliste">${liste || '<p class="tomtekst">Ingen rør – sjekk kodene og maks avstand.</p>'}</div>
+      ${merknader ? `<h3>Merknader</h3><ul class="rormerknader">${merknader}</ul>` : ''}
+      <h3>Innstillinger</h3>
+      <div class="rorinnstilling"><label for="rorSoneFane">Koordinatsystem i fila</label>
+        <select id="rorSoneFane" class="minivalg">${[32, 33, 35].map(z =>
+          `<option value="${z}"${z === r.sone ? ' selected' : ''}>EUREF89 UTM ${z}</option>`).join('')}</select></div>
+      <div class="rorinnstilling"><label for="rorMaksAvstand">Største avstand mellom punkt på samme rør</label>
+        <input id="rorMaksAvstand" class="minitall" type="number" min="5" max="200" step="1" value="${app.P.mal.maksAvstand}"> m</div>
+      <h3>Retting</h3>
+      <p class="notis">Slått av: ${ret.av.length} punkt · brudd: ${ret.brudd.length} · koblinger: ${ret.koble.length}.
+        Bruk knappene i kartet for å rette.</p>
+      <div class="knapperad">
+        <button class="knapp" id="rorTilbakestill"${ret.av.length + ret.brudd.length + ret.koble.length ? '' : ' disabled'}>Tilbakestill rettinger</button>
+        <button class="knapp" id="rorImportNy">Importer nyere fil…</button>
+      </div>`;
+    for (const b of e.querySelectorAll('[data-linje]')) b.onclick = () => this.velgLinje(b.dataset.linje);
+    e.querySelector('#rorSoneFane').onchange = ev => {
+      app.merk('endret koordinatsystem');
+      r.sone = +ev.target.value;
+      app._terrengnokkel = '';
+      app.tegnAlt();
+      app.planlegg(30);
+      if (Kart.zoomTilRor) Kart.zoomTilRor();
+    };
+    e.querySelector('#rorMaksAvstand').onchange = ev => {
+      const v = parseFloat(ev.target.value);
+      if (!(v >= 5 && v <= 200)) { ev.target.value = app.P.mal.maksAvstand; return; }
+      app.merk('endret maks avstand');
+      app.P.mal.maksAvstand = v;
+      app.tegnAlt();
+      app.planlegg(30);
+    };
+    e.querySelector('#rorTilbakestill').onclick = async () => {
+      if (!await app.bekreft('Ta bort alle rettingene? Punktene som er slått av kommer tilbake, '
+        + 'og brudd og koblinger forsvinner – men du kan angre etterpå.', 'Tilbakestill')) return;
+      app.merk('tilbakestilte rettinger');
+      r.retting = { av: [], brudd: [], koble: [] };
+      app.tegnAlt();
+      app.planlegg(30);
+    };
+    e.querySelector('#rorImportNy').onclick = () => this.velgFil({});
+  },
+
+  _fyllKoder(r) {
+    const e = document.getElementById('rorKoder');
+    if (!e) return;
+    const antall = {};
+    for (const p of r.punkter) antall[p.kode] = (antall[p.kode] || 0) + 1;
+    e.innerHTML = '<p class="notis">Hva hver kode i fila betyr. Endringene gjelder med en gang, og kan angres.</p>'
+      + this.kodetabellHtml(r.koder, antall);
+    e.onchange = () => {
+      this.app.merk('endret kode');
+      r.koder = this.lesKodetabell(e, r.koder);
+      this.app.tegnAlt();
+      this.app.planlegg(30);
+    };
+  }
 };
