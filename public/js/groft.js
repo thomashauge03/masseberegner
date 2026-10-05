@@ -77,7 +77,7 @@ const Groft = (() => {
   }
 
   function tomme() {
-    return { gravingLos: 0, sprengning: 0, fundament: 0, omfylling: 0, gjenfylling: 0, rorvolum: 0,
+    return { gravingLos: 0, sprengning: 0, fundament: 0, omfylling: 0, gjenfylling: 0, rorvolum: 0, kumvolum: 0,
       areal: 0, lengde: 0, dybdeklasser: DYBDEKLASSER.map(() => 0) };
   }
 
@@ -288,6 +288,23 @@ const Groft = (() => {
       }
       if (!noen) sammenAldriNaer++;
     }
+    /* 4b. KUMMENE: en rund grop per kum – et segment uten lengde, med flat
+       bunn ut til ytre radius + arbeidsrom og skråning derfra. Bunnen er
+       kumbunnen (0,25 m under bunnløpet) minus fundamentet. Kummen sitter på et
+       rør og føres på det; den er ikke med i rørets stasjoner. */
+    const arbeidsrom = Number.isFinite(o.kumArbeidsrom) ? o.kumArbeidsrom : 0.5;
+    for (const K of o.kummer || []) {
+      const r = ror.findIndex(rr => rr.linje.id === K.eier);
+      if (r < 0 || !Number.isFinite(K.bunnlop) || !Number.isFinite(K.x) || !Number.isFinite(K.y)) continue;
+      const m = malFor(o.mal, ror[r].kodemal, null);
+      const ytre = (K.diameter > 0 ? K.diameter : 1000) / 1000 + 0.2, bunn = K.bunnlop - 0.25;
+      const sg = lagSegment({ x: K.x, y: K.y }, { x: K.x, y: K.y }, bunn, bunn, {
+        r, i: -1, eier: r, sa: 0, sb: 0, D: 0, w: ytre / 2 + arbeidsrom, fund: m.fundament, omf: 0,
+        hel: m.helning, fjell: null, gruppe: 0, virtuell: false, kum: { id: K.id, ytre, bunn }
+      });
+      sg.TA = sg.TB = T(K.x, K.y);
+      seg.push(sg);
+    }
     // 5. hvor langt hvert segment kan nå, og registeret over flisene
     let kappet = 0;
     const register = new Map();
@@ -307,16 +324,20 @@ const Groft = (() => {
         const L = Math.sqrt(sg.L2);
         const ux = L > 0 ? sg.dx / L : 1, uy = L > 0 ? sg.dy / L : 0;
         const antall = Math.max(1, Math.ceil(L / 2));
+        // ut til begge sider av et rør – og rundt hele en kum
+        const retn = sg.kum
+          ? Array.from({ length: 8 }, (_, a) => ({ x: Math.cos(a * Math.PI / 4), y: Math.sin(a * Math.PI / 4) }))
+          : [{ x: -uy, y: ux }, { x: uy, y: -ux }];
         let lengst = 0, ute = false;
         for (let k = 0; k <= antall; k++) {
           const t = k / antall;
           const px = sg.ax + sg.dx * t, py = sg.ay + sg.dy * t, zb = sg.zbA + (sg.zbB - sg.zbA) * t;
           const Tm = anslagVed(sg, t);
-          for (const side of [1, -1]) {
+          for (const v of retn) {
             let d = sg.w;
             for (; d < MAKS_UT; d += 0.5) {
               // i et hull: terrenget anslått langs røret, så hullet også får sin bredde
-              let Tz = T(px - uy * d * side, py + ux * d * side);
+              let Tz = T(px + v.x * d, py + v.y * d);
               if (!Number.isFinite(Tz)) Tz = Tm;
               if (!Number.isFinite(Tz) || zb + (d - sg.w) / sg.hel >= Tz) break;
             }
@@ -440,33 +461,37 @@ const Groft = (() => {
   }
 
   /**
-   * Fundament og omfylling i søylen [zg, T]. Hvert rør som graver her, får
-   * lagene slik de ville vært i dets egen grøft: fundament fra gropa opp til
-   * bunn rør, omfylling derfra til topp rør + omfylling. Et grunt rør i grøfta
-   * til et dypt får dem der det ligger, og under det er det gjenfylling.
-   * Overlapper lag fra flere rør, telles de én gang; fundamentet går foran.
-   * @returns {number[]} [fundament, omfylling med røret] i meter
+   * Fundament, omfylling og kum i søylen [zg, T]. Hvert rør som graver her,
+   * får lagene slik de ville vært i dets egen grøft: fundament fra gropa opp
+   * til bunn rør, omfylling derfra til topp rør + omfylling. Et grunt rør i
+   * grøfta til et dypt får dem der det ligger, og under det er det
+   * gjenfylling. Overlapper lag fra flere rør, telles de én gang; fundamentet
+   * går foran omfyllingen. KUMMEN GÅR FORAN BEGGE: der den står, er det
+   * betong, ikke fundament eller omfylling for rørene som går inn i den – men
+   * under den er fundamentet dens eget.
+   * @returns {number[]} [fundament, omfylling med røret, kum] i meter
    */
   function lagISoyle(kand, g, zg, Tq) {
-    const fund = [], omf = [];
+    const fund = [], omf = [], kum = [];
     for (const c of kand) {
       if (c.g !== g) continue;
       const f0 = Math.max(c.z, zg), f1 = Math.min(c.bunn, Tq);
       if (f1 > f0) fund.push([f0, f1]);
       const o0 = Math.max(c.z, c.bunn, zg), o1 = Math.min(c.omfTopp, Tq);
       if (o1 > o0) omf.push([o0, o1]);
+      if (c.kum != null && Tq > Math.max(c.kum, zg)) kum.push([Math.max(c.kum, zg), Tq]);
     }
-    const F = forening(fund), O = forening(omf);
-    const lf = lengdeAv(F);
-    return [lf, lengdeAv(O) - overlapp(O, F)];
+    const K = forening(kum), F = forening(fund), O = forening(omf);
+    return [lengdeAv(F) - overlapp(F, K), lengdeAv(O) - overlapp(O, forening(F.concat(K))), lengdeAv(K)];
   }
 
   /**
    * Den dypeste gropa i et punkt, i én gruppe – eller i alle (-1). Likt
    * innenfor avrundingsstøyen går røret `foran` først, så eieren ikke
-   * avgjøres av sjuende desimal.
+   * avgjøres av sjuende desimal. `utenKum` ser bort fra kumgropene – langs
+   * røret er det grøfta som gir løpemeteren og dybdeklassen, ikke kummen.
    */
-  function iPunkt(M, x, y, Tq, gruppe, foran = -1) {
+  function iPunkt(M, x, y, Tq, gruppe, foran = -1, utenKum = false) {
     const fl = M.register.get(nokkel(Math.floor(x / FLIS), Math.floor(y / FLIS)));
     if (!fl) return null;
     let sond;
@@ -476,6 +501,7 @@ const Groft = (() => {
     for (const j of fl.segs) {
       const sg = M.seg[j];
       if (gruppe >= 0 && sg.gruppe !== gruppe) continue;
+      if (utenKum && sg.kum) continue;
       if (x < sg.x0 || x > sg.x1 || y < sg.y0 || y > sg.y1) continue;
       const z = grop(sg, x, y, Tq, sondert, ut);
       if (!(z < Tq)) continue;
@@ -512,7 +538,7 @@ const Groft = (() => {
     const naar = new Set();
     for (const j of fl ? fl.segs : []) {
       const s2 = M.seg[j];
-      if (s2.virtuell || s2.r === r || s2.gruppe !== sg.gruppe || sammen.has(s2.r) || naar.has(s2.r)) continue;
+      if (s2.virtuell || s2.kum || s2.r === r || s2.gruppe !== sg.gruppe || sammen.has(s2.r) || naar.has(s2.r)) continue;
       if (q.x < s2.x0 || q.x > s2.x1 || q.y < s2.y0 || q.y > s2.y1) continue;
       if (grop(s2, q.x, q.y, Tq, sondert, ut) < Tq) naar.add(s2.r);
     }
@@ -606,14 +632,16 @@ const Groft = (() => {
     };
   }
 
-  function leggTil(s, A, los, spreng, lf, lo, gjen) {
+  function leggTil(s, A, los, spreng, lf, lo, gjen, lk) {
     s.gravingLos += los * A; s.sprengning += spreng * A;
-    s.fundament += lf * A; s.omfylling += lo * A; s.gjenfylling += gjen * A;
+    s.fundament += lf * A; s.omfylling += lo * A; s.gjenfylling += gjen * A; s.kumvolum += lk * A;
   }
 
   /**
    * Massene i grøfta – se spesifikasjonen, 4.1–4.6. `o.bakkefaktor` gjør
    * UTM-målene om til mål på bakken; profilenes `s` står i UTM, som rørenes.
+   * `o.kummer` gir en rund grop per kum (etappe 3a). Kontrollen er
+   * graving + sprengning = fundament + omfylling + gjenfylling + rørvolum + kumvolum.
    */
   function beregn(o) {
     const M = forbered(o);
@@ -657,7 +685,8 @@ const Groft = (() => {
             if (z < grpZ[sg.gruppe]) { grpZ[sg.gruppe] = z; grpJ[sg.gruppe] = j; }
             if (!sg.virtuell) {
               const topp = sg.ta + (sg.tb - sg.ta) * ut.t;
-              kand.push({ g: sg.gruppe, z, bunn: topp - sg.D, omfTopp: topp + sg.omf });
+              kand.push({ g: sg.gruppe, z, bunn: topp - sg.D, omfTopp: topp + sg.omf,
+                kum: sg.kum && Math.hypot(x - sg.ax, y - sg.ay) <= sg.kum.ytre / 2 ? sg.kum.bunn : null });
             }
           }
           let gravd = false;
@@ -671,10 +700,10 @@ const Groft = (() => {
             if (fd == null) fd = sondert();
             const zf = fd == null ? -Infinity : Tq - fd;
             const spreng = zf > zg ? Math.min(Tq, zf) - zg : 0;
-            const [lf, lo] = lagISoyle(kand, g, zg, Tq);
-            const gjen = Math.max(0, dybde - lf - lo);
-            leggTil(sum, A, dybde - spreng, spreng, lf, lo, gjen);
-            leggTil(per[sg.eier], A, dybde - spreng, spreng, lf, lo, gjen);
+            const [lf, lo, lk] = lagISoyle(kand, g, zg, Tq);
+            const gjen = Math.max(0, dybde - lf - lo - lk);
+            leggTil(sum, A, dybde - spreng, spreng, lf, lo, gjen, lk);
+            leggTil(per[sg.eier], A, dybde - spreng, spreng, lf, lo, gjen, lk);
             per[sg.eier].areal += A;
           }
           if (gravd) sum.areal += A;
@@ -688,7 +717,7 @@ const Groft = (() => {
        retningene er kartmål, ble de faktoren for store. */
     const bf = o.bakkefaktor || 1;
     for (const p of [sum, ...per]) {
-      for (const fe of ['gravingLos', 'sprengning', 'fundament', 'omfylling', 'gjenfylling', 'areal']) p[fe] *= bf;
+      for (const fe of ['gravingLos', 'sprengning', 'fundament', 'omfylling', 'gjenfylling', 'kumvolum', 'areal']) p[fe] *= bf;
     }
     manglerTerreng *= bf;
     /* LANGS RØRENE: løpemeter, dybdeklasser, røret og profilen.
@@ -715,7 +744,7 @@ const Groft = (() => {
            grøft», mens rutene gravde under et rør som stakk 5 cm opp: 77 m³
            graving, men ingen løpemeter og ingen rør trukket fra. */
         if (q.topp > Tq) overTerreng[r] += bredde;
-        const p = iPunkt(M, q.x, q.y, Tq, sg.gruppe, r);
+        const p = iPunkt(M, q.x, q.y, Tq, sg.gruppe, r, true);
         if (!p) continue;
         rad.gravebunn = p.z;
         let fd = sg.fjell;
@@ -751,7 +780,7 @@ const Groft = (() => {
     M.ror.forEach((rr, r) => {
       if (!perKode.has(rr.kode)) perKode.set(rr.kode, tomme());
       const kk = perKode.get(rr.kode), p = per[r];
-      for (const fe of ['gravingLos', 'sprengning', 'fundament', 'omfylling', 'gjenfylling', 'rorvolum', 'areal', 'lengde']) {
+      for (const fe of ['gravingLos', 'sprengning', 'fundament', 'omfylling', 'gjenfylling', 'rorvolum', 'kumvolum', 'areal', 'lengde']) {
         kk[fe] += p[fe];
       }
       p.dybdeklasser.forEach((v, i) => { kk.dybdeklasser[i] += v; });

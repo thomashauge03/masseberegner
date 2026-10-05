@@ -420,6 +420,45 @@ console.log('\n6. Langs rørene');
   paastand('fjellet: sier at alt er løsmasse', r.merknader.some(m => m.type === 'fjell' && /løsmasse/.test(m.tekst)));
 }
 
+console.log('\n6b. Kummene');
+{
+  /* En kum alene på flat mark, langt fra røret den hører til. Gropa er en
+     avkortet kjegle; fundamentet er de nederste 0,15 m av den; kummen selv er
+     en sylinder fra kumbunnen til terrenget. */
+  const ytre = 1.0 + 0.2, arb = 0.5, bunnlop = 7.0, kumBunn = bunnlop - 0.25;
+  const r0 = ytre / 2 + arb, dyp = TERRENG - (kumBunn - f), R = r0 + dyp;   // helning 1:1
+  const linjer = [rett('a', '160PE', 10, TOPP)];
+  const uten = Groft.beregn({ linjer, koder: koder160, terrengZ: flatt, rute: 0.1 });
+  const med = Groft.beregn({ linjer, koder: koder160, terrengZ: flatt, rute: 0.1, kumArbeidsrom: arb,
+    kummer: [{ id: 'k1', x: 1200, y: 1200, bunnlop, diameter: 1000, eier: 'a' }] });
+  const d = k => med.sum[k] - uten.sum[k];
+  const V = Math.PI * dyp / 3 * (r0 * r0 + r0 * R + R * R);
+  sjekk('kumgropa: avkortet kjegle', d('gravingLos'), V, V * 0.01);
+  const r1 = r0 + f, F = Math.PI * f / 3 * (r0 * r0 + r0 * r1 + r1 * r1);
+  sjekk('fundamentet under kummen', d('fundament'), F, F * 0.02);
+  const Kv = Math.PI * (ytre / 2) ** 2 * (TERRENG - kumBunn);
+  sjekk('kummen selv trekkes fra', med.sum.kumvolum, Kv, Kv * 0.02);
+  sjekk('resten er gjenfylling', d('gjenfylling'), V - F - Kv, V * 0.01);
+  const s = med.sum;
+  sjekk('regnestykket går opp med kummen', s.gravingLos + s.sprengning,
+    s.fundament + s.omfylling + s.gjenfylling + s.rorvolum + s.kumvolum, 1e-6);
+  sjekk('kummen føres på røret', med.perLinje.get('a').kumvolum, Kv, Kv * 0.02);
+}
+{
+  // en kum på røret: én grop, ikke to – og løpemeteren og dybdeklassen er grøftas
+  const linjer = [rett('a', '160PE', 100, TOPP)];
+  const q = punktVed(50, 0);
+  const uten = Groft.beregn({ linjer, koder: koder160, terrengZ: flatt, rute: 0.2 });
+  const med = Groft.beregn({ linjer, koder: koder160, terrengZ: flatt, rute: 0.2,
+    kummer: [{ id: 'k1', x: q.x, y: q.y, bunnlop: TOPP - D + 0.005, diameter: 1000, eier: 'a' }] });
+  paastand('kummen gjør gropa større', med.sum.gravingLos > uten.sum.gravingLos + 5);
+  sjekk('men lengden er den samme', med.sum.lengde, 100, 1e-6);
+  sjekk('og dybdeklassen er grøftas', med.dybdeklasser[1].lengde, 100, 1e-6);
+  const s = med.sum;
+  sjekk('og regnestykket går opp', s.gravingLos + s.sprengning,
+    s.fundament + s.omfylling + s.gjenfylling + s.rorvolum + s.kumvolum, 1e-6);
+}
+
 console.log('\n7. Massebalansen');
 {
   const sum = { gravingLos: 100, sprengning: 20, fundament: 5, omfylling: 15, gjenfylling: 70 };
