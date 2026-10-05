@@ -267,10 +267,16 @@ const App = {
   /** Er det et tegnet røranlegg vi jobber med nå? */
   erPlan() { const a = this.anlegg(); return !!a && a.type === 'ror' && !!(a.ror && a.ror.plan); },
 
-  /** Har anlegget noe tegnet eller importert – en veg, en tomt, innmålte eller tegnede rør? */
+  /**
+   * Har anlegget noe tegnet eller importert – en veg, en tomt, innmålte eller
+   * tegnede rør? Kjøres på fila FØR den er ryddet (se `klargjorProsjekt`), så
+   * hver liste prøves med Array.isArray: `plan.traseer.length` kastet for en
+   * plan som var {}, true eller tekst, og åpningen veltet med tomme paneler.
+   */
   _harGeometri(a) {
-    return !!a && !!((a.ip && a.ip.length) || (a.tomt && a.tomt.punkter && a.tomt.punkter.length)
-      || (a.ror && a.ror.punkter && a.ror.punkter.length) || (a.ror && a.ror.plan && a.ror.plan.traseer.length));
+    const n = v => (Array.isArray(v) ? v.length : 0);
+    return !!a && !!(n(a.ip) || (a.tomt && n(a.tomt.punkter))
+      || (a.ror && n(a.ror.punkter)) || (a.ror && a.ror.plan && n(a.ror.plan.traseer)));
   },
 
   /* ================================================================
@@ -1425,10 +1431,9 @@ const App = {
     if (this.P.anlegg.length < 2) { this.status('Prosjektet må ha minst ett anlegg'); return; }
     /* Rørene MÅ med her. Uten dem ble et røranlegg med fire hundre innmålte
        punkt slettet uten et spørsmål – det så tomt ut for en sjekk som bare
-       kjente knekkpunkt og tomtehjørner. */
-    const harNoe = (a.ip && a.ip.length) || (a.tomt && a.tomt.punkter && a.tomt.punkter.length)
-      || (a.ror && a.ror.punkter && a.ror.punkter.length);
-    if (harNoe && this.bekreft) {
+       kjente knekkpunkt og tomtehjørner. De tegnede rørene likeså: derfor den
+       samme prøven som alle andre steder, ikke en egen liste her. */
+    if (this._harGeometri(a) && this.bekreft) {
       const ja = await this.bekreft('Slette «' + (a.navn || a.type) + '»? '
         + 'Alt som er tegnet på det blir borte – men du kan angre etterpå.', 'Slett');
       if (!ja) return;

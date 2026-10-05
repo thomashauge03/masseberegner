@@ -9070,6 +9070,18 @@ const Nettlesertest = {
         const pl = apnet.anlegg[0].ror.plan;
         this.sjekk('planen står seg gjennom lagring og åpning', pl.traseer.length === 1 && pl.ror.length === 2
           && pl.kummer.length === 1 && apnet.anlegg[0].mal.plan.overdekning === 2 && !apnet.ubestemt);
+        /* En ødelagt plan i fila skal ryddes, ikke velte åpningen. Prøven av
+           geometrien kjøres FØR fila er ryddet, og `plan.traseer.length` kastet
+           for {}, true og tekst – med tomme paneler og ingen melding. */
+        const velter = [];
+        for (const plan of [{}, true, 'x', { traseer: null }, { traseer: 5 }]) {
+          try {
+            const q = App.klargjorProsjekt(Object.assign(App.nyttProsjekt(), { navn: 'p', aktivt: 'a1',
+              anlegg: [{ id: 'a1', type: 'ror', ror: { punkter: [], plan } }] }));
+            if (!q.anlegg[0].ror.plan || !Array.isArray(q.anlegg[0].ror.plan.traseer)) velter.push(JSON.stringify(plan) + ': ikke ryddet');
+          } catch (e) { velter.push(JSON.stringify(plan) + ': ' + e.message); }
+        }
+        this.sjekk('en ødelagt plan i fila ryddes i stedet for å velte åpningen', !velter.length, velter.join(' | '));
       });
     } finally {
       await this._rorTilbake(foer);
@@ -9234,6 +9246,12 @@ const Nettlesertest = {
         RorPlanUI.slettValgt();
         this.sjekk('Delete i et annet anlegg sletter ikke punktet med samme id der',
           App.P.ror.plan.traseer[0].punkter.length === n);
+        // et tegnet anlegg med traseer slettes ikke uten å spørre – som et innmålt
+        const gammelBekreft = App.bekreft;
+        let spurt = null;
+        App.bekreft = async tekst => { spurt = tekst; return false; };
+        try { await App.slettAnlegg('kopi'); } finally { App.bekreft = gammelBekreft; }
+        this.sjekk('et tegnet anlegg slettes ikke uten å spørre', !!spurt && App.P.anlegg.some(a => a.id === 'kopi'));
       });
     } finally {
       await this._rorTilbake(foer);
