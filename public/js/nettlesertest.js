@@ -8191,6 +8191,34 @@ const Nettlesertest = {
       this.sjekk('resultatet hører til røranlegget', r && r._anlegg === a.id);
       this.sjekk('bakkefaktoren er nær 1', r && Math.abs(r.bakkefaktor - 1) < 0.002, r && String(r.bakkefaktor));
       this.sjekk('nøkkeltallene viser rør', /Rør/.test(document.getElementById('nokkeltal').textContent));
+      /* TO BEREGNINGER OVER HVERANDRE. En retting mens terrenget lastes gir en
+         ny beregning før den forrige er ferdig. Kom den eldste tilbake sist,
+         skrev den sine linjer over de nye – rettingen var borte fra skjermen. */
+      {
+        const ekte = Terreng.prototype.lastKorridorer;
+        let slipp;
+        const sperre = new Promise(los => { slipp = los; });
+        let kall = 0;
+        Terreng.prototype.lastKorridorer = async function (...arg) {
+          if (++kall === 1) await sperre;
+          return ekte.apply(this, arg);
+        };
+        try {
+          App._terrengnokkel = '';
+          const eldste = App.beregnRor();
+          const bort = a.ror.punkter.find(p => p.kode === '90PE').id;
+          a.ror.retting.av.push(bort);
+          await App.beregnRor();
+          slipp();
+          await eldste;
+          const r2 = App.resultat;
+          this.sjekk('den eldste beregningen skriver ikke over den nyeste',
+            r2 && r2.linjer.every(l => !l.punkter.some(p => p.id === bort)), bort);
+        } finally {
+          Terreng.prototype.lastKorridorer = ekte;
+          slipp();
+        }
+      }
       /* Et anlegg UTEN data skal ikke arve topplinja fra det forrige. Målt:
          etter et bytte fra rør til en tom veg sto «Rør 464 m · 4 rør» igjen. */
       const tomt = App.P.anlegg.find(x => x.type !== 'ror' && !(x.ip && x.ip.length));

@@ -3262,6 +3262,10 @@ const App = {
     const nokkel = 'ror#' + this.sone + '#' + halv + '#'
       + bygg.linjer.map(l => l.id + ':' + l.punkter.length + ':' + l.lengde.toFixed(2)).join('|');
     const anleggFoer = this.P.aktivt;
+    /* Hver beregning får et nummer. En retting mens terrenget lastes starter
+       en ny før den forrige er ferdig, og kom den eldste tilbake sist, skrev
+       den sine linjer over de nye – rettingen forsvant fra skjermen. */
+    const runde = this._rorRunde = (this._rorRunde || 0) + 1;
     if (nokkel !== this._terrengnokkel && bygg.linjer.length) {
       const varSynlig = !document.getElementById('framdrift').classList.contains('skjult');
       this.framdrift(true, 'Henter terrengdata fra Kartverket…', 0);
@@ -3270,8 +3274,9 @@ const App = {
           this.framdrift(true, `Henter terrengdata fra Kartverket… ${f}/${tot}`, tot ? f / tot : 1));
       } finally { if (!varSynlig) this.framdrift(false); }
       /* Samme vakt som i `oppdater()`: byttet man anlegg mens nedlastingen
-         gikk, hører ikke dette svaret hjemme noe sted. */
-      if (this.P.aktivt !== anleggFoer) return null;
+         gikk, hører ikke dette svaret hjemme noe sted. Det gjør det heller
+         ikke når en nyere beregning er startet. */
+      if (this.P.aktivt !== anleggFoer || runde !== this._rorRunde) return null;
       this._terrengnokkel = nokkel;
       if (this.terreng.mangler.size) {
         this.status(`⚠ Fikk ikke ${this.terreng.mangler.size} terrengfliser – deler av rørene mangler terreng`);
