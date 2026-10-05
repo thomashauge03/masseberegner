@@ -182,6 +182,97 @@ console.log('\n5. Felles grøft, egen grøft og sammenslåing');
   sjekk('sammenslåing som ikke treffer, telles', feilM.sammenUtenTreff, 1, 0);
 }
 
+console.log('\n6. Langs rørene');
+{
+  const r = Groft.beregn({ linjer: [rett('a', '160PE', 100, TOPP), rett('c', '160PE', 50, 7.5, 3000, 3000)],
+    koder: koder160, terrengZ: flatt, rute: 0.2 });
+  sjekk('1–2 m: det første røret', r.dybdeklasser[1].lengde, 100, 1e-6);
+  sjekk('2–3 m: det andre', r.dybdeklasser[2].lengde, 50, 1e-6);
+  sjekk('løpemeter i alt', r.sum.lengde, 150, 1e-6);
+  sjekk('røret: π D²/4 per meter', r.sum.rorvolum, Math.PI * D * D / 4 * 150, 1e-6);
+  const s = r.sum;
+  sjekk('graving = fyll + røret', s.gravingLos + s.sprengning, s.fundament + s.omfylling + s.gjenfylling + s.rorvolum, 1e-6);
+  paastand('per kode er summen av rørene', Math.abs(r.perKode.get('160PE').gravingLos - s.gravingLos) < 1e-6);
+  const pr = r.profiler.get('a');
+  sjekk('profilen har én prøve per meter', pr.length, 101, 0);
+  sjekk('gravebunnen i profilen', pr[50].gravebunn, TOPP - D - f, 1e-9);
+  const x50 = 1000 + Math.cos(0.3) * 50, y50 = 1000 + Math.sin(0.3) * 50;
+  sjekk('gravenivået midt i grøfta', Groft.nivaa(r.modell, x50, y50), TOPP - D - f, 1e-9);
+  paastand('og ingenting langt unna', Number.isNaN(Groft.nivaa(r.modell, x50 + 50, y50)));
+  const kant = Groft.kanter(r.modell);
+  paastand('grøftekanten har to sider per rør', kant.length === 4, String(kant.length));
+  const k0 = kant[0][Math.floor(kant[0].length / 2)];
+  const ut0 = Math.abs(-(k0.x - 1000) * Math.sin(0.3) + (k0.y - 1000) * Math.cos(0.3));
+  sjekk('kanten ligger w + h ut fra røret', ut0, b / 2 + h, 0.12);
+}
+{
+  const r = Groft.beregn({ linjer: [rett('a', '160PE', 100, TOPP), rett('f', '40 FIBER', 100, 9.3, 1000, 1000, 0.3, 0.5)],
+    koder: koder160, terrengZ: flatt, rute: 0.2 });
+  sjekk('fiberet i grøfta til det dype: én lengde', r.sum.lengde, 100, 1e-6);
+  sjekk('og den står på det dype røret', r.perLinje.get('a').lengde, 100, 1e-6);
+}
+{
+  const r = Groft.beregn({ linjer: [rett('a', '160PE', 100, 10.5), rett('u', 'UKJENT', 30, TOPP, 3000, 3000)],
+    koder: { '160PE': { dim: 160 }, UKJENT: { dim: null } }, terrengZ: flatt, rute: 0.2 });
+  paastand('over terrenget: merknad', r.merknader.some(m => m.type === 'over'));
+  paastand('uten dimensjon: merknad med koden', r.merknader.some(m => m.type === 'dimensjon' && /UKJENT/.test(m.tekst)));
+  sjekk('og lengden står i utenDimensjon', r.utenDimensjon[0].lengde, 30, 1e-9);
+  paastand('fjellet: sier at alt er løsmasse', r.merknader.some(m => m.type === 'fjell' && /løsmasse/.test(m.tekst)));
+}
+
+console.log('\n7. Massebalansen');
+{
+  const sum = { gravingLos: 100, sprengning: 20, fundament: 5, omfylling: 15, gjenfylling: 70 };
+  const fk = { losmasseIFylling: 0.95, sprengningsfaktor: 1.5 };
+  const b1 = Groft.balanse(sum, { brukbar: 1 }, fk);
+  sjekk('gjenfyllingen tas fra gravemassen', b1.gjenfyllingFraGraving, 70, 1e-9);
+  sjekk('overskuddet er resten, i fast mål', b1.overskuddLos, 100 - 70 / 0.95, 1e-9);
+  sjekk('sprengt fjell, løst', b1.sprengtLos, 30, 1e-9);
+  sjekk('fundament og omfylling kjøpes', b1.kjopFundament + b1.kjopOmfylling, 20, 1e-9);
+  sjekk('ingen gjenfylling å kjøpe', b1.kjopGjenfylling, 0, 1e-9);
+  const b2 = Groft.balanse(sum, { brukbar: 0.5 }, fk);
+  sjekk('halvparten brukbar: resten kjøpes', b2.kjopGjenfylling, 70 - 50 * 0.95, 1e-9);
+}
+
+/* DEN EKTE FILA – bare når stien er gitt. Kundens data ligger ikke i repoet.
+   Terrenget er det nærmeste målte punktet + 1,5 m: et rimelig terreng uten
+   å hente noe fra Kartverket. */
+if (process.env.ROR_FIL) {
+  console.log('\n9. Den ekte fila (ROR_FIL)');
+  const Ror = require(js('ror.js'));
+  const les = Ror.lesLandXML(Ror.dekod(fs.readFileSync(process.env.ROR_FIL)));
+  const ror = { punkter: les.punkter, koder: Ror.koderFra(les.punkter), retting: { av: [], brudd: [], koble: [] } };
+  const bygg = Ror.byggLinjer(ror, Ror.StandardRormal, Ror.lagTilXY(32, 32));
+  const botter = new Map();
+  for (const p of les.punkter) {
+    const kk = Math.floor(p.o / 10) + ',' + Math.floor(p.n / 10);
+    if (!botter.has(kk)) botter.set(kk, []);
+    botter.get(kk).push(p);
+  }
+  const terreng = (x, y) => {
+    let best = null;
+    const bx = Math.floor(x / 10), by = Math.floor(y / 10);
+    for (let i = -1; i <= 1; i++) {
+      for (let j = -1; j <= 1; j++) {
+        for (const p of botter.get((bx + i) + ',' + (by + j)) || []) {
+          const d = Math.hypot(p.o - x, p.n - y);
+          if (!best || d < best.d) best = { d, z: p.z };
+        }
+      }
+    }
+    return best ? best.z + 1.5 : NaN;
+  };
+  const t0 = Date.now();
+  const r = Groft.beregn({ linjer: bygg.linjer, koder: ror.koder, terrengZ: terreng, rute: 0.2 });
+  const ms = Date.now() - t0;
+  console.log(`       ${bygg.linjer.length} rør · ${ms} ms · graving ${r.sum.gravingLos.toFixed(0)} m³ · `
+    + `${r.sum.lengde.toFixed(0)} m grøft`);
+  paastand('regnes på under 10 s', ms < 10000, ms + ' ms');
+  const s = r.sum;
+  paastand('tallene er tall', ['gravingLos', 'fundament', 'omfylling', 'gjenfylling', 'lengde'].every(k => Number.isFinite(s[k])));
+  sjekk('graving = fyll + røret', s.gravingLos + s.sprengning, s.fundament + s.omfylling + s.gjenfylling + s.rorvolum, 1e-3);
+}
+
 /* ---------------- sluttsum ---------------- */
 console.log(`\n${ok} tester ok, ${feil} feil`);
 process.exit(feil ? 1 : 0);

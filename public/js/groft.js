@@ -299,6 +299,76 @@ const Groft = (() => {
     return [lf, lengdeAv(O) - overlapp(O, F)];
   }
 
+  /** Den dypeste gropa i et punkt, i én gruppe – eller i alle (-1). */
+  function iPunkt(M, x, y, Tq, gruppe) {
+    const fl = M.register.get(nokkel(Math.floor(x / FLIS), Math.floor(y / FLIS)));
+    if (!fl) return null;
+    let sond;
+    const sondert = () => (sond === undefined ? (sond = M.sondert ? M.sondert(x, y) : null) : sond);
+    const ut = { t: 0 };
+    let best = null;
+    for (const j of fl.segs) {
+      const sg = M.seg[j];
+      if (gruppe >= 0 && sg.gruppe !== gruppe) continue;
+      if (x < sg.x0 || x > sg.x1 || y < sg.y0 || y > sg.y1) continue;
+      const z = grop(sg, x, y, Tq, sondert, ut);
+      if (z < Tq && (!best || z < best.z)) best = { z, j };
+    }
+    return best;
+  }
+
+  /** Gravenivået i et punkt – den dypeste av alle gropene – eller NaN der det ikke graves. */
+  function nivaa(M, x, y) {
+    const Tq = M.terrengZ(x, y);
+    if (!Number.isFinite(Tq)) return NaN;
+    const p = iPunkt(M, x, y, Tq, -1);
+    return p ? p.z : NaN;
+  }
+
+  /** Grøftekanten: der gravingen møter terrenget, på begge sider av hvert rør. */
+  function kanter(M) {
+    const ut = [];
+    for (const rr of M.ror) {
+      const sider = [[], []];
+      const avslutt = k => { if (sider[k].length > 1) ut.push(sider[k]); sider[k] = []; };
+      for (const q of stasjoner(rr, M.seg)) {
+        const Tq = M.terrengZ(q.x, q.y);
+        if (!Number.isFinite(Tq) || !iPunkt(M, q.x, q.y, Tq, -1)) { avslutt(0); avslutt(1); continue; }
+        const sg = M.seg[q.j], len = Math.sqrt(sg.L2) || 1;
+        const nx = -sg.dy / len, ny = sg.dx / len;
+        for (let k = 0; k < 2; k++) {
+          const side = k ? -1 : 1;
+          let kant = null;
+          for (let d = sg.w; d <= MAKS_UT; d += 0.1) {
+            const x = q.x + nx * d * side, y = q.y + ny * d * side;
+            const Tk = M.terrengZ(x, y);
+            if (!Number.isFinite(Tk) || !iPunkt(M, x, y, Tk, -1)) { kant = { x, y }; break; }
+          }
+          if (kant) sider[k].push(kant); else avslutt(k);
+        }
+      }
+      avslutt(0); avslutt(1);
+    }
+    return ut;
+  }
+
+  /** Hva som kjøres bort og hva som kjøpes – med prosjektets faktorer, som veg og tomt. */
+  function balanse(sum, mal, faktorer) {
+    const fk = Object.assign({ sprengningsfaktor: 1.5, losmasseIFylling: 0.95 }, faktorer || {});
+    const brukbar = mal && Number.isFinite(mal.brukbar) ? mal.brukbar : 1;
+    const tilgjengelig = sum.gravingLos * brukbar * fk.losmasseIFylling;
+    const fraGraving = Math.min(tilgjengelig, sum.gjenfylling);
+    return {
+      gjenfyllingFraGraving: fraGraving,
+      overskuddLos: Math.max(0, sum.gravingLos - (fk.losmasseIFylling > 0 ? fraGraving / fk.losmasseIFylling : 0)),
+      sprengtFast: sum.sprengning,
+      sprengtLos: sum.sprengning * fk.sprengningsfaktor,
+      kjopFundament: sum.fundament,
+      kjopOmfylling: sum.omfylling,
+      kjopGjenfylling: Math.max(0, sum.gjenfylling - fraGraving)
+    };
+  }
+
   function leggTil(s, A, los, spreng, lf, lo, gjen) {
     s.gravingLos += los * A; s.sprengning += spreng * A;
     s.fundament += lf * A; s.omfylling += lo * A; s.gjenfylling += gjen * A;
@@ -367,13 +437,107 @@ const Groft = (() => {
         }
       }
     }
-    const perLinje = new Map(M.ror.map((rr, r) => [rr.linje.id, per[r]]));
-    return { sum, perLinje, manglerTerreng,
-      utenDimensjon: [...M.utenDimensjon].map(([kode, l]) => ({ kode, lengde: l })), modell: M };
+    /* LANGS RØRENE: løpemeter, dybdeklasser, røret og profilen.
+       En meter telles på røret som styrer der – det med den dypeste gropa.
+       Ligger et grunt rør i grøfta til et dypt, står lengden på det dype, så
+       en felles grøft bare har én lengde. Røret trekkes fra omfyllingen der
+       det ligger, og føres på det styrende røret, som rutene rundt. */
+    const profiler = new Map();
+    const overTerreng = M.ror.map(() => 0);
+    let fjellStrek = 0, fjellSond = 0;
+    M.ror.forEach((rr, r) => {
+      const pr = [];
+      const st = stasjoner(rr, M.seg);
+      for (let k = 0; k < st.length; k++) {
+        const q = st[k], sg = M.seg[q.j];
+        const bredde = k + 1 < st.length ? st[k + 1].s - q.s : 0;
+        const Tq = M.terrengZ(q.x, q.y);
+        const bunn = q.topp - rr.D;
+        const rad = { s: q.s, terreng: Tq, gravebunn: NaN, fundamentBunn: bunn - sg.fund, fundamentTopp: bunn,
+          omfyllingTopp: q.topp + sg.omf, fjell: null };
+        pr.push(rad);
+        if (!Number.isFinite(Tq)) continue;
+        if (q.topp > Tq) { overTerreng[r] += bredde; continue; }
+        const p = iPunkt(M, q.x, q.y, Tq, sg.gruppe);
+        if (!p) continue;
+        rad.gravebunn = p.z;
+        let fd = sg.fjell;
+        const fraStrek = fd != null;
+        if (fd == null && M.sondert) fd = M.sondert(q.x, q.y);
+        if (fd != null) rad.fjell = Tq - fd;
+        const eier = M.seg[p.j].eier;
+        if (eier === r || sg.gruppe !== 0) {
+          per[r].lengde += bredde;
+          per[r].dybdeklasser[dybdeklasse(Tq - p.z)] += bredde;
+          if (rad.fjell != null && rad.fjell > p.z) { if (fraStrek) fjellStrek += bredde; else fjellSond += bredde; }
+        }
+        if (bunn < Tq) {
+          const v = Math.PI * rr.D * rr.D / 4 * bredde;
+          per[r].rorvolum += v; sum.rorvolum += v;
+          per[eier].omfylling -= v; sum.omfylling -= v;
+        }
+      }
+      profiler.set(rr.linje.id, pr);
+    });
+    for (const p of per) {
+      sum.lengde += p.lengde;
+      p.dybdeklasser.forEach((v, i) => { sum.dybdeklasser[i] += v; });
+    }
+    const perKode = new Map();
+    M.ror.forEach((rr, r) => {
+      if (!perKode.has(rr.kode)) perKode.set(rr.kode, tomme());
+      const kk = perKode.get(rr.kode), p = per[r];
+      for (const fe of ['gravingLos', 'sprengning', 'fundament', 'omfylling', 'gjenfylling', 'rorvolum', 'areal', 'lengde']) {
+        kk[fe] += p[fe];
+      }
+      p.dybdeklasser.forEach((v, i) => { kk.dybdeklasser[i] += v; });
+    });
+    // merknadene – tallene med komma, som resten av programmet
+    const m = v => v.toFixed(v < 10 ? 1 : 0).replace('.', ',');
+    const flertall = (n, en, fl) => `${n} ${n === 1 ? en : fl}`;
+    const merknader = [];
+    for (const [kode, l] of M.utenDimensjon) {
+      merknader.push({ type: 'dimensjon',
+        tekst: `${kode}: ${m(l)} m rør uten dimensjon – ingen grøft. Sett dimensjonen i Koder-fanen.` });
+    }
+    if (manglerTerreng > 0.5) {
+      merknader.push({ type: 'hull',
+        tekst: `Terrengdata mangler for ${m(manglerTerreng)} m² av grøfta – de rutene er ikke med i massene.` });
+    }
+    M.ror.forEach((rr, r) => {
+      if (overTerreng[r] > 0.5) {
+        merknader.push({ type: 'over', linje: rr.linje.id,
+          tekst: `${rr.kode}: røret ligger over terrenget på ${m(overTerreng[r])} m – ingen grøft der.` });
+      }
+    });
+    if (M.strekUtenTreff) {
+      merknader.push({ type: 'justering', tekst: `${flertall(M.strekUtenTreff, 'strekning', 'strekninger')} `
+        + 'finner ikke punktene sine lenger – se Justeringer.' });
+    }
+    if (M.sammenUtenTreff) {
+      merknader.push({ type: 'justering', tekst: `${flertall(M.sammenUtenTreff, 'sammenslåing', 'sammenslåinger')} `
+        + 'finner ikke rørene sine lenger – se Justeringer.' });
+    }
+    if (M.sammenAldriNaer) {
+      merknader.push({ type: 'justering', tekst: `${flertall(M.sammenAldriNaer, 'sammenslåing', 'sammenslåinger')} `
+        + `gjelder rør som aldri er innen ${SAMMEN_MAKS} m av hverandre.` });
+    }
+    merknader.push({ type: 'fjell', tekst: fjellStrek + fjellSond > 0.5
+      ? `Fjell i grøfta på ${m(fjellStrek)} m fra strekninger og ${m(fjellSond)} m fra sonderinger. `
+        + 'Resten er regnet som løsmasse.'
+      : 'Ingen fjell er markert eller sondert langs grøfta – alt er regnet som løsmasse.' });
+    const dybdeklasser = DYBDEKLASSER.map((fra, i) => ({ fra,
+      til: i + 1 < DYBDEKLASSER.length ? DYBDEKLASSER[i + 1] : Infinity, lengde: sum.dybdeklasser[i] }));
+    return {
+      sum, perLinje: new Map(M.ror.map((rr, r) => [rr.linje.id, per[r]])), perKode, dybdeklasser,
+      balanse: balanse(sum, M.mal, M.faktorer), profiler,
+      utenDimensjon: [...M.utenDimensjon].map(([kode, l]) => ({ kode, lengde: l })),
+      merknader, manglerTerreng, modell: M
+    };
   }
 
   return { StandardGroftmal, MALFELT, GRENSER, SAMMEN_MAKS, DYBDEKLASSER,
-    nyGroft, klem, malFor, dybdeklasse, forbered, beregn };
+    nyGroft, klem, malFor, dybdeklasse, forbered, beregn, balanse, nivaa, kanter };
 })();
 
 if (typeof module !== 'undefined') module.exports = Groft;
