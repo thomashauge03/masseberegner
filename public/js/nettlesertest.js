@@ -8238,6 +8238,14 @@ const Nettlesertest = {
         { sone: 32, maal: 'leggTil' });
       this.sjekk('samme fil lagt til en gang til gir ingen doble punkt', ok2 && App.P.ror.punkter.length === 50);
       this.sjekk('og begge filene står som kilde', App.P.ror.kilder.length === 2);
+      /* Et punkt målt uten fix kan stå som 0 0 0. Det stoppet hele fila. */
+      const medGlipp = this._rorXml().replace('</CgPoints>',
+        '<CgPoint name="glipp" surveyOrder="99" code="90PE">0 0 0</CgPoint>\n</CgPoints>');
+      const ok4 = await RorUI.importerTekst(medGlipp, 'asbuilts_Prove_2026-09-03.xml', {}, { sone: 32, maal: 'leggTil' });
+      this.sjekk('ett punkt utenfor UTM stopper ikke fila', ok4 === true && App.P.ror.punkter.length === 50
+        && !App.P.ror.punkter.some(p => p.id === 'glipp'), String(App.P.ror.punkter.length));
+      const linje = document.getElementById('statuslinje').textContent;
+      this.sjekk('og brukeren får vite at det ble hoppet over', /1 punkt utenfor UTM/.test(linje), linje);
       const ok3 = await RorUI.importerTekst('<html></html>', 'feil.xml', {}, { sone: 32, maal: 'nytt' });
       this.sjekk('en fil som ikke er LandXML avvises og rører ingenting', ok3 === false && App.P.anlegg.length === 1);
       this.sjekk('og brukeren får vite hvorfor', /ikke LandXML/.test(document.getElementById('dialoginnhold').textContent));

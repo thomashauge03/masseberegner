@@ -186,8 +186,10 @@ const RorUI = {
     let les;
     try { les = Ror.lesLandXML(tekst); }
     catch (e) { this._feil(e.message); return false; }
-    const galt = Ror.sjekkKoordinater(les.punkter);
-    if (galt) { this._feil(galt); return false; }
+    const kk = Ror.sjekkKoordinater(les.punkter);
+    if (kk.melding) { this._feil(kk.melding); return false; }
+    les.punkter = kk.punkter;
+    les.advarsler.utenforUtm = kk.utenfor;
     const gjett = Ror.gjettSone(les.punkter, les.epsg, this._prosjektpunkter());
     const aktivtRor = app.erRor() ? app.anlegg() : null;
     const koder = Ror.koderFra(les.punkter, aktivtRor ? aktivtRor.ror.koder : null);
@@ -239,7 +241,8 @@ const RorUI = {
       const a = les.advarsler;
       const hoppet = [
         a.utenHoyde && `${a.utenHoyde} uten høyde`, a.ugyldige && `${a.ugyldige} med ugyldige tall`,
-        a.doble && `${a.doble} doble`, a.referanser && `${a.referanser} referanser til andre punkt`
+        a.doble && `${a.doble} doble`, a.referanser && `${a.referanser} referanser til andre punkt`,
+        a.utenforUtm && `${a.utenforUtm} med koordinater utenfor UTM i Norge`
       ].filter(Boolean);
       const antall = {};
       for (const p of les.punkter) antall[p.kode] = (antall[p.kode] || 0) + 1;
@@ -404,7 +407,8 @@ const RorUI = {
        klikk i kartet et vegpunkt. */
     Kart.settModus('rediger');
     if (Kart.zoomTilRor) Kart.zoomTilRor();
-    app.status(melding);
+    const utenfor = les.advarsler && les.advarsler.utenforUtm;
+    app.status(melding + (utenfor ? ` · ${utenfor} punkt utenfor UTM i Norge ble hoppet over` : ''));
   },
 
   /** «VA Prøvefelt», eller «VA Prøvefelt 2» om navnet er tatt – se App.dopAnlegg. */

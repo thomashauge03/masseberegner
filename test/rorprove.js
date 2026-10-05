@@ -277,9 +277,19 @@ console.log('\n8. Koordinater og sone');
   sjekk('øst i sone 33', i33.x, 80607.345, 0.01);
   sjekk('nord i sone 33', i33.y, 6510777.683, 0.01);
 
-  paastand('vanlige UTM-tall er i orden', Ror.sjekkKoordinater([p]) === null);
-  const galt = Ror.sjekkKoordinater([p, { n: 1234567.8, o: 100000 }]);
-  paastand('NTM-aktige tall gir en forklaring', typeof galt === 'string' && /ikke ser ut som UTM/.test(galt), galt);
+  const iOrden = Ror.sjekkKoordinater([p]);
+  paastand('vanlige UTM-tall er i orden', iOrden.melding === null && iOrden.utenfor === 0
+    && iOrden.punkter.length === 1, JSON.stringify(iOrden));
+  /* Et punkt målt uten fix kan bli skrevet som 0 0 0. Det skal ikke stoppe en
+     fil med hundrevis av gode punkt – det hoppes over og telles. */
+  const glipp = Ror.sjekkKoordinater([p, Object.assign({}, p, { id: 'b' }), { id: 'c', n: 0, o: 0, z: 0 }]);
+  paastand('ett punkt utenfor hoppes over og telles', glipp.melding === null && glipp.utenfor === 1
+    && glipp.punkter.length === 2 && !glipp.punkter.some(q => q.id === 'c'), JSON.stringify(glipp));
+  paastand('erUtm sier det samme', Ror.erUtm(p) && !Ror.erUtm({ n: 0, o: 0 }));
+  const galt = Ror.sjekkKoordinater([p, { n: 1234567.8, o: 100000 }, { n: 1234570, o: 100010 }]);
+  paastand('er flertallet NTM-aktig, stoppes fila med en forklaring',
+    typeof galt.melding === 'string' && /ikke ser ut som UTM/.test(galt.melding), galt.melding);
+  paastand('halvparten er også for mye', typeof Ror.sjekkKoordinater([p, { n: 1, o: 1 }]).melding === 'string');
 
   const pts = [p];
   paastand('EPSG fra fila vinner', Ror.gjettSone(pts, 25833, []).sone === 33);

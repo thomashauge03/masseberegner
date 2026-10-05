@@ -390,21 +390,39 @@ function tilLatLon(p, sone) {
   return [ll.lat, ll.lon];
 }
 
+/** Ligger punktet der UTM-tall i Norge ligger? Romslig: fra Lindesnes til Svalbard, sone 32–35. */
+function erUtm(p) {
+  return p.n > 6.3e6 && p.n < 8.0e6 && p.o > -2e5 && p.o < 1.3e6;
+}
+
 /**
- * Ser tallene ut som UTM i Norge? Svarer null, eller en melding som sier hva
- * som er galt.
+ * Ser tallene ut som UTM i Norge?
  *
  * En fil i NTM har nordverdier rundt 1,2 millioner. Lest som UTM havner den i
  * havet utenfor Afrika, og ingenting i kartet ville forklart hvorfor rørene
  * er borte. Det skal stoppes ved døra med en forklaring.
+ *
+ * Men ett og ett punkt med feil tall – en måling uten fix som ble skrevet som
+ * 0 0 0 – stoppet hele fila, hundrevis av gode punkt for ett dårlig. Det
+ * hoppes nå over og telles, som de andre feilene i fila. Er det halvparten
+ * eller mer, er det fila som er i et annet system.
+ *
+ * @returns {{punkter: Array, utenfor: number, melding: ?string}}
  */
 function sjekkKoordinater(punkter) {
-  const feil = (punkter || []).filter(p => !(p.n > 6.3e6 && p.n < 8.0e6 && p.o > -2e5 && p.o < 1.3e6));
-  if (!feil.length) return null;
-  const nord = Math.round(feil[0].n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
-  return `${feil.length} av ${punkter.length} punkt har koordinater som ikke ser ut som UTM i Norge `
-    + `(nord ${nord}). Er fila i NTM eller et lokalt system? Det støttes ikke ennå – `
-    + 'eksporter i EUREF89 UTM fra maskinstyringen.';
+  const alle = punkter || [];
+  const gode = alle.filter(erUtm);
+  const utenfor = alle.length - gode.length;
+  if (!utenfor) return { punkter: alle, utenfor, melding: null };
+  if (gode.length > utenfor) return { punkter: gode, utenfor, melding: null };
+  const forste = alle.find(p => !erUtm(p));
+  const nord = Math.round(forste.n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+  return {
+    punkter: gode, utenfor,
+    melding: `${utenfor} av ${alle.length} punkt har koordinater som ikke ser ut som UTM i Norge `
+      + `(nord ${nord}). Er fila i NTM eller et lokalt system? Det støttes ikke ennå – `
+      + 'eksporter i EUREF89 UTM fra maskinstyringen.'
+  };
 }
 
 const _EPSG_SONE = { 25832: 32, 25833: 33, 25835: 35, 5972: 32, 5973: 33, 5975: 35,
@@ -681,7 +699,7 @@ function merknader(bygg, profiler, maksAvstand) {
 
 const Ror = {
   lesLandXML, dekod, tolkKode, koderFra, byggLinjer, avstandTilStrekk,
-  lagTilXY, tilLatLon, sjekkKoordinater, gjettSone, slaSammen, navnFraFil,
+  lagTilXY, tilLatLon, erUtm, sjekkKoordinater, gjettSone, slaSammen, navnFraFil,
   korridor, profil, objekterLangs, objekterPaaLinjer, sammendrag, merknader, spenn,
   nyRor, StandardRormal, FARGER
 };
