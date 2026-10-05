@@ -423,7 +423,7 @@ const Kart = {
        Derfor holdes klikket igjen et øyeblikk, sa dblclick rekker a stanse
        det. Utenfor tegnemodus er det ingen grunn til a vente. */
     kart.on('click', e => {
-      if (this.modus !== 'tegn' && this.modus !== 'tegnTomt') { this.klikk(e); return; }
+      if (this.modus !== 'tegn' && this.modus !== 'tegnTomt' && this.modus !== 'tegnTrase') { this.klikk(e); return; }
       clearTimeout(this._klikkVent);
       const kopi = { latlng: e.latlng };
       this._klikkVent = setTimeout(() => { this._klikkVent = null; this.klikk(kopi); }, 220);
@@ -434,6 +434,7 @@ const Kart = {
       this._klikkVent = null;
       if (this.modus === 'tegn') this.settModus('rediger');
       else if (this.modus === 'tegnTomt') this.avsluttTomt();
+      else if (this.modus === 'tegnTrase') RorPlanUI.avsluttTrase();
       else if (this.modus === 'maal') this._avsluttMaal();
     });
 
@@ -809,6 +810,8 @@ const Kart = {
 
   klikk(e) {
     const P = this.app.P;
+    if (this.modus === 'tegnTrase') { RorPlanUI.tegnKlikk(e.latlng); return; }
+    if (this.modus === 'kum' || this.modus === 'snuTrase') { RorPlanUI.kartklikk(this.modus, e.latlng); return; }
     if (this.modus === 'rorAv' || this.modus === 'rorBryt' || this.modus === 'rorKoble') {
       RorUI.kartklikk(this.modus, e.latlng);
       return;
@@ -832,9 +835,10 @@ const Kart = {
          ikke skje ved et uhell. */
       /* Et røranlegg har også `ip` – en tom liste, så kartet ikke faller – og
          uten denne sperren havnet klikket der som et vegpunkt. */
+      if (this.app.erPlan()) { this.settModus('tegnTrase'); RorPlanUI.tegnKlikk(e.latlng); return; }
       if (this.app.erRor()) {
         this.settModus('rediger');
-        this.app.status('Rørene tegnes ikke for hånd ennå – de kommer fra innmålingen');
+        this.app.status('Innmålte rør tegnes ikke for hånd – de kommer fra innmålingen. Tegn nye rør i et planlagt anlegg');
         return;
       }
       /* Tegner man, har man valgt. Flagget skal ikke bli hengende og be om et
@@ -1740,6 +1744,32 @@ const Kart = {
       if (RorUI._kobleFra) {
         L.circleMarker(ll(RorUI._kobleFra.p), { radius: 8, color: '#ffffff', weight: 2.5, fill: false, interactive: false })
           .addTo(this.lag.ror);
+      }
+    }
+    if (r.plan) this.tegnPlan(r, bygg, res, ll);
+  },
+
+  /**
+   * Et tegnet anlegg: rørene uten høyder ennå, og traseen som tegnes nå.
+   * Traseene, punktene, kummene og varslene kommer i oppgave 9.
+   */
+  tegnPlan(r, bygg, res, ll) {
+    const lag = this.lag.ror;
+    // før terrenget er hentet har ingen rør høyder – de tegnes stiplet
+    for (const u of bygg.utenHoyde || []) {
+      const k = r.koder[u.kode] || Ror.tolkKode(u.kode);
+      L.polyline(u.punkter.map(q => ll(q)), { color: Farger.ror(k.farge), weight: 3, opacity: 0.8, dashArray: '6 5' })
+        .bindTooltip(`${escapeHtml(u.kode)} · ${u.grunn === 'dimensjon' ? 'mangler dimensjon – ingen høyder'
+          : 'høydene kommer når terrenget er hentet'}`, { sticky: true })
+        .addTo(lag);
+    }
+    const ny = RorPlanUI._ny;
+    if (this.modus === 'tegnTrase' && ny && ny.length) {
+      L.polyline(ny.map(p => [p.lat, p.lon]), { color: Farger.blekk, weight: 2, dashArray: '5 4', interactive: false,
+        className: 'planskisse' }).addTo(lag);
+      for (const p of ny) {
+        L.circleMarker([p.lat, p.lon], { radius: p.fest ? 6 : 4, color: p.fest ? Farger.groft('strekning') : Farger.blekk,
+          weight: 2, fillOpacity: 0.6, interactive: false }).addTo(lag);
       }
     }
   },

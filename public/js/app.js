@@ -1308,7 +1308,12 @@ const App = {
       b.onclick = () => { this._lukkAnleggspanel(); RorUI.velgFil({ nytt: true }); };
     }
     for (const b of panel.querySelectorAll('[data-nyttplan]')) {
-      b.onclick = () => { this._lukkAnleggspanel(); this.leggTilPlan(); };
+      /* Står førstevalget oppe, er det ene anlegget tomt: det byttes ut, som
+         rørimporten gjør, i stedet for å bli liggende foran det nye. */
+      b.onclick = () => {
+        this._lukkAnleggspanel();
+        if (this.P.ubestemt) this.velgAnleggstype('rorplan'); else this.leggTilPlan();
+      };
     }
     for (const b of panel.querySelectorAll('[data-navn]')) {
       b.onclick = () => this.dopAnlegg(b.dataset.navn);
@@ -7411,6 +7416,10 @@ const App = {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
       // Enter lukker tomta man holder pa a tegne - samme som dobbeltklikk
       if (e.key === 'Enter' && Kart.modus === 'tegnTomt') { e.preventDefault(); Kart.avsluttTomt(); return; }
+      /* «Ny trase»: Enter avslutter, tilbaketasten tar bort det siste punktet.
+         Esc går ut av verktøyet under, og da forkastes traseen. */
+      if (Kart.modus === 'tegnTrase' && e.key === 'Enter') { e.preventDefault(); RorPlanUI.avsluttTrase(); return; }
+      if (Kart.modus === 'tegnTrase' && e.key === 'Backspace') { e.preventDefault(); RorPlanUI.angreSiste(); return; }
       /* Esc midt i en målestrek avslutter STREKEN, ikke verktøyet – man måler
          gjerne tre ting etter hverandre, og å måtte finne knappen igjen mellom
          hver er nok til at man lar være. Andre Esc går ut av verktøyet. */

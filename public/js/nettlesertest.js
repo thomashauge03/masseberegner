@@ -172,7 +172,7 @@ const Nettlesertest = {
       'rorProfil', 'ror3d', 'rorRapport', 'rorPdf', 'rorForklaring',
       'groftBeregning', 'groftFane', 'groftKoder', 'groftVerktoy', 'groftKnutepunkt', 'groftProfil', 'groft3d',
       'groftRapport',
-      'planBeregning', 'planNyttAnlegg',
+      'planBeregning', 'planNyttAnlegg', 'planTegnTrase',
       'lovlighet', 'framdrift', 'gamleFilerOgUtskifting', 'opprydding'];
     for (const navn of proever) {
       try {
@@ -9096,6 +9096,68 @@ const Nettlesertest = {
       Kart.settModus('rediger');
       await App.angre();
       this.sjekk('og angre tar det bort igjen', App.P.anlegg.length === 1);
+      /* Et prosjekt som ikke har bestemt seg, har ett tomt anlegg og
+         førstevalget oppe. Lista skal bytte det ut, som rørimporten gjør –
+         ikke legge et nytt ved siden av og la spørsmålet stå. */
+      App.P = App.nyttProsjekt();
+      App.visAnleggsvelger(); App.visAnleggsvalg();
+      document.querySelector('#anleggspanel [data-nyttplan]').click();
+      this.sjekk('i et ubestemt prosjekt bytter lista ut det tomme anlegget', App.P.anlegg.length === 1
+        && App.erPlan() && !App.P.ubestemt && document.getElementById('velganlegg').classList.contains('skjult'),
+        App.P.anlegg.map(a => a.type).join(','));
+      Kart.settModus('rediger');
+    } finally {
+      await this._rorTilbake(foer);
+    }
+  },
+
+  /** Ny trase med klikk: punktene, festet til et innmålt rør, dialogen med to rør, og angre. */
+  async planTegnTrase() {
+    const foer = JSON.stringify(App.P);
+    try {
+      await this._medFlattTerreng(21.5, async () => {
+        App.P = App.nyttProsjekt();
+        await RorUI.importerTekst(this._rorXml(), 'asbuilts_Prove.xml', {}, { sone: 32, maal: 'nytt' });
+        clearTimeout(App._tidsavbrudd);
+        App.leggTilPlan();
+        const o = Geo.tilUtm(58.1412, 7.0705, 32);
+        const ll = (x, y) => { const g = Geo.fraUtm(o.x + x, o.y + y, 32); return L.latLng(g.lat, g.lon); };
+        Kart.kart.setView(ll(100, 20), 18);
+        this.sjekk('anlegget står i «Ny trase»', Kart.modus === 'tegnTrase');
+        RorPlanUI.tegnKlikk(ll(100, 0));     // 90PE har et målt punkt her
+        RorPlanUI.tegnKlikk(ll(100, 30));
+        RorPlanUI.tegnKlikk(ll(140, 30));
+        RorPlanUI.angreSiste();
+        RorPlanUI.tegnKlikk(ll(150, 40));
+        this.sjekk('tre punkt i traseen som tegnes', RorPlanUI._ny.length === 3);
+        this.sjekk('det første er festet til det innmålte røret', !!RorPlanUI._ny[0].fest && RorPlanUI._ny[0].fest.kode === '90PE');
+        let skisse = 0;
+        Kart.lag.ror.eachLayer(l => { if (l.options && l.options.className === 'planskisse') skisse++; });
+        this.sjekk('traseen som tegnes, vises', skisse === 1, String(skisse));
+        RorPlanUI.avsluttTrase();
+        this.sjekk('dialogen «Rør i traseen» åpnes', !document.getElementById('dialog').classList.contains('skjult')
+          && !!document.getElementById('planLagre'));
+        document.getElementById('planNyRad').click();
+        const rader = document.querySelectorAll('#planRader .planrad');
+        rader[0].querySelector('.plankode').value = '90PE';
+        rader[1].querySelector('.plankode').value = 'SP 160PE';
+        rader[1].querySelector('.planside').value = '0.5';
+        document.getElementById('planLagre').click();
+        const plan = App.P.ror.plan;
+        this.sjekk('traseen er lagret med tre punkt og to rør', plan.traseer.length === 1
+          && plan.traseer[0].punkter.length === 3 && plan.ror.length === 2 && plan.ror[1].side === 0.5);
+        this.sjekk('påkoblingen er låst på røret med samme kode, med kilde', plan.laast.length === 1
+          && plan.laast[0].ror === plan.ror[0].id && !!plan.laast[0].kilde, JSON.stringify(plan.laast));
+        this.sjekk('den nye koden står i kodetabellen', !!App.P.ror.koder['SP 160PE']);
+        clearTimeout(App._tidsavbrudd);
+        await App.beregnRor();
+        this.sjekk('og rørene er regnet', App.resultat.linjer.length === 2, String(App.resultat.linjer.length));
+        // spillvannet (fri ende, topp 19,5) går rett gjennom 180 PE (topp 19,5) der det krysser
+        this.sjekk('krysset med det innmålte 180 PE varsles', App.resultat.merknader.some(m => m.type === 'kryss'
+          && /180 PE/.test(m.tekst)), App.resultat.merknader.map(m => m.tekst).join(' | '));
+        await App.angre();
+        this.sjekk('angre tar hele traseen bort', App.P.ror.plan.traseer.length === 0);
+      });
     } finally {
       await this._rorTilbake(foer);
     }
