@@ -9171,11 +9171,16 @@ const Nettlesertest = {
         document.getElementById('rkAlle').click();
         rader.find(r => r.dataset.kode === 'OV 200PVC').querySelector('input').checked = false;
         document.getElementById('rkPapir').value = 'A4';
+        this.sjekk('kotene og lengdeprofilene er på fra start', document.getElementById('rkKoter').checked
+          && document.getElementById('rkProfiler').checked);
+        // de prøves for seg lenger ned – her bare kartene
+        document.getElementById('rkKoter').checked = false;
+        document.getElementById('rkProfiler').checked = false;
         document.getElementById('rkLag').click();
         const valg = await svar;
         this.sjekk('valget gir kodene, en side per type, bakgrunnen og papiret', !!valg
           && JSON.stringify(valg.koder.slice().sort()) === '["SP 160PE","VL 110PE"]' && valg.perType === true
-          && valg.bakgrunn === 'topograatone' && valg.papir === 'A4', JSON.stringify(valg));
+          && valg.bakgrunn === 'topograatone' && valg.papir === 'A4' && valg.koter === false && valg.profiler === false, JSON.stringify(valg));
 
         // bakgrunnen: en grå flis fra en stubbet fetch
         const flis = await new Promise(los => {
@@ -9249,6 +9254,31 @@ const Nettlesertest = {
           && /avbrutt/.test(document.getElementById('statuslinje').textContent) && avbryt.classList.contains('skjult')
           && document.getElementById('framdrift').classList.contains('skjult'), document.getElementById('statuslinje').textContent);
         window.fetch = ekteFetch;
+
+        /* TERRENGET: koter i kartet og en lengdeprofil per rør. Terrenget heller
+           mot øst, og hentingen er stubbet – ingen nett. */
+        const ekteOmraade = Terreng.prototype.lastOmraade, ekteFliser = Terreng.prototype._lastFliser;
+        const flatZ = Terreng.prototype.z, appTerreng = App.terreng;
+        Terreng.prototype.lastOmraade = async () => ({ hentet: 0, mangler: 0 });
+        Terreng.prototype._lastFliser = async () => ({ hentet: 0, mangler: 0 });
+        Terreng.prototype.z = (x) => 21.5 + (x - o.x) * 0.05;
+        try {
+          const medT = await RorkartUI.lag(Object.assign({}, valg, { bakgrunn: '', koter: true, profiler: true, perType: false }), false, RorkartUI.samle());
+          const tT = medT ? new TextDecoder('latin1').decode(medT) : '';
+          const sT = medT ? (await PdfImport.lesStrommer(medT)).filter(s => /side \d+ av/.test(s)) : [];
+          const status = document.getElementById('statuslinje').textContent;
+          this.sjekk('med terreng: kartet og én profilside per rør (A4)', /\/Count 4\b/.test(tT) && sT.length === 4,
+            `${(tT.match(/\/Count \d+/) || [''])[0]} · ${status}`);
+          this.sjekk('kotene står i kartet', sT[0] && sT[0].includes('0.6 0.42 0.24 RG') && sT[0].includes('H\\370ydekote hver'));
+          this.sjekk('numrene i kartet er numrene over profilene', ['1', '2', '3'].every(n => sT[0].includes(`(${n}) Tj`))
+            && sT.slice(1).map(s => (/\((SP 160PE|VL 110PE) \\267 (\d)\)/.exec(s) || []).slice(1).join(' ')).join(', ')
+              === 'SP 160PE 1, SP 160PE 2, VL 110PE 3', sT.slice(1).map(s => (/\(([A-Z]{2} \d+PE \\267 \d)\)/.exec(s) || [''])[0]).join(', '));
+          this.sjekk('profilen har tallbåndet med overdekningen', sT[1] && sT[1].includes('(Overdekning)') && sT[1].includes('(Terreng)'));
+          this.sjekk('statuslinja teller profilene', /3 lengdeprofiler/.test(status), status);
+          this.sjekk('appens terrengmodell er urørt', App.terreng === appTerreng);
+        } finally {
+          Terreng.prototype.lastOmraade = ekteOmraade; Terreng.prototype._lastFliser = ekteFliser; Terreng.prototype.z = flatZ;
+        }
 
         this.sjekk('ingenting i prosjektet er endret, og ingen angrepost', JSON.stringify(App.P) === prosjekt
           && App.P.aktivt === aktivt && App.historikk.bakover.length === poster);

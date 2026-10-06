@@ -30,11 +30,13 @@ const RorkartUI = {
    * det som er med i appen.
    *
    * De planlagte bygges uten terreng: kartet trenger bare hvor rørene ligger,
-   * og da er også rør med på arket før høydene er regnet.
+   * og da er også rør med på arket før høydene er regnet. Med `o.terreng` –
+   * hentet for lengdeprofilene – får de høydene sine, som i appen.
    *
+   * @param {{terreng?: {z:(x:number, y:number) => number}}} [o]
    * @returns {{prosjekt, sone, dato, linjer, kummer, koder, vist:Set}}
    */
-  samle() {
+  samle(o = {}) {
     const app = this.app, P = app.P;
     const forste = P.anlegg.find(a => a.type === 'ror' && a.ror);
     const sone = app.sone || (forste && forste.ror.sone) || 32;
@@ -59,7 +61,8 @@ const RorkartUI = {
         b = RorPlan.bygg({
           plan: r.plan, koder: synlige, mal: (a.mal && a.mal.plan) || {},
           tilSone: (lat, lon) => { const u = Geo.tilUtm(lat, lon, r.sone); return { o: u.x, n: u.y }; },
-          tilXY, terrengZ: () => NaN, innmalt: () => null
+          tilXY, terrengZ: o.terreng ? (x, y) => o.terreng.z(x, y) : () => NaN,
+          innmalt: (anlegg, punkt) => (app._innmaltTopp ? app._innmaltTopp(anlegg, punkt) : null)
         });
       } else {
         b = Ror.byggLinjer(Object.assign({}, r, { koder: synlige }), a.mal, tilXY);
@@ -69,7 +72,9 @@ const RorkartUI = {
         if (!l.xy || l.xy.length < 2) continue;
         const k = synlige[l.kode] || Ror.tolkKode(l.kode);
         const linje = { kode: l.kode, kilde: plan ? 'planlagt' : 'innmalt', xy: l.xy,
-          lengde: Number.isFinite(l.lengde) ? l.lengde : lengdeAv(l.xy), dim: +k.dim || 0, anlegg: a.id, ror: l.id };
+          lengde: Number.isFinite(l.lengde) ? l.lengde : lengdeAv(l.xy), dim: +k.dim || 0, anlegg: a.id, ror: l.id,
+          // høydene (topp rør) og det som trengs til bunnen – til lengdeprofilene
+          punkter: l.punkter || null, kodeinfo: k, regel: l.plan ? l.plan.regel : null };
         linjer.push(linje);
         egne.push(linje);
         if (!koder[l.kode]) koder[l.kode] = { system: k.system || '', dim: +k.dim || 0 };
@@ -86,7 +91,8 @@ const RorkartUI = {
           const u = Geo.tilUtm(p.lat, p.lon, sone);
           let best = linje.xy[0], bd = Infinity;
           for (const q of linje.xy) { const d = Math.hypot(q.x - u.x, q.y - u.y); if (d < bd) { bd = d; best = q; } }
-          kummer.push({ x: best.x, y: best.y, d: (+K.diameter || 1000) / 1000, kode: linje.kode, kilde: 'planlagt' });
+          kummer.push({ x: best.x, y: best.y, d: (+K.diameter || 1000) / 1000, kode: linje.kode, kilde: 'planlagt',
+            linje, navn: K.id });
         }
       } else {
         for (const p of b.objekter || []) {
@@ -106,7 +112,7 @@ const RorkartUI = {
           if (d < bd) { bd = d; best = l; }
         }
       }
-      kummer.push(Object.assign(k, { kode: best ? best.kode : null }));
+      kummer.push(Object.assign(k, { kode: best ? best.kode : null, linje: best }));
     }
     const dato = new Date();
     return { prosjekt: P.navn, sone, linjer, kummer, koder, vist,
@@ -164,6 +170,8 @@ const RorkartUI = {
         <div class="knapperad"><button class="knapp" id="rkAlle" aria-label="Kryss av alle rørtypene">Alle</button>
           <button class="knapp" id="rkIngen" aria-label="Fjern krysset for alle rørtypene">Ingen</button></div>
         <div class="rorinnstilling"><label><input type="checkbox" id="rkPerType" checked> Ett kart per type i tillegg</label></div>
+        <div class="rorinnstilling"><label><input type="checkbox" id="rkKoter" checked> Høydekoter fra terrengmodellen</label></div>
+        <div class="rorinnstilling"><label><input type="checkbox" id="rkProfiler" checked> Lengdeprofil for hvert rør – terrenget og dybden</label></div>
         <div class="rorinnstilling"><label for="rkBakgrunn">Bakgrunnskart</label>
           <select id="rkBakgrunn" class="minivalg"><option value="topograatone">Gråtone (Kartverket)</option>
             <option value="topo">Topografisk (Kartverket)</option><option value="">Uten</option></select></div>
@@ -199,6 +207,7 @@ const RorkartUI = {
         // ingen valgt er ikke et kart – det sies her, i dialogen, der det kan rettes
         if (!koder.length) { innhold.querySelector('#rkSvar').textContent = 'Kryss av minst én rørtype.'; return; }
         lukk({ koder, perType: innhold.querySelector('#rkPerType').checked,
+          koter: innhold.querySelector('#rkKoter').checked, profiler: innhold.querySelector('#rkProfiler').checked,
           bakgrunn: innhold.querySelector('#rkBakgrunn').value, papir: innhold.querySelector('#rkPapir').value });
       };
       document.addEventListener('keydown', taste);
@@ -274,6 +283,79 @@ const RorkartUI = {
     }
   },
 
+  /** Terrengflisene langs rørene – hver 50. meter og tre meter til hver side. */
+  _flisnoklerLangs(linjer, m) {
+    const ut = new Set();
+    for (const l of linjer) {
+      for (let i = 0; i + 1 < l.xy.length; i++) {
+        const a = l.xy[i], b = l.xy[i + 1];
+        const n = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / 50));
+        for (let k = 0; k <= n; k++) {
+          const x = a.x + (b.x - a.x) * k / n, y = a.y + (b.y - a.y) * k / n;
+          for (const dx of [-3, 3]) for (const dy of [-3, 3]) ut.add(m.nøkkel(Math.floor((x + dx) / FLIS_M), Math.floor((y + dy) / FLIS_M)));
+        }
+      }
+    }
+    return ut;
+  },
+
+  /**
+   * Lengdeprofilene: for hvert nummererte rør med høyder – stasjonene, topp og
+   * bunn innvendig i punktene, terrenget prøvd langs røret, og kummene der de
+   * står. Rør uten høyder får ingen profil.
+   */
+  profiler(data, m) {
+    const ut = [];
+    for (const l of data.linjer) {
+      if (!l.nr || !Array.isArray(l.punkter)) continue;
+      const s = [0];
+      for (let i = 1; i < l.xy.length; i++) s.push(s[i - 1] + Math.hypot(l.xy[i].x - l.xy[i - 1].x, l.xy[i].y - l.xy[i - 1].y));
+      const topp = [], bunn = [];
+      l.punkter.forEach((p, i) => {
+        if (!Number.isFinite(p.z) || i >= s.length) return;
+        topp.push({ s: s[i], z: p.z });
+        bunn.push({ s: s[i], z: RorPlan.bunnFraTopp(p.z, l.kodeinfo || {}) });
+      });
+      if (topp.length < 2) continue;
+      const L = s[s.length - 1];
+      // punktet ved stasjon sv langs røret
+      const ved = sv => {
+        let i = 1;
+        while (i < s.length - 1 && s[i] < sv) i++;
+        const d = s[i] - s[i - 1], u = d > 0 ? Math.max(0, Math.min(1, (sv - s[i - 1]) / d)) : 0;
+        return { x: l.xy[i - 1].x + (l.xy[i].x - l.xy[i - 1].x) * u, y: l.xy[i - 1].y + (l.xy[i].y - l.xy[i - 1].y) * u };
+      };
+      const terreng = [];
+      const dS = Math.max(0.5, L / 600);
+      for (let sv = 0; sv < L; sv += dS) { const q = ved(sv); terreng.push({ s: sv, z: m.z(q.x, q.y) }); }
+      const qL = ved(L);
+      terreng.push({ s: L, z: m.z(qL.x, qL.y) });
+      // kummen står der den ligger nærmest røret
+      const kummer = (data.kummer || []).filter(k => k.linje === l).map(k => {
+        let best = 0, bd = Infinity;
+        for (let i = 0; i + 1 < l.xy.length; i++) {
+          const a = l.xy[i], b = l.xy[i + 1], dx = b.x - a.x, dy = b.y - a.y, L2 = dx * dx + dy * dy;
+          const u = L2 > 0 ? Math.max(0, Math.min(1, ((k.x - a.x) * dx + (k.y - a.y) * dy) / L2)) : 0;
+          const d = Math.hypot(k.x - a.x - dx * u, k.y - a.y - dy * u);
+          if (d < bd) { bd = d; best = s[i] + u * (s[i + 1] - s[i]); }
+        }
+        return { s: best, navn: k.navn || '' };
+      });
+      // fallet på et tegnet selvfallsrør, mellom punktene langs røret
+      let fall = null;
+      if (l.kilde === 'planlagt' && l.regel === 'selvfall') {
+        const f = [];
+        for (let i = 1; i < bunn.length; i++) {
+          const d = bunn[i].s - bunn[i - 1].s;
+          if (d > 0.5) f.push(1000 * Math.abs(bunn[i - 1].z - bunn[i].z) / d);
+        }
+        if (f.length) fall = { min: Math.min(...f), maks: Math.max(...f) };
+      }
+      ut.push({ nr: l.nr, kode: l.kode, kilde: l.kilde, dim: l.dim, lengde: L, topp, bunn, terreng, kummer, fall });
+    }
+    return ut.sort((a, b) => a.nr - b.nr);
+  },
+
   /**
    * Lager PDF-en.
    * @param {{koder, perType, bakgrunn, papir}} valg
@@ -302,8 +384,33 @@ const RorkartUI = {
           if (feilet) { mangler++; continue; }
           const tekst = `Henter bakgrunnskart ${i + 1} av ${sidene.length}…`;
           const bilde = await this.hentBakgrunn(Rorkart.flisplan(sidene[i].utsnitt, data.sone, valg.bakgrunn), {
-            signal: avbryt.signal, framdrift: a => app.framdrift(true, tekst, 0.05 + 0.85 * (i + a) / sidene.length) });
+            signal: avbryt.signal, framdrift: a => app.framdrift(true, tekst, 0.05 + 0.55 * (i + a) / sidene.length) });
           if (bilde) bakgrunner.set(i, bilde); else { mangler++; feilet = true; }
+        }
+      }
+      /* TERRENGET: kotene for hvert kart, og høydene langs rørene til
+         lengdeprofilene. Det hentes i egne terrengmodeller – appens egen røres
+         ikke. */
+      let utenProfil = 0;
+      if ((valg.koter || valg.profiler) && !avbryt.signal.aborted) {
+        const modeller = new Map();
+        const modell = res => { if (!modeller.has(res)) modeller.set(res, new Terreng(data.sone, res)); return modeller.get(res); };
+        if (valg.koter) {
+          for (let i = 0; i < sidene.length && !avbryt.signal.aborted; i++) {
+            app.framdrift(true, `Henter terrenget til kart ${i + 1} av ${sidene.length}…`, 0.6 + 0.15 * i / sidene.length);
+            const u = sidene[i].utsnitt, res = Rorkart.terrengOpplosning(u.N), m = modell(res);
+            await m.lastOmraade([{ x: u.x0, y: u.y0 }, { x: u.x1, y: u.y0 }, { x: u.x1, y: u.y1 }, { x: u.x0, y: u.y1 }], 0);
+            sidene[i].koter = Rorkart.lagKoter(u, (x, y) => m.z(x, y), { res });
+          }
+        }
+        if (valg.profiler && !avbryt.signal.aborted) {
+          app.framdrift(true, 'Henter terrenget langs rørene…', 0.78);
+          const m = modell(1);
+          await m._lastFliser(this._flisnoklerLangs(data.linjer.filter(l => valg.koder.includes(l.kode)), m));
+          data = this.samle({ terreng: m });
+          const n = Rorkart.nummerer(data, valg.koder);
+          data.profiler = this.profiler(data, m);
+          utenProfil = n - data.profiler.length;
         }
       }
       if (avbryt.signal.aborted) { app.status('Oversiktskartet ble avbrutt – ingen fil er laget'); return null; }
@@ -319,10 +426,14 @@ const RorkartUI = {
         a.click();
         setTimeout(() => URL.revokeObjectURL(a.href), 4000);
       }
-      app.status(`Oversiktskart ${lastNed ? 'lastet ned' : 'laget'} · ${sidene.length} side${sidene.length === 1 ? '' : 'r'}`
+      // alle sidene – kartene og lengdeprofilene
+      const n = P.sider.length;
+      app.status(`Oversiktskart ${lastNed ? 'lastet ned' : 'laget'} · ${n} side${n === 1 ? '' : 'r'}`
         + ` · ${(bytes.length / 1024).toFixed(0)} kB`
         + (mangler ? ` · bakgrunnskartet kunne ikke hentes for ${mangler} av ${sidene.length}` : '')
-        + (hull ? ` · ${hull} fliser manglet i bakgrunnskartet` : ''));
+        + (hull ? ` · ${hull} fliser manglet i bakgrunnskartet` : '')
+        + (data.profiler ? ` · ${data.profiler.length} lengdeprofiler` : '')
+        + (utenProfil ? ` · ${utenProfil} rør har ingen høyder og ingen profil` : ''));
       return bytes;
     } catch (e) {
       app.status('Klarte ikke å lage oversiktskartet: ' + e.message);

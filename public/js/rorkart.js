@@ -34,6 +34,27 @@ const Rorkart = (() => {
   const GRAA = [0.62, 0.62, 0.62];
   const SVART = [0.1, 0.1, 0.1];
   const SVAK = [0.38, 0.38, 0.38];
+  const KOTE = [0.6, 0.42, 0.24];          // kotebrun, som på kartet
+  // desimalene en kotehøyde trenger: 2,5 m er ikke «3»
+  const desimaler = ekv => (Math.abs(ekv * 2 - Math.round(ekv * 2)) > 1e-9 ? 2 : Math.abs(ekv - Math.round(ekv)) > 1e-9 ? 1 : 0);
+  const HVIT = [1, 1, 1];
+
+  /** Punktet halvveis langs en linje på papiret, med retningen der. */
+  function midtpaa(punkter) {
+    let L = 0;
+    for (let i = 1; i < punkter.length; i++) L += Math.hypot(punkter[i][0] - punkter[i - 1][0], punkter[i][1] - punkter[i - 1][1]);
+    let igjen = L / 2;
+    for (let i = 1; i < punkter.length; i++) {
+      const d = Math.hypot(punkter[i][0] - punkter[i - 1][0], punkter[i][1] - punkter[i - 1][1]);
+      if (d >= igjen && d > 0) {
+        const t = igjen / d;
+        return { x: punkter[i - 1][0] + (punkter[i][0] - punkter[i - 1][0]) * t,
+          y: punkter[i - 1][1] + (punkter[i][1] - punkter[i - 1][1]) * t, lengde: L };
+      }
+      igjen -= d;
+    }
+    return punkter.length ? { x: punkter[0][0], y: punkter[0][1], lengde: L } : null;
+  }
 
   const hexTilRgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255);
   const rgbTilHex = rgb => '#' + rgb.map(v => Math.round(Math.max(0, Math.min(1, v)) * 255).toString(16).padStart(2, '0')).join('');
@@ -154,6 +175,160 @@ const Rorkart = (() => {
     }
   }
 
+  /* ---------------- høydekotene ---------------- */
+
+  const EKVIDISTANSER = [0.25, 0.5, 1, 2, 2.5, 5, 10, 20, 25, 50, 100];
+
+  /**
+   * Avstanden mellom kotene: etter målestokken, og så dobbelt så stor til det
+   * er høyst 60 koter i utsnittet – en li i 1:500 med en kote hver halve meter
+   * ville vært et brunt teppe.
+   */
+  function velgEkvidistanse(N, zMin, zMax) {
+    let i = EKVIDISTANSER.indexOf(N <= 500 ? 0.5 : N <= 1000 ? 1 : N <= 2500 ? 2 : N <= 5000 ? 5 : 10);
+    while (i < EKVIDISTANSER.length - 1 && (zMax - zMin) / EKVIDISTANSER[i] > 60) i++;
+    return EKVIDISTANSER[i];
+  }
+
+  /** Oppløsningen terrenget hentes i for en målestokk (m per piksel). */
+  const terrengOpplosning = N => (N <= 2500 ? 1 : N <= 5000 ? 2 : N <= 10000 ? 4 : 8);
+
+  /**
+   * Kotene i et rutenett – marsjerende kvadrater.
+   *
+   * Hvert kvadrat med fire kjente hjørner gir korte stykker der nivået
+   * krysser kantene. Stykkene kjedes til linjer gjennom kantene de deler, og
+   * forenkles så punktene ikke blir flere enn tegningen trenger. Et hjørne
+   * uten høyde gir et brudd i kota, ikke en kote som finner på noe.
+   *
+   * @param {{x0, y0, steg, nx, ny, z:ArrayLike<number>}} r  z[j·nx + i] i (x0 + i·steg, y0 + j·steg)
+   * @param {number} ekv  avstanden mellom kotene (m)
+   * @param {{toleranse?:number}} [o]  forenklingen (m)
+   * @returns {Array<{niva:number, punkter:number[][], lukket:boolean}>}
+   */
+  function koter(r, ekv, o = {}) {
+    const { x0, y0, steg, nx, ny, z } = r;
+    const at = (i, j) => z[j * nx + i];
+    const botter = new Map();         // nivånummer → { punkt: Map(kant → [x, y]), seg: [[kant, kant]] }
+    const botte = k => { let b = botter.get(k); if (!b) { b = { punkt: new Map(), seg: [] }; botter.set(k, b); } return b; };
+    for (let j = 0; j + 1 < ny; j++) {
+      for (let i = 0; i + 1 < nx; i++) {
+        const a = at(i, j), b = at(i + 1, j), c = at(i + 1, j + 1), d = at(i, j + 1);
+        if (!(Number.isFinite(a) && Number.isFinite(b) && Number.isFinite(c) && Number.isFinite(d))) continue;
+        const lo = Math.min(a, b, c, d), hi = Math.max(a, b, c, d);
+        for (let k = Math.ceil(lo / ekv); k * ekv <= hi; k++) {
+          // et hårsbredd over nivået, så et hjørne som ligger nøyaktig på det ikke gir to treff
+          const L = k * ekv + ekv * 1e-6;
+          const kode = (a >= L ? 1 : 0) | (b >= L ? 2 : 0) | (c >= L ? 4 : 0) | (d >= L ? 8 : 0);
+          if (kode === 0 || kode === 15) continue;
+          const B = botte(k);
+          const kant = (navn, za, zb, ia, ja, horisontal) => {
+            const nokkel = navn;
+            if (!B.punkt.has(nokkel)) {
+              const t = (L - za) / (zb - za);
+              B.punkt.set(nokkel, horisontal ? [x0 + (ia + t) * steg, y0 + ja * steg] : [x0 + ia * steg, y0 + (ja + t) * steg]);
+            }
+            return nokkel;
+          };
+          const bunn = () => kant(`h${i}_${j}`, a, b, i, j, true);
+          const topp = () => kant(`h${i}_${j + 1}`, d, c, i, j + 1, true);
+          const venstre = () => kant(`v${i}_${j}`, a, d, i, j, false);
+          const hoyre = () => kant(`v${i + 1}_${j}`, b, c, i + 1, j, false);
+          const seg = (p, q) => B.seg.push([p(), q()]);
+          const midt = (a + b + c + d) / 4 >= L;
+          switch (kode) {
+            case 1: case 14: seg(venstre, bunn); break;
+            case 2: case 13: seg(bunn, hoyre); break;
+            case 3: case 12: seg(venstre, hoyre); break;
+            case 4: case 11: seg(hoyre, topp); break;
+            case 6: case 9: seg(bunn, topp); break;
+            case 7: case 8: seg(venstre, topp); break;
+            case 5: if (midt) { seg(bunn, hoyre); seg(topp, venstre); } else { seg(venstre, bunn); seg(hoyre, topp); } break;
+            case 10: if (midt) { seg(venstre, bunn); seg(hoyre, topp); } else { seg(bunn, hoyre); seg(topp, venstre); } break;
+            default: break;
+          }
+        }
+      }
+    }
+    const ut = [];
+    for (const [k, B] of [...botter].sort((x, y) => x[0] - y[0])) {
+      const naboer = new Map();
+      B.seg.forEach((s, n) => { for (const e of s) { const l = naboer.get(e); if (l) l.push(n); else naboer.set(e, [n]); } });
+      const brukt = new Uint8Array(B.seg.length);
+      // fra en kant: følg stykkene videre så langt de henger sammen
+      const folg = (kant, liste) => {
+        for (;;) {
+          const neste = (naboer.get(kant) || []).find(n => !brukt[n]);
+          if (neste == null) return kant;
+          brukt[neste] = 1;
+          const [p, q] = B.seg[neste];
+          kant = p === kant ? q : p;
+          liste.push(kant);
+        }
+      };
+      for (let n = 0; n < B.seg.length; n++) {
+        if (brukt[n]) continue;
+        brukt[n] = 1;
+        const fram = [B.seg[n][1]], bak = [];
+        folg(B.seg[n][1], fram);
+        folg(B.seg[n][0], bak);
+        const kanter = bak.reverse().concat([B.seg[n][0]], fram);
+        const lukket = kanter.length > 3 && kanter[0] === kanter[kanter.length - 1];
+        let punkter = kanter.map(e => B.punkt.get(e));
+        if (o.toleranse > 0) punkter = forenkle(punkter, o.toleranse);
+        ut.push({ niva: Math.round(k * ekv * 1e6) / 1e6, punkter, lukket });
+      }
+    }
+    return ut;
+  }
+
+  /** Douglas–Peucker uten rekursjon: punkt nærmere linja enn toleransen tas ut. */
+  function forenkle(p, tol) {
+    if (p.length < 3) return p;
+    const behold = new Uint8Array(p.length);
+    behold[0] = behold[p.length - 1] = 1;
+    const stabel = [[0, p.length - 1]];
+    while (stabel.length) {
+      const [a, b] = stabel.pop();
+      const [ax, ay] = p[a], [bx, by] = p[b];
+      const dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy;
+      let maks = -1, hvor = -1;
+      for (let i = a + 1; i < b; i++) {
+        const t = L2 > 0 ? Math.max(0, Math.min(1, ((p[i][0] - ax) * dx + (p[i][1] - ay) * dy) / L2)) : 0;
+        const d = Math.hypot(p[i][0] - ax - t * dx, p[i][1] - ay - t * dy);
+        if (d > maks) { maks = d; hvor = i; }
+      }
+      if (maks > tol) { behold[hvor] = 1; stabel.push([a, hvor], [hvor, b]); }
+    }
+    return p.filter((_, i) => behold[i]);
+  }
+
+  /**
+   * Kotene for et utsnitt: terrenget prøvd i et rutenett over kartflaten, med
+   * en millimeter på papiret mellom prøvene – aldri tettere enn terrenget er.
+   * @param {{N, x0, y0, x1, y1}} u
+   * @param {(x:number, y:number) => number} terrengZ
+   * @returns {?{ekvidistanse:number, linjer:Array}}
+   */
+  function lagKoter(u, terrengZ, o = {}) {
+    const res = o.res || terrengOpplosning(u.N);
+    const steg = Math.max(res, u.N / 1000);
+    const nx = Math.ceil((u.x1 - u.x0) / steg) + 3, ny = Math.ceil((u.y1 - u.y0) / steg) + 3;
+    const r = { x0: u.x0 - steg, y0: u.y0 - steg, steg, nx, ny, z: new Float32Array(nx * ny) };
+    let zMin = Infinity, zMaks = -Infinity;
+    for (let j = 0; j < ny; j++) {
+      for (let i = 0; i < nx; i++) {
+        const v = terrengZ(r.x0 + i * steg, r.y0 + j * steg);
+        r.z[j * nx + i] = Number.isFinite(v) ? v : NaN;
+        if (Number.isFinite(v)) { if (v < zMin) zMin = v; if (v > zMaks) zMaks = v; }
+      }
+    }
+    if (!Number.isFinite(zMin)) return null;
+    const ekv = velgEkvidistanse(u.N, zMin, zMaks);
+    // forenklet til en femtedels millimeter på papiret – mer ser ingen
+    return { ekvidistanse: ekv, linjer: koter(r, ekv, { toleranse: 0.2 * u.N / 1000 }) };
+  }
+
   /* ---------------- sidene ---------------- */
 
   const PAPIR = {
@@ -266,6 +441,24 @@ const Rorkart = (() => {
     // ---- kartflaten
     P.klipp(pt(K.x), pt(K.y), pt(K.b), pt(K.h), () => {
       if (bakgrunn) P.bilde(bakgrunn.bytes, bakgrunn.bredde, bakgrunn.hoyde, pt(K.x), pt(K.y), pt(K.b), pt(K.h));
+      /* HØYDEKOTENE – formen på bakken, så de som skal grave ser hvor det
+         går opp og ned. Tynne og brune under rørene; hver femte tykkere og med
+         høyden skrevet på. */
+      const kt = side.koter;
+      if (kt && kt.linjer.length) {
+        const erIndeks = kl => Math.abs(Math.round(kl.niva / kt.ekvidistanse)) % 5 === 0;
+        for (const kl of kt.linjer) {
+          P.sti(kl.punkter.map(([x, y]) => iKart(x, y)), { farge: KOTE, tykkelse: pt(erIndeks(kl) ? 0.25 : 0.12) });
+        }
+        for (const kl of kt.linjer) {
+          if (!erIndeks(kl)) continue;
+          const m = midtpaa(kl.punkter.map(([x, y]) => iKart(x, y)));
+          if (!m || m.lengde < pt(25)) continue;
+          const tekst = tall(kl.niva, desimaler(kt.ekvidistanse)), b = P.bredteAv(tekst, 6);
+          P.rektangel(m.x - b / 2 - pt(0.6), m.y - pt(1.4), b + pt(1.2), pt(2.6), { fyll: HVIT });
+          P.tekst(m.x, m.y + pt(0.9), tekst, { storrelse: 6, farge: KOTE, juster: 'm' });
+        }
+      }
       // de andre typene tynt i grått under, så man ser hvor dette røret ligger i forhold til dem
       const graa = new Set(side.graa || []);
       for (const l of data.linjer) {
@@ -286,6 +479,16 @@ const Rorkart = (() => {
         // kummen i målestokk, men aldri mindre enn at den synes
         const r = Math.max(pt(0.9), pt(((+k.d || 1) / 2) * 1000 / u.N));
         P.sirkel(x, y, r, { fyll: [1, 1, 1], strek: SVART, tykkelse: pt(0.25) });
+      }
+      // numrene: det samme tallet står over lengdeprofilen til røret
+      for (const l of linjer) {
+        if (!l.nr) continue;
+        const m = midtpaa(l.xy.map(q => iKart(q.x, q.y)));
+        if (!m) continue;
+        const tekst = String(l.nr), b = Math.max(P.bredteAv(tekst, 6.5, true), pt(2));
+        const f = farger.get(l.kode);
+        P.rektangel(m.x - b / 2 - pt(0.8), m.y - pt(1.6), b + pt(1.6), pt(3.2), { fyll: HVIT, strek: f ? f.rgb : SVART, tykkelse: pt(0.25) });
+        P.tekst(m.x, m.y + pt(1.0), tekst, { storrelse: 6.5, fet: true, juster: 'm' });
       }
     });
     P.rektangel(pt(K.x), pt(K.y), pt(K.b), pt(K.h), { strek: SVART, tykkelse: pt(0.3) });
@@ -324,7 +527,8 @@ const Rorkart = (() => {
        full: på A4 sto elleve, og den tolvte var en farge i kartet uten forklaring.
        Får de ikke plass med to linjer hver, får de én; så to kolonner; og først
        når heller ikke det holder, står det hvor mange som mangler. */
-    const ekstra = (harGraa ? 5 : 0) + (harPlan && harMalt ? 10.5 : 0) + (kummerHer.length ? 6 : 0);
+    const harKoter = !!(side.koter && side.koter.linjer.length);
+    const ekstra = (harGraa ? 5 : 0) + (harPlan && harMalt ? 10.5 : 0) + (kummerHer.length ? 6 : 0) + (harKoter ? 5 : 0);
     const plass = (F.y + F.h - 62) - ekstra - y;
     const n = side.koder.length, RAD = 4.8;
     const modus = n * 8.6 <= plass ? 'to' : n * RAD <= plass ? 'en' : 'kolonner';
@@ -374,6 +578,12 @@ const Rorkart = (() => {
       P.sirkel(pt(F.x + 6), pt(y - 1.2), pt(1.2), { fyll: [1, 1, 1], strek: SVART, tykkelse: pt(0.25) });
       P.tekst(pt(F.x + 15), pt(y), 'Kum', { storrelse: 8 });
     }
+    if (harKoter) {
+      const ekv = side.koter.ekvidistanse;
+      y += 5;
+      prove(F.x, y, KOTE, null, 0.25);
+      P.tekst(pt(F.x + 15), pt(y), `Høydekote hver ${tall(ekv, desimaler(ekv))} m (terrengmodellen)`, { storrelse: 8 });
+    }
 
     // ---- nordpil og målestokklinjal nederst i kolonnen
     const bunn = F.y + F.h;
@@ -405,13 +615,58 @@ const Rorkart = (() => {
    */
   function lagPdf(data, valg, sidene, bakgrunner, merknad) {
     const S = typeof PdfSkriver !== 'undefined' ? PdfSkriver : require('./pdfeksport.js').PdfSkriver;
+    const R = typeof Rorlengde !== 'undefined' ? Rorlengde : require('./rorlengde.js');
     const opp = oppsett(valg.papir);
     const P = new S({ bredde: opp.papir.b * MM, hoyde: opp.papir.h * MM });
     const s = sidene || sider(data, valg);
     const farger = fargetabell(kodeinfo(data));
+    /* LENGDEPROFILENE ETTER KARTENE. Stripene regnes først, så «side x av y»
+       stemmer på kartene også. */
+    const plassene = R.bokser(valg.papir);
+    const striper = [];
+    if (valg.profiler) {
+      for (const p of data.profiler || []) {
+        if (!(valg.koder || []).includes(p.kode)) continue;
+        const f = farger.get(p.kode);
+        const prof = Object.assign({}, p, { farge: f ? f.rgb : SVART });
+        const deler = R.striper(prof, R.flateI(plassene[0]));
+        deler.forEach((st, i) => striper.push({ p: prof, st, del: i + 1, deler: deler.length }));
+      }
+    }
+    const antall = s.length + Math.ceil(striper.length / plassene.length);
     s.forEach((side, i) => tegnSide(P, side, data, farger, bakgrunner ? bakgrunner.get(i) || null : null,
-      { nr: i + 1, antall: s.length, papir: valg.papir, merknad }));
+      { nr: i + 1, antall, papir: valg.papir, merknad }));
+    let nr = s.length;
+    striper.forEach((x, i) => {
+      const plass = i % plassene.length;
+      if (plass === 0) {
+        P.nySide();
+        nr++;
+        P.tekst(opp.papir.b * MM - 10 * MM, (opp.papir.h - 4) * MM,
+          `Lengdeprofiler · ${data.prosjekt || ''} · Massekalk · ${data.dato || ''} · side ${nr} av ${antall}`,
+          { storrelse: 6.5, farge: SVAK, juster: 'h' });
+      }
+      R.tegnStripe(P, x.p, x.st, plassene[plass], { del: x.del, deler: x.deler });
+    });
     return P;
+  }
+
+  /**
+   * Numrene rørene har i kartet og over lengdeprofilene: de valgte typene i
+   * tegnforklaringens rekkefølge, det lengste røret først innenfor hver.
+   * Setter `nr` på linjene og gir antallet.
+   */
+  function nummerer(data, koder) {
+    const farger = fargetabell(kodeinfo(data));
+    const orden = k => { const f = farger.get(k); return f ? [Object.keys(FAMILIER).indexOf(f.system), f.nr] : [99, 0]; };
+    const valgte = new Set(koder || []);
+    const liste = data.linjer.filter(l => valgte.has(l.kode)).sort((a, b) => {
+      const oa = orden(a.kode), ob = orden(b.kode);
+      return oa[0] - ob[0] || oa[1] - ob[1] || (b.lengde || 0) - (a.lengde || 0);
+    });
+    for (const l of data.linjer) delete l.nr;
+    liste.forEach((l, i) => { l.nr = i + 1; });
+    return liste.length;
   }
 
   /** Kodene som har rør, med system og dimensjon – det fargetabellen trenger. */
@@ -425,8 +680,8 @@ const Rorkart = (() => {
     return ut;
   }
 
-  return { MM, FAMILIER, MALESTOKKER, fargetabell, utsnitt, tilPapir, flisplan, oppsett, sider, tegnSide, lagPdf,
-    kodeinfo, omKode, rundtTall, tykkelse };
+  return { MM, FAMILIER, MALESTOKKER, EKVIDISTANSER, fargetabell, utsnitt, tilPapir, flisplan, oppsett, sider, tegnSide, lagPdf,
+    kodeinfo, omKode, rundtTall, tykkelse, velgEkvidistanse, terrengOpplosning, koter, forenkle, lagKoter, nummerer, midtpaa };
 })();
 
 if (typeof module !== 'undefined') module.exports = Rorkart;

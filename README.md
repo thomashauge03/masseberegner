@@ -154,6 +154,16 @@ Bakgrunnen er Kartverkets gråtone- eller topografiske kart, hentet i UTM så
 rørene ligger der de er målt. Arket er A3 eller A4 liggende, med målestokk,
 linjal og nordpil. Ingenting i prosjektet endres.
 
+**Terrenget**, så de som skal grave vet hvor det skal. Begge valgene er på fra
+start:
+* **Høydekoter fra terrengmodellen** (Kartverkets DTM). Avstanden mellom dem
+  følger målestokken: 0,5 m i 1:500, 1 m i 1:1000 osv. Hver femte er tykkere
+  og har høyden skrevet på.
+* **En lengdeprofil for hvert rør** etter kartene. Den viser terrenglinja,
+  røret fra topp til bunn innvendig og kummene. Under står et tallbånd med
+  profil, terreng, topp rør, bunn innvendig og overdekning.
+* Rørene er nummerert i kartet med det samme tallet som står over profilen.
+
 ### Grøftemasser
 
 Grøfta regnes med rørene, mot et teoretisk grøfteprofil og Kartverkets terreng

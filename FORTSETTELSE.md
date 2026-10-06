@@ -23,11 +23,11 @@ Nettlesertesten kjøres ved å åpne programmet med `?test=1`, eller fra konsoll
 med `Nettlesertest.kjor()`. Utviklingstjeneren startes med `node server.js`
 (port 5178). Programmet ligger også på https://masseberegner.vercel.app.
 
-Ved siste lagring: **862 prøver i selvtesten, 194 i rørprøven
+Ved siste lagring: **883 prøver i selvtesten, 194 i rørprøven
 (`test/rorprove.js`), 133 i grøfteprøven (`test/groftprove.js`), 100 i
 planprøven (`test/rorplanprove.js`), 62 i eksportprøven
 (`test/roreksportprove.js`), 77 i avviksprøven (`test/roravvikprove.js`), 53 i
-anleggsprøven og 258 i tomteprøven, alle grønne; 1389 av 1389 i nettlesertesten.** «Klikk i modellen flytter snittet
+anleggsprøven og 258 i tomteprøven, alle grønne; 1396 av 1396 i nettlesertesten.** «Klikk i modellen flytter snittet
 dit» i `veg3d` kan feile når vinduet emuleres 1440 × 900 i en mindre rute –
 klikket lander én rad ved siden av; det gjør den likt på `main`. «og merknaden
 sier det som gjelder nå» i `flereAnlegg` feilet én gang i hele runden og aldri
@@ -67,6 +67,18 @@ Kartverkets UTM-cache (`utm32n/33n/35n`, ingen omprojisering), og tegningen på
 samler rørene uten å bytte anlegg, viser valget, henter flisene (fetch, CORS) og
 laster ned. Mangler flisene, lages PDF-en uten bakgrunn, og det står på siden.
 Visuelt sjekket mot appens eget kart: bakgrunnen ligger der den skal.
+
+**Med terreng** (spec `docs/superpowers/specs/2026-10-06-ror-kart-terreng-design.md`),
+etter at brukeren ba om «tegning med terreng så de som jobber vet hvor det
+skal»:
+- **Høydekoter i kartet:** `Rorkart.lagKoter` prøver terrenget i et rutenett
+  over kartflaten og legger kotene med marsjerende kvadrater, kjeding og
+  Douglas–Peucker. Ekvidistansen følger målestokken.
+- **En lengdeprofil per rør:** ny ren modul `public/js/rorlengde.js` med
+  striper i fast målestokk-rekke, terrenglinje, rørbånd, kummer og tallbånd.
+- **Terrengmodellene:** `ui-rorkart.js` henter terrenget i egne modeller,
+  ikke i appens. Tegnede rør regnes med terrenget så de får høyder.
+- **Numrene** i kartet er de samme som over profilene.
 
 ### Veg – restfunnene fra GJENNOMGANG.md
 

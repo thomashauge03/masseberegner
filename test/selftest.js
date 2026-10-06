@@ -4373,6 +4373,86 @@ console.log('\n6c. Avlesning av PDF');
       new Map([[0, { bytes: jpeg, bredde: 10, hoyde: 10, mangler: 3, av: 40 }]]));
     paastand('fliser som manglet, står i kartet', (await Pdf.lesStrommer(await delvis.bygg())).join('\n')
       .includes('3 av 40 fliser i bakgrunnskartet manglet'));
+    /* HØYDEKOTENE. En kjegle gir én lukket ring per nivå, et skrått plan rette
+       og parallelle koter, og et hull i terrenget et brudd – ikke en kote
+       som finner på noe. */
+    {
+      const rutenett = (f, n = 61, steg = 1) => {
+        const z = new Float32Array(n * n);
+        for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) z[j * n + i] = f(i * steg, j * steg);
+        return { x0: 0, y0: 0, steg, nx: n, ny: n, z };
+      };
+      const kjegle = Rorkart.koter(rutenett((x, y) => 110 - Math.hypot(x - 30, y - 30) / 3), 1);
+      // ringene som ligger helt inne i rutenettet (radius under 30): nivå 101–109 – de ytre treffer kanten og er buer
+      const inne = kjegle.filter(k => k.niva >= 101);
+      paastand('en kjegle: én lukket ring per nivå inne i rutenettet', inne.length === 9 && inne.every(k => k.lukket)
+        && new Set(inne.map(k => k.niva)).size === 9, `${inne.length} koter: ${inne.map(k => k.niva + (k.lukket ? 'o' : '-')).join(' ')}`);
+      paastand('  og de som når kanten, er åpne buer', kjegle.filter(k => k.niva <= 99).every(k => !k.lukket));
+      const ring = kjegle.find(k => k.niva === 105);
+      paastand('  og ringen ligger der høyden er 105', !!ring && ring.punkter.every(([x, y]) => Math.abs(110 - Math.hypot(x - 30, y - 30) / 3 - 105) < 0.05));
+      const plan = Rorkart.koter(rutenett((x) => 100 + x * 0.1), 1, { toleranse: 0.01 });
+      paastand('et skrått plan: rette koter på tvers av fallet', plan.length === 6 && plan.every(k => !k.lukket && k.punkter.length === 2
+        && Math.abs(k.punkter[0][0] - k.punkter[1][0]) < 1e-6 && Math.abs(k.punkter[0][0] - (k.niva - 100) * 10) < 1e-3),
+      plan.map(k => `${k.niva}:${k.punkter.length}`).join(' '));
+      const medHull = rutenett((x) => 100 + x * 0.1);
+      for (let j = 25; j < 35; j++) for (let i = 0; i < 61; i++) medHull.z[j * 61 + i] = NaN;
+      const hull = Rorkart.koter(medHull, 1);
+      paastand('et hull i terrenget gir brudd i kotene, ikke krasj', hull.length === 12, String(hull.length));
+      sjekk('ekvidistansen følger målestokken: 1 m i 1:1000', Rorkart.velgEkvidistanse(1000, 100, 110), 1, 0);
+      sjekk('  og dobles i bratt terreng: 200 m høydeforskjell gir 5 m', Rorkart.velgEkvidistanse(1000, 100, 300), 5, 0);
+      const lk = Rorkart.lagKoter({ N: 1000, x0: 0, y0: 0, x1: 100, y1: 80 }, (x) => 50 + x * 0.05);
+      paastand('kotene for et utsnitt: ekvidistanse og linjer', !!lk && lk.ekvidistanse === 1 && lk.linjer.length >= 4,
+        lk ? `${lk.ekvidistanse} m, ${lk.linjer.length} linjer` : 'ingen');
+      paastand('uten terreng: ingen koter', Rorkart.lagKoter({ N: 1000, x0: 0, y0: 0, x1: 100, y1: 80 }, () => NaN) === null);
+    }
+
+    /* LENGDEPROFILENE. Målestokken fra rekka, et langt rør delt, og tallbåndet
+       med overdekningen som terreng minus topp. */
+    {
+      const Rorlengde = require(path.join(__dirname, '..', 'public', 'js', 'rorlengde.js'));
+      const boks = Rorlengde.bokser('A3')[0], flate = Rorlengde.flateI(boks);
+      const kort = { lengde: 100, terreng: [{ s: 0, z: 22 }, { s: 100, z: 22 }], topp: [{ s: 0, z: 20 }, { s: 100, z: 19 }], bunn: [{ s: 0, z: 19.86 }, { s: 100, z: 18.86 }] };
+      const st = Rorlengde.striper(kort, flate);
+      paastand('100 m på A3: én stripe i 1:500, høyden 1:50', st.length === 1 && st[0].N === 500 && st[0].Nv === 50,
+        JSON.stringify(st.map(x => [x.N, x.Nv])));
+      const lang = Object.assign({}, kort, { lengde: 3000, terreng: [{ s: 0, z: 22 }, { s: 3000, z: 22 }] });
+      const sl = Rorlengde.striper(lang, flate);
+      paastand('3 km: delt i striper i 1:5000, uten hull mellom dem', sl.length === 2 && sl.every(x => x.N === 5000)
+        && sl[0].fra === 0 && Math.abs(sl[0].til - sl[1].fra) < 1e-9 && sl[1].til === 3000, JSON.stringify(sl.map(x => [x.fra, x.til])));
+      const bratt = Object.assign({}, kort, { terreng: [{ s: 0, z: 40 }, { s: 100, z: 22 }] });
+      paastand('stor høydeforskjell: mindre overdrevet, så den får plass', Rorlengde.striper(bratt, flate)[0].Nv > 50);
+      // en hel PDF med kart, koter, nummer og to profiler
+      const dataP = JSON.parse(JSON.stringify(data));
+      const n = Rorkart.nummerer(dataP, ['SP 160PE', 'VL 110PE']);
+      paastand('nummereringen: tre rør, tegnforklaringens rekkefølge – spillvann før vann', n === 3
+        && dataP.linjer.find(l => l.kode === 'VL 110PE').nr === 3, JSON.stringify(dataP.linjer.map(l => [l.kode, l.nr])));
+      dataP.profiler = [
+        { nr: 1, kode: 'SP 160PE', kilde: 'innmalt', dim: 160, lengde: 100, terreng: kort.terreng, topp: kort.topp, bunn: kort.bunn,
+          kummer: [{ s: 40, navn: 'k1' }], fall: null },
+        { nr: 3, kode: 'VL 110PE', kilde: 'planlagt', dim: 110, lengde: 80, terreng: [{ s: 0, z: 22 }, { s: 80, z: 22.5 }],
+          topp: [{ s: 0, z: 20 }, { s: 80, z: 20.5 }], bunn: [{ s: 0, z: 19.9 }, { s: 80, z: 20.4 }], kummer: [], fall: null }
+      ];
+      const valgP = { koder: ['SP 160PE', 'VL 110PE'], perType: false, papir: 'A3', profiler: true };
+      const sidene = Rorkart.sider(dataP, valgP);
+      sidene[0].koter = Rorkart.lagKoter(sidene[0].utsnitt, (x) => 20 + (x - 500000) * 0.05);
+      const bP = await Rorkart.lagPdf(dataP, valgP, sidene, null, null).bygg();
+      const tP = new TextDecoder('latin1').decode(bP);
+      const sP = await Pdf.lesStrommer(bP);
+      paastand('kartet og to profiler på én A3-side: to sider', /\/Count 2\b/.test(tP), (tP.match(/\/Count \d+/) || [''])[0]);
+      // 1:500 gir en halv meter mellom kotene
+      paastand('kotene står i kartet, og forklaringen sier ekvidistansen', kartdel(sP[0]).includes('0.6 0.42 0.24 RG')
+        && sidene[0].koter.ekvidistanse === 0.5 && sP[0].includes('H\\370ydekote hver 0,5 m'), String(sidene[0].koter.ekvidistanse));
+      paastand('numrene står i kartet', /\(1\) Tj/.test(sP[0]) && /\(3\) Tj/.test(sP[0]));
+      const prof = sP[1];
+      paastand('profilsiden har tittelen med kode og nummer, og målestokkene', prof.includes('(SP 160PE \\267 1)')
+        && prof.includes('(VL 110PE \\267 3)') && /lengde 1:500, h\\370yde 1:50/.test(prof));
+      paastand('tallbåndet: stasjon, terreng, topp, bunn og overdekning', ['(Profil)', '(Terreng)', '(Topp r\\370r)', '(Bunn innv.)', '(Overdekning)']
+        .every(t => prof.includes(t)));
+      paastand('  overdekningen er terreng minus topp: 2,00 i start, 3,00 i slutten', prof.includes('(2,00)') && prof.includes('(3,00)'));
+      paastand('kummen står i profilen', prof.includes('(Kum k1)'));
+      paastand('sidetallet teller profilsidene med', prof.includes('side 2 av 2') && sP[0].includes('side 1 av 2'));
+    }
+
     // en innmålt kum uten rør i nærheten står bare på samlesiden
     const ensom = Object.assign({}, data, { kummer: [{ x: 500050, y: 6500030, d: 1, kode: null }] });
     const ks = (await Pdf.lesStrommer(await Rorkart.lagPdf(ensom, valg).bygg())).filter(s => s.includes(' re W n'));
