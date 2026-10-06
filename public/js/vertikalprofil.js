@@ -334,6 +334,7 @@ function fordelUmuligeKrav(vip, maksFor) {
  */
 function rettProfil(vip, opsjoner = {}) {
   const maksFor = opsjoner.maksStigningFor || (() => 1);
+  const naboGjennom = opsjoner.naboGjennom > 0 ? opsjoner.naboGjennom : 0;
   const maksOver = opsjoner.maksOverTerreng;
   const maksUnder = opsjoner.maksUnderTerreng;
   const terrengVed = opsjoner.terrengVed;
@@ -400,9 +401,19 @@ function rettProfil(vip, opsjoner = {}) {
          hver side følger med. */
       const stigningMot = (p, q) => (q.s - p.s > 1e-6 && Number.isFinite(p.z) && Number.isFinite(q.z)
         ? (q.z - p.z) / (q.s - p.s) : null);
+      /* Naboen er det første strekket som er langt nok til å skille: et
+         mellomrom på én meter mellom to bratte strekk ser ikke kontrollen –
+         den har profiler hver femte meter – og da er det ett bratt strekk. */
+      const nabo = (k, steg) => {
+        for (; k >= 0 && k + 1 < vip.length; k += steg) {
+          const g = stigningMot(vip[k], vip[k + 1]);
+          if (g == null || vip[k + 1].s - vip[k].s >= naboGjennom) return g;
+        }
+        return null;
+      };
       const grense = maksFor(a.s, b.s, dz / dl,
-        i > 0 ? stigningMot(vip[i - 1], a) : null,
-        i + 2 < vip.length ? stigningMot(b, vip[i + 2]) : null);
+        i > 0 ? nabo(i - 1, -1) : null,
+        i + 2 < vip.length ? nabo(i + 1, 1) : null);
       const brudd = Math.abs(dz / dl) - grense;
       if (brudd <= 1e-6) continue;
       verstBrudd = Math.max(verstBrudd, brudd);
@@ -482,6 +493,9 @@ function byggetLengde(vip, i) {
   return c ? c.L : 0;
 }
 
+/** Hvor stor del av kravet til kurvelengde som er nok – se kontrollen i masser.js. */
+const KURVE_TOLERANSE = 0.998;
+
 function rettVertikalgeometri(vip, opsjoner = {}) {
   const kravLav = opsjoner.minVertikalLavbrekk || 0;
   const kravHoy = opsjoner.minVertikalHoybrekk || 0;
@@ -522,7 +536,10 @@ function rettVertikalgeometri(vip, opsjoner = {}) {
       const krav = A > 0 ? kravLav : kravHoy;
       if (!(krav > 0)) continue;
 
-      const kreves = krav * Math.abs(A);
+      /* Samme slingring som kontrollen (masser.js): profilen korter en kurve
+         til 99,9 % av plassen, og et par promille er ikke et brudd. Her krevde
+         rettingen hundre prosent og glattet høyder kontrollen godtok. */
+      const kreves = krav * Math.abs(A) * KURVE_TOLERANSE;
       /* Plassen er ikke bare avstanden til naboknekkpunktene. `_bygg` korter
          inn en kurve sa den ikke tar over naboens, sa naboens kurve spiser av
          plassen ogsa. Med `min(dFør, dEtter)` alene trodde rettingen at det

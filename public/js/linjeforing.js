@@ -220,29 +220,51 @@ class Linjeforing {
   }
 
   /**
-   * Den minste radien vegen har mellom profil a og b. Et skarpt hjørne teller
-   * som en kurve med `skarp` som radius – standard 0.
+   * Den minste radien vegen har mellom profil a og b – et skarpt hjørne teller
+   * med radien til kurven det minst ville trengt (se `hjorner`).
    *
    * `radiusVed` svarer Infinity i en skarp knekk: det er to rettstrekk som
    * møtes. Kontrollene som spurte den, så rettstrekk, og ga full stigning og
    * ingen breddeutvidelse akkurat der vegen svinger mest. Og et oppslag med
-   * jevne steg kan gå glipp av en kort kurve; her leses kurvelista.
+   * jevne steg kan gå glipp av en kort kurve; her leses kurvelista – med
+   * halvering, for den spørres for hvert profil.
    */
-  minsteRadius(a, b, skarp = 0) {
+  minsteRadius(a, b) {
     let m = Infinity;
-    for (const k of this.kurver) {
-      if (k.sEC >= a - 1e-9 && k.sBC <= b + 1e-9 && k.r < m) m = k.r;
-    }
-    for (const h of this.hjorner()) {
-      if (h.s >= a - 1e-9 && h.s <= b + 1e-9 && skarp < m) m = skarp;
-    }
+    const k = this.kurver;
+    // den første kurven som slutter etter a
+    let lo = 0, hi = k.length;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (k[mid].sEC < a - 1e-9) lo = mid + 1; else hi = mid; }
+    for (let i = lo; i < k.length && k[i].sBC <= b + 1e-9; i++) if (k[i].r < m) m = k[i].r;
+    const h = this.hjorner();
+    lo = 0; hi = h.length;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (h[mid].s < a - 1e-9) lo = mid + 1; else hi = mid; }
+    for (let i = lo; i < h.length && h[i].s <= b + 1e-9; i++) if (h[i].rEkv < m) m = h[i].rEkv;
     return m;
   }
 
-  /** Skarpe hjørner som betyr noe – over én grads avbøyning – regnet én gang. */
+  /**
+   * Skarpe hjørner som betyr noe – over én grads avbøyning – regnet én gang,
+   * sortert på stasjon.
+   *
+   * `rEkv` er radien til den største kurven som ville fått plass med halve det
+   * korteste benet som tangent. Det er den svingen vegen minst må ha der. Her
+   * talte hvert hjørne som radius 0, og et knekk på to grader i en innmålt
+   * trasé fikk stigningskravet og breddeutvidelsen til en hårnål: med førti
+   * slike punkt ble det 195 stigningsbrudd og tre fjerdedeler mer skjæring.
+   */
   hjorner() {
     if (!this._hjorner) {
-      this._hjorner = this.skarpeHjorner().filter(h => Math.abs(h.avboy) * 180 / Math.PI >= 1 && Number.isFinite(h.s));
+      const P = this.ip;
+      this._hjorner = this.skarpeHjorner()
+        .filter(h => Math.abs(h.avboy) * 180 / Math.PI >= 1 && Number.isFinite(h.s))
+        .map(h => {
+          const i = P.findIndex(p => p.kilde === h.kilde);
+          const ben = i > 0 && i < P.length - 1 ? Math.min(avstand(P[i - 1], P[i]), avstand(P[i], P[i + 1])) : 0;
+          const t = Math.tan(Math.abs(h.avboy) / 2);
+          return Object.assign({}, h, { rEkv: t > 1e-12 ? (ben / 2) / t : Infinity });
+        })
+        .sort((x, y) => x.s - y.s);
     }
     return this._hjorner;
   }

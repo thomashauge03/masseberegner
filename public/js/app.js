@@ -2788,7 +2788,9 @@ const App = {
       .sort((a, b) => a.s - b.s);
     if (!this.linje || !(this.linje.lengde > 0)) return V;
     const inne = V.filter(v => this.paaLinja(v));
-    const bak = V.find(v => !this.paaLinja(v));
+    let bak = V.find(v => !this.paaLinja(v));
+    // to punkt på samme profilnummer bak slutten: det siste gjelder, som i beregningen
+    if (bak) bak = V.filter(v => Math.abs(v.s - bak.s) <= 1e-6).pop();
     if (bak && inne.length) inne.push(Object.assign({}, bak, { laast: true }));
     return inne;
   },
@@ -3049,7 +3051,11 @@ const App = {
        også over kravet, er det bratte stykket lengre enn strekket. */
     const ks = mal.kortStrekk;
     const tillegg = typeof kortStrekkTillegg === 'function' ? kortStrekkTillegg(mal, stigning) : 0;
-    if (tillegg > 0 && rett && Math.abs(sB - sA) <= ((ks && ks.lengde) || 60) + 1e-6) {
+    /* Lengden som teller, er den som ligger på vegen: et strekk som går forbi
+       linjeslutt, er bare så langt som stykket fram til den (se vipTilLengde).
+       Her ble hele strekket målt, og rettingen hevet et punkt kontrollen godtok. */
+    const lengdePaaVegen = Math.min(Math.max(sA, sB), this.linje.lengde) - Math.max(Math.min(sA, sB), 0);
+    if (tillegg > 0 && rett && lengdePaaVegen <= ((ks && ks.lengde) || 60) + 1e-6) {
       const innenfor = (g, s) => g == null || Math.abs(g) <= maksStigningFraRadius(mal,
         effektivRadius(this.linje, mal, s), g, mal.lassretning) + 1e-6;
       if (innenfor(stigningFor, Math.min(sA, sB)) && innenfor(stigningEtter, Math.max(sA, sB))) minste += tillegg;
@@ -4098,9 +4104,12 @@ const App = {
       const grenserFraSnitt = (res, liste) => {
         if (!res || !res.profiler || !res.profiler.length) return null;
         const tak = new Map(), gulv = new Map();
+        /* Nærmeste knekkpunkt PÅ LINJA – den låste kopien av punktet bak slutten
+           tar ikke profilene ved slutten med seg, så de ble aldri rettet. */
+        const paa = liste.filter(v => this.paaLinja(v));
         const naermeste = s => {
-          let best = liste[0], bd = Infinity;
-          for (const v of liste) {
+          let best = paa[0], bd = Infinity;
+          for (const v of paa) {
             const d = Math.abs(v.s - s);
             if (d < bd) { bd = d; best = v; }
           }
@@ -4149,6 +4158,8 @@ const App = {
         const maalt = grenserFraSnitt(sisteGrove || this.resultat, arbeid);
         rettProfil(arbeid, Object.assign({
           maksStigningFor: (sA, sB, g, gFor, gEtter) => this.tillattStigning(sA, sB, g, gFor, gEtter),
+          // et mellomrom kortere enn profilavstanden ser ikke kontrollen – det skiller ikke to bratte strekk
+          naboGjennom: this.P.profilAvstand || 5,
           maksOverTerreng: mal.maksFyllingshoyde > 0 ? mal.maksFyllingshoyde : null,
           maksUnderTerreng: mal.maksSkjaeringsdybde > 0 ? mal.maksSkjaeringsdybde : null,
           terrengVed
@@ -4221,10 +4232,11 @@ const App = {
       if (modus === 'sprengning') {
         this.framdrift(true, 'Prøver å legge vegen over fjellet…', 0.45);
         await pause();
-        const start = this.P.vip.map(v => Object.assign({}, v));
-        const laast = start.some(v => v.laast);
+        /* «Rett opp» flytter bare høyder på linja (se `flyttbar`) – også i dette
+           sveipet. Her ble et punkt bak slutten løftet med resten. */
+        const start = this.P.vip.map(v => Object.assign({}, v, { _flytt: this.flyttbar(v) }));
         const kostVed = d => {
-          const liste = start.map(v => Object.assign({}, v, { z: v.laast ? v.z : v.z + d }));
+          const liste = start.map(v => Object.assign({}, v, { z: v._flytt ? v.z + d : v.z }));
           try {
             const r = this.beregnRaskt(liste);
             const s = r.sum, b = r.balanse;
@@ -4238,7 +4250,7 @@ const App = {
         };
         /* Er alle høyder låst, er det ingen profil å flytte – da er sveipet
            bortkastet arbeid og et løfte man ikke kan holde. */
-        if (!laast || !start.every(v => v.laast)) {
+        if (start.some(v => v._flytt)) {
           const naa = kostVed(0);
           let beste = 0, besteK = naa.k;
           for (let d = -6; d <= 10; d += 1) {
@@ -4252,7 +4264,7 @@ const App = {
             if (m.k < besteK) { besteK = m.k; beste = d; }
           }
           if (beste !== 0) {
-            for (const v of this.P.vip) if (!v.laast) v.z += beste;
+            for (const v of this.P.vip) if (this.flyttbar(v)) v.z += beste;
             this.vprofil = new Vertikalprofil(this.vipForLinja());
             rettEnGang();                 // stigning og krav skal fortsatt holde
             this.vprofil = new Vertikalprofil(this.vipForLinja());
@@ -5152,8 +5164,9 @@ const App = {
       this.status('Legg inn høyder først');
       return;
     }
-    if (this.P.vip.every(v => v.laast)) {
-      this.status('Alle høyder er låst – lås opp noen for å kunne flytte profilen');
+    // hele profilen flyttes, men er bare punkt bak slutten ulåst, er det ingen veg å flytte
+    if (!this.P.vip.some(v => this.flyttbar(v))) {
+      this.status('Alle høyder på linja er låst – lås opp noen for å kunne flytte profilen');
       return;
     }
     this.merk(d > 0 ? 'hev profilen' : 'senk profilen');
@@ -5302,6 +5315,7 @@ const App = {
     /* Søket regner på et grovt rutenett. Det som kommer ut, kontrolleres på
        rapportens profiler før det godtas – se slutten. «Rett opp» har sin
        egen portvakt og kaller hit stille. */
+    if (!stille) this.beregn();      // utgangspunktet regnes nå – resultatet kan være eldre enn profilen
     const forSok = stille ? null : {
       brudd: this.tellBrudd(),
       vip: this.P.vip.map(v => Object.assign({}, v)),

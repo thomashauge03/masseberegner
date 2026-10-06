@@ -8,22 +8,22 @@
  * enn strekket har, må dele.
  *
  * HER STO PROPORSJONAL NEDSKALERING, I BEGGE. Begge naboene ble kortet med
- * samme faktor, også når det fantes en fordeling der den ene fikk alt den ba
- * om. En kurve brukeren hadde prosjektert riktig ble ødelagt fordi naboen var
- * urimelig: R = 60 på et ben på 100 m ble 23 fordi naboen ba om R = 200.
+ * samme faktor, også når den ene ba om lite: R = 60 på et ben på 100 m ble 23
+ * fordi naboen ba om R = 200, og et brekk på 5 % som trengte 15 m av 40 fikk
+ * ingenting.
  *
- * DEN MINSTE FÅR DET DEN TRENGER. Knekkpunktene tar for seg i rekkefølge
- * etter hvor mye de ber om, den minste først. Hver får det den ber om så langt
- * det er plass ved siden av det som alt er gitt bort; den som ber om mer, tar
- * det som er igjen. Ber naboer om like mye, deler de: de regnes samtidig, og så
- * én gang til, så den som er klemt fra andre siden gir plass til naboen. Svaret
- * er da det samme uansett hvilken ende linja tegnes fra.
+ * LIKEDELING. Alle får like mye av gangen, og den som har fått det den ba om,
+ * står. Et strekk som er fullt, stopper begge endene sine. Den som ber om
+ * lite, får alt den ber om; to som begge ber om mer enn strekket har, får
+ * halvparten hver; og det en nabo ikke trenger, går til den andre. R = 60 ved
+ * siden av R = 200 blir 50 og 50.
  *
- * «LIKE MYE» ER INNENFOR FEM PROSENT. Med en grense på en milliondel av en
- * meter ble en sikksakk med samme radius i hvert knekkpunkt – litt ulik etter
- * projeksjonen til UTM – til annenhver kurve med hel radius og annenhver kuttet
- * dobbelt så mye. Små forskjeller i hva de ber om, skal ikke avgjøre hvem som
- * får alt.
+ * FØRST STO «DEN MINSTE FØRST» HER, og den holdt ikke: to som var like innenfor
+ * fem prosent delte, mens 5,1 prosent forskjell ga den ene alt – et sprang i
+ * vegen for en bitte liten endring i radien – og i en hårnålsserie kunne to
+ * naboer få mer enn strekket mellom dem, så linja gikk baklengs. Likedelingen
+ * har ingen grenser å hoppe over, gir aldri mer enn strekket har, og gir samme
+ * svar uansett hvilken ende linja tegnes fra.
  *
  * @param {number[]} onsket  det hvert punkt ber om (0 = ingen kurve)
  * @param {number[]} plass   plassen på strekket mellom punkt k og k+1 (lengde n−1)
@@ -32,53 +32,26 @@
 function delPlass(onsket, plass) {
   const n = onsket.length;
   const fatt = new Array(n).fill(0);
-  const gitt = new Array(n).fill(false);
-  // punkt uten ønske tar ingen plass, og står som gitt
-  for (let i = 0; i < n; i++) if (!(onsket[i] > 0)) gitt[i] = true;
-  const LIK = 0.05;
-  // plassen punkt i har mot naboen j: det som er igjen etter den, en likedel, eller alt
-  const rom = (i, j, iGruppe) => {
-    const P = plass[Math.min(i, j)];
-    if (!(P > 0)) return 0;
-    if (gitt[j] && !iGruppe.has(j)) return P - fatt[j];
-    if (iGruppe.has(j)) return null;          // avgjøres i rundene under
-    return P;                                 // naboen ber om mer, og tar resten
-  };
-  for (;;) {
-    let minste = Infinity;
-    for (let i = 0; i < n; i++) if (!gitt[i] && onsket[i] < minste) minste = onsket[i];
-    if (!isFinite(minste)) break;
-    const gruppe = new Set();
-    for (let i = 0; i < n; i++) if (!gitt[i] && onsket[i] <= minste * (1 + LIK) + 1e-9) gruppe.add(i);
-    // første runde: naboer i samme gruppe deler likt
-    const grense = new Map();
-    for (const i of gruppe) {
-      let g = onsket[i];
-      for (const j of [i - 1, i + 1]) {
-        if (j < 0 || j >= n) continue;
-        const r = rom(i, j, gruppe);
-        g = Math.min(g, r == null ? plass[Math.min(i, j)] / 2 : r);
-      }
-      grense.set(i, Math.max(0, g));
+  const aktiv = onsket.map(o => o > 0);
+  const P = k => (plass[k] > 0 ? plass[k] : 0);
+  // hver runde stopper minst ett punkt, så det er aldri flere runder enn punkt
+  for (let runde = 0; runde <= n; runde++) {
+    if (!aktiv.some(Boolean)) break;
+    // hvor mye alle som ennå er med, kan få til – før noen er mette eller et strekk er fullt
+    let d = Infinity;
+    for (let i = 0; i < n; i++) if (aktiv[i]) d = Math.min(d, onsket[i] - fatt[i]);
+    for (let k = 0; k + 1 < n; k++) {
+      const m = (aktiv[k] ? 1 : 0) + (aktiv[k + 1] ? 1 : 0);
+      if (m) d = Math.min(d, (P(k) - fatt[k] - fatt[k + 1]) / m);
     }
-    for (const [i, g] of grense) fatt[i] = g;
-    // så samtidig om igjen: plass en klemt nabo ikke trengte, kan den andre ta
-    for (let runde = 0; runde < 10; runde++) {
-      let endret = false;
-      const ny = new Map();
-      for (const i of gruppe) {
-        let g = onsket[i];
-        for (const j of [i - 1, i + 1]) {
-          if (j < 0 || j >= n) continue;
-          const r = rom(i, j, gruppe);
-          g = Math.min(g, r == null ? plass[Math.min(i, j)] - fatt[j] : r);
-        }
-        ny.set(i, Math.max(fatt[i], Math.max(0, g)));
-      }
-      for (const [i, g] of ny) if (g > fatt[i] + 1e-12) { fatt[i] = g; endret = true; }
-      if (!endret) break;
+    d = Math.max(0, d);
+    for (let i = 0; i < n; i++) if (aktiv[i]) fatt[i] += d;
+    for (let i = 0; i < n; i++) {
+      if (aktiv[i] && fatt[i] >= onsket[i] - 1e-12) { fatt[i] = onsket[i]; aktiv[i] = false; }
     }
-    for (const i of gruppe) gitt[i] = true;
+    for (let k = 0; k + 1 < n; k++) {
+      if (P(k) - fatt[k] - fatt[k + 1] <= 1e-12 * Math.max(1, P(k))) { aktiv[k] = false; aktiv[k + 1] = false; }
+    }
   }
   return fatt;
 }

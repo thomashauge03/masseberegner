@@ -1586,10 +1586,13 @@ console.log('\n4j. Fjellmodellen');
     punkter: [{ x: 0, y: 0, dybde: 1 }]
   });
   sjekk('rett oppå sonderingen gjelder den målte dybden', medPunkt.dybde(0, 0, 0), 1, 1e-9);
-  /* Virkningen avtar mot rekkevidden: andelen er 1 − (d/R)². Her var
-     rekkevidden et stup – full virkning til 49,9 m og ingen fra 50,1 – og
-     en strekning ble ikke sett i det hele tatt innenfor den. */
-  sjekk('30 m ut av 50: 64 % sondering, 36 % standarddybde', medPunkt.dybde(30, 0, 0), 0.64 * 1 + 0.36 * 4, 1e-9);
+  /* Virkningen avtar mot rekkevidden: bakgrunnen er en observasjon med fast
+     vekt (0,25/R²), sonderingen veier ((1 − d/R)/d)². Her var rekkevidden et
+     stup – full virkning til 49,9 m og ingen fra 50,1 – og en strekning ble
+     ikke sett i det hele tatt innenfor den. */
+  const vektV = d => ((1 - d / 50) / d) ** 2, vekt0 = 0.25 / 2500;
+  sjekk('30 m ut av 50: sonderingen og standarddybden med sine vekter', medPunkt.dybde(30, 0, 0),
+    (vektV(30) * 1 + vekt0 * 4) / (vektV(30) + vekt0), 1e-9);
   sjekk('utenfor rekkevidden gjelder standarddybden', medPunkt.dybde(80, 0, 0), 4, 1e-9);
   paastand('ved rekkevidden er det ikke noe sprang',
     Math.abs(medPunkt.dybde(49.9, 0, 0) - medPunkt.dybde(50.1, 0, 0)) < 0.02);
@@ -1600,7 +1603,14 @@ console.log('\n4j. Fjellmodellen');
     let sprang = 0;
     for (let x = 1; x < 120; x++) sprang = Math.max(sprang, Math.abs(syning.dybde(x, 0, x) - syning.dybde(x - 1, 0, x - 1)));
     paastand('en fjellsyning og en strekning går over i hverandre uten trapp', sprang < 0.25, sprang.toFixed(3));
-    sjekk('og strekningen gjelder alt halvveis ut', syning.dybde(30, 0, 30), 0.25 * 6, 1e-9);
+    const v30 = ((1 - 30 / 60) / 30) ** 2, v0 = 0.25 / 3600;
+    sjekk('og halvveis ut er strekningen med med sin vekt', syning.dybde(30, 0, 30), (v0 * 6) / (v30 + v0), 1e-9);
+  }
+  // sonderinger som sier det samme, trekker sammen – dybden mellom dem blir stående
+  {
+    const rekke = new M.Fjellmodell({ standarddybde: 4, rekkevidde: 60, punkter: [0, 50, 100, 150].map(x => ({ x, y: 0, dybde: 1 })) });
+    paastand('sonderinger hver 50. meter som alle sier 1,0 m: under 1,2 m midt imellom', rekke.dybde(75, 0, 75) < 1.2,
+      rekke.dybde(75, 0, 75).toFixed(3));
   }
 
   /* Interpolasjonen mellom to sonderinger er invers kvadratisk avstand.
@@ -1690,10 +1700,11 @@ console.log('\n4i. Linjeføring som ikke lar seg tegne slik den står');
   /* Nedskaleringen hadde ingen bunn. En radius pa 200 m klemt inn mellom to
      knekkpunkt to meter fra hverandre ble til 0,22 m - en avrundingsrest, ikke
      en kurve, og en veg ingen kan kjøre. */
-  /* To store radier om et ben på to meter: den minste får plassen, og den
-     andre blir en skarp knekk – det sies. */
+  /* To store radier om et ben på tretti centimeter: hver får femten, og ingen
+     av dem blir en kurve på mer enn et par meter – de blir skarpe knekker, og
+     det sies. */
   const trangt = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 20, y: 0, r: 400 },
-    { x: 22, y: 0.5, r: 400 }, { x: 60, y: 20, r: 0 }]);
+    { x: 20.3, y: 0.05, r: 400 }, { x: 60, y: 20, r: 0 }]);
   paastand('ingen kurve blir liggende under to meter',
     trangt.kurver.every(k => k.r >= 2), trangt.kurver.map(k => k.r.toFixed(2)).join(', '));
   paastand('og det sies at punktet ble en skarp knekk',
@@ -1701,16 +1712,41 @@ console.log('\n4i. Linjeføring som ikke lar seg tegne slik den står');
   paastand('linjen går fortsatt gjennom knekkpunktet',
     trangt.projiser(20, 0).avstand < 0.5, `${trangt.projiser(20, 0).avstand.toFixed(3)} m unna`);
 
-  /* DEN MINSTE FÅR DET DEN TRENGER. R = 200 og R = 60 om et ben på 100 m:
-     begge ble skalert til 38 % – R = 60 ble 23. R = 60 får plass hvis R = 200
-     tar resten. */
+  /* LIKEDELING. R = 200 og R = 60 om et ben på 100 m: begge ble skalert til
+     38 % – R = 60 ble 23. Nå får hver en likedel, 50 og 50. Og den som ber om
+     mindre enn sin del, får alt (se plassdeling.js). */
   {
     const l = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 300, y: 0, r: 200 }, { x: 300, y: 100, r: 60 }, { x: 600, y: 100, r: 0 }]);
     const r = l.oppnaddeRadier(4);
-    sjekk('den beskjedne kurven beholder radien', r[2], 60, 1e-9);
-    sjekk('den store tar det som er igjen', r[1], 99.9 - 60, 1e-6);
-    paastand('og den som ble kortet inn, varsles – med tallene',
-      l.advarsler.some(a => a.ip === 1 && /fra 200 til 40 m/.test(a.tekst)) && !l.advarsler.some(a => a.ip === 2), JSON.stringify(l.advarsler));
+    sjekk('R = 60 ved siden av R = 200 på 100 m: halve benet', r[2], 49.95, 1e-6);
+    sjekk('og R = 200 det samme', r[1], 49.95, 1e-6);
+    paastand('begge som ble kortet inn, varsles – med tallene',
+      l.advarsler.some(a => a.ip === 1 && /fra 200 til 50 m/.test(a.tekst))
+      && l.advarsler.some(a => a.ip === 2 && /fra 60 til 50 m/.test(a.tekst)), JSON.stringify(l.advarsler));
+    const liten = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 300, y: 0, r: 200 }, { x: 300, y: 100, r: 30 }, { x: 600, y: 100, r: 0 }]);
+    const rLiten = liten.oppnaddeRadier(4);
+    paastand('den som ber om mindre enn sin del, får alt – og naboen resten', Math.abs(rLiten[2] - 30) < 1e-9
+      && Math.abs(rLiten[1] - (99.9 - 30)) < 1e-6, JSON.stringify(rLiten));
+    // plassdelingen: aldri mer enn strekket, aldri mer enn ønsket, og lik begge veier
+    const { delPlass } = require(path.join(__dirname, '..', 'public', 'js', 'plassdeling.js'));
+    let brudd = 0, asym = 0, s = 7;
+    const tilf = () => (s = (s * 16807) % 2147483647) / 2147483647;
+    for (let k = 0; k < 20000; k++) {
+      const n = 3 + Math.floor(tilf() * 8);
+      const o = Array.from({ length: n }, (_, i) => (i === 0 || i === n - 1 || tilf() < 0.15 ? 0 : tilf() * 60));
+      const p = Array.from({ length: n - 1 }, () => tilf() * 80);
+      const fa = delPlass(o, p);
+      for (let i = 0; i + 1 < n; i++) if (fa[i] + fa[i + 1] > p[i] + 1e-9) brudd++;
+      for (let i = 0; i < n; i++) if (fa[i] > o[i] + 1e-12 || fa[i] < 0) brudd++;
+      const sp = delPlass(o.slice().reverse(), p.slice().reverse()).reverse();
+      for (let i = 0; i < n; i++) asym = Math.max(asym, Math.abs(sp[i] - fa[i]));
+    }
+    paastand('plassdelingen gir aldri mer enn strekket eller ønsket, og er lik begge veier – 20 000 tilfeller',
+      brudd === 0 && asym < 1e-9, `${brudd} brudd, asymmetri ${asym}`);
+    sjekk('fire like i en kjede med trange ender: ingen får mer enn strekket', (() => {
+      const fa = delPlass([0, 20, 20, 20, 20, 0], [1, 10, 12, 10, 1]);
+      return Math.max(fa[1] + fa[2] - 10, fa[2] + fa[3] - 12, fa[3] + fa[4] - 10, 0);
+    })(), 0, 1e-9);
     // to som ber om like mye, deler likt – og begge varsles
     const like = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 300, y: 0, r: 100 }, { x: 300, y: 100, r: 100 }, { x: 600, y: 100, r: 0 }]);
     const rl = like.oppnaddeRadier(4);
@@ -1750,20 +1786,27 @@ console.log('\n4i. Linjeføring som ikke lar seg tegne slik den står');
     const l = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 100, y: 0, r: 40 }, { x: 0, y: 0, r: 0 }]);
     paastand('180° sies fra om', l.advarsler.some(a => /rett tilbake/.test(a.tekst)));
   }
-  /* SKARPT HJØRNE: den krappeste svingen, ikke et rettstrekk. Kravene leste
-     radien der, fikk Infinity, og ga full stigning og ingen utvidelse. */
+  /* SKARPT HJØRNE: kurven det minst ville trengt, ikke et rettstrekk. Kravene
+     leste radien der, fikk Infinity, og ga full stigning og ingen utvidelse.
+     Radien er den største kurven som får plass med halve det korteste benet
+     som tangent: 90° med ben på 100 m er R = 50. */
   {
     const k3 = require(path.join(__dirname, '..', 'public', 'js', 'veiklasser.js')).malFraVeiklasse('k3', Object.assign({}, KLASSISK));
     const l = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 100, y: 0, r: 0 }, { x: 100, y: 100, r: 0 }]);
-    sjekk('ved hjørnet er radien 0', M.effektivRadius(l, k3, 100), 0, 1e-12);
-    sjekk('og stigningskravet det strengeste', M.maksStigningFraRadius(k3, M.effektivRadius(l, k3, 100), 0.05, 1), 0.02, 1e-12);
+    sjekk('ved hjørnet er radien kurven som minst trengs: 50 m', M.effektivRadius(l, k3, 100), 50, 1e-9);
+    sjekk('og stigningskravet er radiens: 9 % i lassretningen', M.maksStigningFraRadius(k3, M.effektivRadius(l, k3, 100), 0.05, 1), 0.09, 1e-12);
     paastand('langt unna er det rettstrekk', M.effektivRadius(l, k3, 30) === Infinity);
     const st = [];
     for (let s = 0; s <= 200 + 1e-9; s += 5) st.push(s);
     const utv = M.lagUtvidelsesprofil(l, k3, st);
     const vedHjornet = utv[st.indexOf(100)];
-    sjekk('og hjørnet får breddeutvidelsen til det strengeste båndet', (vedHjornet.sym != null ? vedHjornet.sym : vedHjornet),
-      M.utvidelseFraRadius(k3, 0, 90), 1e-9);
+    sjekk('og hjørnet får breddeutvidelsen til den radien', (vedHjornet.sym != null ? vedHjornet.sym : vedHjornet),
+      M.utvidelseFraRadius(k3, 50, 90), 1e-9);
+    // et knekk på to grader med ben på 25 m er en kurve på 700 m: ingen krav å snakke om
+    const knekk = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 25, y: 0, r: 0 },
+      { x: 25 + 25 * Math.cos(2 * Math.PI / 180), y: 25 * Math.sin(2 * Math.PI / 180), r: 0 }]);
+    paastand('et knekk på 2° gir ikke stigningskravet til en hårnål', M.effektivRadius(knekk, k3, 25) > 700
+      && M.maksStigningFraRadius(k3, M.effektivRadius(knekk, k3, 25), 0.05, 1) === 0.10, String(M.effektivRadius(knekk, k3, 25)));
   }
 
   // en romslig kurve skal ikke røres av noen av delene
@@ -2271,7 +2314,8 @@ console.log('\n4d. Retting av vertikalgeometrien');
       if (Math.abs(A) < 5e-3) continue;
       const k = A > 0 ? krav.minVertikalLavbrekk : krav.minVertikalHoybrekk;
       const kurve = vp.kurver.find(c => c.vip === i);
-      if ((kurve ? kurve.L : 0) < k * Math.abs(A) - 1e-6) ut.push(vp.vip[i].s);
+      // samme slingring som kontrollen og rettingen: et par promille er ikke et brudd
+      if ((kurve ? kurve.L : 0) < k * Math.abs(A) * 0.998 - 1e-6) ut.push(vp.vip[i].s);
     }
     return ut;
   };
@@ -2313,18 +2357,19 @@ console.log('\n4d. Retting av vertikalgeometrien');
      kurve brukeren hadde gitt K = 8, tok plassen fra naboen, og da ble naboens
      knekk flatet ut – høyden flyttet – i stedet for at K = 8 ble satt ned til
      det kravet trenger. Målt med brukersatt K: 363 av 400 brudd sto igjen. */
-  /* Profilen deler nå plassen med den minste først (plassdeling.js), så en
-     stor K tar ikke lenger plassen fra en mindre nabo: K = 8 ved siden av
-     K = 1,5 gir begge det de trenger. */
+  /* Profilen deler plassen likt (plassdeling.js): den som ber om lite, får
+     alt, så en stor K tar ikke plassen fra en mindre nabo – K = 8 ved siden
+     av K = 1,5 gir begge det de trenger. */
   const delt = [{ s: 0, z: 100, k: 0 }, { s: 50, z: 105, k: 8 }, { s: 80, z: 105, k: 1.5 }, { s: 130, z: 100, k: 0 }];
   paastand('K = 8 tar ikke plassen fra en nabo med K = 1,5', bruddene(delt).length === 0, bruddene(delt).join(','));
-  /* Men ber naboen om mer enn den trenger – K = 5 der 1,5 holder – tar den
-     plassen fra kurven ved siden av, som da blir for kort. Den settes ned. */
-  const nabo = [{ s: 0, z: 100, k: 0 }, { s: 50, z: 105, k: 8 }, { s: 80, z: 105, k: 5 }, { s: 130, z: 100, k: 0 }];
-  paastand('K = 5 ved siden av gir et brudd', bruddene(nabo).length > 0);
+  /* Men ber naboen om mer enn halve strekket – K = 10 på et lite lavbrekk der
+     K = 2 holder – får begge en likedel, og det store høybrekket ved siden av
+     blir for kort. Da settes naboens K ned, og plassen går dit den trengs. */
+  const nabo = [{ s: 0, z: 100, k: 0 }, { s: 50, z: 102.5, k: 4 }, { s: 62, z: 101.9, k: 10 }, { s: 112, z: 100.4, k: 0 }];
+  paastand('K = 10 på naboen gir et brudd i det store høybrekket', bruddene(nabo).length === 1 && bruddene(nabo)[0] === 50);
   const gjortN = rettVertikalgeometri(nabo, krav);
-  sjekk('naboen med for høy K settes ned til kravet', nabo[2].k, krav.minVertikalHoybrekk / 100, 1e-9);
-  sjekk('og høyden der det manglet plass, står der den sto', nabo[1].z, 105, 1e-9);
+  sjekk('naboen med for høy K settes ned til kravet', nabo[2].k, krav.minVertikalLavbrekk / 100, 1e-9);
+  sjekk('og høyden der det manglet plass, står der den sto', nabo[1].z, 102.5, 1e-9);
   paastand('ingen brudd igjen', bruddene(nabo).length === 0 && gjortN.glattet === 0,
     `${bruddene(nabo).join(',')} / glattet ${gjortN.glattet}`);
   // de låste som står i veien, telles én gang hver – ikke én gang per runde
@@ -4346,6 +4391,64 @@ console.log('\n6h. Reglene og beregningen (veg, pulje 5)');
       ['bærelag', r.sum.baerelag], ['må kjøres inn', r.balanse.manglerTotalt]]) {
       paastand(`tallregresjon: ${hva} innenfor 0,5 %`, avvik(tall, fasit[hva]) < 0.005, `${tall.toFixed(1)} mot ${fasit[hva]}`);
     }
+  }
+
+  /* PRØVER FOR DET GJENNOMGANGEN FANT UVOKTET – hver av disse kunne endres
+     uten at noen prøve ble rød. */
+  {
+    // margen ved linjeslutt: et punkt 4 mm bak er PÅ slutten, og det første bak er det neste
+    const vm = vipTilLengde([{ s: 0, z: 100, k: 1 }, { s: 100.004, z: 101, k: 1 }, { s: 150, z: 103, k: 1 }], 100);
+    paastand('4 mm bak slutten er på slutten – og punktet bak er det neste', vm.length === 3 && vm[1].s === 100.004 && vm[2].s === 150);
+    // rettProfil gir naboenes stigning til kravet – og ser forbi et kort mellomrom
+    const sett = [];
+    rettProfil([{ s: 0, z: 100 }, { s: 50, z: 105 }, { s: 51, z: 105.09 }, { s: 100, z: 110 }],
+      { maksStigningFor: (sA, sB, g, gF, gE) => { sett.push([sA, sB, gF, gE]); return 1; }, naboGjennom: 5 });
+    const forste = sett.find(x => x[0] === 0), siste = sett.find(x => x[0] === 51);
+    paastand('rettProfil gir naboenes stigning – og et mellomrom på én meter skiller ikke',
+      !!forste && forste[2] === null && Math.abs(forste[3] - (110 - 105.09) / 49) < 1e-9 && !!siste && Math.abs(siste[2] - 0.1) < 1e-9,
+      JSON.stringify(sett.slice(0, 3)));
+    // retningen: K3 har tillegget i lassretningen, K5 i returretningen
+    const k3 = V.malFraVeiklasse('k3', Object.assign({}, KLASSISK, { lassretning: 1 }));
+    const k5 = V.malFraVeiklasse('k5', Object.assign({}, KLASSISK, { lassretning: 1 }));
+    paastand('tillegget følger retningen: K3 opp i lassretningen, K5 ned (returretningen)',
+      M.kortStrekkTillegg(k3, 0.1) === 0.02 && M.kortStrekkTillegg(k3, -0.1) === 0
+      && M.kortStrekkTillegg(k5, 0.1) === 0 && M.kortStrekkTillegg(k5, -0.1) === 0.02);
+    // lengden måles mellom kryssene, ikke til nabostasjonene: med 15 m mellom profilene er 50 m fortsatt kort
+    const bakke50 = new Vertikalprofil([{ s: 0, z: 100, k: 0 }, { s: 100, z: 100, k: 0 }, { s: 150, z: 105.75, k: 0 }, { s: 300, z: 105.75, k: 0 }]);
+    const n15 = kjor(bakke50, k3, { profilAvstand: 15 }).brudd.filter(m => m.type === 'stigning').length;
+    sjekk('50 m på 11,5 % med 15 m mellom profilene: lovlig', n15, 0, 0);
+    // i utflatingen mot en kurve gjelder ikke unntaket
+    const svingt = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 160, y: 0, r: 40 }, { x: 260, y: 60, r: 0 }]);
+    const nKurve = kjor(new Vertikalprofil([{ s: 0, z: 100, k: 0 }, { s: 110, z: 100, k: 0 }, { s: 150, z: 104.6, k: 0 }, { s: svingt.lengde, z: 104.6, k: 0 }]),
+      k3, { linje: svingt }).brudd.filter(m => m.type === 'stigning').length;
+    paastand('40 m på 11,5 % inn mot en kurve: ikke unntatt', nKurve > 0, String(nKurve));
+    // fjellmodellen: en sondering som kommer innenfor rekkevidden, gir ikke et rykk
+    const toS = new M.Fjellmodell({ standarddybde: 4, rekkevidde: 60, punkter: [{ x: 0, y: 0, dybde: 1 }, { x: 70, y: 0, dybde: 3 }] });
+    sjekk('en sondering som kommer innenfor rekkevidden, gir ikke et rykk', Math.abs(toS.dybde(10.01, 0, 0) - toS.dybde(9.99, 0, 0)), 0, 0.01);
+    // en krapp kurve mellom profilene blir sett
+    const kort = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 100, y: 0, r: 4 }, { x: 100 + 100 * Math.cos(0.3), y: 100 * Math.sin(0.3), r: 0 }]);
+    const mk = kjor(flat, { minRadius: 10 }, { linje: kort, profilAvstand: 20,
+      profil: new Vertikalprofil([{ s: 0, z: 100, k: 0 }, { s: kort.lengde, z: 100, k: 0 }]) });
+    paastand('en kurve på R = 4 mellom to profiler 20 m fra hverandre blir meldt', mk.merknader.some(m => m.type === 'kurvatur' && /Radius 4/.test(m.tekst)),
+      mk.merknader.map(m => m.type).join(','));
+    // K holder, men naboene tar plassen: da står det at det er for trangt – ikke «øk K»
+    const tr = kjor(new Vertikalprofil([{ s: 0, z: 100, k: 0 }, { s: 15, z: 101.5, k: 10 }, { s: 30, z: 100, k: 0 }, { s: 300, z: 100, k: 0 }]),
+      { minVertikalHoybrekk: 200, minVertikalLavbrekk: 200 });
+    const tekst = (tr.brudd.find(m => m.type === 'vertikalkurve' && m.s === 15) || {}).tekst || '';
+    paastand('K = 10 uten plass: «for skarpt for avstanden», ikke «øk K»', /for skarpt for avstanden/.test(tekst) && !/øk K/.test(tekst), tekst);
+    // taket på antall profiler: 25 km med en halv meter ville vært 50 000
+    const lang = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 25000, y: 0, r: 0 }]);
+    const rl = M.beregnMasser({ linje: lang, profil: new Vertikalprofil([{ s: 0, z: 100, k: 0 }, { s: 25000, z: 100, k: 0 }]),
+      terreng: { z: () => 100.5 }, mal: { utskifting: false }, fjell: new M.Fjellmodell({}), profilAvstand: 0.5, bakkefaktor: 1,
+      raskt: true, integrasjonssteg: 0.5 });
+    paastand('25 km med en halv meter: høyst 40 000 profiler, og det sies', rl.profiler.length <= 40001
+      && rl.merknader.some(m => m.type === 'inngang' && /40\s000 profiler/.test(m.tekst)), String(rl.profiler.length));
+    // en gammel prosjektfil får klassens unntak, ikke standardmalens
+    const PF = require(path.join(__dirname, '..', 'public', 'js', 'prosjektform.js'));
+    const gml = PF.moderniserMal({ veiklasse: 'k3', vegbredde: 4 });
+    const uten = PF.moderniserMal({ vegbredde: 4 });
+    paastand('en gammel K3-mal får K3 sitt unntak, en mal uten klasse ingen', gml.kortStrekk && gml.kortStrekk.lass === 0.02
+      && uten.kortStrekk === null);
   }
 
   // L8: et umulig krav mellom to låste høyder fordeles jevnt

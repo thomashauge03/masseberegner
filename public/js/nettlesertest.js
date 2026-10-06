@@ -193,7 +193,7 @@ const Nettlesertest = {
       'groftRapport',
       'planBeregning', 'planNyttAnlegg', 'planTegnTrase', 'planRediger', 'planFane', 'planProfil', 'planRapport',
       'planForklaring', 'planEksport', 'planEksportSoner', 'planAvvik', 'planTerrengAndre',
-      'vegProfilLengde', 'vegLinjeslutt', 'vegStigningIKurve', 'vegKnapper', 'vegSluttretting', 'lagringOgAngre', 'angreposter', 'grensesnittVeg',
+      'vegProfilLengde', 'vegLinjeslutt', 'vegStigningIKurve', 'vegKnapper', 'vegSluttretting', 'lagringOgAngre', 'angreposter', 'grensesnittVeg', 'vegRegler',
       'lovlighet', 'framdrift', 'gamleFilerOgUtskifting', 'opprydding'];
     for (const navn of proever) {
       try {
@@ -10370,6 +10370,56 @@ const Nettlesertest = {
         await App.angre();
         this.sjekk('et angre etter sletting tar ikke det gamle navnet tilbake', App.P.navn === 'Nytt prosjekt', App.P.navn);
         App.P.navn = navn;
+      });
+    } finally {
+      App.bekreft = gammelBekreft;
+    }
+  },
+
+  /**
+   * Reglene og knappene fra pulje 5 som bare kan prøves i appen: unntaket for
+   * korte rettstrekk i rettingens krav, «Lås ingen», angre for «Foreslå
+   * profil», og at «Unngå sprengning» lar høydene bak linjeslutt være.
+   */
+  async vegRegler() {
+    const gammelBekreft = App.bekreft;
+    try {
+      await this._medVeg(async ll => {
+        App.P.ip = [ll(0, 0), ll(300, 0)];
+        App.P.vip = [{ s: 0, z: 100, k: 1 }, { s: 150, z: 100, k: 1 }, { s: 300, z: 100, k: 1 }];
+        App.velgVeiklasse('k3');
+        App.P.mal.lassretning = 1;
+        clearTimeout(App._tidsavbrudd);
+        await App.oppdater();
+        const L = App.linje.lengde;
+        // unntaket for korte rettstrekk – også når strekket går forbi slutten
+        const t = (a, b, g, f, e) => App.tillattStigning(a, b, g, f, e);
+        this.sjekk('40 m på rettstrekk: 12 % i lassretningen', Math.abs(t(100, 140, 0.115, 0, 0) - 0.12) < 1e-9, String(t(100, 140, 0.115, 0, 0)));
+        this.sjekk('80 m: 10 %', Math.abs(t(100, 180, 0.115, 0, 0) - 0.10) < 1e-9);
+        this.sjekk('naboen like bratt: 10 %', Math.abs(t(100, 140, 0.115, 0.115, 0) - 0.10) < 1e-9);
+        this.sjekk('et strekk forbi linjeslutt måles fram til slutten', Math.abs(t(L - 30, L + 50, 0.115, 0, 0) - 0.12) < 1e-9,
+          String(t(L - 30, L + 50, 0.115, 0, 0)));
+        // «Lås alle» og «Lås ingen»: K kommer tilbake fra feltet
+        document.getElementById('kVerdi').value = '3';
+        document.getElementById('h_laasAlle').click();
+        this.sjekk('«Lås alle» setter K = 0', App.P.vip.every(v => v.laast && v.k === 0));
+        document.getElementById('h_laasIngen').click();
+        this.sjekk('«Lås ingen» gir K fra feltet tilbake', App.P.vip.every(v => !v.laast && v.k === 3), JSON.stringify(App.P.vip.map(v => v.k)));
+        // «Foreslå profil» kan angres
+        const foer = JSON.stringify(App.P.vip);
+        document.getElementById('knappForeslaProfil').click();
+        const B = App.historikk.bakover;
+        this.sjekk('«Foreslå profil» er en angrepost', B.length && B[B.length - 1].hva === 'foreslo profil');
+        await App.angre();
+        this.sjekk('  og angret står høydene som før', JSON.stringify(App.P.vip) === foer);
+        // «Unngå sprengning» flytter ikke et punkt bak linjeslutt
+        App.P.vip.push({ s: L + 60, z: 99, k: 1 });
+        clearTimeout(App._tidsavbrudd);
+        await App.oppdater();
+        App.bekreft = async () => true;
+        await App.rettOpp('sprengning');
+        const bak = App.P.vip.find(v => v.s > L + 1);
+        this.sjekk('«Unngå sprengning» lar høyden bak linjeslutt være', !!bak && bak.z === 99, JSON.stringify(bak));
       });
     } finally {
       App.bekreft = gammelBekreft;

@@ -303,7 +303,16 @@ ${kropp}
     const klipp = app.linje && typeof vipTilLengde === 'function';
     const vp = app.vprofil && Array.isArray(app.vprofil.kurver)
       ? app.vprofil : new Vertikalprofil(klipp ? vipTilLengde(app.P.vip, app.linje.lengde) : app.P.vip);
-    const pvi = vp.vip.map((v, i) => {
+    /* Går ingen kurve over linjeslutt, er vegen fram dit den samme med et
+       siste punkt PÅ slutten – på linja mot punktet bak. Da skrives det, og
+       mottakeren får ikke et knekkpunkt bak det linja dekker. */
+    const L = linje.lengde;
+    let knekk = vp.vip;
+    const siste = knekk[knekk.length - 1];
+    if (siste && siste.s > L + 1e-6 && !(vp.kurver || []).some(c => c.sEVC > L + 1e-6)) {
+      knekk = knekk.slice(0, -1).concat([{ s: L, z: vp.hoyde(L) }]);
+    }
+    const pvi = knekk.map((v, i) => {
       const kurve = (vp.kurver || []).find(c => c.vip === i);
       return kurve && kurve.L > 1e-6
         ? `          <ParaCurve length="${kurve.L.toFixed(4)}">${v.s.toFixed(4)} ${v.z.toFixed(4)}</ParaCurve>`

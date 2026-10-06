@@ -167,6 +167,9 @@ const StandardFaktorer = {
  *  Fjellmodell - hvor dypt ned til fast fjell
  * ------------------------------------------------------------------ */
 
+/** Bakgrunnens vekt i fjellmodellen, i enheter av 1/R² – se Fjellmodell.dybde. */
+const FJELL_BAKGRUNNSVEKT = 0.25;
+
 class Fjellmodell {
   /**
    * @param {object} o
@@ -196,28 +199,33 @@ class Fjellmodell {
    * strekningen brukeren hadde lagt inn ble ikke sett: en fjellsyning med
    * dybde 0 ved profil 0 og en strekning på 6 m ga 0 m til profil 59 og 6 m
    * fra profil 61 – seks meter sprang i fjelloverflaten mellom to profiler.
-   * Nå er andelen sonderingene får 1 − (d/R)², der d er avstanden til den
-   * nærmeste: hel der den er tatt, tre firedeler halvveis ut, ingenting ved
-   * rekkevidden. Vektene mellom flere sonderinger er fortsatt 1/d², tonet
-   * ned mot null ved rekkevidden så en sondering ikke faller inn med et rykk.
+   *
+   * Nå er strekningen eller standarddybden én observasjon blant de andre, med
+   * en fast vekt, og sonderingene veier 1/d² – tonet ned mot null ved
+   * rekkevidden, så en sondering verken slipper eller faller inn med et rykk.
+   * Nær en sondering er det den som gjelder; langt fra alle gjelder
+   * bakgrunnen; og flere sonderinger som sier det samme, trekker sammen, så
+   * dybden mellom dem blir stående. (Først fikk bakgrunnen en andel ut fra
+   * den nærmeste sonderingen alene, og sonderinger hver 50. meter som alle sa
+   * 1,0 m, ga 1,5 m midt imellom.)
    */
   dybde(x, y, s) {
     const bakgrunn = this._bakgrunn(s);
     if (this.punkter.length) {
-      let sumV = 0, sumW = 0, naermest = Infinity;
+      const R = this.rekkevidde;
+      let sumV = 0, sumW = 0;
       for (const p of this.punkter) {
         const d = Math.hypot(p.x - x, p.y - y);
-        if (d >= this.rekkevidde) continue;
+        if (d >= R) continue;
         if (d < 0.05) return p.dybde;
-        const t = 1 - d / this.rekkevidde;
+        const t = 1 - d / R;
         const w = t * t / (d * d);
         sumV += w * p.dybde; sumW += w;
-        if (d < naermest) naermest = d;
       }
       if (sumW > 0) {
-        const r = naermest / this.rekkevidde;
-        const andel = 1 - r * r;
-        return andel * (sumV / sumW) + (1 - andel) * bakgrunn;
+        // bakgrunnens vekt: som en sondering et stykke over halvveis ut mot rekkevidden
+        const w0 = FJELL_BAKGRUNNSVEKT / (R * R);
+        return (sumV + w0 * bakgrunn) / (sumW + w0);
       }
     }
     return bakgrunn;
@@ -332,10 +340,10 @@ function maksStigningFraRadius(mal, R, stigning, lassretning) {
  */
 function effektivRadius(linje, mal, s) {
   const utflating = mal.utflatingForKurve != null ? mal.utflatingForKurve : (mal.utvidelseOvergang || 0);
-  /* Kurvelista leses direkte, og et skarpt hjørne er radius 0 – den krappeste
-     svingen det kan bli (se Linjeforing.minsteRadius). Her ble radien prøvd
-     med jevne steg, og et hjørne svarte «rettstrekk»: full stigning akkurat
-     der vegen svinger mest. */
+  /* Kurvelista leses direkte, og et skarpt hjørne teller med kurven det minst
+     ville trengt (se Linjeforing.minsteRadius og hjorner). Her ble radien
+     prøvd med jevne steg, og et hjørne svarte «rettstrekk»: full stigning
+     akkurat der vegen svinger mest. */
   if (typeof linje.minsteRadius === 'function') {
     const u = utflating > 0 ? utflating : 0;
     return linje.minsteRadius(Math.max(0, s - u), Math.min(linje.lengde, s + u));
@@ -722,8 +730,8 @@ function lagUtvidelsesprofil(linje, mal, stasjoner, ekstra, plasser) {
     return utvidelseFraRadius(mal, linje.radiusVed(s), dreining);
   };
   const plass = plassUtvidelse(plasser, linje.lengde, mal.utvidelseOvergang, mal.vegbredde);
-  /* Et skarpt hjørne er den krappeste svingen vegen kan ha, og får bredden
-     til det strengeste båndet – med sin egen dreining. `radiusVed` svarer
+  /* Et skarpt hjørne får bredden til kurven det minst ville trengt (`rEkv`,
+     se Linjeforing.hjorner) – med sin egen dreining. `radiusVed` svarer
      rettstrekk der, og hjørnet fikk ingen utvidelse i det hele tatt. */
   const hjorner = typeof linje.hjorner === 'function' ? linje.hjorner() : [];
   const grunn = stasjoner.map((s, i) => {
@@ -737,7 +745,7 @@ function lagUtvidelsesprofil(linje, mal, stasjoner, ekstra, plasser) {
     }
     for (const h of hjorner) {
       if (h.s < s - før - 1e-9 || h.s > s + etter + 1e-9) continue;
-      const v = utvidelseFraRadius(mal, 0, Math.abs(h.avboy) * 180 / Math.PI);
+      const v = utvidelseFraRadius(mal, h.rEkv, Math.abs(h.avboy) * 180 / Math.PI);
       if (v > maks) maks = v;
     }
     return maks;
@@ -2266,7 +2274,16 @@ function beregnMasser(o) {
       // et profil som leser NETTOPP dette strekkets stigning – et profil på knekkpunktet leser strekket før
       const g = profil.stigninger[i];
       if (profiler.some(pr => pr.s >= a - 1e-9 && pr.s <= b + 1e-9 && Math.abs(profil.stigning(pr.s) - g) < 1e-9)) continue;
-      const k = stigningskrav(linje, mal, profil, [(a + b) / 2])[0];
+      /* Med profilene på hver side, så unntaket for korte rettstrekk ser hele
+         det bratte stykket – ikke bare det ene punktet midt i strekket. */
+      const midt = (a + b) / 2;
+      let foran = null, bak = null;
+      for (const pr of profiler) {
+        if (pr.s < a - 1e-9) foran = pr.s;
+        else if (pr.s > b + 1e-9 && bak == null) bak = pr.s;
+      }
+      const sted = [foran, midt, bak].filter(v => v != null);
+      const k = stigningskrav(linje, mal, profil, sted)[sted.indexOf(midt)];
       if (Math.abs(k.stigning) <= k.maks + 1e-4) continue;
       merknader.push({
         s: (a + b) / 2, type: 'stigning', verdi: Math.abs(k.stigning) * 100, enhet: '%', vaerst: 'stor',
@@ -2328,12 +2345,16 @@ function beregnMasser(o) {
         }
       }
       const iKurven = isFinite(pr.radius);
+      // et skarpt hjørne innenfor utflatingen – det er det kravet kommer fra
+      const utfl = mal.utflatingForKurve != null ? mal.utflatingForKurve : (mal.utvidelseOvergang || 0);
+      const vedHjorne = !iKurven && typeof linje.hjorner === 'function'
+        && linje.hjorner().some(h => Math.abs(h.s - pr.s) <= utfl + 1e-6 && Math.abs(h.rEkv - kravRadius) < 1e-6);
       merknader.push({
         s: pr.s, type: 'stigning', verdi: Math.abs(stign) * 100, enhet: '%', vaerst: 'stor',
         tekst: `Stigning ${kom((Math.abs(stign) * 100), 1)} % overstiger ${kom((maks * 100), 0)} % `
           + `${lassetKlatrer ? 'i lassretningen' : 'i returretningen'} `
           + (iKurven ? `(radius ${kom(pr.radius, 0)} m)`
-            : kravRadius === 0 ? '(ved et skarpt hjørne – legg inn en kurve)'
+            : vedHjorne ? `(ved et skarpt hjørne, regnet som radius ${kom(kravRadius, 0)} m – legg inn en kurve)`
             : isFinite(kravRadius) ? `(utflating mot kurve med radius ${kom(kravRadius, 0)} m)` : '(rettstrekk)')
           + (rad ? ` – holder med radius ${rad > 1e8 ? 'over 60' : rad} m` : ''),
         raad: rad ? { type: 'radius', radius: rad > 1e8 ? 60 : rad } : { type: 'stigning', maks }
@@ -2409,6 +2430,7 @@ function beregnMasser(o) {
     /* Profilen korter en kurve til 99,9 % av plassen den har, som en sikring
        mot at to kurver møtes. En kurve som akkurat får plass, ble derfor meldt
        – med «øk K til 2,0» der K alt var 2,0. Et par promille er ikke et brudd. */
+    // samme slingring som rettingen bruker – KURVE_TOLERANSE i vertikalprofil.js
     if (bygget >= kreves * 0.998 - 1e-6) continue;
 
     /* Rommet en kurve kan bruke uten a ta over nabo-knekkpunktet sitt: den
