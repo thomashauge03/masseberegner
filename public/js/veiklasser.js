@@ -197,10 +197,13 @@ function malFraVeiklasse(klasse, gjeldende) {
      en veg byggherren har bestilt 5,0 m bred, ble 4,0 m når man valgte K3 –
      stille, og massene ble rundt 12 % for små. Vakta i appen som skulle hindre
      det, kom etter at bredden alt var skrevet over. Har brukeren satt bredden
-     selv (`vegbreddeEgen`), og er den bredere enn klassen krever, blir den
-     stående; ellers er det klassens bredde som gjelder, som før. */
-  const egen = gjeldende && gjeldende.vegbreddeEgen && Number.isFinite(gjeldende.vegbredde);
-  m.vegbredde = egen && gjeldende.vegbredde > k.vegbredde ? gjeldende.vegbredde : k.vegbredde;
+     selv, er det den som gjelder, så sant klassen ikke krever mer.
+     DET ER BREDDEN BRUKEREN SKREV, IKKE DEN SOM STÅR, SOM TELLER. Med et
+     flagg og bredden som sto, kunne den bare gå oppover: 4,2 m, så K2 (minst
+     4,5) og så K3 (minst 4,0) ga 4,5 m – og meldingen sa at 4,5 var
+     brukerens egen. Nå huskes den bestilte bredden (`vegbreddeBestilt`). */
+  const bestilt = gjeldende && Number.isFinite(gjeldende.vegbreddeBestilt) ? gjeldende.vegbreddeBestilt : null;
+  m.vegbredde = bestilt != null ? Math.max(bestilt, k.vegbredde) : k.vegbredde;
   m.tverrfall = k.tverrfall;
   m.grofteDybdePlanum = k.grofteDybdePlanum;
   m.grofteBunn = k.grofteBunn;

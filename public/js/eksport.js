@@ -297,7 +297,9 @@ ${kropp}
 
        LandXML uttrykker en parabolsk vertikalkurve som <ParaCurve> i stedet
        for <PVI> pa selve knekkpunktet, med kurvelengden som attributt. */
-    // profilen slik vegen er regnet – klippet til linjas lengde, se vipTilLengde
+    /* Profilen slik vegen er regnet – se vipTilLengde. Er linja kortet, går
+       den til det første knekkpunktet bak slutten, så den siste kurven er hel
+       slik den er i beregningen; mottakeren leser profilen bare der linja er. */
     const klipp = app.linje && typeof vipTilLengde === 'function';
     const vp = app.vprofil && Array.isArray(app.vprofil.kurver)
       ? app.vprofil : new Vertikalprofil(klipp ? vipTilLengde(app.P.vip, app.linje.lengde) : app.P.vip);

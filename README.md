@@ -97,7 +97,7 @@ Knappene over lengdeprofilen:
 |---|---|
 | **Rett opp** | Beholder profilen du har, retter bruddene på kravene, og går så løs på å få ned sprengning og fylling. Bruk denne på et prosjekt som allerede er tegnet |
 | Foreslå profil | Ny profillinje fra terrenget. Kaster den du har |
-| Massebalanse | Løfter/senker hele profilen til skjæring og fylling går opp i opp |
+| Massebalanse | Løfter/senker hele profilen dit minst masse må kjøres inn og ut av anlegget |
 | Optimaliser | Finjusterer hvert knekkpunkt for billigst mulig løsning |
 
 ## Rør fra maskinstyringen

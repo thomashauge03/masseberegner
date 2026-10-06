@@ -106,7 +106,7 @@ class NodeTerreng {
     maksStigningVed: s => M.maksStigningFraRadius(mal, linje.radiusVed(s))
   });
   const profil = new Vertikalprofil(vip);
-  console.log(`Lengdeprofil: ${vip.length} knekkpunkt, største stigning ${(profil.maksStigning(1) * 100).toFixed(1)} %`);
+  console.log(`Lengdeprofil: ${vip.length} knekkpunkt, største stigning ${(profil.maksStigning() * 100).toFixed(1)} %`);
 
   const midt = linje.punktVed(linje.lengde / 2);
   const bf = Geo.bakkefaktor(midt.x, midt.y, sone, gyldige.reduce((a, b) => a + b, 0) / gyldige.length);

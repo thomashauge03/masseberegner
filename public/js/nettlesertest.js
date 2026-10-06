@@ -174,7 +174,7 @@ const Nettlesertest = {
       'groftRapport',
       'planBeregning', 'planNyttAnlegg', 'planTegnTrase', 'planRediger', 'planFane', 'planProfil', 'planRapport',
       'planForklaring', 'planEksport', 'planEksportSoner', 'planAvvik', 'planTerrengAndre',
-      'vegProfilLengde', 'vegKnapper', 'vegSluttretting', 'lagringOgAngre',
+      'vegProfilLengde', 'vegLinjeslutt', 'vegStigningIKurve', 'vegKnapper', 'vegSluttretting', 'lagringOgAngre',
       'lovlighet', 'framdrift', 'gamleFilerOgUtskifting', 'opprydding'];
     for (const navn of proever) {
       try {
@@ -9888,11 +9888,25 @@ const Nettlesertest = {
       await App.oppdater();
       this.sjekk('kortere linje: det låste punktet bak slutten står i profilen', vip() === foer, vip());
       const L = App.linje.lengde;
-      this.sjekk('men beregningen slutter ved linjeslutt', App.vprofil.vip[App.vprofil.vip.length - 1].s <= L + 1e-6
-        && Math.abs(App.vprofil.vip[App.vprofil.vip.length - 1].s - L) < 1e-6, String(L));
+      /* Det første punktet bak slutten er med i beregningen, så vegen som er
+         igjen er den samme – se vipTilLengde. */
+      const sisteBrukt = App.vprofil.vip[App.vprofil.vip.length - 1];
+      this.sjekk('beregningen går til det første punktet bak slutten', Math.abs(sisteBrukt.s - 190) < 1e-9
+        && sisteBrukt.z === 103, String(L));
       const rader = document.querySelectorAll('#hoydeTabell tbody tr');
       this.sjekk('høydetabellen sier at det står bak slutten', rader.length === 3 && rader[2].classList.contains('bakslutt')
-        && !rader[1].classList.contains('bakslutt'));
+        && !rader[1].classList.contains('bakslutt') && /stigningen inn mot slutten/.test(rader[2].title));
+      // med steg 0,01 rundet et piltrykk høyden til centimeter – og låste punktet
+      this.sjekk('høydefeltet har steg 0,001', rader[0].querySelector('input[aria-label="Høyde"]').step === '0.001');
+      /* Et endepunkt lagt inn med profilnummeret rundet til centimeter havnet
+         annenhver gang bak slutten, og ble merket «brukes ikke». */
+      App.P.vip.push({ s: L + 0.004, z: 102.5, k: 0, laast: true });
+      App.P.vip.sort((a, b) => a.s - b.s);
+      App.visHoydetabell();
+      const rader2 = document.querySelectorAll('#hoydeTabell tbody tr');
+      this.sjekk('et punkt under en halv centimeter bak slutten er på slutten', rader2.length === 4
+        && !rader2[2].classList.contains('bakslutt') && rader2[3].classList.contains('bakslutt'));
+      App.P.vip.splice(2, 1);
       // lenger igjen: punktet er med, og prosjektet har ikke fått et nytt endepunkt
       App.P.ip.push(ll(250, 0));
       clearTimeout(App._tidsavbrudd);
@@ -9910,6 +9924,86 @@ const Nettlesertest = {
       clearTimeout(App._tidsavbrudd);
       await App.oppdater();
       this.sjekk('en tom profil får et forslag – det er ingen høyder å miste', App.P.vip.length >= 2);
+      // ett låst punkt bak slutten: forslaget dekker linja, og punktet blir stående
+      App.P.vip = [{ s: 240, z: 104, k: 0, laast: true }];
+      clearTimeout(App._tidsavbrudd);
+      await App.oppdater();
+      this.sjekk('ett låst punkt bak slutten: det står, ved siden av forslaget', App.P.vip.length >= 3
+        && App.P.vip.some(v => v.s === 240 && v.z === 104 && v.laast), vip());
+      /* Uten terreng ble forslaget en tom liste, den ble lagt inn, og punktet
+         var borte – også et låst. */
+      const flatt = Terreng.prototype.z;
+      Terreng.prototype.z = () => NaN;
+      try {
+        App._terrengnokkel = '';
+        App.P.vip = [{ s: 60, z: 104, k: 0, laast: true }];
+        clearTimeout(App._tidsavbrudd);
+        await App.oppdater();
+        this.sjekk('uten terreng: det ene punktet står som det var', App.P.vip.length === 1
+          && App.P.vip[0].z === 104 && App.P.vip[0].laast === true, vip());
+      } finally {
+        Terreng.prototype.z = flatt;
+        App._terrengnokkel = '';
+      }
+    });
+  },
+
+  /**
+   * Stigningskravet over et langt strekk ser kurvene på det. Det var ni punkt
+   * uansett lengde – på 400 m ett hvert 50. – og en kurve med sin utflating
+   * kunne ligge imellom uten å bli sett.
+   */
+  async vegStigningIKurve() {
+    await this._medVeg(async ll => {
+      const malFoer = JSON.parse(JSON.stringify(App.P.mal));
+      try {
+        App.velgVeiklasse('k3');
+        App.P.ip = [ll(0, 0), Object.assign(ll(225, 0), { r: 15 }), ll(400, 30)];
+        App.P.vip = [{ s: 0, z: 100, k: 1 }, { s: 400, z: 100, k: 1 }];
+        clearTimeout(App._tidsavbrudd);
+        await App.oppdater();
+        const kurve = App.linje.kurver[0];
+        const iKurven = App.tillattStigning(kurve.sBC, kurve.sEC, 0.05);
+        const helt = App.tillattStigning(0, App.linje.lengde, 0.05);
+        const rett = App.tillattStigning(0, 100, 0.05);
+        this.sjekk('400 m med en krapp kurve midt mellom to av de gamle punktene: kurvens krav',
+          !!kurve && Math.abs(helt - iKurven) < 1e-12 && helt < rett, `${helt} / ${iKurven} / ${rett}`);
+      } finally {
+        App.P.mal = malFoer;
+      }
+    });
+  },
+
+  /**
+   * Rapporten og «Rett opp» ser den samme profilen ved linjeslutt. Kortet man
+   * linja, la beregningen et nytt endepunkt på slutten og klemte den siste
+   * vertikalkurven inn til avstanden dit – rapporten meldte et brudd som
+   * rettingen ikke så, fordi den rettet profilen slik brukeren har den, og
+   * rettingen flyttet høyder bak slutten som ikke ble brukt.
+   */
+  async vegLinjeslutt() {
+    await this._medVeg(async ll => {
+      const malFoer = Object.assign({}, App.P.mal);
+      try {
+        App.P.mal.minVertikalHoybrekk = 200;   // K = 2: kurven i knekken under trenger 18 m
+        App.P.mal.minVertikalLavbrekk = 200;
+        App.P.ip = [ll(0, 0), ll(100.3, 0)];
+        App.P.vip = [{ s: 0, z: 100, k: 2 }, { s: 50, z: 102, k: 2 }, { s: 100, z: 104, k: 2 },
+          { s: 120, z: 103, k: 2 }, { s: 160, z: 99, k: 2 }];
+        clearTimeout(App._tidsavbrudd);
+        await App.oppdater();
+        const kurve = App.vprofil.kurver.find(c => Math.abs(App.vprofil.vip[c.vip].s - 100) < 1e-9);
+        this.sjekk('den siste kurven er hel når linja slutter like bak knekken', !!kurve && Math.abs(kurve.L - 18) < 1e-6,
+          kurve ? String(kurve.L) : 'ingen');
+        const vk = App.resultat.merknader.filter(m => m.type === 'vertikalkurve' && Math.abs(m.s - 100) < 1);
+        this.sjekk('og rapporten melder ikke et brudd der', vk.length === 0, vk.map(m => m.tekst).join(' | '));
+        const bak = JSON.stringify(App.P.vip.filter(v => v.s > 110));
+        await App.rettOpp();
+        this.sjekk('«Rett opp» lar punktene bak slutten være', JSON.stringify(App.P.vip.filter(v => v.s > 110)) === bak,
+          JSON.stringify(App.P.vip));
+      } finally {
+        App.P.mal = malFoer;
+      }
     });
   },
 
@@ -9971,8 +10065,16 @@ const Nettlesertest = {
         App.velgVeiklasse('k3');
         this.sjekk('en egen bredde blir stående med en smalere veiklasse', App.P.mal.vegbredde === 5 && App.P.mal.veiklasse === 'k3',
           String(App.P.mal.vegbredde));
-        this.sjekk('og statuslinja sier det', /Vegbredden 5 m er beholdt/.test(document.getElementById('statuslinje').textContent),
+        this.sjekk('og statuslinja sier det', /Vegbredden er 5 m som du satte/.test(document.getElementById('statuslinje').textContent),
           document.getElementById('statuslinje').textContent);
+        // tilbake til en klasse som krever mer, og så mindre igjen: bredden brukeren satte, ikke den største
+        vb.value = '4.2';
+        vb.dispatchEvent(new Event('change'));
+        App.velgVeiklasse('k2');
+        const iK2 = App.P.mal.vegbredde;
+        App.velgVeiklasse('k3');
+        this.sjekk('4,2 m: 4,5 i K2 og 4,2 igjen i K3', iK2 === 4.5 && App.P.mal.vegbredde === 4.2,
+          `${iK2} / ${App.P.mal.vegbredde}`);
         // «Massebalanse» uten terreng: ingenting flyttes, og det sies
         clearTimeout(App._tidsavbrudd);
         await App.oppdater();
@@ -9991,14 +10093,23 @@ const Nettlesertest = {
         document.getElementById('prosjektnavn').value = navn;
         await Lager.lagre(navn, JSON.parse(JSON.stringify(App.P)));
         App._lagretSom = JSON.stringify(App.P);
+        const aapnetFoer = App._aapnetSom;
+        App._aapnetSom = navn;             // åpnet fra lageret under dette navnet
         const ny = App.P.vip[0].z + 1;
         App.P.vip[0].z = ny;               // en endring som ikke er lagret
         let spurt = '';
-        App.bekreft = async t => { spurt = t; return false; };
+        /* Autolagringen rakk å skrive endringene mens det ble spurt – og de
+           var tilbake ved neste omlasting. */
+        let fyrt = false;
+        App._autolagring = setTimeout(() => { fyrt = true; }, 0);
+        App.bekreft = async t => { spurt = t; await new Promise(r => setTimeout(r, 30)); return false; };
         App.autolagringPause--;
-        try { await App.apne(navn); } finally { App.autolagringPause++; await Lager.slett(navn); }
+        try { await App.apne(navn); } finally {
+          App.autolagringPause++; await Lager.slett(navn); App._aapnetSom = aapnetFoer;
+        }
         this.sjekk('å åpne samme prosjekt med endringer spør først', /Gå tilbake til det som er lagret/.test(spurt), spurt);
         this.sjekk('og et nei lar endringen stå', App.P.vip[0].z === ny, String(App.P.vip[0].z));
+        this.sjekk('autolagringen venter mens det spørres', !fyrt);
       });
     } finally {
       App.bekreft = gammelBekreft;

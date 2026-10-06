@@ -114,7 +114,7 @@ console.log('\n3. Lengdeprofil');
   for (let s = 0; s <= 400; s += 5) { st.push(s); zt.push(100 + s * 0.10 + 4 * Math.sin(s / 25)); }
   const forslag = foreslaProfil(st, zt, { vipAvstand: 40, maksStigning: 0.2, k: 1 });
   const vp2 = new Vertikalprofil(forslag);
-  paastand('profilforslag holder maks stigning', vp2.maksStigning(1) <= 0.2001);
+  paastand('profilforslag holder maks stigning', vp2.maksStigning() <= 0.2001);
   paastand('profilforslag følger terrenget rimelig',
     Math.abs(vp2.hoyde(200) - (100 + 20 + 4 * Math.sin(8))) < 6);
 
@@ -122,7 +122,7 @@ console.log('\n3. Lengdeprofil');
   const bratt = foreslaProfil(st, st.map(s => 100 + s * 0.35), { vipAvstand: 40, maksStigning: 0.2, k: 1 });
   const vp3 = new Vertikalprofil(bratt);
   paastand('umulig terreng gir fortsatt gyldige tall',
-    bratt.every(v => isFinite(v.z)) && vp3.maksStigning(5) > 0.2);
+    bratt.every(v => isFinite(v.z)) && vp3.maksStigning() > 0.2);
 
   /* VEGEN SKAL VÆRE DEN SAMME UANSETT HVILKEN ENDE MAN STASJONERER FRA.
      Innkortingen av vertikalkurver som ellers ville overlappe var grådig:
@@ -233,30 +233,73 @@ console.log('\n3a. Profilen mot linjas lengde – høydene brukeren har, røres 
   /* Her sto `justerProfilTilLengde`, som ved hver omregning slettet
      knekkpunktene bak linjeslutt – også de låste – og la et nytt endepunkt
      inn i prosjektet. Nå får beregningen en kopi. */
-  const vip = [{ s: 0, z: 100, k: 1 }, { s: 50, z: 105, k: 2, laast: true }, { s: 100, z: 110, k: 1, laast: true }];
+  const vip = [{ s: 0, z: 100, k: 1 }, { s: 50, z: 105, k: 2, laast: true }, { s: 100, z: 110, k: 1, laast: true },
+    { s: 150, z: 120, k: 1 }];
   const foer = JSON.stringify(vip);
   const kort = vipTilLengde(vip, 80);
-  paastand('kortere linje: punktet bak slutten er ikke med i beregningen',
-    kort.length === 3 && kort[2].s === 80 && kort.every(v => v.s <= 80));
-  sjekk('men slutten ligger på linja mot det – stigningen som er tegnet', kort[2].z, 105 + 5 * 30 / 50, 1e-9);
-  paastand('og lista brukeren har, er urørt – også det låste punktet bak slutten', JSON.stringify(vip) === foer);
+  paastand('kortere linje: det første punktet bak slutten er med, de andre ikke',
+    kort.length === 3 && kort[2].s === 100 && kort[2].z === 110);
+  paastand('og lista brukeren har, er urørt – også de låste punktene bak slutten', JSON.stringify(vip) === foer);
   paastand('punktene foran slutten er de samme, med låsen', kort[1].z === 105 && kort[1].laast === true && kort[1].k === 2);
-  paastand('kopien er en kopi', kort[0] !== vip[0]);
-  const lang = vipTilLengde(vip, 130);
-  paastand('lengre linje: forlenget med den siste stigningen', lang.length === 4 && lang[3].s === 130
-    && Math.abs(lang[3].z - 113) < 1e-9);
-  paastand('innenfor en halv meter: som den er', vipTilLengde(vip, 100.4).length === 3);
+  paastand('kopien er en kopi', kort[0] !== vip[0] && kort[2] !== vip[2]);
+  const lang = vipTilLengde(vip, 180);
+  paastand('lengre linje: forlenget med den siste stigningen', lang.length === 5 && lang[4].s === 180
+    && Math.abs(lang[4].z - 126) < 1e-9);
+  paastand('innenfor en halv meter: som den er', vipTilLengde(vip, 150.4).length === 4);
   const bak = vipTilLengde([{ s: 100, z: 110, k: 1 }, { s: 150, z: 115, k: 1 }], 50);
   paastand('alle punktene bak slutten: linja mellom dem, fra start til slutt', bak.length === 2 && bak[0].s === 0
     && Math.abs(bak[0].z - 100) < 1e-9 && bak[1].s === 50 && Math.abs(bak[1].z - 105) < 1e-9);
-  const like = vipTilLengde([{ s: 0, z: 100, k: 1 }, { s: 40, z: 104, k: 1 }, { s: 40, z: 104, k: 1 }], 60);
-  paastand('to punkt på samme profil i enden: vannrett videre, ikke en deling på null', like.length === 4
-    && Math.abs(like[3].z - 104) < 1e-9);
   paastand('ett punkt eller ingen: som det er', vipTilLengde([{ s: 0, z: 1, k: 1 }], 50).length === 1
     && vipTilLengde([], 50).length === 0);
   // beregningen med kopien er den samme som med en profil som slutter der
-  const vp = new Vertikalprofil(kort);
-  sjekk('høyden ved 70 er på linja som er tegnet', vp.hoyde(70), 105 + 5 * 20 / 50, 1e-9);
+  sjekk('høyden ved 70 er på linja som er tegnet', new Vertikalprofil(kort).hoyde(70), 105 + 5 * 20 / 50, 1e-9);
+
+  /* Et endepunkt lagt inn med profilnummeret rundet til centimeter havner
+     annenhver gang litt bak slutten. Det er på slutten, ikke bak. */
+  const rundet = vipTilLengde([{ s: 0, z: 100, k: 1 }, { s: 199.996 + 0.004, z: 104, k: 1 }], 199.996);
+  paastand('et punkt under en halv centimeter bak slutten er på slutten', rundet.length === 2
+    && Math.abs(rundet[1].s - 200) < 1e-9);
+
+  /* Ryddet som Vertikalprofil rydder. Her ble lista brukt usortert, og av to
+     punkt på samme profil ble det første brukt – det profilen kaster. */
+  const usortert = vipTilLengde([{ s: 100, z: 110, k: 1 }, { s: 0, z: 100, k: 1 }, { s: 50, z: 105, k: 1 }], 130);
+  sjekk('usortert: slutten følger stigningen som er tegnet', usortert[usortert.length - 1].z, 113, 1e-9);
+  const like = vipTilLengde([{ s: 0, z: 100, k: 1 }, { s: 40, z: 104, k: 1 }, { s: 40, z: 110, k: 1 }], 60);
+  paastand('to punkt på samme profil i enden: det siste gjelder, som i profilen', like.length === 3
+    && like[1].z === 110 && Math.abs(like[2].z - 115) < 1e-9);
+  sjekk('… og slutten er den profilen selv gir', like[2].z,
+    new Vertikalprofil([{ s: 0, z: 100, k: 1 }, { s: 40, z: 104, k: 1 }, { s: 40, z: 110, k: 1 }]).hoyde(60), 1e-9);
+  const eneInne = vipTilLengde([{ s: 0, z: 100, k: 1 }, { s: 120, z: 106, k: 1 }], 0.003);
+  paastand('ett punkt på linja og ett bak: to punkt, ikke en flat veg', eneInne.length === 2);
+
+  /* VEGEN SOM ER IGJEN, ER DEN SAMME. Her sto et nytt endepunkt på slutten,
+     og det klemte den siste vertikalkurven: knekkpunktet 0,3 m før slutten
+     fikk 0,6 m kurve der den var 18 m. */
+  const full = [{ s: 0, z: 100, k: 2 }, { s: 50, z: 102, k: 2 }, { s: 100, z: 104, k: 2 }, { s: 120, z: 103, k: 2 }];
+  const helProfil = new Vertikalprofil(full);
+  const klippet = new Vertikalprofil(vipTilLengde(full, 100.3));
+  const kurve = klippet.kurver.find(c => Math.abs(klippet.vip[c.vip].s - 100) < 1e-9);
+  sjekk('den siste kurven er hel når linja kortes', kurve ? kurve.L : 0, 18, 1e-6);
+  let storstAvvik = 0;
+  for (let s = 0; s <= 100.3; s += 0.1) storstAvvik = Math.max(storstAvvik, Math.abs(klippet.hoyde(s) - helProfil.hoyde(s)));
+  sjekk('og vegen fram til slutten er den samme som før', storstAvvik, 0, 1e-9);
+}
+
+/* ------------------------------------------------------------------ */
+console.log('\n3aa. Største stigning – lest der den kan ligge, fram til linjeslutt');
+{
+  /* Med ett meters steg ble et strekk kortere enn steget aldri truffet. */
+  const sprang = new Vertikalprofil([{ s: 0, z: 100, k: 0 }, { s: 100, z: 110, k: 0 },
+    { s: 100.01, z: 104, k: 0 }, { s: 200, z: 100, k: 0 }]);
+  paastand('et strekk på én centimeter med −60 000 % blir sett', sprang.maksStigning() > 100);
+  // en stigning bak linjeslutt teller ikke
+  const bratt = new Vertikalprofil([{ s: 0, z: 100, k: 0 }, { s: 100, z: 104, k: 0 }, { s: 120, z: 108, k: 0 }]);
+  sjekk('fram til slutten: bare det som er på linja', bratt.maksStigning(100), 0.04, 1e-9);
+  sjekk('uten slutt: hele profilen', bratt.maksStigning(), 0.20, 1e-9);
+  // et lavbrekk fra flatt til 8 % med K=5: kurven går fra 80 til 120
+  const kurvet = new Vertikalprofil([{ s: 0, z: 100, k: 5 }, { s: 100, z: 100, k: 5 }, { s: 200, z: 108, k: 5 }]);
+  sjekk('hele profilen: 8 %', kurvet.maksStigning(), 0.08, 1e-9);
+  sjekk('slutter linja midt i kurven, det den har nådd der – 6 % ved 110', kurvet.maksStigning(110), 0.06, 1e-9);
 }
 
 /* ------------------------------------------------------------------ */
@@ -337,7 +380,7 @@ console.log('\n3b. Innlagte høyder');
   });
   const slakVerst = verst(slakVip, slak.z);
   paastand('i slakt lende holdes grensen mot terrenget', slakVerst.fylling <= 3.05 && slakVerst.skjaering <= 5.05);
-  paastand('og stigningskravet holdes samtidig', new Vertikalprofil(slakVip).maksStigning(1) <= 0.2001);
+  paastand('og stigningskravet holdes samtidig', new Vertikalprofil(slakVip).maksStigning() <= 0.2001);
   /* GRENSEN MÅ PRØVES DER DEN FAKTISK BITER.
      Påstanden over er navngitt etter `maksOverTerreng: 3` og
      `maksUnderTerreng: 5`, men i denne slake dalen legger forslaget seg 0,571 m
@@ -380,7 +423,7 @@ console.log('\n3b. Innlagte høyder');
   paastand('men stigningskravet slipper ikke taket',
     new Vertikalprofil(foreslaProfil(kloft.s, kloft.z, {
       vipAvstand: 40, maksStigning: 0.2, k: 0, maksOverTerreng: 3, maksUnderTerreng: 5
-    })).maksStigning(1) <= 0.2001);
+    })).maksStigning() <= 0.2001);
 
   // Uten laste punkt skal profilen fortsatt legge seg pa terrenget
   const utenLas = new Vertikalprofil(foreslaProfil(st, zt, { vipAvstand: 40, maksStigning: 0.2, k: 1 }));
@@ -2522,9 +2565,22 @@ console.log('\n6. Veiklasser, breddeutvidelse og stigningskrav');
      klassen krever mindre – og klassens minstebredde gjelder når den er
      smalere. Her ble den satt til klassens tall uansett. */
   sjekk('egen bredde over klassens minstebredde blir stående',
-    V.malFraVeiklasse('k3', Object.assign({}, KLASSISK, { vegbredde: 5.0, vegbreddeEgen: true })).vegbredde, 5.0, 1e-9);
+    V.malFraVeiklasse('k3', Object.assign({}, KLASSISK, { vegbredde: 5.0, vegbreddeBestilt: 5.0 })).vegbredde, 5.0, 1e-9);
   sjekk('egen bredde under minstebredden: klassens',
-    V.malFraVeiklasse('k3', Object.assign({}, KLASSISK, { vegbredde: 3.5, vegbreddeEgen: true })).vegbredde, 4.0, 1e-9);
+    V.malFraVeiklasse('k3', Object.assign({}, KLASSISK, { vegbredde: 3.5, vegbreddeBestilt: 3.5 })).vegbredde, 4.0, 1e-9);
+  /* Bredden kunne bare gå oppover: 4,2 m, så K2 (minst 4,5) og så K3
+     (minst 4,0) ga 4,5 – det er den bestilte bredden som teller. */
+  {
+    let m = Object.assign({}, KLASSISK, { vegbredde: 4.2, vegbreddeBestilt: 4.2 });
+    m = V.malFraVeiklasse('k2', m);
+    const iK2 = m.vegbredde;
+    m = V.malFraVeiklasse('k3', m);
+    const iK3 = m.vegbredde;
+    m = V.malFraVeiklasse('k8', m);
+    sjekk('egen bredde 4,2 i K2 blir klassens 4,5', iK2, 4.5, 1e-9);
+    sjekk('… og tilbake til 4,2 i K3, ikke 4,5', iK3, 4.2, 1e-9);
+    sjekk('… og 4,2 i K8', m.vegbredde, 4.2, 1e-9);
+  }
   const k2 = V.malFraVeiklasse('k2', Object.assign({}, KLASSISK));
   sjekk('klasse 2 setter veibredde', k2.vegbredde, 4.5, 1e-9);
   sjekk('klasse 2 har 20 m minsteradius', k2.minRadius, 20, 1e-9);

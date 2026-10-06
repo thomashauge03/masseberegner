@@ -139,11 +139,30 @@ class Vertikalprofil {
     return this.stigninger[this.stigninger.length - 1];
   }
 
-  /** Største stigning i tallverdi over hele profilen. */
-  maksStigning(steg = 1) {
+  /**
+   * Største stigning i tallverdi fra profil 0 til `slutt` – linjas lengde;
+   * uten den til siste knekkpunkt.
+   *
+   * Stigningen står stille på rettstrekkene og går jevnt fra den ene til den
+   * andre gjennom en kurve. Den største ligger derfor i et knekkpunkt, i en
+   * kurveende eller i en av endene, og der leses den. HER BLE DET PRØVD MED
+   * ETT METERS STEG, og et strekk kortere enn steget ble aldri truffet: to
+   * høyder én centimeter fra hverandre ga et strekk på −60 000 %, og «Største
+   * stigning» sa 10 %. Og uten slutten ble stigningen mot et punkt bak
+   * linjeslutt regnet med på hele strekket dit.
+   */
+  maksStigning(slutt) {
+    const V = this.vip;
+    if (V.length < 2) return 0;
+    const til = Number.isFinite(slutt) ? slutt : V[V.length - 1].s;
+    const steder = [0, til];
+    for (const v of V) steder.push(v.s);
+    for (const c of this.kurver) steder.push(c.sBVC, c.sEVC);
     let m = 0;
-    const slutt = this.vip.length ? this.vip[this.vip.length - 1].s : 0;
-    for (let s = 0; s <= slutt; s += steg) m = Math.max(m, Math.abs(this.stigning(s)));
+    for (const s of steder) {
+      if (s < -1e-9 || s > til + 1e-9) continue;
+      m = Math.max(m, Math.abs(this.stigning(s)));
+    }
     return m;
   }
 }
@@ -581,6 +600,16 @@ function lesHoydetabell(tekst) {
 }
 
 /**
+ * Hvor langt bak linjeslutt et punkt kan ligge og likevel regnes som på den.
+ *
+ * En høyde lagt inn på slutten får profilnummeret rundet til centimeter
+ * (`+L.toFixed(2)`), og annenhver gang havner det litt bak. Med en grense på
+ * en mikrometer ble endepunktet da merket «bak linjeslutt – brukes ikke» i
+ * halvparten av tilfellene.
+ */
+const VIP_SLUTTMARGIN = 0.005;
+
+/**
  * Høydene slik beregningen bruker dem på en linje som er L lang – en kopi,
  * lista brukeren har, røres ikke.
  *
@@ -590,26 +619,34 @@ function lesHoydetabell(tekst) {
  * knekkpunkt, var høydene der borte for godt, og autolagringen skrev det til
  * disk. Høyder endres på knapper, ikke av en omregning.
  *
- * Nå får beregningen en kopi. Punktene bak slutten er ikke med; i stedet
- * slutter profilen på linja mellom det siste punktet foran og det første bak –
- * stigningen som er tegnet. Mangler profilen et stykke i enden, forlenges den
- * med den siste stigningen. Blir linja lengre igjen, er punktene med igjen.
+ * Nå får beregningen en kopi, ryddet som `Vertikalprofil` rydder: sortert,
+ * bare tall, og det siste av to punkt på samme profil.
+ *
+ * DET FØRSTE PUNKTET BAK SLUTTEN ER MED, SOM DET ER. Profilen regnes som om
+ * linja fortsatte, og vegen som er igjen blir den samme som før linja ble
+ * kortet. Her sto et nytt endepunkt på linjeslutt i stedet, og det klemte den
+ * siste vertikalkurven inn til avstanden dit: med et knekkpunkt 0,3 m før
+ * slutten fikk kurven 0,6 m der kravet var 22 – et brudd i rapporten som
+ * «Rett opp» ikke så, fordi den rettet profilen slik brukeren har den.
+ * Punktene lenger bak er ikke med. Blir linja lengre igjen, er alle med.
+ *
+ * Mangler profilen et stykke i enden, forlenges den med den siste stigningen.
  */
 function vipTilLengde(vip, L) {
-  const V = (vip || []).filter(v => v && Number.isFinite(v.s) && Number.isFinite(v.z))
-    .map(v => Object.assign({}, v));
+  const sortert = (vip || []).filter(v => v && Number.isFinite(v.s) && Number.isFinite(v.z))
+    .map(v => Object.assign({}, v))
+    .sort((a, b) => a.s - b.s);
+  const V = sortert.filter((p, i) => i === sortert.length - 1 || sortert[i + 1].s - p.s > 1e-6);
   if (V.length < 2 || !(L > 0)) return V;
-  const inne = V.filter(v => v.s <= L + 1e-6);
-  const bak = V.find(v => v.s > L + 1e-6);
-  // linja gjennom a og b ved s – vannrett når de står på samme profil
-  const paa = (a, b, s) => (Math.abs(b.s - a.s) > 1e-9 ? a.z + (b.z - a.z) * (s - a.s) / (b.s - a.s) : a.z);
+  const inne = V.filter(v => v.s <= L + VIP_SLUTTMARGIN);
+  const bak = V.find(v => v.s > L + VIP_SLUTTMARGIN);
+  const paa = (a, b, s) => a.z + (b.z - a.z) * (s - a.s) / (b.s - a.s);
   if (bak) {
     if (!inne.length) {
       // hele profilen ligger bak slutten: linja mellom de to første, fra start til slutt
       return [{ s: 0, z: paa(V[0], V[1], 0), k: 0 }, { s: L, z: paa(V[0], V[1], L), k: 0 }];
     }
-    const a = inne[inne.length - 1];
-    if (L - a.s > 1e-6) inne.push({ s: L, z: paa(a, bak, L), k: 0 });
+    inne.push(bak);
     return inne;
   }
   const siste = V[V.length - 1];
@@ -629,6 +666,6 @@ function naermesteIndeks(arr, v) {
 if (typeof module !== 'undefined') {
   module.exports = {
     Vertikalprofil, foreslaProfil, rettProfil, rettVertikalgeometri,
-    lagTerrengoppslag, lesHoydetabell, vipTilLengde
+    lagTerrengoppslag, lesHoydetabell, vipTilLengde, VIP_SLUTTMARGIN
   };
 }
