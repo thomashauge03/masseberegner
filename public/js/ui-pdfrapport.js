@@ -1089,12 +1089,24 @@ const Pdfrapport = {
         ['Løsmasse til overs (fast mål)', t(g.balanse.overskuddLos)], ['Sprengt fjell (løst mål)', t(g.balanse.sprengtLos)],
         ['Kjøpes: fundament', t(g.balanse.kjopFundament)], ['Kjøpes: omfylling', t(g.balanse.kjopOmfylling)]];
       if (g.balanse.kjopGjenfylling > 0.5) bal.push(['Kjøpes: gjenfylling', t(g.balanse.kjopGjenfylling)]);
-      toSpalter({ tittel: 'Massebalanse, m³', rader: bal }, null);
+      // avstivingen er det som faktureres der den står – bare med når den er brukt
+      const kasse = g.sum.kasseLengde > 0.05, spunt = g.sum.spuntAreal > 0.05;
+      const avst = [];
+      if (kasse) avst.push(['Grøft med grøftekasse, m', t(g.sum.kasseLengde)]);
+      if (spunt) avst.push(['Spunt, to vegger, m²', t(g.sum.spuntAreal)]);
+      toSpalter({ tittel: 'Massebalanse, m³', rader: bal }, avst.length ? { tittel: 'Avstiving', rader: avst } : null);
       tabell([{ tekst: 'KODE', bredde: 110, venstre: true }, { tekst: 'GRØFT M', bredde: 60 }, { tekst: 'GRAVING M³', bredde: 62 },
         { tekst: 'FJELL M³', bredde: 55 }, { tekst: 'FUND. M³', bredde: 55 }, { tekst: 'OMF. M³', bredde: 55 },
         { tekst: 'GJENF. M³', bredde: 60 }],
       [...g.perKode].map(([kode, kk]) => ({ celler: [kode, t(kk.lengde), t(kk.gravingLos), t(kk.sprengning),
         t(kk.fundament), t(kk.omfylling), t(kk.gjenfylling)] })));
+      // per kode i en egen tabell: sju kolonner fyller allerede bredden
+      if (kasse || spunt) {
+        tabell([{ tekst: 'KODE', bredde: 110, venstre: true }].concat(kasse ? [{ tekst: 'KASSE M', bredde: 70 }] : [],
+          spunt ? [{ tekst: 'SPUNT M²', bredde: 70 }] : []),
+        [...g.perKode].filter(([, kk]) => kk.kasseLengde > 0.05 || kk.spuntAreal > 0.05)
+          .map(([kode, kk]) => ({ celler: [kode].concat(kasse ? [t(kk.kasseLengde)] : [], spunt ? [t(kk.spuntAreal)] : []) })));
+      }
       const j = ror.groft || Groft.nyGroft();
       if (j.strekninger.length || j.sammen.length) {
         overskrift('Justeringer av grøfta');

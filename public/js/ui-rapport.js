@@ -1128,6 +1128,8 @@ ${merknader ? `<h2>Merknader</h2><table><thead><tr><th>Type</th><th>Merknad</th>
     const profiler = teg.profiler.map(p => `<figure><img class="rorprofilbilde" src="${p.bilde}" `
       + `alt="Lengdeprofil for rør ${escapeHtml(p.navn)}"><figcaption>${escapeHtml(p.navn)}</figcaption></figure>`).join('');
     const g = res.groft, j = r.groft || Groft.nyGroft();
+    // avstivingen er det som faktureres der den står – bare med når den er brukt
+    const kasse = !!g && g.sum.kasseLengde > 0.05, spunt = !!g && g.sum.spuntAreal > 0.05;
     const justeringer = j.strekninger.map(st => `<li>${escapeHtml(GroftUI._plassering(st.fra, st.til, res.linjer)
       || 'punktene finnes ikke lenger')}: ${escapeHtml(GroftUI.strekningTekst(st))}</li>`).join('')
       + j.sammen.map(p => `<li>Felles grøft: ${escapeHtml(GroftUI._rorMed(p[0], res.linjer) || '?')} og `
@@ -1147,10 +1149,14 @@ ${g.sum.kumvolum > 0.5 ? `<tr><td>Kummene (betong)</td><td>${t(g.sum.kumvolum)}<
 <table><thead><tr><th>Dybde</th><th>Grøft</th></tr></thead><tbody>
 ${g.dybdeklasser.map(kl => `<tr><td>${GroftUI.klasseNavn(kl)}</td><td>${t(kl.lengde)} m</td></tr>`).join('')}
 <tr class="sum"><td>I alt</td><td>${t(g.sum.lengde)} m</td></tr></tbody></table>
+${kasse || spunt ? `<table><thead><tr><th>Avstiving</th><th>Mengde</th></tr></thead><tbody>
+${kasse ? `<tr><td>Grøft med grøftekasse</td><td>${t(g.sum.kasseLengde)} m</td></tr>` : ''}
+${spunt ? `<tr><td>Spunt, to vegger</td><td>${t(g.sum.spuntAreal)} m²</td></tr>` : ''}</tbody></table>` : ''}
 <table><thead><tr><th>Kode</th><th>Grøft</th><th>Graving</th><th>Fjell</th><th>Fundament</th><th>Omfylling</th>
-<th>Gjenfylling</th></tr></thead><tbody>
+<th>Gjenfylling</th>${kasse ? '<th>Kasse</th>' : ''}${spunt ? '<th>Spunt</th>' : ''}</tr></thead><tbody>
 ${[...g.perKode].map(([kode, kk]) => `<tr><td>${escapeHtml(kode)}</td><td>${t(kk.lengde)} m</td><td>${t(kk.gravingLos)}</td>`
-  + `<td>${t(kk.sprengning)}</td><td>${t(kk.fundament)}</td><td>${t(kk.omfylling)}</td><td>${t(kk.gjenfylling)}</td></tr>`).join('')}
+  + `<td>${t(kk.sprengning)}</td><td>${t(kk.fundament)}</td><td>${t(kk.omfylling)}</td><td>${t(kk.gjenfylling)}</td>`
+  + (kasse ? `<td>${t(kk.kasseLengde)} m</td>` : '') + (spunt ? `<td>${t(kk.spuntAreal)} m²</td>` : '') + '</tr>').join('')}
 </tbody></table>
 <p class="liten">m³. Felles grøft står på det dypeste røret.</p>
 <table><thead><tr><th>Massebalanse</th><th>m³</th></tr></thead><tbody>

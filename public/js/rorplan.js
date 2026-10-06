@@ -20,14 +20,16 @@ const RorPlan = (() => {
   /** Anleggets standard: overdekning til topp rør, klaring i kryss, kummene – og
       avviket mot innmålt (se roravvik.js): av til knappen slås på, toleransene i m. */
   const StandardPlanmal = { overdekning: 2.0, kryssKlaring: 0.3, kum: { diameter: 1000, arbeidsrom: 0.5 },
-    avvik: { vis: false, plan: 0.10, selvfall: 0.03, trykk: 0.10, sok: 1.0 } };
+    avvik: { vis: false, plan: 0.10, selvfall: 0.03, trykk: 0.10, sok: 1.0 },
+    // trykkrør: et høybrekk eller lavbrekk stikker minst så mye ut (m); minste fall mellom dem (‰), 0 = av
+    brekk: 0.3, trykkMinFall: 0 };
   /** Systemene som renner av seg selv – resten følger terrenget. */
   const SELVFALL = new Set(['spill', 'felles', 'overvann', 'drens']);
   /** Minste fall (‰) når koden ikke sier noe. */
   const STANDARD_MINFALL = { spill: 10, felles: 10, overvann: 5, drens: 5 };
   const GRENSER = { side: [-10, 10], diameter: [400, 3000], gods: [0.5, 100], overdekning: [0, 10],
     minFall: [0, 1000], maksFall: [0, 1000], kryssKlaring: [0, 5], arbeidsrom: [0, 3],
-    avvikPlan: [0.005, 2], avvikHoyde: [0.005, 2], sok: [0.1, 10] };
+    avvikPlan: [0.005, 2], avvikHoyde: [0.005, 2], sok: [0.1, 10], brekk: [0.05, 5], trykkMinFall: [0, 1000] };
 
   function nyPlan() { return { traseer: [], ror: [], kummer: [], laast: [], greiner: [] }; }
   function nyPlanmal() { return JSON.parse(JSON.stringify(StandardPlanmal)); }
@@ -465,6 +467,40 @@ const RorPlan = (() => {
         }
       }
     }
+    /* TRYKKRØR: HØYBREKK, LAVBREKK OG FALLET MELLOM DEM. Et trykkrør følger
+       terrenget med overdekningen, og kontrollen over hoppet over det. Det
+       som teller for et trykkrør, er hvor luft samler seg (høybrekk – lufting)
+       og hvor det må tømmes (lavbrekk). Brekkene finnes med en terskel – se
+       `brekk` – og mellom dem, og ut til endene, er fallet høyde over lengde.
+       Kravet er kodens minste fall når koden er et trykkrør, ellers anleggets
+       for trykkrør; 0 er av. Et selvfallsrør som er satt til trykk, tar ikke
+       med seg selvfallskravet. */
+    for (const l of b.linjer) {
+      if (l.plan.regel !== 'trykk') continue;
+      const k = kodeAv(o.koder, l.kode);
+      const h = o.mal && Number.isFinite(o.mal.brekk) ? o.mal.brekk : StandardPlanmal.brekk;
+      const krav = regel(null, k) === 'trykk' && Number.isFinite(k.minFall) ? k.minFall
+        : o.mal && Number.isFinite(o.mal.trykkMinFall) ? o.mal.trykkMinFall : StandardPlanmal.trykkMinFall;
+      const s = stasjonering(l.xy), z = l.punkter.map(p => p.z);
+      const pv = brekk(z, h);
+      for (const p of pv) {
+        const q = l.xy[p.i];
+        ut.push({ type: p.type === 'hoy' ? 'hoybrekk' : 'lavbrekk', linje: l.id, fra: s[p.i], til: s[p.i], x: q.x, y: q.y,
+          tekst: p.type === 'hoy' ? `${l.kode}: høybrekk ved ${m0(s[p.i])} m – her samler luft seg, og det trengs lufting.`
+            : `${l.kode}: lavbrekk ved ${m0(s[p.i])} m – her må røret kunne tømmes.` });
+      }
+      if (krav > 0) {
+        const punkt = [0].concat(pv.map(p => p.i), [z.length - 1]);
+        for (let j = 1; j < punkt.length; j++) {
+          const a = punkt[j - 1], c = punkt[j], L = s[c] - s[a];
+          if (!(L > 1) || !Number.isFinite(z[a]) || !Number.isFinite(z[c])) continue;
+          const fall = 1000 * Math.abs(z[c] - z[a]) / L;
+          if (fall >= krav - 1e-9) continue;
+          ut.push({ type: 'fall', linje: l.id, fra: s[a], til: s[c], x: (l.xy[a].x + l.xy[c].x) / 2, y: (l.xy[a].y + l.xy[c].y) / 2,
+            tekst: `${l.kode}: flatt – ${m1(fall)} ‰ på ${m0(s[a])}–${m0(s[c])} m, under ${m1(krav)} ‰ for trykkrør.` });
+        }
+      }
+    }
     // KRYSSING
     const grense = o.mal && Number.isFinite(o.mal.kryssKlaring) ? o.mal.kryssKlaring : StandardPlanmal.kryssKlaring;
     const egne = b.linjer.map(l => ({ id: l.id, kode: l.kode, D: kodeAv(o.koder, l.kode).dim / 1000, xy: l.xy,
@@ -546,6 +582,48 @@ const RorPlan = (() => {
     return ut;
   }
 
+  /**
+   * Høybrekk og lavbrekk langs en profil – toppunkt og bunnpunkt som stikker
+   * minst `h` meter opp eller ned fra det som ligger rundt, i rekkefølge langs
+   * røret.
+   *
+   * MED TERSKEL, IKKE PUNKT FOR PUNKT. Et tegnet trykkrør følger terrenget
+   * meter for meter, og hver tue ville ellers blitt et høybrekk. Profilen
+   * følges som en sikksakk: et toppunkt er et brekk når profilen etterpå har
+   * falt minst `h` under det, og før det steg minst `h` opp til det. Endene
+   * er ikke brekk – der er røret koblet på noe.
+   *
+   * @param {number[]} z  høydene langs røret (NaN hoppes over)
+   * @param {number} h   terskelen (m)
+   * @returns {Array<{i:number, type:'hoy'|'lav'}>}
+   */
+  function brekk(z, h) {
+    const idx = [];
+    for (let i = 0; i < z.length; i++) if (Number.isFinite(z[i])) idx.push(i);
+    if (idx.length < 3) return [];
+    const ut = [], start = idx[0];
+    let trend = 0, kand = start, hoy = start, lav = start;
+    for (const i of idx.slice(1)) {
+      if (trend === 0) {
+        if (z[i] > z[hoy]) hoy = i;
+        if (z[i] < z[lav]) lav = i;
+        if (z[hoy] - z[lav] < h) continue;
+        // den første store bevegelsen: steg profilen, er det laveste før et lavbrekk – om starten lå minst h over det
+        if (hoy > lav) { trend = 1; kand = hoy; if (lav !== start && z[start] - z[lav] >= h) ut.push({ i: lav, type: 'lav' }); }
+        else { trend = -1; kand = lav; if (hoy !== start && z[hoy] - z[start] >= h) ut.push({ i: hoy, type: 'hoy' }); }
+        continue;
+      }
+      if (trend === 1) {
+        if (z[i] >= z[kand]) kand = i;
+        else if (z[kand] - z[i] >= h) { ut.push({ i: kand, type: 'hoy' }); trend = -1; kand = i; }
+      } else {
+        if (z[i] <= z[kand]) kand = i;
+        else if (z[i] - z[kand] >= h) { ut.push({ i: kand, type: 'lav' }); trend = 1; kand = i; }
+      }
+    }
+    return ut;
+  }
+
   /** Fallet (‰) mellom kontrollpunktene på et selvfallsrør, i fallretningen – minste og største. */
   function fallSpenn(kontroll, l) {
     if (!l.plan || l.plan.regel !== 'selvfall') return null;
@@ -559,7 +637,7 @@ const RorPlan = (() => {
 
   return { StandardPlanmal, GRENSER, nyPlan, nyPlanmal, klem, nyId, alleIder, kodeAv, gods,
     toppFraBunn, bunnFraTopp, regel, overdekning, minFall, maksFall, forskyv, stasjonering, bygg, kontroller, fjell,
-    fallSpenn };
+    fallSpenn, brekk };
 })();
 
 if (typeof module !== 'undefined') module.exports = RorPlan;

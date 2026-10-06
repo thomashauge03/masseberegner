@@ -483,6 +483,122 @@ console.log('\n6b. Kummene');
     s.fundament + s.omfylling + s.gjenfylling + s.rorvolum + s.kumvolum, 1e-6);
 }
 
+console.log('\n6c. Grøftekasse og spunt');
+{
+  const strekk = (avst, fra = 0, til = null, ekstra = {}) => L => [Object.assign({ fra: 'a-' + fra, til: 'a-' + (til == null ? L / 10 : til),
+    mal: {}, fjell: null, egen: false, avstiving: avst }, ekstra)];
+  const regn = (L, st, ekstra = {}) => Groft.beregn(Object.assign({ linjer: [rett('a', '160PE', L, TOPP)], koder: koder160,
+    terrengZ: flatt, rute: 0.2, justering: { strekninger: st ? st(L) : [], sammen: [] } }, ekstra));
+  // kasse hele veien: loddrette vegger i kassebredden (1,2 m), ingenting utenfor
+  const kasse = perMeter(L => regn(L, strekk('kasse')));
+  sjekk('kasse: graving per meter = kassebredden · dybden', kasse.gravingLos, 1.2 * h, 1.2 * h * 0.01);
+  paastand('kasse: mindre enn med skråning', kasse.gravingLos < perMeter(en).gravingLos - 1);
+  const K = regn(100, strekk('kasse'));
+  sjekk('kasselengden er strekningen', K.sum.kasseLengde, 100, 1e-6);
+  sjekk('og står på koden', K.perKode.get('160PE').kasseLengde, 100, 1e-6);
+  paastand('ingen spunt', K.sum.spuntAreal === 0);
+  const nv = (res, s, n) => { const p = punktVed(s, n); return Groft.nivaa(res.modell, p.x, p.y); };
+  paastand('loddrett: innenfor veggen graves det til bunnen, utenfor ingenting',
+    Math.abs(nv(K, 50, 0.55) - (TOPP - D - f)) < 1e-9 && Number.isNaN(nv(K, 50, 0.7)), `${nv(K, 50, 0.55)} / ${nv(K, 50, 0.7)}`);
+  const smal = regn(100, strekk('kasse', 0, null, { kassebredde: 0.5 }));
+  sjekk('en kasse smalere enn røret med arbeidsrom: røret gjelder', perMeter(L => regn(L, strekk('kasse', 0, null, { kassebredde: 0.5 })))
+    .gravingLos, b * h, b * h * 0.01);
+  paastand('  og det står i en merknad', smal.merknader.some(x => x.type === 'kasse' && /0,76 m bredt, grøftekassa 0,50 m/.test(x.tekst)),
+    JSON.stringify(smal.merknader.filter(x => x.type === 'kasse')));
+  paastand('en kasse som er bred nok, gir ingen merknad', !K.merknader.some(x => x.type === 'kasse'));
+  // spunt: loddrett i bunnbredden; arealet er to vegger fra terreng til gravebunn
+  const spunt = perMeter(L => regn(L, strekk('spunt')));
+  sjekk('spunt: graving per meter = bunnbredden · dybden', spunt.gravingLos, b * h, b * h * 0.01);
+  const S = regn(100, strekk('spunt'));
+  sjekk('spuntarealet = 2 · dybde · lengde', S.sum.spuntAreal, 2 * h * 100, 2 * h * 100 * 1e-6);
+  paastand('ingen kasse', S.sum.kasseLengde === 0);
+  sjekk('regnestykket går opp med spunt', S.sum.gravingLos + S.sum.sprengning,
+    S.sum.fundament + S.sum.omfylling + S.sum.gjenfylling + S.sum.rorvolum + S.sum.kumvolum, 1e-6);
+}
+{
+  /* KASSE PÅ EN DEL AV RØRET (30–60 m). Grøfta før kassa beholder skråningen
+     helt fram – men enden av den er ingen halv kjegle inn langs kassa. */
+  const st = [{ fra: 'a-3', til: 'a-6', mal: {}, fjell: null, egen: false, avstiving: 'kasse' }];
+  const res = Groft.beregn({ linjer: [rett('a', '160PE', 100, TOPP)], koder: koder160, terrengZ: flatt, rute: 0.2,
+    justering: { strekninger: st, sammen: [] } });
+  const nv = (s, n) => { const p = punktVed(s, n); return Groft.nivaa(res.modell, p.x, p.y); };
+  const zb = TOPP - D - f;
+  sjekk('rett før kassa: skråningen som før', nv(29, 1.0), zb + (1.0 - b / 2), 1e-6);
+  paastand('rett inn i kassa: ingen skråning utenfor veggen', Number.isNaN(nv(31, 1.0)) && Number.isNaN(nv(45, 0.8)),
+    `${nv(31, 1.0)} / ${nv(45, 0.8)}`);
+  sjekk('etter kassa: skråningen igjen', nv(61, 1.0), zb + (1.0 - b / 2), 1e-6);
+  sjekk('kasselengden er 30 m', res.sum.kasseLengde, 30, 1e-6);
+  sjekk('lengden er hele røret', res.sum.lengde, 100, 1e-6);
+}
+{
+  /* FELLES GRØFT: to rør side om side, 2,5 m mellom, naboen 0,8 m dypere.
+     Kassa står på det ene, men det er grøfta som avstives – også naboens
+     yttervegg er loddrett, helt ut der skråningen dens ville nådd (lenger ut
+     enn kassas egen sone), og kassa telles én gang. */
+  const linjer = [rett('a', '160PE', 100, TOPP), rett('b', '160PE', 100, TOPP - 0.8, 1000, 1000, 0.3, 2.5)];
+  const regn = st => Groft.beregn({ linjer, koder: koder160, terrengZ: flatt, rute: 0.2,
+    justering: { strekninger: st, sammen: [['a-0', 'b-0']] } });
+  const uten = regn([]), med = regn([{ fra: 'a-0', til: 'a-10', mal: {}, fjell: null, egen: false, avstiving: 'kasse' }]);
+  const nv = (res, s, n) => { const p = punktVed(s, n); return Groft.nivaa(res.modell, p.x, p.y); };
+  paastand('uten kasse: naboen skråner ut på yttersida', nv(uten, 50, 2.9) < TERRENG && nv(uten, 50, 4.9) < TERRENG);
+  paastand('med kasse: naboens yttervegg står loddrett', Number.isNaN(nv(med, 50, 2.9)) && Number.isNaN(nv(med, 50, 4.9)),
+    `${nv(med, 50, 2.9)} / ${nv(med, 50, 4.9)}`);
+  paastand('  og kassas egen yttervegg', Number.isNaN(nv(med, 50, -0.7)), String(nv(med, 50, -0.7)));
+  paastand('  men bunnen mellom rørene er som før', Math.abs(nv(med, 50, 1.25) - nv(uten, 50, 1.25)) < 1e-9);
+  sjekk('kassa telles én gang – på det dypeste røret, naboen', med.sum.kasseLengde, 100, 1e-6);
+  sjekk('  som har meteren', med.perLinje.get('b').kasseLengde, 100, 1e-6);
+  paastand('mindre graving med kasse', med.sum.gravingLos < uten.sum.gravingLos - 50,
+    `${uten.sum.gravingLos.toFixed(1)} → ${med.sum.gravingLos.toFixed(1)}`);
+}
+{
+  /* TO RØR I SAMME GRØFT UTEN «FELLES GRØFT»: meteren står på det dypeste.
+     Har det grunne kasse og det dype ikke, står kassa på det grunne – én gang.
+     Har begge kasse, telles den fortsatt én gang. */
+  const linjer = [rett('a', '160PE', 100, TOPP), rett('b', '160PE', 100, TOPP - 0.3, 1000, 1000, 0.3, 0.9)];
+  const kasse = id => ({ fra: id + '-0', til: id + '-10', mal: {}, fjell: null, egen: false, avstiving: 'kasse' });
+  const regn = st => Groft.beregn({ linjer, koder: koder160, terrengZ: flatt, rute: 0.2, justering: { strekninger: st, sammen: [] } });
+  const grunn = regn([kasse('a')]);
+  sjekk('kassa på det grunne røret telles der', grunn.perLinje.get('a').kasseLengde, 100, 1e-6);
+  sjekk('  én gang', grunn.sum.kasseLengde, 100, 1e-6);
+  paastand('  mens meteren står på det dype', grunn.perLinje.get('a').lengde < 1 && grunn.perLinje.get('b').lengde > 99,
+    `${grunn.perLinje.get('a').lengde} / ${grunn.perLinje.get('b').lengde}`);
+  sjekk('kasse på begge: én gang', regn([kasse('a'), kasse('b')]).sum.kasseLengde, 100, 1e-6);
+}
+{
+  /* KUMMEN i kassa: loddrett, med arbeidsrommet som før. I overgangen
+     mellom kasse og skråning er kummen en del av den åpne grøfta. */
+  const linjer = [rett('a', '160PE', 100, TOPP)];
+  const q = punktVed(50, 0);
+  const kum = [{ id: 'k1', x: q.x, y: q.y, bunnlop: TOPP - D, diameter: 1000, eier: 'a' }];
+  const regn = st => Groft.beregn({ linjer, koder: koder160, terrengZ: flatt, rute: 0.2, kummer: kum,
+    justering: { strekninger: st, sammen: [] } });
+  const hel = regn([{ fra: 'a-0', til: 'a-10', mal: {}, fjell: null, egen: false, avstiving: 'kasse' }]);
+  const nv = (res, s, n) => { const p = punktVed(s, n); return Groft.nivaa(res.modell, p.x, p.y); };
+  const kumBunn = TOPP - D - 0.25 - f;
+  sjekk('kumgropa i kassa: bunnen ut til arbeidsrommet', nv(hel, 50, 1.05), kumBunn, 1e-6);
+  paastand('  og loddrett utenfor', Number.isNaN(nv(hel, 50, 1.3)), String(nv(hel, 50, 1.3)));
+  paastand('uten kasse skråner kumgropa', nv(regn([]), 50, 1.3) < TERRENG);
+  const kanten = regn([{ fra: 'a-5', til: 'a-10', mal: {}, fjell: null, egen: false, avstiving: 'kasse' }]);
+  paastand('kummen i overgangen hører til den åpne grøfta', kanten.modell.seg.find(s => s.kum).hel === 1);
+  paastand('  men skråningen går ikke inn langs kassa', Number.isNaN(nv(kanten, 52, 1.6)) && nv(kanten, 48, 1.6) < TERRENG,
+    `${nv(kanten, 52, 1.6)} / ${nv(kanten, 48, 1.6)}`);
+}
+{
+  /* YTTERSIDA AV EN KNEKK: kassa går øst og så nord. Et rør som slutter like
+     utenfor hjørnet, skråner ikke inn i hjørnet – sonen har rund skjøt der. */
+  const a = linje('a', '160PE', [[0, 0, TOPP], [50, 0, TOPP], [50, 50, TOPP]]);
+  const c = linje('c', '160PE', [[53, -3, TOPP], [80, -30, TOPP]]);
+  const regn = st => Groft.beregn({ linjer: [a, c], koder: koder160, terrengZ: flatt, rute: 0.2,
+    justering: { strekninger: st, sammen: [] } });
+  const uten = regn([]), med = regn([{ fra: 'a-0', til: 'a-2', mal: {}, fjell: null, egen: false, avstiving: 'kasse' }]);
+  paastand('uten kasse graver røret utenfor inn mot hjørnet', Groft.nivaa(uten.modell, 51.5, -1.5) < TERRENG);
+  paastand('med kasse står det loddrett der', Number.isNaN(Groft.nivaa(med.modell, 51.5, -1.5)),
+    String(Groft.nivaa(med.modell, 51.5, -1.5)));
+  paastand('  men røret skråner som før lenger ute', Groft.nivaa(med.modell, 56, -3.5) < TERRENG);
+}
+sjekk('klem: kassebredde med komma', Groft.klem('kassebredde', '1,4'), 1.4, 1e-12);
+paastand('klem: en kassebredde under 0,3 m er en skrivefeil', Groft.klem('kassebredde', 0.1) === null);
+
 console.log('\n7. Massebalansen');
 {
   const sum = { gravingLos: 100, sprengning: 20, fundament: 5, omfylling: 15, gjenfylling: 70 };
@@ -522,6 +638,16 @@ console.log('\n8. Grøftefeltene i prosjektfila');
   const Q = Prosjektform.klargjor({ navn: 'h', aktivt: 'r1', anlegg: [{ id: 'r1', type: 'ror', ror: { punkter: [] } }] });
   paastand('et gammelt røranlegg får grøftemal og tomme justeringer', Q.anlegg[0].mal.groft.helning === 1
     && Q.anlegg[0].ror.groft.strekninger.length === 0 && Q.anlegg[0].ror.groft.sammen.length === 0);
+  const S = Prosjektform.klargjor({ navn: 'k', aktivt: 'r1', anlegg: [{ id: 'r1', type: 'ror', ror: { punkter: [],
+    groft: { strekninger: [{ fra: 'a', til: 'b', avstiving: 'kasse', kassebredde: '1,5' },
+      { fra: 'a', til: 'c', avstiving: 'spunt', kassebredde: 2 }, { fra: 'b', til: 'c', avstiving: 'murer', kassebredde: 1 },
+      { fra: 'c', til: 'd', avstiving: 'kasse', kassebredde: 0.1 }], sammen: [] } } }] });
+  const [k1, k2, k3, k4] = S.anlegg[0].ror.groft.strekninger;
+  paastand('kasse med bredde som tekst blir tall', k1.avstiving === 'kasse' && k1.kassebredde === 1.5, JSON.stringify(k1));
+  paastand('spunt tar ikke med seg en kassebredde', k2.avstiving === 'spunt' && !('kassebredde' in k2), JSON.stringify(k2));
+  paastand('en ukjent avstiving faller bort', !('avstiving' in k3) && !('kassebredde' in k3), JSON.stringify(k3));
+  paastand('en kassebredde under grensen faller bort – standarden gjelder', k4.avstiving === 'kasse' && !('kassebredde' in k4),
+    JSON.stringify(k4));
 }
 
 /* DEN EKTE FILA – bare når stien er gitt. Kundens data ligger ikke i repoet.

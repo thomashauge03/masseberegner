@@ -113,7 +113,8 @@ const Rorprofil = {
       plan: res.plan && linje.plan ? Object.assign({}, linje.plan, {
         D: (kode.dim || 0) / 1000,
         kontroll: (res.kontroll || []).filter(c => c.ror === linje.id).sort((a, b) => a.s - b.s),
-        varsler: (res.merknader || []).filter(m => m.linje === linje.id && ['overdekning', 'fall', 'motfall'].includes(m.type)),
+        varsler: (res.merknader || []).filter(m => m.linje === linje.id
+          && ['overdekning', 'fall', 'motfall', 'hoybrekk', 'lavbrekk'].includes(m.type)),
         kummer: (res.kummer || []).filter(k => k.ror === linje.id)
       }) : null
     };
@@ -304,6 +305,11 @@ const Rorprofil = {
         k.fillStyle = Farger.skjaering; k.globalAlpha = 0.16;
         k.fillRect(X(v.fra), mt, Math.max(3, X(v.til) - X(v.fra)), hh);
         k.globalAlpha = 1;
+        // et brekk er et punkt: det får navnet sitt øverst, så stripa ikke er gåtefull
+        if (v.type === 'hoybrekk' || v.type === 'lavbrekk') {
+          k.fillStyle = Farger.skjaering; k.font = '10px system-ui'; k.textAlign = 'center';
+          k.fillText(v.type === 'hoybrekk' ? '▲ høybrekk' : '▼ lavbrekk', X(v.fra), mt + 11);
+        }
       }
       for (const km of pl.kummer) {
         const c = pl.kontroll.find(x => x.kum === km.id);

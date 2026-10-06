@@ -24,7 +24,7 @@ const Ror3d = Object.assign(Object.create(Tomt3d), {
      nesten ligger i bakken. Valget står i verktøylinja. */
   overdriv: 2,
   kamX: 0, kamY: 0,
-  lag: { terreng: true, staker: true, arealdekke: false, andre: false, groft: false },
+  lag: { terreng: true, staker: true, arealdekke: false, andre: false, groft: false, kummer: true },
 
   init(app) {
     this.app = app;
@@ -70,8 +70,9 @@ const Ror3d = Object.assign(Object.create(Tomt3d), {
    * 800 × 200 m ville ellers vært mest skog ingen spurte om, og kostet
    * tegningen like mye som det som betyr noe.
    *
-   * `lav` tar med bunnen av rørene. Kameraet rammer inn etter `lav` og `hoy`,
-   * og uten den lå rørene under bunnen av det som ble rammet inn.
+   * `lav` tar med bunnen av rørene og av kummene. Kameraet rammer inn etter
+   * `lav` og `hoy`, og uten den lå rørene under bunnen av det som ble rammet
+   * inn – og en dyp kum ble kappet.
    */
   _gitter(steg) {
     const app = this.app, res = app && app.resultat;
@@ -92,6 +93,7 @@ const Ror3d = Object.assign(Object.create(Tomt3d), {
         rorLav = Math.min(rorLav, l.punkter[i].z - D);
       });
     }
+    for (const K of this._kumliste(res)) rorLav = Math.min(rorLav, K.bunn);
     minX -= marg; maksX += marg; minY -= marg; maksY += marg;
     let rute = Math.max(1, steg || 1);
     while (((maksX - minX) / rute + 1) * ((maksY - minY) / rute + 1) > 250000) rute *= 1.5;
@@ -199,7 +201,34 @@ const Ror3d = Object.assign(Object.create(Tomt3d), {
     return [{ hoyde: g.zT, farge: bakken, blanding: 0 }];
   },
 
-  /** Stakene, rørene og objektene – i den rekkefølgen, så rørene ligger øverst. */
+  /**
+   * Kummene i regnesonen: { x, y, r, bunn, topp, malt }.
+   *
+   * En TEGNET kum står fra bunnen av kumgropa (bunnløpet − 0,25 m, som grøfta
+   * regner med) opp til terrenget, i ytre diameter. En INNMÅLT kum er ett
+   * punkt: høyden er det som ble målt, og det er alt som er kjent – den står
+   * som en ring på 1 m der, uten bunn eller topp vi ikke vet noe om.
+   */
+  _kumliste(res) {
+    const ut = [];
+    for (const K of (res && res.kummer) || []) {
+      if (!Number.isFinite(K.x) || !Number.isFinite(K.y) || !Number.isFinite(K.bunnlop)) continue;
+      const ytre = (K.diameter > 0 ? K.diameter : 1000) / 1000 + 0.2;
+      ut.push({ x: K.x, y: K.y, r: ytre / 2, bunn: K.bunnlop - 0.25, topp: K.terreng, malt: false });
+    }
+    const app = this.app, r = app && app.P && app.P.ror;
+    if (r && res && res.bygg && res.bygg.objekter && res.bygg.objekter.length) {
+      const tilXY = Ror.lagTilXY(r.sone, app.sone);
+      for (const p of res.bygg.objekter) {
+        if (!/KUM/i.test(p.kode || '') || !Number.isFinite(p.z)) continue;
+        const q = tilXY(p);
+        ut.push({ x: q.x, y: q.y, r: 0.5, bunn: p.z, topp: p.z, malt: true });
+      }
+    }
+    return ut;
+  },
+
+  /** Stakene, kummene, rørene og objektene – i den rekkefølgen, så rørene ligger øverst. */
   _overleggEkstra(k, g, kam, skjerm) {
     const app = this.app, res = app.resultat;
     if (!this._harData(res)) return;
@@ -220,6 +249,26 @@ const Ror3d = Object.assign(Object.create(Tomt3d), {
             if (!Number.isFinite(zt) || zt <= l.punkter[i].z) return;
             this._verdensstrek(k, [{ x: q.x, y: q.y, z: zt }, { x: q.x, y: q.y, z: l.punkter[i].z }]);
           });
+        }
+      }
+      /* KUMMENE: ring øverst og nederst og fire loddrette sider. Der rørene
+         møtes, er kummen det man ser først på plassen – uten den var 3D et
+         nett av streker som møttes i ingenting. */
+      if (this.lag.kummer) {
+        const N = 24;
+        const ring = (K, z) => Array.from({ length: N + 1 }, (_, a) => ({
+          x: K.x + K.r * Math.cos(2 * Math.PI * a / N), y: K.y + K.r * Math.sin(2 * Math.PI * a / N), z }));
+        for (const K of this._kumliste(res)) {
+          k.strokeStyle = Farger.blekk; k.lineWidth = K.malt ? 2 : 1.5;
+          this._verdensstrek(k, ring(K, K.bunn));
+          if (K.malt || !Number.isFinite(K.topp)) continue;
+          this._verdensstrek(k, ring(K, K.topp));
+          const sider = [];
+          for (let a = 0; a < 4; a++) {
+            const x = K.x + K.r * Math.cos(a * Math.PI / 2 + Math.PI / 4), y = K.y + K.r * Math.sin(a * Math.PI / 2 + Math.PI / 4);
+            sider.push({ x, y, z: K.bunn }, { x, y, z: K.topp }, null);
+          }
+          this._verdensstrek(k, sider);
         }
       }
       for (const l of res.linjer) {

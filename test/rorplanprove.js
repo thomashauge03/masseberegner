@@ -245,6 +245,52 @@ console.log('\n4. Kontrollene');
   paastand('men for lite fall er fortsatt for lite', spenn(2, 7.0, 6.985).some(v => v.type === 'fall'));
 }
 {
+  /* TRYKKRØR: HØYBREKK, LAVBREKK OG FALL. Brekkene finnes med terskel, så en
+     tue ikke er et brekk; endene teller ikke. */
+  const B = (z, h = 0.3) => RorPlan.brekk(z, h).map(p => p.type + p.i).join(',');
+  paastand('en kolle: ett høybrekk på toppen', B([0, 0.1, 0.2, 1, 0.2, 0.1, 0]) === 'hoy3', B([0, 0.1, 0.2, 1, 0.2, 0.1, 0]));
+  paastand('en dal: ett lavbrekk i bunnen', B([1, 0.5, 0, 0.5, 1]) === 'lav2');
+  paastand('tuer under terskelen er ingen brekk', B([0, 0.1, 0, 0.12, 0.02, 0.1, 0]) === '');
+  paastand('jevn stigning: ingen brekk – endene teller ikke', B([0, 1, 2, 3]) === '');
+  paastand('topp, dal, topp', B([0, 1, 0, 1, 0]) === 'hoy1,lav2,hoy3', B([0, 1, 0, 1, 0]));
+  paastand('et hull i høydene hoppes over', B([0, NaN, 1, NaN, 0]) === 'hoy2', B([0, NaN, 1, NaN, 0]));
+  paastand('en dal rett etter starten teller når starten lå over den', B([1, 0, 1.2, 1.4]) === 'lav1', B([1, 0, 1.2, 1.4]));
+  // et tegnet trykkrør over en kolle: ett høybrekk, ved toppen
+  const kolle = x => 10 + 3 * Math.exp(-(((x - 50) / 10) ** 2));
+  const vl = (T, mal = RorPlan.nyPlanmal(), koder = {}) => RorPlan.kontroller({
+    bygg: bygg(plan1([[0, 0], [100, 0]], [{ kode: 'VL 110PE' }]), T, { koder, mal }), koder, mal, terrengZ: T, andre: [] });
+  const hk = vl(kolle).filter(v => v.type === 'hoybrekk');
+  paastand('trykkrør over en kolle: ett høybrekk, ved toppen', hk.length === 1 && Math.abs(hk[0].fra - 50) <= 1, JSON.stringify(hk));
+  paastand('  og teksten sier lufting', /høybrekk ved 50 m/.test(hk[0].tekst) && /lufting/.test(hk[0].tekst), hk[0].tekst);
+  const dal = vl(x => 10 - 3 * Math.exp(-(((x - 50) / 10) ** 2))).filter(v => v.type === 'lavbrekk');
+  paastand('trykkrør gjennom en dal: ett lavbrekk', dal.length === 1 && /tømmes/.test(dal[0].tekst));
+  // fallkravet: av som standard, på når anlegget eller koden sier det
+  paastand('flatt trykkrør uten krav: ingen merknad', !vl(flatt).some(v => v.type === 'fall'));
+  const malF = Object.assign(RorPlan.nyPlanmal(), { trykkMinFall: 2 });
+  const flatF = vl(flatt, malF).filter(v => v.type === 'fall');
+  paastand('flatt trykkrør med krav 2 ‰: merknad om flatt strekk', flatF.length === 1 && /flatt – 0,0 ‰/.test(flatF[0].tekst)
+    && /under 2,0 ‰/.test(flatF[0].tekst), JSON.stringify(flatF));
+  const helning = x => 10 + x * 0.005;     // 5 ‰ jevnt
+  paastand('5 ‰ jevnt med krav 2 ‰: ingen merknad', !vl(helning, malF).some(v => v.type === 'fall'));
+  const kodeKrav = { 'VL 110PE': Object.assign({}, VL, { minFall: 8 }) };
+  paastand('kodens minste fall går foran anleggets', vl(helning, malF, kodeKrav).some(v => v.type === 'fall' && /under 8,0 ‰/.test(v.tekst)));
+  // et selvfallsrør satt til trykk tar ikke med seg selvfallskravet (10 ‰) – anleggets 2 ‰ gjelder
+  const spKoder = { 'SP 160PE': Object.assign({}, SP, { minFall: 10 }) };
+  const spTrykk = RorPlan.kontroller({ bygg: bygg(plan1([[0, 0], [100, 0]], [{ kode: 'SP 160PE', regel: 'trykk' }]), helning,
+    { koder: spKoder, mal: malF }), koder: spKoder, mal: malF, terrengZ: helning, andre: [] });
+  paastand('selvfallskode satt til trykk: anleggets krav for trykk gjelder, ikke kodens 10 ‰',
+    !spTrykk.some(v => v.type === 'fall'), JSON.stringify(spTrykk.filter(v => v.type === 'fall')));
+  // terskelen fra anlegget: 4 m er mer enn kollen stikker opp
+  paastand('terskelen kan settes: med 4 m er kollen ikke et brekk',
+    !vl(kolle, Object.assign(RorPlan.nyPlanmal(), { brekk: 4 })).some(v => v.type === 'hoybrekk'));
+  // et selvfallsrør over den samme kollen får ingen brekk – det har fallkravet sitt
+  const sp = RorPlan.kontroller({ bygg: bygg(plan1([[0, 0], [100, 0]], [{ kode: 'SP 160PE' }]), kolle), koder: {}, mal: RorPlan.nyPlanmal(),
+    terrengZ: kolle, andre: [] });
+  paastand('selvfall får ingen høybrekk', !sp.some(v => v.type === 'hoybrekk' || v.type === 'lavbrekk'));
+  sjekk('standarden: 0,3 m', RorPlan.StandardPlanmal.brekk, 0.3, 0);
+  paastand('grensene: under 0,05 m avvises', RorPlan.klem('brekk', 0.01) === null && RorPlan.klem('brekk', '0,5') === 0.5);
+}
+{
   /* Påkoblingen: SP (+0,4 m) er koblet på en innmålt hovedledning som går
      tvers over enden av traseen, og OV (−0,4 m) ligger ved siden av i samme
      grøft. Møtet gjelder hele traseen, som for en grein – med 0,5 m rundt

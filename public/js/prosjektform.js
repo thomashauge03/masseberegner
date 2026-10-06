@@ -72,12 +72,20 @@ function _rettGroft(a, G) {
   }
   const j = a.ror.groft && typeof a.ror.groft === 'object' && !Array.isArray(a.ror.groft) ? a.ror.groft : {};
   const id = v => v != null && typeof v !== 'object';
+  /* Avstivingen står bare når den er en av dem regnestykket kjenner; en
+     kassebredde uten kasse, eller utenfor grensene, faller bort – da gjelder
+     standarden. */
+  const avstiving = s => {
+    if (!G.AVSTIVING.includes(s.avstiving)) return {};
+    const kb = s.avstiving === 'kasse' ? G.klem('kassebredde', s.kassebredde) : null;
+    return kb !== null ? { avstiving: s.avstiving, kassebredde: kb } : { avstiving: s.avstiving };
+  };
   a.ror.groft = {
     // en strekning fra et punkt til det samme punktet dekker ingenting
     strekninger: (Array.isArray(j.strekninger) ? j.strekninger : [])
       .filter(s => s && typeof s === 'object' && id(s.fra) && id(s.til) && String(s.fra) !== String(s.til))
-      .map(s => ({ fra: String(s.fra), til: String(s.til), mal: malFelt(s.mal),
-        fjell: G.klem('fjell', s.fjell), egen: s.egen === true })),
+      .map(s => Object.assign({ fra: String(s.fra), til: String(s.til), mal: malFelt(s.mal),
+        fjell: G.klem('fjell', s.fjell), egen: s.egen === true }, avstiving(s))),
     sammen: (Array.isArray(j.sammen) ? j.sammen : [])
       .filter(p => Array.isArray(p) && p.length === 2 && p.every(id) && String(p[0]) !== String(p[1]))
       .map(p => p.map(String))
@@ -171,6 +179,9 @@ function _rettPlan(a, RP) {
     kryssKlaring: ell(RP.klem('kryssKlaring', m.kryssKlaring), std.kryssKlaring),
     kum: { diameter: ell(RP.klem('diameter', kum.diameter), std.kum.diameter),
       arbeidsrom: ell(RP.klem('arbeidsrom', kum.arbeidsrom), std.kum.arbeidsrom) },
+    // trykkrørene (etappe 3d): en fil fra før har dem ikke, og får standarden
+    brekk: ell(RP.klem('brekk', m.brekk), std.brekk),
+    trykkMinFall: ell(RP.klem('trykkMinFall', m.trykkMinFall), std.trykkMinFall),
     // avviket mot innmålt: en fil fra før etappe 3c har det ikke, og knappen er da av
     avvik: { vis: av.vis === true,
       plan: ell(RP.klem('avvikPlan', av.plan), sa.plan),

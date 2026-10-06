@@ -64,12 +64,14 @@ const RorUI = {
       // en bredere ring trenger kanskje terreng som ikke er lastet – beregningen henter det
       this.app.planlegg(30);
     };
-    if (id('r3_staker')) id('r3_staker').onclick = e => {
-      Ror3d.lag.staker = !Ror3d.lag.staker;
-      e.currentTarget.classList.toggle('aktiv', Ror3d.lag.staker);
-      e.currentTarget.setAttribute('aria-pressed', Ror3d.lag.staker ? 'true' : 'false');
-      Ror3d.tegn();
-    };
+    for (const [knapp, lag] of [['r3_staker', 'staker'], ['r3_kummer', 'kummer']]) {
+      if (id(knapp)) id(knapp).onclick = e => {
+        Ror3d.lag[lag] = !Ror3d.lag[lag];
+        e.currentTarget.classList.toggle('aktiv', Ror3d.lag[lag]);
+        e.currentTarget.setAttribute('aria-pressed', Ror3d.lag[lag] ? 'true' : 'false');
+        Ror3d.tegn();
+      };
+    }
     if (id('r3_nullstill')) id('r3_nullstill').onclick = () => Ror3d.nullstill();
     return this;
   },

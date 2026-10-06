@@ -46,6 +46,8 @@ const GroftUI = {
     if (Number.isFinite(m.omfylling)) deler.push(`omfylling ${t(m.omfylling)} m`);
     if (Number.isFinite(st.fjell)) deler.push(st.fjell === 0 ? 'fjell i dagen' : `fjell ${t(st.fjell)} m ned`);
     if (st.egen) deler.push('egen grøft');
+    if (st.avstiving === 'kasse') deler.push(`grøftekasse ${t(Number.isFinite(st.kassebredde) ? st.kassebredde : Groft.KASSEBREDDE)} m`);
+    else if (st.avstiving === 'spunt') deler.push('spunt');
     return deler.join(' · ') || 'ingen endringer';
   },
 
@@ -92,12 +94,20 @@ const GroftUI = {
       + (s.kumvolum > 0.5 ? rad('Kummene (betong)', s.kumvolum) : '');
     ut += '<h4>Grøft etter dybde</h4>' + g.dybdeklasser.map(k => rad(this.klasseNavn(k), k.lengde, 'm')).join('')
       + rad('I alt', s.lengde, 'm');
+    // avstivingen er det som faktureres der den står – bare når den er brukt
+    const kasse = s.kasseLengde > 0.05, spunt = s.spuntAreal > 0.05;
+    if (kasse || spunt) {
+      ut += '<h4>Avstiving</h4>' + (kasse ? rad('Grøft med grøftekasse', s.kasseLengde, 'm') : '')
+        + (spunt ? rad('Spunt, to vegger', s.spuntAreal, 'm²') : '');
+    }
     ut += '<h4>Per kode</h4><table class="groftkodetall"><thead><tr><th scope="col">Kode</th><th scope="col">Grøft</th>'
       + '<th scope="col">Graving</th><th scope="col">Fjell</th><th scope="col">Fund.</th><th scope="col">Omf.</th>'
-      + '<th scope="col">Gjenf.</th></tr></thead><tbody>'
+      + '<th scope="col">Gjenf.</th>' + (kasse ? '<th scope="col">Kasse</th>' : '') + (spunt ? '<th scope="col">Spunt</th>' : '')
+      + '</tr></thead><tbody>'
       + [...g.perKode].map(([kode, k]) => `<tr><th scope="row">${escapeHtml(kode)}</th><td>${t(k.lengde)} m</td>`
         + `<td>${t(k.gravingLos)}</td><td>${t(k.sprengning)}</td><td>${t(k.fundament)}</td><td>${t(k.omfylling)}</td>`
-        + `<td>${t(k.gjenfylling)}</td></tr>`).join('')
+        + `<td>${t(k.gjenfylling)}</td>` + (kasse ? `<td>${t(k.kasseLengde)} m</td>` : '')
+        + (spunt ? `<td>${t(k.spuntAreal)} m²</td>` : '') + '</tr>').join('')
       + '</tbody></table><p class="notis">m³. Felles grøft står på det dypeste røret.</p>';
     ut += '<h4>Massebalanse</h4>' + rad('Gjenfylling fra gravemassene', b.gjenfyllingFraGraving)
       + rad('Løsmasse til overs (fast mål)', b.overskuddLos) + rad('Sprengt fjell (løst mål)', b.sprengtLos)
@@ -348,11 +358,24 @@ const GroftUI = {
       + felt('gsFjell', 'Dybde til fjell (0 = fjell i dagen)', st.fjell, 'ikke kjent', 'm')
       + `<div class="rorinnstilling"><label><input type="checkbox" id="gsEgen"${st.egen ? ' checked' : ''}> `
       + 'Egen grøft – graves for seg selv om den overlapper en annen</label></div>'
+      /* AVSTIVINGEN: med kasse eller spunt står veggene loddrett, og
+         helningen over gjelder ikke der. Kassebredden står bare for kasse. */
+      + '<div class="rorinnstilling"><label for="gsAvstiving">Avstiving</label><select id="gsAvstiving" class="minivalg">'
+      + [['', 'Ingen – skråning'], ['kasse', 'Grøftekasse'], ['spunt', 'Spunt']]
+        .map(([v, tekst]) => `<option value="${v}"${(st.avstiving || '') === v ? ' selected' : ''}>${tekst}</option>`).join('')
+      + '</select></div>'
+      + `<div class="rorinnstilling${st.avstiving === 'kasse' ? '' : ' skjult'}" id="gsKasseRad"><label for="gsKassebredde">`
+      + 'Kassebredde, innvendig</label><input id="gsKassebredde" class="minitall" type="number" min="0.3" max="5" step="0.1" '
+      + `value="${verdi(st.kassebredde)}" placeholder="${Groft.KASSEBREDDE}"> m</div>`
+      + '<p class="notis">Med kasse eller spunt står veggene loddrett – helningen gjelder ikke der, og en nabo i samme '
+      + 'grøft får loddrette vegger langs den også.</p>'
       + '<div class="knapperad" style="justify-content:flex-end">'
       + (indeks != null ? '<button class="knapp" id="gsSlett">Slett</button>' : '')
       + '<button class="knapp" id="gsAvbryt">Avbryt</button><button class="knapp primaer" id="gsLagre">Lagre</button></div>';
     const lukk = () => boks.classList.add('skjult');
     innhold.querySelector('#gsAvbryt').onclick = lukk;
+    const avstiving = innhold.querySelector('#gsAvstiving');
+    avstiving.onchange = () => innhold.querySelector('#gsKasseRad').classList.toggle('skjult', avstiving.value !== 'kasse');
     if (indeks != null) {
       innhold.querySelector('#gsSlett').onclick = () => {
         app.merk('slettet grøft på strekning');
@@ -369,6 +392,11 @@ const GroftUI = {
         if (v !== null) mal[f] = v;
       }
       const ny = { fra: st.fra, til: st.til, mal, fjell: les('gsFjell', 'fjell'), egen: innhold.querySelector('#gsEgen').checked };
+      if (Groft.AVSTIVING.includes(avstiving.value)) {
+        ny.avstiving = avstiving.value;
+        const kb = avstiving.value === 'kasse' ? les('gsKassebredde', 'kassebredde') : null;
+        if (kb !== null) ny.kassebredde = kb;
+      }
       app.merk(indeks != null ? 'endret grøft på strekning' : 'grøft på strekning');
       if (!r.groft) r.groft = Groft.nyGroft();
       if (indeks != null) r.groft.strekninger[indeks] = ny; else r.groft.strekninger.push(ny);

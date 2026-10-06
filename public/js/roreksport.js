@@ -186,8 +186,9 @@ const RorEksport = (() => {
       throw new Error('Ingen grøft er regnet – terrenget mangler, eller ingen av rørene har dimensjon');
     }
     const t = v => tall(v, 1), rader = [];
+    // avstivingen til sist, så kolonnene foran står der de alltid har stått
     const rad = (navn, k) => rader.push([csvTekst(navn), tall(k.lengde, 1), t(k.gravingLos), t(k.sprengning),
-      t(k.fundament), t(k.omfylling), t(k.gjenfylling), t(k.kumvolum || 0)].join(';'));
+      t(k.fundament), t(k.omfylling), t(k.gjenfylling), t(k.kumvolum || 0), tall(k.kasseLengde || 0, 1), t(k.spuntAreal || 0)].join(';'));
     for (const [kode, k] of g.perKode) rad(kode, k);
     rad('Sum', g.sum);
     rader.push('');
@@ -204,7 +205,7 @@ const RorEksport = (() => {
       merknad: 'Teoretisk grøfteprofil mot Kartverkets terreng slik det var før graving; lengder og volum er på '
         + 'bakken. Felles grøft står på det dypeste røret.',
       foran: mangler(app, res).map(m => '# ' + csvTekst(m)),
-      overskrift: 'Kode;Grøft_m;Graving_m3;Sprengning_m3;Fundament_m3;Omfylling_m3;Gjenfylling_m3;Kummer_m3',
+      overskrift: 'Kode;Grøft_m;Graving_m3;Sprengning_m3;Fundament_m3;Omfylling_m3;Gjenfylling_m3;Kummer_m3;Kasse_m;Spunt_m2',
       rader,
       svar: 'grøftemasser for ' + g.perKode.size + ' koder'
     };

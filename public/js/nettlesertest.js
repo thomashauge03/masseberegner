@@ -190,9 +190,9 @@ const Nettlesertest = {
       'rorArbeidsbilde', 'rorBeregning', 'rorImport', 'rorSone', 'rorKart', 'rorFane', 'rorRetting',
       'rorProfil', 'ror3d', 'rorRapport', 'rorPdf', 'rorForklaring',
       'groftBeregning', 'groftFane', 'groftKoder', 'groftVerktoy', 'groftKnutepunkt', 'groftProfil', 'groft3d',
-      'groftRapport',
+      'groftRapport', 'groftAvstiving',
       'planBeregning', 'planNyttAnlegg', 'planTegnTrase', 'planRediger', 'planFane', 'planProfil', 'planRapport',
-      'planForklaring', 'planEksport', 'planEksportSoner', 'planAvvik', 'planTerrengAndre', 'rorOversiktskart',
+      'planForklaring', 'planEksport', 'planEksportSoner', 'planAvvik', 'planTerrengAndre', 'planTrykk', 'kummer3d', 'rorOversiktskart',
       'vegProfilLengde', 'vegLinjeslutt', 'vegStigningIKurve', 'vegKnapper', 'vegSluttretting', 'lagringOgAngre', 'angreposter', 'grensesnittVeg', 'vegRegler', 'vegRettelser',
       'lovlighet', 'framdrift', 'gamleFilerOgUtskifting', 'opprydding'];
     for (const navn of proever) {
@@ -11003,6 +11003,59 @@ const Nettlesertest = {
     }
   },
 
+  /**
+   * Trykkrør: høybrekket over en kolle i merknadene og i profilen, og
+   * innstillingene i Rør-fanen – lagret, kontrollert og angret.
+   */
+  async planTrykk() {
+    const foer = JSON.stringify(App.P);
+    const ekteZ = Terreng.prototype.z, ekteLast = Terreng.prototype.lastKorridorer;
+    try {
+      const o = Geo.tilUtm(58.1412, 7.0705, 32);
+      // en kolle på tre meter ved 40 m langs traseen
+      Terreng.prototype.z = x => 21.5 + 3 * Math.exp(-(((x - o.x - 40) / 10) ** 2));
+      Terreng.prototype.lastKorridorer = async function () {};
+      App._terrengnokkel = ''; App._groftNokkel = '';
+      await this._planProsjekt();
+      const typer = () => App.resultat.merknader.map(m => m.type + ':' + m.linje).join(' ');
+      this.sjekk('trykkrøret over kollen får ett høybrekk', App.resultat.merknader.filter(m => m.type === 'hoybrekk' && m.linje === 'r2')
+        .length === 1, typer());
+      this.sjekk('selvfallsrøret får ingen', !App.resultat.merknader.some(m => m.type === 'hoybrekk' && m.linje === 'r1'));
+      RorUI.velgLinje('r2');
+      const k = Rorprofil.lerret.getContext('2d'), fillText = k.fillText, tekster = [];
+      k.fillText = function (t, ...rest) { tekster.push(String(t)); return fillText.call(this, t, ...rest); };
+      try { Rorprofil.tegn(); } finally { k.fillText = fillText; }
+      this.sjekk('profilen markerer høybrekket', tekster.includes('▲ høybrekk'), tekster.slice(0, 30).join('|'));
+      App.visFane('ror');
+      const fall = document.querySelector('#rorInnhold #planTrykkFall');
+      this.sjekk('Rør-fanen har minste fall for trykkrør, av fra start', !!fall && fall.value === '0');
+      fall.value = '100';
+      fall.dispatchEvent(new Event('change'));
+      this.sjekk('det lagres', App.P.mal.plan.trykkMinFall === 100);
+      clearTimeout(App._tidsavbrudd);
+      await App.beregnRor();
+      this.sjekk('og strekkene flatere enn det varsles', App.resultat.merknader.some(m => m.type === 'fall' && m.linje === 'r2'
+        && /for trykkrør/.test(m.tekst)), typer());
+      await App.angre();
+      this.sjekk('angre slår det av igjen', App.P.mal.plan.trykkMinFall === 0);
+      const brekk = document.querySelector('#rorInnhold #planBrekk');
+      brekk.value = '4';
+      brekk.dispatchEvent(new Event('change'));
+      this.sjekk('terskelen for brekk lagres', App.P.mal.plan.brekk === 4);
+      clearTimeout(App._tidsavbrudd);
+      await App.beregnRor();
+      this.sjekk('og med 4 m er kollen ikke et brekk', !App.resultat.merknader.some(m => m.type === 'hoybrekk'), typer());
+      const brekk2 = document.querySelector('#rorInnhold #planBrekk');
+      brekk2.value = '0.01';
+      brekk2.dispatchEvent(new Event('change'));
+      this.sjekk('en terskel under 5 cm settes tilbake i feltet', brekk2.value === '4' && App.P.mal.plan.brekk === 4, brekk2.value);
+    } finally {
+      Terreng.prototype.z = ekteZ; Terreng.prototype.lastKorridorer = ekteLast;
+      App._terrengnokkel = ''; App._groftNokkel = '';
+      await this._rorTilbake(foer);
+    }
+  },
+
   /** Grøftemassene i rapporten og PDF-en, og i prosjektradene. */
   async groftRapport() {
     const foer = JSON.stringify(App.P);
@@ -11062,6 +11115,146 @@ const Nettlesertest = {
         Ror3d.aktiver(false);
       });
     } finally {
+      await this._rorTilbake(foer);
+    }
+  },
+
+  /**
+   * Kummene i 3D: den tegnede som sylinder fra bunnen av kumgropa opp til
+   * terrenget, den innmålte som en ring der den ble målt – og laget kan slås av.
+   */
+  async kummer3d() {
+    const foer = JSON.stringify(App.P);
+    const orig = Ror3d._verdensstrek;
+    const diam = r => Math.hypot(r[0].x - r[12].x, r[0].y - r[12].y);
+    // tegner 3D og samler ringene (25 punkt, ingen brudd) og sidene (med brudd)
+    const tegnOgTell = async () => {
+      const ringer = [], sider = [];
+      Ror3d._verdensstrek = function (k, punkter) {
+        if (punkter.length === 25 && punkter.every(Boolean)) ringer.push(punkter);
+        else if (punkter.includes(null)) sider.push(punkter);
+        return orig.apply(this, arguments);
+      };
+      try { Ror3d.tegn(); await this.vent(400); } finally { Ror3d._verdensstrek = orig; }
+      return { ringer, sider };
+    };
+    try {
+      await this._medFlattTerreng(21.5, async () => {
+        await this._planProsjekt();
+        const km = App.resultat.kummer[0];
+        this.sjekk('det tegnede anlegget har kummen', !!km && km.id === 'k1');
+        document.getElementById('rorVis3d').click();
+        await this.vent(500);
+        const knapp = document.getElementById('r3_kummer');
+        this.sjekk('knappen er på fra start', !!knapp && Ror3d.lag.kummer === true && knapp.getAttribute('aria-pressed') === 'true');
+        let { ringer, sider } = await tegnOgTell();
+        const bunn = km.bunnlop - 0.25;
+        this.sjekk('kummen står fra bunnen av kumgropa', ringer.some(r => Math.abs(r[0].z - bunn) < 1e-9 && Math.abs(diam(r) - 1.2) < 1e-6),
+          ringer.map(r => r[0].z.toFixed(2) + '/' + diam(r).toFixed(2)).join(' '));
+        this.sjekk('  opp til terrenget', ringer.some(r => Math.abs(r[0].z - 21.5) < 1e-9 && Math.abs(diam(r) - 1.2) < 1e-6));
+        this.sjekk('  med loddrette sider', sider.some(s => s.length === 12 && Math.abs(s[0].z - bunn) < 1e-9 && Math.abs(s[1].z - 21.5) < 1e-9),
+          String(sider.length));
+        this.sjekk('kameraet rammer inn kumbunnen', !!Ror3d._sisteGitter && Ror3d._sisteGitter.lav <= bunn + 1e-9,
+          Ror3d._sisteGitter && `${Ror3d._sisteGitter.lav} mot ${bunn}`);
+        knapp.click();
+        this.sjekk('laget slås av', Ror3d.lag.kummer === false && knapp.getAttribute('aria-pressed') === 'false');
+        ({ ringer } = await tegnOgTell());
+        this.sjekk('  og kummene er borte', ringer.length === 0, String(ringer.length));
+        knapp.click();
+        this.sjekk('  og på igjen', Ror3d.lag.kummer === true);
+        Ror3d.aktiver(false);
+        // en innmålt kum: bare punktet er kjent, så den står som en ring på 1 m der den ble målt
+        const o = Geo.tilUtm(58.1412, 7.0705, 32);
+        const kum = `<CgPoint name="prove-kum" surveyOrder="99" code="KUM" timeStamp="2026-09-01T10:00:00.000Z">`
+          + `${(o.y + 3).toFixed(3)} ${(o.x + 50).toFixed(3)} 20.700</CgPoint>`;
+        App.P = App.nyttProsjekt();
+        await RorUI.importerTekst(this._rorXml().replace('</CgPoints>', kum + '\n</CgPoints>'), 'asbuilts_Prove.xml', {},
+          { sone: 32, maal: 'nytt' });
+        clearTimeout(App._tidsavbrudd);
+        await App.beregnRor();
+        document.getElementById('rorVis3d').click();
+        await this.vent(500);
+        ({ ringer } = await tegnOgTell());
+        this.sjekk('den innmålte kummen står som en ring på 1 m i målt høyde',
+          ringer.length > 0 && ringer.every(r => Math.abs(r[0].z - 20.7) < 1e-9 && Math.abs(diam(r) - 1.0) < 1e-6),
+          ringer.map(r => r[0].z.toFixed(2) + '/' + diam(r).toFixed(2)).join(' '));
+      });
+    } finally {
+      Ror3d._verdensstrek = orig;
+      await this._rorTilbake(foer);
+    }
+  },
+
+  /**
+   * Grøftekasse og spunt: valget i strekningsdialogen lagres, kan endres og
+   * angres, og mengdene står i fanen, rapporten, PDF-en og CSV-en.
+   */
+  async groftAvstiving() {
+    const foer = JSON.stringify(App.P);
+    const gammel = Rapport.visRapport;
+    let html = null;
+    Rapport.visRapport = h => { html = h; };
+    try {
+      await this._medFlattTerreng(21.5, async () => {
+        App.P = App.nyttProsjekt();
+        await RorUI.importerTekst(this._rorXml(), 'asbuilts_Prove.xml', {}, { sone: 32, maal: 'nytt' });
+        clearTimeout(App._tidsavbrudd);
+        await App.beregnRor();
+        const foerGraving = App.resultat.groft.sum.gravingLos;
+        const o = Geo.tilUtm(58.1412, 7.0705, 32);
+        const ll = (x, y) => { const g = Geo.fraUtm(o.x + x, o.y + y, 32); return L.latLng(g.lat, g.lon); };
+        Kart.kart.setView(ll(40, 0), 19);
+        Kart.settModus('groftStrekning');
+        GroftUI.kartklikk('groftStrekning', ll(20, 0));
+        GroftUI.kartklikk('groftStrekning', ll(60, 0));
+        const valg = document.getElementById('gsAvstiving');
+        this.sjekk('dialogen har avstivingen, uten fra start', !!valg && valg.value === '');
+        if (!valg) return;
+        const rad = document.getElementById('gsKasseRad');
+        this.sjekk('kassebredden står bare for kasse', rad.classList.contains('skjult'));
+        valg.value = 'kasse';
+        valg.dispatchEvent(new Event('change'));
+        this.sjekk('  og vises når kasse velges', !rad.classList.contains('skjult'));
+        document.getElementById('gsKassebredde').value = '1.4';
+        document.getElementById('gsLagre').click();
+        const st = () => App.P.ror.groft.strekninger[0];
+        this.sjekk('kassa lagres med bredden', !!st() && st().avstiving === 'kasse' && st().kassebredde === 1.4, JSON.stringify(st()));
+        clearTimeout(App._tidsavbrudd);
+        await App.beregnRor();
+        const s = App.resultat.groft.sum;
+        this.sjekk('kasselengden er strekningen', Math.abs(s.kasseLengde - 40) < 1, String(s.kasseLengde));
+        this.sjekk('og gravingen blir mindre', s.gravingLos < foerGraving - 5, `${foerGraving} → ${s.gravingLos}`);
+        App.visFane('ror');
+        const inn = document.getElementById('rorInnhold');
+        this.sjekk('fanen viser kassa i lista og i mengdene', /grøftekasse 1,4 m/.test(inn.textContent)
+          && /Grøft med grøftekasse/.test(inn.textContent), inn.textContent.slice(0, 300));
+        Rapport.apneRapport();
+        this.sjekk('rapporten har avstivingen, også per kode', !!html && /Grøft med grøftekasse/.test(html) && /<th>Kasse<\/th>/.test(html));
+        const bytes = await Pdfrapport.lag(false);
+        const strommer = bytes ? await PdfImport.lesStrommer(bytes) : [];
+        const innhold = strommer.map(x => (typeof x === 'string' ? x : new TextDecoder('latin1').decode(x))).join('\n');
+        // ø er WinAnsi 248, oktalt \370
+        this.sjekk('og PDF-en', /Gr\\370ft med gr\\370ftekasse/.test(innhold) && /KASSE M/.test(innhold));
+        const csv = Rapport.masseRaderRor(App, App.resultat);
+        const sum = csv.rader.find(r => r.startsWith('Sum;'));
+        this.sjekk('og CSV-en', /;Kasse_m;Spunt_m2$/.test(csv.overskrift) && /;4\d,\d;0,0$/.test(sum), sum);
+        // endre til spunt fra lista – og angre
+        document.querySelector('#rorInnhold [data-groftendre="0"]').click();
+        const valg2 = document.getElementById('gsAvstiving');
+        this.sjekk('Endre viser kassa og bredden', valg2.value === 'kasse' && document.getElementById('gsKassebredde').value === '1.4');
+        valg2.value = 'spunt';
+        valg2.dispatchEvent(new Event('change'));
+        document.getElementById('gsLagre').click();
+        this.sjekk('spunt lagres uten kassebredde', st().avstiving === 'spunt' && !('kassebredde' in st()), JSON.stringify(st()));
+        clearTimeout(App._tidsavbrudd);
+        await App.beregnRor();
+        this.sjekk('og gir spuntareal i stedet for kasse', App.resultat.groft.sum.spuntAreal > 10 && App.resultat.groft.sum.kasseLengde === 0,
+          String(App.resultat.groft.sum.spuntAreal));
+        await App.angre();
+        this.sjekk('angre gir kassa tilbake', st().avstiving === 'kasse' && st().kassebredde === 1.4, JSON.stringify(st()));
+      });
+    } finally {
+      Rapport.visRapport = gammel;
       await this._rorTilbake(foer);
     }
   },

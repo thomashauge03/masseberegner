@@ -217,6 +217,9 @@ console.log('\n6c. Stikk i to punkt på samme sted, og CSV-ene');
   const ms = RorEksport.masseRader(app, res, tall);
   paastand('massene per kode, summen, dybden og balansen', ms.rader.some(r => r.startsWith('SP 160PE;'))
     && ms.rader.some(r => r.startsWith('Sum;')) && ms.rader.includes('Dybde;Grøft_m') && ms.rader.includes('Massebalanse;Volum_m3'));
+  paastand('avstivingen til sist, så kolonnene foran står der de stod', /;Kummer_m3;Kasse_m;Spunt_m2$/.test(ms.overskrift)
+    && ms.rader.filter(r => /^(SP 160PE|Sum);/.test(r)).every(r => r.split(';').length === 10 && /;0,0;0,0$/.test(r)),
+    ms.rader.find(r => r.startsWith('Sum;')));
   paastand('koder som kunne blitt formler i et regneark, nøytraliseres', RorEksport.csvTekst('=SUM(A1)') === "'=SUM(A1)"
     && RorEksport.csvTekst('-12;"x"') === "'-12,'x'" && RorEksport.csvTekst('SP 160PE') === 'SP 160PE');
 }

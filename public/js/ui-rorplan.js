@@ -464,7 +464,9 @@ const RorPlanUI = {
       ${felt('planOverdekning', 'Overdekning til topp rør – frie punkt og varselgrense', mp.overdekning, 'm', 0.1, 0, 10)}
       ${felt('planKryss', 'Minste klaring der rør krysser', mp.kryssKlaring, 'm', 0.05, 0, 5)}
       ${felt('planKumDiameter', 'Diameter på nye kummer', mp.kum.diameter, 'mm', 100, 400, 3000)}
-      ${felt('planArbeidsrom', 'Arbeidsrom rundt kummene', mp.kum.arbeidsrom, 'm', 0.1, 0, 3)}`;
+      ${felt('planArbeidsrom', 'Arbeidsrom rundt kummene', mp.kum.arbeidsrom, 'm', 0.1, 0, 3)}
+      ${felt('planBrekk', 'Trykkrør: høybrekk og lavbrekk fra', mp.brekk, 'm', 0.05, 0.05, 5)}
+      ${felt('planTrykkFall', 'Trykkrør: minste fall mellom brekkene (0 = av)', mp.trykkMinFall, '‰', 0.5, 0, 1000)}`;
     GroftUI.koble(e);
     this.koble(e);
   },
@@ -630,6 +632,8 @@ const RorPlanUI = {
     tall('planKryss', 'kryssKlaring', () => mp().kryssKlaring, v => { mp().kryssKlaring = v; });
     tall('planKumDiameter', 'diameter', () => mp().kum.diameter, v => { mp().kum.diameter = v; });
     tall('planArbeidsrom', 'arbeidsrom', () => mp().kum.arbeidsrom, v => { mp().kum.arbeidsrom = v; });
+    tall('planBrekk', 'brekk', () => mp().brekk, v => { mp().brekk = v; });
+    tall('planTrykkFall', 'trykkMinFall', () => mp().trykkMinFall, v => { mp().trykkMinFall = v; });
     // avviket mot innmålt: knappen og toleransene – de lagres med anlegget og kan angres
     const avKnapp = e.querySelector('#planAvvik');
     if (avKnapp) {
@@ -652,8 +656,9 @@ const RorPlanUI = {
     const mp = this.app.P.mal.plan;
     const rader = Object.entries(koder).filter(([, k]) => k.form === 'linje').map(([kode, k], i) => {
       const uten = f => Object.assign({}, k, { [f]: undefined });
+      // et trykkrør har anleggets fallkrav for trykk som standard, ikke systemets
       const std = { gods: RorPlan.gods(uten('gods')), overdekning: RorPlan.overdekning(uten('overdekning'), mp),
-        minFall: RorPlan.minFall(uten('minFall')), maksFall: '' };
+        minFall: RorPlan.regel(null, k) === 'trykk' ? mp.trykkMinFall : RorPlan.minFall(uten('minFall')), maksFall: '' };
       const tall = f => `<td><label class="sr-only" for="pl${i}${f}">${navn[f]} for ${escapeHtml(kode)}</label>`
         + `<input id="pl${i}${f}" class="minitall" type="number" min="0" step="any" data-plan="${f}" `
         + `value="${Number.isFinite(k[f]) ? k[f] : ''}" placeholder="${std[f]}"></td>`;
