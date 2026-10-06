@@ -24,6 +24,19 @@ const RorAvvik = (() => {
 
   const fmt = (v, d) => v.toFixed(d).replace('.', ',').replace('-', '−');
 
+  /**
+   * Et tall med minst `min` og høyst `maks` desimaler: 0,10 og 0,015, 1,0 og
+   * 1,25. En toleranse på 0,025 skrevet med to desimaler ble «0,03» – en
+   * annen grense enn den som gjaldt.
+   */
+  function kortTall(v, min, maks) {
+    let s = v.toFixed(maks);
+    for (let i = maks; i > min && s.endsWith('0'); i--) s = s.slice(0, -1);
+    return s.replace('.', ',').replace('-', '−');
+  }
+  /** En toleranse i tekst – se `kortTall`. */
+  function toleranseTekst(v) { return kortTall(v, 2, 3); }
+
   /** «+0,05», «−0,02» – og «0,00», aldri «−0,00». */
   function fortegn(v, d = 2) {
     const r = Math.round(v * 10 ** d) / 10 ** d;
@@ -59,21 +72,36 @@ const RorAvvik = (() => {
     return { x0: r.x0 - pad, x1: r.x1 + pad, y0: r.y0 - pad, y1: r.y1 + pad };
   }
 
+  /** Strekkene med lengde – to punkt på samme sted gir ingen retning. Regnes én gang per linje. */
+  function ekteStrekk(xy) {
+    const ut = [];
+    for (let i = 0; i + 1 < xy.length; i++) {
+      if (Math.hypot(xy[i + 1].x - xy[i].x, xy[i + 1].y - xy[i].y) > 1e-6) ut.push(i);
+    }
+    return ut;
+  }
+  const retning = (xy, i) => {
+    const dx = xy[i + 1].x - xy[i].x, dy = xy[i + 1].y - xy[i].y, L = Math.hypot(dx, dy);
+    return { x: dx / L, y: dy / L };
+  };
+
   /**
    * Nærmeste sted på linja: avstanden, strekket og hvor langt ut i det (0–1),
    * sideavviket og hvor langt forbi enden.
    *
    * SIDEAVVIKET har fortegn, + til høyre i tegneretningen. Midt på et strekk
-   * er det tverravstanden. På utsiden av en knekk er det avstanden til
-   * knekkpunktet – der står røret så langt fra planen. Forbi enden er det
-   * tverravstanden til det siste strekket, og hvor langt forbi står for seg:
-   * et rør som går 0,6 m inn i kummen, ligger ikke 0,6 m feil til siden.
+   * er det tverravstanden. Forbi enden er det tverravstanden til det siste
+   * strekket, og hvor langt forbi står for seg: et rør som går 0,6 m inn i
+   * kummen, ligger ikke 0,6 m feil til siden.
+   *
+   * PÅ UTSIDEN AV EN KNEKK er knekkpunktet det nærmeste, avviket er avstanden
+   * dit, og fortegnet er svingens: utsiden av en venstresving er til høyre.
+   * Her ble fortegnet tatt fra tverravstanden til det ene strekket – i en
+   * knekk skarpere enn 90° kan punktet ligge til venstre for linja det kom
+   * fra, og på forlengelsen av den er tverravstanden null, selv om punktet
+   * står en halv meter ute. Det ble «innenfor».
    */
-  function naermest(xy, q) {
-    const ekte = [];
-    for (let i = 0; i + 1 < xy.length; i++) {
-      if (Math.hypot(xy[i + 1].x - xy[i].x, xy[i + 1].y - xy[i].y) > 1e-6) ekte.push(i);
-    }
+  function naermest(xy, q, ekte = ekteStrekk(xy)) {
     if (!ekte.length) return null;
     const forste = ekte[0], siste = ekte[ekte.length - 1];
     let best = null;
@@ -85,8 +113,19 @@ const RorAvvik = (() => {
       if (best && d >= best.d - 1e-12) continue;
       const tvers = ((q.x - a.x) * dy - (q.y - a.y) * dx) / L;   // høyre for (dx, dy) er (dy, −dx)
       const forbi = i === forste && t < 0 ? -t * L : i === siste && t > 1 ? (t - 1) * L : 0;
-      best = { d, i, tk, side: forbi > 0 ? tvers : Math.sign(tvers) * d, forbi };
+      best = { d, i, tk, tvers, forbi };
     }
+    if (best.forbi > 0) { best.side = best.tvers; return best; }
+    let tegn = Math.sign(best.tvers);
+    const knekk = best.tk >= 1 - 1e-12 ? best.i + 1 : best.tk <= 1e-12 ? best.i : -1;
+    if (knekk >= 0) {
+      const inn = ekte.filter(j => j < knekk).pop(), ut = ekte.find(j => j >= knekk);
+      if (inn !== undefined && ut !== undefined) {
+        const r0 = retning(xy, inn), r1 = retning(xy, ut), sving = r0.x * r1.y - r0.y * r1.x;
+        if (Math.abs(sving) > 1e-9) tegn = sving > 0 ? 1 : -1;
+      }
+    }
+    best.side = (tegn || 1) * best.d;
     return best;
   }
 
@@ -118,7 +157,8 @@ const RorAvvik = (() => {
     const linjer = (o.plan || []).filter(l => l.xy && l.xy.length > 1).map(l => {
       const k = RP.kodeAv(o.planKoder, l.kode), s = RP.stasjonering(l.xy);
       const regel = l.plan && l.plan.regel ? l.plan.regel : RP.regel(null, k);
-      return { l, k, s, regel, tolH: regel === 'selvfall' ? tol.selvfall : tol.trykk, boks: ramme(l.xy, NAER) };
+      return { l, k, s, regel, tolH: regel === 'selvfall' ? tol.selvfall : tol.trykk, boks: ramme(l.xy, NAER),
+        ekte: ekteStrekk(l.xy) };
     });
     const per = new Map(linjer.map(x => [x.l.id, {
       id: x.l.id, kode: x.l.kode, regel: x.regel, lengde: x.s[x.s.length - 1],
@@ -126,34 +166,53 @@ const RorAvvik = (() => {
     }]));
     const punkter = [];
     let antallInnmalt = 0;
+    /* PUNKTENE SOM ER TELT. Importen deler rørnettet i hver knute, så et
+       T-punkt er enden på tre linjer – og ble telt tre ganger: i tabellene, i
+       de største avvikene og i rapporten. Hvert punkt telles én gang; hver
+       forekomst gir likevel sin bit av dekningen, for knuten binder linjene
+       sammen. */
+    const telt = new Set();
     for (const a of o.innmalt || []) {
       for (const im of a.linjer || []) {
         const kM = RP.kodeAv(a.koder, im.kode);
         const kand = linjer.filter(x => likKode(x.l.kode, x.k, im.kode, kM));
         if (!kand.length) continue;
+        /* GODSET TIL DEN INNMÅLTE KODEN – men sier den verken materiale eller
+           gods («SP 160» knyttet til «SP 160PE»), er det planens rør, og da
+           planens gods. Her ble SN8 (D/34) brukt, en innebygd centimeter mot
+           PE med 3 cm toleranse. Mangler den dimensjonen, er det også planens. */
+        const egen = kM.dim > 0 && (!!kM.materiale || (Number.isFinite(kM.gods) && kM.gods > 0));
         let forrige = null;       // knytningen til nabopunktet før – for dekningen
         for (let j = 0; j < im.punkter.length; j++) {
           const p = im.punkter[j], q = im.xy[j];
-          antallInnmalt++;
+          const nokkel = a.anlegg + '\u0001' + p.id, ny = !telt.has(nokkel);
+          telt.add(nokkel);
+          if (ny) antallInnmalt++;
           let best = null;
           for (const x of kand) {
             const b = x.boks;
             if (q.x < b.x0 || q.x > b.x1 || q.y < b.y0 || q.y > b.y1) continue;
-            const n = naermest(x.l.xy, q);
+            const n = naermest(x.l.xy, q, x.ekte);
             if (n && (!best || n.d < best.n.d)) best = { x, n };
           }
           const x = best && best.x, n = best && best.n;
           const za = n ? x.l.punkter[n.i].z : NaN, zb = n ? x.l.punkter[n.i + 1].z : NaN;
           const toppPlan = za + (zb - za) * (n ? n.tk : 0);
+          /* Et innmålt punkt har alltid høyde (importen tar ikke med punkt
+             uten), og planens linjer har høyde overalt – hullene er fylt. Vakten
+             er for det som ikke skal kunne skje. */
           if (!best || n.d > tol.sok + 1e-9 || !Number.isFinite(toppPlan) || !Number.isFinite(p.z)) {
-            if (best && n.d > tol.sok + 1e-9 && n.d <= NAER) per.get(x.l.id).naer++;
+            if (ny && best && n.d > tol.sok + 1e-9 && n.d <= NAER) per.get(x.l.id).naer++;
             forrige = null;
             continue;
           }
           const sv = x.s[n.i] + (x.s[n.i + 1] - x.s[n.i]) * n.tk;
+          const r = per.get(x.l.id);
+          r.biter.push(forrige && forrige.linje === x.l.id ? [Math.min(forrige.s, sv), Math.max(forrige.s, sv)] : [sv, sv]);
+          forrige = { linje: x.l.id, s: sv };
+          if (!ny) continue;
           const bunnPlan = RP.bunnFraTopp(toppPlan, x.k);
-          // mangler den innmålte koden en dimensjon, er det planens rør – med planens gods
-          const bunnInnmalt = RP.bunnFraTopp(p.z, kM.dim > 0 ? kM : x.k);
+          const bunnInnmalt = RP.bunnFraTopp(p.z, egen ? kM : x.k);
           const hoyde = bunnInnmalt - bunnPlan;
           const utenforPlan = Math.abs(n.side) > tol.plan + 1e-9;
           const utenforHoyde = Math.abs(hoyde) > x.tolH + 1e-9;
@@ -165,13 +224,10 @@ const RorAvvik = (() => {
             grad: Math.max(Math.abs(n.side) / tol.plan, Math.abs(hoyde) / x.tolH)
           };
           punkter.push(pk);
-          const r = per.get(x.l.id);
           r.antall++;
           if (!pk.ok) r.utenfor++;
           if (Math.abs(pk.side) > Math.abs(r.maksSide)) r.maksSide = pk.side;
           if (Math.abs(hoyde) > Math.abs(r.maksHoyde)) r.maksHoyde = hoyde;
-          r.biter.push(forrige && forrige.linje === x.l.id ? [Math.min(forrige.s, sv), Math.max(forrige.s, sv)] : [sv, sv]);
-          forrige = { linje: x.l.id, s: sv };
         }
       }
     }
@@ -193,7 +249,7 @@ const RorAvvik = (() => {
     const verste = punkter.slice().sort((p, q) => q.grad - p.grad).slice(0, VERSTE);
     // MERKNADENE: per rør, og én samlet når det ikke er noe å sammenligne med
     const merknader = [];
-    const m0 = v => fmt(v * bf, 0), sok = fmt(tol.sok, 1);
+    const m0 = v => fmt(v * bf, 0), sok = kortTall(tol.sok, 1, 2);
     if (!(o.innmalt || []).length) {
       merknader.push({ type: 'avvik', tekst: 'Avvik mot innmålt: det er ingen innmålte røranlegg i prosjektet – '
         + 'importer de innmålte rørene som et eget anlegg.' });
@@ -242,15 +298,15 @@ const RorAvvik = (() => {
   function punkttekst(p, toleranse) {
     const tol = toleranse || _rp().StandardPlanmal.avvik;
     const hvor = [];
-    if (p.utenforPlan) hvor.push(`i plan (±${fmt(tol.plan, 2)})`);
-    if (p.utenforHoyde) hvor.push(`i høyde (±${fmt(p.tolH, 2)})`);
+    if (p.utenforPlan) hvor.push(`i plan (±${toleranseTekst(tol.plan)})`);
+    if (p.utenforHoyde) hvor.push(`i høyde (±${toleranseTekst(p.tolH)})`);
     return `${p.kode}${normKode(p.kode) !== normKode(p.planKode) ? ' mot ' + p.planKode : ''} · ${fmt(p.stasjon, 1)} m`
       + ` · plan ${fortegn(p.side)} m · høyde ${fortegn(p.hoyde)} m`
       + (p.forbi > 0.05 ? ` · ${fmt(p.forbi, 1)} m forbi enden` : '')
       + (p.ok ? ' · innenfor' : ' · utenfor ' + hvor.join(' og '));
   }
 
-  return { HULL, NAER, VERSTE, fortegn, normKode, likKode, sammenlign, oppsummering, punkttekst };
+  return { HULL, NAER, VERSTE, fortegn, kortTall, toleranseTekst, normKode, likKode, sammenlign, oppsummering, punkttekst };
 })();
 
 if (typeof module !== 'undefined') module.exports = RorAvvik;

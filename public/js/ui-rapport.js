@@ -1125,14 +1125,16 @@ ${res.kummer.map(km => {
        rørtabellen; fortegnene står forklart, for et tall uten retning sier
        ikke hvilken vei røret skal flyttes. */
     const av = plan ? res.avvik : null;
-    const fs = v => (Number.isFinite(v) ? RorAvvik.fortegn(v) : '–');
+    const fs = v => (Number.isFinite(v) ? RorAvvik.fortegn(v) : '–'), tt = v => RorAvvik.toleranseTekst(v);
+    // nummeret er raden i rørtabellen – to rør med samme kode skal kunne skilles
+    const nrAv = new Map(res.linjer.map((l, i) => [l.id, i + 1]));
     const avvikhtml = av ? `
 <h2>Avvik mot innmålt</h2>
 <p class="liten">${av.anlegg.length
     ? `Innmålte punkt fra ${av.anlegg.map(escapeHtml).join(', ')} er knyttet til nærmeste planlagte rør med samme kode innenfor `
-      + `${t(av.toleranse.sok, 1)} m – ${av.punkter.length} av ${av.antallInnmalt} punkt.`
+      + `${RorAvvik.kortTall(av.toleranse.sok, 1, 2)} m – ${av.punkter.length} av ${av.antallInnmalt} punkt.`
     : 'Det er ingen innmålte røranlegg i prosjektet.'}
-Toleranse ±${t(av.toleranse.plan, 2)} m i plan, ±${t(av.toleranse.selvfall, 2)} m i høyde for selvfall og ±${t(av.toleranse.trykk, 2)} m
+Toleranse ±${tt(av.toleranse.plan)} m i plan, ±${tt(av.toleranse.selvfall)} m i høyde for selvfall og ±${tt(av.toleranse.trykk)} m
 for trykk. Sideavviket er + til høyre i tegneretningen; høydeavviket er bunn innvendig innmålt minus planlagt, + over planen.</p>
 <table><thead><tr><th>#</th><th>Kode</th><th>Punkt</th><th>Innmålt</th><th>Utenfor</th><th>Største i plan m</th>
 <th>Største i høyde m</th></tr></thead><tbody>
@@ -1142,7 +1144,7 @@ ${RorAvvik.oppsummering(av, res.linjer, bf).map(x => `<tr><td>${x.nr}</td><td>${
 </tbody></table>
 ${av.verste.length ? `<h3>De største avvikene</h3>
 <table><thead><tr><th>Rør</th><th>Profil m</th><th>I plan m</th><th>I høyde m</th><th></th><th>Punkt</th></tr></thead><tbody>
-${av.verste.map(p => `<tr><td>${escapeHtml(p.planKode)}</td><td>${t(p.stasjon, 1)}</td><td>${fs(p.side)}</td>`
+${av.verste.map(p => `<tr><td>${nrAv.get(p.linje)} ${escapeHtml(p.planKode)}</td><td>${t(p.stasjon, 1)}</td><td>${fs(p.side)}</td>`
     + `<td>${fs(p.hoyde)}</td><td>${p.ok ? 'innenfor' : '<b>utenfor</b>'}</td>`
     + `<td class="liten">${escapeHtml(p.navn)} · ${escapeHtml(p.punkt)}</td></tr>`).join('')}
 </tbody></table>` : ''}` : '';

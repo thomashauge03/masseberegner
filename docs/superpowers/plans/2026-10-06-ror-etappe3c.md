@@ -54,7 +54,7 @@
 - [ ] **Step 1: Skriv prøvene** (`test/roravvikprove.js`). Fiksturen: en trase (0,0) → (40,0) → (40,30) fra 500000/6500000 med «SP 160PE» (selvfall, topp 8,0 → 7,3 lineært ved låste bunner) og «VL 110PE» (trykk) 2 m til venstre. Innmålte punkt med kjente avvik:
   - (10, −0,05) med topp lik planen → side +0,05 (til høyre), høyde 0.
   - (20, 0) med topp +0,05 → høyde +0,05, utenfor (selvfall 0,03).
-  - (40,0)-knekken: et punkt (40,5; −0,5) på utsiden → side = −avstanden til knekkpunktet.
+  - (40,0)-knekken: et punkt (40,5; −0,5) på utsiden → side = +avstanden til knekkpunktet (utsiden av en venstresving er til høyre).
   - Forbi enden: (40, 30,6) → forbi 0,6, side vinkelrett.
   - «SP 160 PVC» knyttes (system og dimensjon), «VL 160PE» ikke.
   - Et punkt 1,5 m til siden → nær, ikke knyttet; 20 m unna → verken eller.
@@ -101,7 +101,7 @@
 
 - [ ] **Step 1:** Rør-fanen: avsnittet «Avvik mot innmålt» før «Innstillinger»: knappen `#planAvvik` (`aria-pressed`), forklaringen, og når den er på: fire felt (`planAvvikPlan`, `planAvvikSelvfall`, `planAvvikTrykk`, `planAvvikSok`), tabellen fra `RorAvvik.oppsummering` (radene velger røret med `data-linje`) og de ti største avvikene. Knappen og feltene går gjennom `merk` og `ferdig()`.
 - [ ] **Step 2:** Kartet: hvert punkt i `res.avvik.punkter` som `L.circleMarker` (`className: 'avvikpunkt'` / `'avvikpunkt utenfor'`), verktøytips fra `RorAvvik.punkttekst`.
-- [ ] **Step 3:** Profilen: `dataFor` gir `avvik` (punktene på røret, sortert på stasjon) og `avviksgrense`; `tegnPaa` tar dem med i høydeskalaen, tegner streken fra planens topp til punktet og punktet, setter antallet i tittelen og avviket i avlesningen.
+- [ ] **Step 3:** Profilen: `dataFor` gir `avvik` (punktene på røret, sortert på stasjon); `tegnPaa` tar dem med i høydeskalaen, tegner streken fra planens topp til punktet og punktet, setter antallet i tittelen og avviket i avlesningen.
 - [ ] **Step 4:** Statusteksten: «ved X – kobles på om det blir en ende» / «ved en annen trase – blir en grein om det er en ende»; ved lagring: hvilke ender som ble koblet.
 - [ ] **Step 5: Commit** – «Avvik mot innmålt i Rør-fanen, kartet og profilen».
 

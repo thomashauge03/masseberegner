@@ -212,7 +212,53 @@ console.log('\n8. Merknadene og tekstene');
   paastand('innenfor', /· innenfor$/.test(RorAvvik.punkttekst(pkt('a2'), av.toleranse)));
 }
 
-console.log('\n9. Toleransene i planmalen');
+console.log('\n9. Knekker, knutepunkt og to anlegg');
+{
+  // en planlagt linje rett i regnesonen, uten RorPlan – bare formen teller her
+  const plan = (id, pkt) => ({ id, kode: 'SP 160PE', xy: pkt.map(([x, y]) => ({ x, y })),
+    punkter: pkt.map(() => ({ z: 8 })), plan: { regel: 'selvfall' } });
+  const ett = (pl, x, y) => RorAvvik.sammenlign({ plan: [pl], planKoder: koder,
+    innmalt: [{ anlegg: 'x', navn: 'X', koder: innA.koder, linjer: [linje('SP160PE', [['q', x, y, 8]])] }] }).punkter[0];
+  // 135° venstresving: (0,0) → (40,0) → (30,10). Utsiden av en venstresving er til høyre.
+  const skarp = plan('s', [[0, 0], [40, 0], [30, 10]]);
+  const p1 = ett(skarp, 40.5, 0.2);
+  sjekk('utenfor en skarp venstresving: + (til høyre), selv om punktet er til venstre for linja inn', p1.side, Math.hypot(0.5, 0.2), 1e-9);
+  // på forlengelsen av linja inn er tverravstanden null – men punktet står en halv meter ute
+  const p2 = ett(plan('v', [[0, 0], [40, 0], [40, 30]]), 40.5, 0);
+  sjekk('på forlengelsen av strekket inn i en knekk: avstanden, ikke null', p2.side, 0.5, 1e-9);
+  paastand('og det er utenfor toleransen', p2.utenforPlan);
+  // høyresving: (0,0) → (40,0) → (40,−30); utsiden er til venstre
+  const p3 = ett(plan('h', [[0, 0], [40, 0], [40, -30]]), 40.5, 0.5);
+  sjekk('utenfor en høyresving: − (til venstre)', p3.side, -Math.hypot(0.5, 0.5), 1e-9);
+  // innsiden av knekken: tverravstanden til strekket punktet står ved
+  const p4 = ett(plan('i', [[0, 0], [40, 0], [40, 30]]), 39.8, 0.1);
+  sjekk('på innsiden av en venstresving: − (til venstre), tverravstanden', p4.side, -0.1, 1e-9);
+
+  /* Et T-kryss med samme kode: importen deler rørnettet i knuten, og
+     knutepunktet er enden på tre linjer. Det skal telles én gang. */
+  const T = innA.koder;
+  const kryss = { anlegg: 'T', navn: 'T', koder: T, linjer: [
+    linje('SP160PE', [['t1', 0, 0, 8.0], ['t2', 10, 0, 7.9], ['t3', 20, 0, 7.8]]),
+    linje('SP160PE', [['t3', 20, 0, 7.8], ['t4', 30, 0, 7.7]]),
+    linje('SP160PE', [['t3', 20, 0, 7.8], ['t5', 20, 5, 7.8]])
+  ] };
+  const at = RorAvvik.sammenlign({ plan: bygg.linjer, planKoder: koder, innmalt: [kryss] });
+  paastand('knutepunktet telles én gang', at.punkter.filter(p => p.punkt === 't3').length === 1
+    && at.punkter.length === 4 && at.antallInnmalt === 5, `${at.punkter.map(p => p.punkt).join(',')} / ${at.antallInnmalt}`);
+  paastand('og står én gang blant de største', at.verste.filter(p => p.punkt === 't3').length === 1);
+  sjekk('dekningen går gjennom knuten: 0–30 m', at.perLinje.get('r1').dekket, 70 - 40, 1e-9);
+  // to innmålte anlegg med samme punktnavn er to punkt
+  const to = RorAvvik.sammenlign({ plan: bygg.linjer, planKoder: koder, innmalt: [
+    { anlegg: 'a', navn: 'A', koder: T, linjer: [linje('SP160PE', [['p1', 5, 0, 7.95]])] },
+    { anlegg: 'b', navn: 'B', koder: T, linjer: [linje('SP160PE', [['p1', 6, 0, 7.94]])] }] });
+  paastand('to anlegg med samme punktnavn er to punkt', to.punkter.length === 2 && to.anlegg.join(',') === 'A,B');
+  // «SP 160» sier verken materiale eller gods: planens rør, med planens gods
+  const uten = RorAvvik.sammenlign({ plan: bygg.linjer, planKoder: koder, innmalt: [
+    { anlegg: 'u', navn: 'U', koder: Ror.koderFra([{ kode: 'SP 160' }], {}), linjer: [linje('SP 160', [['u1', 10, 0, 7.9]])] }] });
+  sjekk('en innmålt kode uten materiale bruker planens gods', uten.punkter[0].hoyde, 0, 1e-9);
+}
+
+console.log('\n10. Toleransene i planmalen');
 {
   const m = RorPlan.nyPlanmal();
   paastand('en ny planmal har sin egen kopi av toleransene', m.avvik !== RorPlan.StandardPlanmal.avvik
@@ -222,7 +268,21 @@ console.log('\n9. Toleransene i planmalen');
     && RorPlan.klem('avvikPlan', 0.001) === null && RorPlan.klem('sok', 0.05) === null && RorPlan.klem('avvikHoyde', '') === null);
 }
 
-console.log('\n10. Sammenligningen endrer ingenting');
+console.log('\n11. Tallene i tekstene');
+{
+  paastand('toleransen med to desimaler – tre når den trenger det', RorAvvik.toleranseTekst(0.1) === '0,10'
+    && RorAvvik.toleranseTekst(0.015) === '0,015' && RorAvvik.toleranseTekst(0.03) === '0,03'
+    && RorAvvik.toleranseTekst(0.025) === '0,025', RorAvvik.toleranseTekst(0.025));
+  const fin = RorAvvik.sammenlign({ plan: bygg.linjer, planKoder: koder, innmalt: [innA, innB],
+    toleranse: { plan: 0.10, selvfall: 0.025, trykk: 0.10, sok: 1.25 } });
+  const t = RorAvvik.punkttekst(fin.punkter.find(p => p.punkt === 'a3'), fin.toleranse);
+  paastand('verktøytipset viser 0,025, ikke 0,03', /i høyde \(±0,025\)/.test(t), t);
+  // vannpunktet 1,5 m til siden er nær, men utenfor 1,25 m
+  paastand('søkebredden med det den trenger: 1,25, ikke 1,3', fin.merknader.some(m => /mer enn 1,25 m fra røret/.test(m.tekst))
+    && RorAvvik.kortTall(1.25, 1, 2) === '1,25' && RorAvvik.kortTall(1, 1, 2) === '1,0', fin.merknader.map(m => m.tekst).join(' | '));
+}
+
+console.log('\n12. Sammenligningen endrer ingenting');
 {
   const foer = JSON.stringify([bygg.linjer, innA, innB]);
   RorAvvik.sammenlign({ plan: bygg.linjer, planKoder: koder, innmalt: [innA, innB] });

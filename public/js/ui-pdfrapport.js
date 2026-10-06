@@ -1029,12 +1029,13 @@ const Pdfrapport = {
     if (av) {
       const fs = v => (Number.isFinite(v) ? RorAvvik.fortegn(v) : '–');
       overskrift('Avvik mot innmålt');
+      const tt = RorAvvik.toleranseTekst;
       brodtekst((av.anlegg.length
         ? `Innmålte punkt fra ${av.anlegg.join(', ')} er knyttet til nærmeste planlagte rør med samme kode innenfor `
-          + `${t(av.toleranse.sok, 1)} m – ${av.punkter.length} av ${av.antallInnmalt} punkt. `
+          + `${RorAvvik.kortTall(av.toleranse.sok, 1, 2)} m – ${av.punkter.length} av ${av.antallInnmalt} punkt. `
         : 'Det er ingen innmålte røranlegg i prosjektet. ')
-        + `Toleranse ±${t(av.toleranse.plan, 2)} m i plan, ±${t(av.toleranse.selvfall, 2)} m i høyde for selvfall og `
-        + `±${t(av.toleranse.trykk, 2)} m for trykk. Sideavviket er + til høyre i tegneretningen; høydeavviket er bunn `
+        + `Toleranse ±${tt(av.toleranse.plan)} m i plan, ±${tt(av.toleranse.selvfall)} m i høyde for selvfall og `
+        + `±${tt(av.toleranse.trykk)} m for trykk. Sideavviket er + til høyre i tegneretningen; høydeavviket er bunn `
         + 'innvendig innmålt minus planlagt, + over planen.');
       tabell([{ tekst: '#', bredde: 18 }, { tekst: 'KODE', bredde: 110, venstre: true }, { tekst: 'PUNKT', bredde: 52 },
         { tekst: 'INNMÅLT M', bredde: 84 }, { tekst: 'UTENFOR', bredde: 54 }, { tekst: 'MAKS PLAN M', bredde: 66 },
@@ -1043,11 +1044,14 @@ const Pdfrapport = {
         String(x.antall) + (x.naer ? ` (+${x.naer})` : ''), `${t(x.dekket, 1)} av ${t(x.lengde, 1)}`, String(x.utenfor),
         fs(x.maksSide), fs(x.maksHoyde)] })));
       if (av.verste.length) {
+        // nummeret er raden i rørtabellen – to rør med samme kode skal kunne skilles
+        const nr = new Map(res.linjer.map((l, i) => [l.id, i + 1]));
+        const bredde = (innmarg - this.MARG) * 118 / 454;
         overskrift('De største avvikene');
         tabell([{ tekst: 'RØR', bredde: 110, venstre: true }, { tekst: 'PROFIL M', bredde: 58 }, { tekst: 'PLAN M', bredde: 54 },
           { tekst: 'HØYDE M', bredde: 56 }, { tekst: '', bredde: 58, venstre: true }, { tekst: 'PUNKT', bredde: 118, venstre: true }],
-        av.verste.map(p => ({ celler: [p.planKode, t(p.stasjon, 1), fs(p.side), fs(p.hoyde), p.ok ? 'innenfor' : 'UTENFOR',
-          `${p.navn} · ${p.punkt}`] })));
+        av.verste.map(p => ({ celler: [`${nr.get(p.linje)} ${p.planKode}`, t(p.stasjon, 1), fs(p.side), fs(p.hoyde),
+          p.ok ? 'innenfor' : 'UTENFOR', this._kort(P, `${p.navn} · ${p.punkt}`, bredde - 6, 7.6)] })));
       }
     }
 

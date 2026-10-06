@@ -500,6 +500,8 @@ const RorPlanUI = {
       innhold = '<p class="tomtekst">Ingen innmålte røranlegg i prosjektet – importer de innmålte rørene som et eget anlegg.</p>';
     } else {
       const rader = RorAvvik.oppsummering(a, res.linjer, res.bakkefaktor);
+      // nummeret er raden i tabellen over – to rør med samme kode skal kunne skilles
+      const nr = new Map(rader.map(r => [r.id, r.nr]));
       innhold = `<p class="notis">${a.punkter.length} av ${a.antallInnmalt} innmålte punkt med planens koder er knyttet til et rør
           (fra ${a.anlegg.map(escapeHtml).join(', ')}).</p>`
         + '<table class="avvikliste"><caption>Per rør</caption><thead><tr><th scope="col">Rør</th><th scope="col">Punkt</th>'
@@ -512,15 +514,16 @@ const RorPlanUI = {
         + (a.verste.length ? '<table class="avvikliste"><caption>De største avvikene</caption><thead><tr><th scope="col">Rør</th>'
           + '<th scope="col">Profil m</th><th scope="col">Plan m</th><th scope="col">Høyde m</th><th scope="col">Punkt</th></tr></thead><tbody>'
           + a.verste.map(p => `<tr${p.ok ? '' : ' class="utenfor"'}><td class="tekst"><button class="minilenke" data-linje="${escapeAttr(p.linje)}">`
-            + `${escapeHtml(p.planKode)}</button></td><td>${t(p.stasjon, 1)}</td>`
+            + `${nr.get(p.linje)} ${escapeHtml(p.planKode)}</button></td><td>${t(p.stasjon, 1)}</td>`
             + `<td>${tegn(p.side)}${p.utenforPlan ? ' ⚠' : ''}</td><td>${tegn(p.hoyde)}${p.utenforHoyde ? ' ⚠' : ''}</td>`
             + `<td class="tekst">${escapeHtml(p.navn)} · ${escapeHtml(p.punkt)}</td></tr>`).join('')
           + '</tbody></table>' : '');
     }
     return hode
-      + felt('planAvvikPlan', 'Toleranse i plan', av.plan, 'm', 0.01, 0.005, 2)
+      // steget går opp i minstegrensen – med 0,01 var standarden 0,10 et ugyldig tall for feltet
+      + felt('planAvvikPlan', 'Toleranse i plan', av.plan, 'm', 0.005, 0.005, 2)
       + felt('planAvvikSelvfall', 'Toleranse i høyde – selvfall', av.selvfall, 'm', 0.005, 0.005, 2)
-      + felt('planAvvikTrykk', 'Toleranse i høyde – trykk', av.trykk, 'm', 0.01, 0.005, 2)
+      + felt('planAvvikTrykk', 'Toleranse i høyde – trykk', av.trykk, 'm', 0.005, 0.005, 2)
       + felt('planAvvikSok', 'Søkebredde – så langt fra røret kan et innmålt punkt ligge', av.sok, 'm', 0.1, 0.1, 10)
       + innhold;
   },

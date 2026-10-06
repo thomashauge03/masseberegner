@@ -335,6 +335,21 @@ console.log('\n5. Plandelen i prosjektfila');
   paastand('grein med ugyldig ende tas bort', pl.greiner.length === 0);
   paastand('planmalen klemmes og får standarden', a.mal.plan.overdekning === 2.4 && a.mal.plan.kryssKlaring === 0.3
     && a.mal.plan.kum.diameter === 1000 && a.mal.plan.kum.arbeidsrom === 0.5, JSON.stringify(a.mal.plan));
+  // avviket mot innmålt: en fil fra før etappe 3c har det ikke – knappen er av, toleransene er standarden
+  const av = a.mal.plan.avvik;
+  paastand('en fil uten avviket får det av, med standardtoleransene', !!av && av.vis === false && av.plan === 0.1
+    && av.selvfall === 0.03 && av.trykk === 0.1 && av.sok === 1, JSON.stringify(av));
+  const P2 = Prosjektform.klargjor({ navn: 'p', aktivt: 'a1', anlegg: [{ id: 'a1', type: 'ror',
+    mal: { plan: { avvik: { vis: 'ja', plan: '0,05', selvfall: 0.001, trykk: 9, sok: 'x' } } },
+    ror: { punkter: [], koder: {}, plan: { traseer: [] } } }] });
+  const av2 = P2.anlegg[0].mal.plan.avvik;
+  paastand('avviket ryddes: bare true er på, komma godtas, for lite blir standarden, for mye klemmes',
+    av2.vis === false && av2.plan === 0.05 && av2.selvfall === 0.03 && av2.trykk === 2 && av2.sok === 1, JSON.stringify(av2));
+  const P3 = Prosjektform.klargjor({ navn: 'p', aktivt: 'a1', anlegg: [{ id: 'a1', type: 'ror',
+    mal: { plan: { avvik: { vis: true, plan: 0.2, selvfall: 0.05, trykk: 0.15, sok: 2 } } },
+    ror: { punkter: [], koder: {}, plan: { traseer: [] } } }] });
+  paastand('og et gyldig avvik står seg', JSON.stringify(P3.anlegg[0].mal.plan.avvik)
+    === JSON.stringify({ vis: true, plan: 0.2, selvfall: 0.05, trykk: 0.15, sok: 2 }), JSON.stringify(P3.anlegg[0].mal.plan.avvik));
   const k = a.ror.koder['SP 160PE'];
   paastand('kodefeltene ryddes', !('gods' in k) && k.minFall === 12 && !('regel' in k), JSON.stringify(k));
   const Q = Prosjektform.klargjor({ navn: 'q', aktivt: 'a1', anlegg: [{ id: 'a1', type: 'ror', ror: { punkter: [] } }] });

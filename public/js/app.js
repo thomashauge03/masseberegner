@@ -3316,13 +3316,18 @@ const App = {
     return p ? p.z : null;
   },
 
-  /** Rørene i de andre røranleggene, i regnesonen – til kryssingskontrollen. */
-  _andreRor() {
+  /**
+   * Rørene i de andre røranleggene, i regnesonen – til kryssingskontrollen.
+   * `bygde` er linjene som alt er bygd i denne beregningen, per anlegg – de
+   * innmålte bygges da bare én gang, også når avviket mot innmålt er på.
+   */
+  _andreRor(bygde = new Map()) {
     const ut = [];
     for (const a of this.P.anlegg) {
       if (a.type !== 'ror' || a.id === this.P.aktivt || !a.ror) continue;
-      const b = a.ror.plan ? this.byggPlan(a) : Ror.byggLinjer(a.ror, a.mal, Ror.lagTilXY(a.ror.sone, this.sone));
-      for (const l of b.linjer) {
+      const linjer = bygde.get(a.id)
+        || (a.ror.plan ? this.byggPlan(a) : Ror.byggLinjer(a.ror, a.mal, Ror.lagTilXY(a.ror.sone, this.sone))).linjer;
+      for (const l of linjer) {
         const k = a.ror.koder[l.kode] || Ror.tolkKode(l.kode);
         if (!(k.dim > 0)) continue;
         ut.push({ id: a.id + '/' + l.id, kode: l.kode, D: k.dim / 1000, xy: l.xy, topp: l.punkter.map(p => p.z), navn: a.navn });
@@ -3353,8 +3358,11 @@ const App = {
    * med det som er lastet. Her manglet det, og et tegnet anlegg ved siden av
    * fikk ingen linjer – et kryss med det ble aldri sett.
    *
-   * NÆR er innenfor terrengbeltet rundt rørene i dette anlegget. Et anlegg på
-   * et annet sted i prosjektet kan ikke krysse, og terrenget dit hentes ikke.
+   * NÆR er at rammen rundt traseene deres – med den største sideavstanden et
+   * rør kan ha – når innenfor terrengbeltet rundt rammen til rørene her. Det er
+   * ramme mot ramme, ikke belte mot belte: et langt anlegg ved siden av får
+   * alle korridorene sine hentet. Et anlegg et annet sted i prosjektet kan
+   * ikke krysse, og det bygges ikke engang.
    */
   _andrePlanerNaer(traser, halv) {
     if (!traser.length) return [];
@@ -3363,14 +3371,15 @@ const App = {
       b.x0 = Math.min(b.x0, q.x); b.x1 = Math.max(b.x1, q.x); b.y0 = Math.min(b.y0, q.y); b.y1 = Math.max(b.y1, q.y);
     };
     for (const l of traser) for (const q of l.xy) ta(boks, q);
+    const marg = halv + RorPlan.GRENSER.side[1];
     const ut = [];
     for (const a of this.P.anlegg) {
       if (a.type !== 'ror' || a.id === this.P.aktivt || !a.ror || !a.ror.plan || !a.ror.plan.traseer.length) continue;
-      const b = this.byggPlan(a), linjer = b.linjer.concat(b.utenHoyde || []);
       const hans = { x0: Infinity, x1: -Infinity, y0: Infinity, y1: -Infinity };
-      for (const l of linjer) for (const q of l.xy) ta(hans, q);
-      if (hans.x0 > boks.x1 + halv || boks.x0 > hans.x1 + halv || hans.y0 > boks.y1 + halv || boks.y0 > hans.y1 + halv) continue;
-      ut.push({ anlegg: a, linjer });
+      for (const t of a.ror.plan.traseer) for (const p of t.punkter) ta(hans, Geo.tilUtm(p.lat, p.lon, this.sone));
+      if (hans.x0 > boks.x1 + marg || boks.x0 > hans.x1 + marg || hans.y0 > boks.y1 + marg || boks.y0 > hans.y1 + marg) continue;
+      const b = this.byggPlan(a);
+      ut.push({ anlegg: a, linjer: b.linjer.concat(b.utenHoyde || []) });
     }
     return ut;
   },
@@ -3507,8 +3516,10 @@ const App = {
     /* AVVIKET MOT INNMÅLT – bare når knappen er på. Det leser planen og de
        innmålte rørene og endrer ingen av dem. */
     const av = r.plan && this.P.mal.plan.avvik;
+    // de innmålte bygges én gang – til avviket og til kryssingskontrollen under
+    const innmalte = r.plan ? this._innmalteRor() : [];
     const avvik = av && av.vis ? RorAvvik.sammenlign({ plan: bygg.linjer, planKoder: r.koder,
-      innmalt: this._innmalteRor(), toleranse: av, bakkefaktor }) : null;
+      innmalt: innmalte, toleranse: av, bakkefaktor }) : null;
     this.resultat = {
       type: 'ror', bygg, linjer: bygg.linjer, profiler, sone: this.sone,
       bakkefaktor,
@@ -3516,7 +3527,8 @@ const App = {
          enslige punkt og rettinger finnes ikke der. */
       merknader: r.plan
         ? bygg.merknader.concat(RorPlan.kontroller({ bygg, koder: r.koder, mal: this.P.mal.plan, terrengZ,
-          andre: this._andreRor() }), RorPlan.fjell(this._groftResultat, bygg), avvik ? avvik.merknader : [])
+          andre: this._andreRor(new Map(innmalte.map(x => [x.anlegg, x.linjer]))) }),
+        RorPlan.fjell(this._groftResultat, bygg), avvik ? avvik.merknader : [])
         : Ror.merknader(bygg, profiler, this.P.mal.maksAvstand),
       groft: this._groftResultat,
       plan: !!r.plan, kummer: bygg.kummer || [], kontroll: bygg.kontroll || [], avvik

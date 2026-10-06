@@ -325,7 +325,10 @@ const Forklaring = {
         ['Selvfall og trykk', 'Selvfall går rett mellom kontrollpunktene, med fast fall. Trykk følger terrenget meter for meter. '
           + 'Koden bestemmer: spillvann, overvann og drens er selvfall; vann og kabel er trykk.'],
         ['Kontrollene', 'Overdekning under grensen, motfall og for lite eller for mye fall, kryss med for liten klaring – og '
-          + 'fjellet grøfta går i. Rødt i kartet og profilen, og i merknadene.']
+          + 'fjellet grøfta går i. Rødt i kartet og profilen, og i merknadene.'],
+        ['Avvik mot innmålt', 'Knappen i Rør-fanen sammenligner planen med de innmålte rørene i prosjektet: avviket i plan '
+          + '(+ til høyre i tegneretningen) og i høyde (bunn innvendig, + over planen) i hvert innmålt punkt. Grønn ring '
+          + 'innenfor toleransen, rød utenfor. Knappen endrer ingenting.']
       ] : [])
     ]) ut += `<div class="forklaringsrad"><div><b>${ord}</b>${tekst}</div></div>`;
     /* Grøftas farger, med navnet ved – fargen skal aldri stå alene. */

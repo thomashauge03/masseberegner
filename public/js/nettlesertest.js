@@ -9719,6 +9719,11 @@ const Nettlesertest = {
         const rad = document.querySelector('table.avvikliste tbody tr').textContent;
         this.sjekk('raden for spillvannet: fire punkt, 30 av 81 m innmålt, to utenfor', /SP 160PE/.test(rad) && /30 av 81 m/.test(rad)
           && /2 ⚠/.test(rad), rad);
+        const verst = document.querySelectorAll('table.avvikliste')[1].querySelector('tbody tr').textContent;
+        this.sjekk('de største avvikene har rørnummeret – to rør med samme kode skal kunne skilles', /^\s*1 SP 160PE/.test(verst), verst);
+        const felt = ['planAvvikPlan', 'planAvvikSelvfall', 'planAvvikTrykk', 'planAvvikSok'].map(id => document.getElementById(id));
+        this.sjekk('toleransefeltene er gyldige med standardverdiene', felt.every(f => f && f.validity.valid),
+          felt.filter(f => f && !f.validity.valid).map(f => f.id + '=' + f.value).join(', '));
         let pkt = 0, ut = 0, tips = '';
         Kart.lag.ror.eachLayer(l => {
           const c = (l.options && l.options.className) || '';

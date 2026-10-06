@@ -31,12 +31,18 @@ er målt inn, og hvor det er utenfor toleransen.
 - **Sideavvik:** vannrett avstand fra den planlagte senterlinja, med fortegn:
   **+ til høyre** i tegneretningen. Ligger punktet forbi enden av røret, måles det
   vinkelrett på det siste strekket, og hvor langt forbi står for seg. På utsiden av
-  en knekk er det avstanden til knekkpunktet.
+  en knekk er det avstanden til knekkpunktet, med svingens fortegn: utsiden av en
+  venstresving er til høyre (+), av en høyresving til venstre (−).
 - **Høydeavvik:** bunn innvendig innmålt − bunn innvendig planlagt **ved samme
   stasjon**. Den planlagte bunnen er topp rør på planen ved stasjonen (rett linje
   mellom punktene på linja) − D + gods. Den innmålte bunnen er det målte punktet
-  (topp rør) − D + gods for den **innmålte** koden; mangler den en dimensjon,
-  brukes planens. **+ betyr at røret ligger høyere enn planen.**
+  (topp rør) − D + gods for den **innmålte** koden. Mangler den en dimensjon,
+  eller sier den verken materiale eller gods («SP 160» knyttet til «SP 160PE»),
+  er det planens rør, og planens gods brukes. **+ betyr at røret ligger høyere
+  enn planen.**
+- **Knutepunkt:** importen deler rørnettet i hver knute, så et T-punkt er enden
+  på tre linjer. Hvert innmålte punkt telles én gang; hver forekomst gir likevel
+  sin del av dekningen.
 - **Dekning:** strekket mellom to nabopunkt på det innmålte røret dekker planen
   mellom stasjonene deres når begge er knyttet til samme planlagte rør. Et enkelt
   knyttet punkt dekker stasjonen sin. **Hull på 2 m eller mer** – også fra starten
