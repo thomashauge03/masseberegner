@@ -747,8 +747,8 @@ const RorPlan = (() => {
           // fallet i fallretningen: z[i] − z[i+1] mot slutten, motsatt mot starten
           let hoy, lav;
           if (!(L > 1e-6)) {
-            // to punkt på samme sted: et sprang ned i fallretningen er lov, motfall ikke
-            if (!o.motsatt) { hoy = za + steg / 2; lav = -Infinity; } else { lav = za - steg / 2; hoy = Infinity; }
+            // to punkt på samme sted: et sprang ned i fallretningen er lov, motfall ikke – heller ikke en halv centimeter
+            if (!o.motsatt) { hoy = za; lav = -Infinity; } else { lav = za; hoy = Infinity; }
           } else if (!o.motsatt) { hoy = za - fmin * L; lav = za - fmax * L; } else { lav = za + fmin * L; hoy = za + fmax * L; }
           hoy = Math.min(hoy, tak);
           for (let b = 0; b < B.length; b++) {
@@ -805,13 +805,22 @@ const RorPlan = (() => {
    * festet. Lagt rett under taket, ble røret liggende så høyt der at en grein
    * som renner inn på flatt terreng aldri fikk fall. Nå finnes den høyeste
    * høyden hver grein kan møte røret i – med greinas egen programmering, møtet
-   * fritt – og røret holdes under den der. Går ikke det med det som ellers står
-   * fast på røret, legges røret uten, og svaret sier fra (`merk`).
+   * fritt – og røret holdes under den der.
+   *
+   * HELE VEIEN OPP. Greina har sine egne greiner, og de stiller krav til den
+   * igjen. Her ble greina regnet uten dem: et hovedrør delt i kummer, med en
+   * sidegrein inn i én av dem, fikk ingen ren profil på flatt terreng i noen
+   * rekkefølge. Nå tar hver grein med seg kravene fra greinene sine (`moterFor`),
+   * så nettet legges fra utløpet og oppover, ett rør om gangen, i én runde.
+   *
+   * Går røret ikke med alle møtene, slippes det strengeste – ett om gangen – til
+   * det går; her ble alle sluppet for én. Svaret sier hvilke greiner som ikke
+   * får fall, og hvorfor (`merk`).
    *
    * @param {object} o  bygg, ror (id), koder, terrengZ, steg?, dyp?
-   * @returns {{ laast: Array<{punkt:string, bunn:number}>, greiner: number, merk: string|null }
+   * @returns {{ laast: Array<{punkt:string, bunn:number}>, greiner: number, merk: string|null, mangler: number }
    *   | { feil: string, grunn?: string, fra?: number, til?: number }}
-   *   grunn: 'dyp' | 'grein' | 'pakobling' | 'laast' – se `hvorfor`
+   *   grunn: 'dyp' | 'grein' | 'pakobling' | 'laast' – se `hvorfor`; mangler: prøvepunkt uten terreng
    */
   function leggHoyderFor(o) {
     const l = o.bygg.linjer.find(x => x.id === o.ror);
@@ -821,42 +830,63 @@ const RorPlan = (() => {
         : 'terrenget mangler langs røret – det hentes fra Kartverket når anlegget regnes' };
     }
     if (l.plan.regel !== 'selvfall') return { feil: 'bare selvfallsrør får høydene lagt – et trykkrør følger terrenget' };
-    const T = o.terrengZ || (() => NaN);
+    const T = o.terrengZ || (() => NaN), dyp = o.dyp || 6;
     // fast er det brukeren har låst, påkoblingene og greinene – ikke det knappen la sist
     const fast = c => (c.laast && !c.lagt) || !!c.fra;
+    // prøvene per linje, én gang – i et nett spørres det om en grein fra flere hold
+    const lager = new Map();
+    const proverFor = linje => {
+      if (!lager.has(linje.id)) lager.set(linje.id, proverLangs(linje, T));
+      return lager.get(linje.id);
+    };
     const oppsett = (linje, fri) => {
       const k = kodeAv(o.koder, linje.kode);
       const ktr = o.bygg.kontroll.filter(c => c.ror === linje.id).sort((a, b) => a.s - b.s);
-      const { sl, prover } = proverLangs(linje, T);
+      const { sl, prover } = proverFor(linje);
       return { k, ktr, sl, arg: { s: ktr.map(c => c.s), fast: ktr.map(c => (fast(c) && c !== fri ? c.topp : null)), prover,
         minFall: minFall(k), maksFall: maksFall(k), motsatt: linje.plan.motsatt, steg: o.steg, dyp: o.dyp } };
     };
+    /* Møtene på en linje: der hver grein som renner inn, er festet, og den
+       høyeste toppen den kan møte linja i (z NaN: greina får ikke fall uansett).
+       `sett` er linjene på veien hit – en sirkel ville aldri sluttet. */
+    const moterFor = (linje, sett) => {
+      const { sl } = proverFor(linje), ut = [];
+      for (const g of o.bygg.kontroll) {
+        if (g.fra !== linje.id || !g.fraPunkt || sett.has(g.ror)) continue;
+        const lb = o.bygg.linjer.find(x => x.id === g.ror), j = linje.punkter.findIndex(p => p.id === linje.id + ':' + g.fraPunkt);
+        if (!lb || lb.plan.regel !== 'selvfall' || j < 0) continue;
+        ut.push({ s: sl[j], z: hoyesteMote(lb, g, new Set([...sett, linje.id])), ror: lb.id });
+      }
+      return ut;
+    };
     // den høyeste toppen greina kan møte røret i – møtet er siste punkt, så en grein som starter i møtet, snus
-    const hoyesteMote = (lb, g) => {
+    const hoyesteMote = (lb, g, sett) => {
       const { ktr, arg } = oppsett(lb, g), j = ktr.indexOf(g);
       if (j !== 0 && j !== ktr.length - 1) return NaN;
+      let moter = moterFor(lb, sett).filter(m => Number.isFinite(m.z));
       if (j === 0) {
         const S = arg.s[arg.s.length - 1];
         Object.assign(arg, { s: arg.s.map(v => S - v).reverse(), fast: arg.fast.slice().reverse(),
           prover: arg.prover.map(p => ({ s: S - p.s, U: p.U })).reverse(), motsatt: !arg.motsatt });
+        moter = moter.map(m => ({ s: S - m.s, z: m.z }));
       }
-      const svar = leggHoyder(arg);
+      // tåler ikke greina sine egne greiner, er det den som får beskjed når den legges
+      let svar = leggHoyder(Object.assign({}, arg, { moter }));
+      if (svar.feil && moter.length) svar = leggHoyder(arg);
       return svar.feil ? NaN : svar.hoyest;
     };
-    const { k, ktr, sl, arg } = oppsett(l, null);
-    const moter = [];
-    for (const g of o.bygg.kontroll) {
-      if (g.fra !== o.ror || !g.fraPunkt) continue;
-      const lb = o.bygg.linjer.find(x => x.id === g.ror), j = l.punkter.findIndex(p => p.id === o.ror + ':' + g.fraPunkt);
-      if (!lb || lb.plan.regel !== 'selvfall' || j < 0) continue;
-      const H = hoyesteMote(lb, g);
-      if (Number.isFinite(H)) moter.push({ s: sl[j], z: H });
-    }
+    const { k, ktr, arg } = oppsett(l, null);
+    const alle = moterFor(l, new Set());
+    const uansett = alle.filter(m => !Number.isFinite(m.z)), sluppet = [];
+    const moter = alle.filter(m => Number.isFinite(m.z));
     let svar = leggHoyder(Object.assign({}, arg, { moter }));
-    if (svar.feil && moter.length) {
-      const uten = leggHoyder(arg);
-      if (!uten.feil) svar = uten;
+    while (svar.feil && moter.length) {
+      let i = 0;
+      for (let m = 1; m < moter.length; m++) if (moter[m].z < moter[i].z) i = m;
+      sluppet.push(moter.splice(i, 1)[0]);
+      svar = leggHoyder(Object.assign({}, arg, { moter }));
     }
+    // uten noen møter går det heller ikke – det er røret selv, og grunnen gjelder det
     if (svar.feil) return Object.assign(svar, hvorfor(svar, ktr, arg));
     // et møte i et fast punkt – en kum låst for hånd – flytter ikke knappen: sjekk profilen mot hvert møte
     const ved = sv => {
@@ -865,12 +895,29 @@ const RorPlan = (() => {
       const L = arg.s[j] - arg.s[j - 1];
       return L > 0 ? svar.topp[j - 1] + (svar.topp[j] - svar.topp[j - 1]) * (sv - arg.s[j - 1]) / L : svar.topp[j];
     };
-    const merk = moter.some(m => ved(m.s) > m.z + 1e-6) ? 'greinene som renner inn, får ikke fall hit med det som står fast på røret' : null;
+    const laast = moter.filter(m => ved(m.s) > m.z + 1e-6);
+    const hvor = ms => {
+      const st = ms.map(m => fmt(m.s, 0));
+      return (ms.length === 1 ? 'greina ved ' : 'greinene ved ')
+        + (st.length > 1 ? st.slice(0, -1).join(', ') + ' og ' + st[st.length - 1] : st[0]) + ' m';
+    };
+    const deler = [];
+    if (sluppet.length) {
+      // dypere går det: da er det dybden, ikke det som står fast
+      const dypere = !leggHoyder(Object.assign({}, arg, { moter: moter.concat(sluppet), dyp: 2 * dyp })).feil;
+      deler.push(`${hvor(sluppet)} får ikke fall inn hit ${dypere ? `uten at røret legges mer enn ${dyp} m dypere enn overdekningen krever`
+        : 'med det som står fast på røret'}`);
+    }
+    if (laast.length) deler.push(`${hvor(laast)} får ikke fall inn i en høyde som er låst`);
+    if (uansett.length) deler.push(`${hvor(uansett)} får ikke fall med det som står fast på greina`);
     /* NED TIL HEL MILLIMETER. Rundet av til nærmeste kunne punktet havne en
        halv millimeter over det programmeringen fant: over taket, og over den
        høyeste høyden en grein tåler å møte røret i – så greina ikke fikk fall. */
     return { laast: ktr.map((c, i) => ({ c, topp: svar.topp[i] })).filter(x => !fast(x.c))
-      .map(x => ({ punkt: x.c.punkt, bunn: Math.floor(bunnFraTopp(x.topp, k) * 1000 + 1e-6) / 1000 })), greiner: moter.length, merk };
+      .map(x => ({ punkt: x.c.punkt, bunn: Math.floor(bunnFraTopp(x.topp, k) * 1000 + 1e-6) / 1000 })),
+    greiner: alle.length, merk: deler.length ? deler.join('; ') : null,
+    // prøvepunkt uten terreng – lagt uten dem, og statuslinja sier det
+    mangler: arg.prover.filter(p => !Number.isFinite(p.U)).length };
   }
 
   /**
@@ -897,7 +944,7 @@ const RorPlan = (() => {
     const hvor = { fra: F != null ? ktr[F].s : svar.fra, til: svar.til };
     if (med.some(c => c.fra)) {
       return Object.assign(hvor, { grunn: 'grein', feil: 'greina henter høyden fra røret den er festet til, og derfra får den ikke fallet '
-        + 'uten å komme over overdekningen – legg høydene på det røret først, eller lås det dypere der greina kommer inn' });
+        + 'uten å komme over overdekningen – legg høydene fra utløpet og oppover, eller lås røret dypere der greina kommer inn' });
     }
     if (med.some(c => c.kilde)) {
       return Object.assign(hvor, { grunn: 'pakobling', feil: 'høyden i påkoblingen gir ikke fallet uten å komme over overdekningen '

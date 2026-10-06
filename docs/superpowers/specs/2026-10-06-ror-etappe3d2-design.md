@@ -46,9 +46,13 @@ VA-plan fra konsulenten (DXF) eller en stikningsfil (KOF).
   møtes: i en T stopper den, uansett rekkefølge i fila.
 - Hoppes over og telles: blokker (INSERT), tekst og annet; papirrommet
   (67 = 1 – rammen og tittelfeltet); flatenett (polyface og mesh).
-- En flate med normalen ned (230 = −1) er speilet: x snus.
+- En flate med normalen ned (230 = −1) er speilet: x og høyden snus.
+- En lukket polylinje med to hjørner og bue i lukkingen er en hel sirkel.
 - Er alle høydene i en linje 0, har den ingen høyde. Er noen 0 og resten mer
-  enn en meter unna null, er nullene høyder som mangler.
+  enn en meter unna null, er nullene høyder som mangler – i en DXF; i en KOF
+  er 0,000 en høyde. I en skjøt vinner høyden fra 3D-streken.
+- Programmets egne punktnavn gjelder bare med programmets egne koder
+  (RORBUNN, RORTOPP, GRAVBUNN).
 
 **Kontrollene:**
 - Punkt utenfor UTM i Norge hoppes over og telles, per linje. Fila avvises
@@ -79,9 +83,12 @@ klikket:
   og dimensjon, innen en halv meter. Høyden derfra låses med kilden;
 - en grein bare på et punkt på en annen trase med rør i samme system, på
   samme sted (5 cm). Det avgjøres etter at alle linjene er lagret, så en
-  grein finner hovedrøret også når det står etter den i fila. Et punkt som
-  selv er en grein-ende, tar ikke imot: der tre linjer møtes, blir det en
-  kjede, ikke en sirkel;
+  grein finner hovedrøret også når det står etter den i fila.
+- **Roten er den som renner ut.** Der ender møtes – en kum der hovedrøret går
+  videre og en sidegrein kommer inn – blir røret ut av punktet roten, og de som
+  renner inn, greiner av det. Et knekkpunkt midt på en trase er alltid roten.
+  En ende som alt er en grein, peker videre til sin rot. Bare de nye endene
+  festes; traseer som fantes fra før, endres ikke;
 - ellers står enden der fila sier.
 
 ## 2. Høydene lagt på knapp
@@ -112,7 +119,8 @@ det, og det blir ingen angrepost.
 - En høyde brukeren låser eller drar selv, mister merket og står fast, som
   påkoblingene og greinene.
 - Det knappen la, gjelder bare der knappen legger: i en kum, og i en ende
-  som ikke er en grein. Tas kummen bort, går høyden med den; en som står
+  som ikke er en grein. Tas en kum inne på traseen bort, går høyden med den
+  – i en ende står den, for enden er et kontrollpunkt uansett. En som står
   igjen fra før, tar neste trykk bort.
 
 **Faste punkt over taket.** En påkobling på et grunt rør bryter
@@ -125,9 +133,19 @@ krav, og den hindrer ikke resten.
 **Greinene som renner inn.** En grein henter høyden fra hovedrøret der den
 er festet. Lagt rett under taket ble hovedrøret liggende så høyt der at en
 grein på flatt terreng aldri fikk fall. Den høyeste høyden hver grein kan
-møte hovedrøret i, finnes med greinas egen programmering, og hovedrøret
-holdes under den. Går ikke det med det som står fast på hovedrøret, legges
-det uten, og statuslinja sier fra. Legg hovedrøret først, så greinene.
+møte hovedrøret i, finnes med greinas egen programmering – med kravene fra
+greinas egne greiner, hele veien opp – og hovedrøret holdes under den. Et
+nett legges fra utløpet og oppover, ett rør om gangen, i én runde.
+
+Går hovedrøret ikke med alle møtene, slippes det strengeste, ett om gangen,
+til det går. Statuslinja sier hvilke greiner som ikke får fall, ved hvilken
+stasjon, og hvorfor: røret måtte mer enn 6 m ned, en høyde på røret er
+låst, eller det som står fast på greina, gjør det umulig. Hver grein bruker
+koden til røret den henter høyden fra; en grein med en annen kode i samme
+system er festet i plan, men henter ikke høyden (som før).
+
+Prøvepunkt uten terreng – et hull, eller terreng som ikke er hentet ennå –
+legges uten, og statuslinja sier hvor mange.
 
 **Metoden** er dynamisk programmering over kontrollpunktene, med høyder i
 hele centimeter:
@@ -146,7 +164,8 @@ hele centimeter:
 hvor:
 - røret må ligge mer enn 6 m dypere enn overdekningen krever (prøvd med
   dobbel dybde, eller uten faste punkt i strekket);
-- greina får ikke fall fra høyden den henter – legg hovedrøret først;
+- greina får ikke fall fra høyden den henter – legg høydene fra utløpet og
+  oppover;
 - påkoblingen gir ikke fallet uten å komme over overdekningen;
 - de låste høydene gir ikke fallet;
 - et rør uten dimensjon eller uten terreng sier det, i stedet for «prøv
@@ -170,14 +189,20 @@ hvor:
   - et fast punkt over taket; to faste etter hverandre;
   - kummen tatt bort, og en lagt høyde i en grein-ende;
   - greina som renner inn i hovedrøret, med fasit;
+  - nett: hovedrør i kummer med en sidegrein, en kjede på tre (også med den
+    midterste tegnet mot strømmen), den strengeste greina slippes, en grein
+    som ikke tåler sin egen grein;
   - hvorfor det ikke går: dybden, greina, påkoblingen, de låste;
-  - 150 rør på tilfeldig terreng: ingen merknad om fall eller overdekning
-    etter knappen.
+  - 150 rør og 120 nett med greiner på tilfeldig terreng: ingen merknad om
+    fall eller overdekning etter knappen som ikke er forklart.
 - **Nettleseren:**
   - «Trase fra fil» med en KOF og en DXF laget i prøven: linjene, valget,
-    høydene låst eller ikke, angre, festene (grein, ikke grein, annet
-    system, greina før hovedrøret), papirrommet og UTM34;
+    høydene låst eller ikke, angre, festene (grein, ikke grein 8 cm unna,
+    annet system, greina før hovedrøret, tre ender i ett punkt, røret ut av
+    kummen som rot), papirrommet og UTM34; påkobling på et innmålt rør med
+    samme kode og ikke et annet; rammen i modellrommet;
   - «⤓ Legg høydene»: de låste høydene, kontrollene uten merknad om
-    overdekning og fall, et nytt trykk uten endring, punktfeltet, kummen
-    tatt bort, en lagt høyde uten kontrollpunkt, hvorfor det ikke går, og
+    overdekning og fall, et nytt trykk uten endring, punktfeltet (også en
+    grein-ende), kummen tatt bort inne og i enden, en lagt høyde uten
+    kontrollpunkt, en kum satt rett før trykket, hvorfor det ikke går, og
     angre.

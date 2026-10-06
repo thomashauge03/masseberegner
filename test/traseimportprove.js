@@ -51,6 +51,14 @@ console.log('\n1. KOF');
   paastand('en kode med mellomrom: «SP 160» og «SP 110» er to linjer', ord.linjer.length === 2 && ord.linjer[0].lag === 'SP 160'
     && ord.linjer[1].lag === 'SP 110' && ord.linjer[1].punkter[0].o === 500310.5 && Number.isNaN(ord.linjer[1].punkter[0].z),
     JSON.stringify(ord.linjer.map(l => [l.lag, l.punkter[0]])));
+  // 0,000 i en KOF er en høyde – et utløp i sjøen – ikke en høyde som mangler
+  const sjo = TraseImport.lesKof([' 09_91', P('U1', 'OV', 0, 0, 2.5), P('U2', 'OV', 10, 0, 1.8), P('U3', 'OV', 20, 0, 0), ' 09_99'].join('\n'));
+  paastand('0,000 i en KOF står som høyde', sjo.linjer[0].punkter[2].z === 0, JSON.stringify(sjo.linjer[0].punkter));
+  // navn som ligner programmets egne, men med en annen kode, er bare punkt med samme kode etter hverandre
+  const fremmed = TraseImport.lesKof([P('S-1B', 'SP', 0, 0, 5), P('S-2B', 'SP', 10, 0, 5), P('X1', 'VL', 50, 0, 5),
+    P('S-3B', 'SP', 100, 0, 5), P('S-4B', 'SP', 110, 0, 5)].join('\n'));
+  paastand('«S-1B» med koden SP er ikke programmets eget: to linjer, ikke én', fremmed.linjer.length === 2
+    && fremmed.linjer.every(l => l.punkter.length === 2), fremmed.linjer.map(kort).join(' '));
 }
 
 console.log('\n2. DXF');
@@ -118,6 +126,26 @@ console.log('\n2. DXF');
   const speil = TraseImport.lesDxf(ent(...lw('SP', [[-(O0 + 5), N0], [-(O0 + 15), N0]], '210', '0', '220', '0', '230', '-1')));
   paastand('speilet polylinje: øst blir riktig', speil.linjer[0].punkter[0].o === O0 + 5 && speil.linjer[0].punkter[1].o === O0 + 15,
     JSON.stringify(speil.linjer[0].punkter));
+  const speilZ = TraseImport.lesDxf(ent(...lw('SP', [[-(O0 + 5), N0], [-(O0 + 15), N0]], '38', '-12.5', '210', '0', '220', '0', '230', '-1')));
+  paastand('  og høyden snus med den', speilZ.linjer[0].punkter.every(q => q.z === 12.5), JSON.stringify(speilZ.linjer[0].punkter));
+  // en lukket polylinje med to hjørner og bue på begge strekk er en sirkel – her ble den en halv
+  const sirkel = TraseImport.lesDxf(ent('0', 'LWPOLYLINE', '8', 'KUM', '90', '2', '70', '1',
+    '10', String(O0 + 10), '20', String(N0), '42', '1', '10', String(O0 - 10), '20', String(N0), '42', '1'));
+  const sp2 = sirkel.linjer[0].punkter;
+  paastand('en lukket polylinje med to buer er en hel sirkel', sp2.length > 60 && sp2.every(q => Math.abs(Math.hypot(q.o - O0, q.n - N0) - 10) < 1e-6)
+    && sp2.some(q => q.n < N0 - 9.9) && sp2.some(q => q.n > N0 + 9.9), `${sp2.length} punkt`);
+  // en ødelagt vinkel i en ARC henger ikke lesingen
+  const vill = TraseImport.lesDxf(ent('0', 'ARC', '8', 'DR', '10', String(O0), '20', String(N0), '40', '5', '50', '1e300', '51', '90'));
+  paastand('en ARC med en vill vinkel: lesingen blir ferdig', Array.isArray(vill.linjer));
+  // en 2D-strek før en 3D-strek: skjøten får høyden fra 3D-streken, ikke 0 fra 2D-streken
+  const skjot = TraseImport.lesDxf(ent(...linje('SP', [O0, N0, 0], [O0 + 10, N0, 0]), ...linje('SP', [O0 + 10, N0, 12.3], [O0 + 20, N0, 12.2])));
+  const sz = skjot.linjer[0].punkter.map(q => q.z);
+  paastand('skjøten mellom en 2D- og en 3D-strek får 3D-høyden', sz.length === 3 && Number.isNaN(sz[0]) && sz[1] === 12.3 && sz[2] === 12.2,
+    JSON.stringify(sz));
+  // samme skjøt når kjeden vokser bakover: 2D-streken står først i fila og ligger etter
+  const bak = TraseImport.lesDxf(ent(...linje('SP', [O0 + 10, N0, 0], [O0 + 20, N0, 0]), ...linje('SP', [O0, N0, 12.4], [O0 + 10, N0, 12.3])));
+  const bz = bak.linjer[0].punkter.map(q => q.z);
+  paastand('  også når kjeden vokser bakover', bz.length === 3 && bz[0] === 12.4 && bz[1] === 12.3 && Number.isNaN(bz[2]), JSON.stringify(bz));
   // 2D-polylinje: høyden står i hodet (30), ikke i hjørnene
   const to = TraseImport.lesDxf(ent('0', 'POLYLINE', '8', 'VL', '66', '1', '10', '0', '20', '0', '30', '12.5', '70', '0',
     '0', 'VERTEX', '8', 'VL', '10', String(O0), '20', String(N0), '0', 'VERTEX', '8', 'VL', '10', String(O0 + 10), '20', String(N0),

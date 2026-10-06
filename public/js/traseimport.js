@@ -22,7 +22,7 @@ const TraseImport = (() => {
   /** Avstanden mellom punktene en bue legges inn med (m). */
   const BUESTEG = 1;
   /** Programmets egne punktnavn i en stikningsfil – se roreksport.js: rørene `<rørnr>-<løpenr><B|T|G>`, kummene `K<nr><B|T>`. */
-  const EGET = /^(.+)-\d+[BTG]$/, EGENKUM = /^.*K\d+[BT]$/;
+  const EGET = /^(.+)-\d+[BTG]$/, EGENKUM = /^.*K\d+[BT]$/, EGNE_KODER = new Set(['RORBUNN', 'RORTOPP', 'GRAVBUNN']);
 
   const tall = s => {
     const v = Number(String(s).trim().replace(',', '.'));
@@ -32,11 +32,14 @@ const TraseImport = (() => {
   /**
    * Linjene ryddet: punkt på samme sted etter hverandre slås sammen, og en
    * linje med under to punkt er ingen linje. Er alle høydene 0, har linja
-   * ingen høyde. Er noen 0 og resten mer enn en meter unna null, er nullene
-   * høyder som mangler – en 2D-strek kjedet inn i en 3D-linje – ikke en bunn
-   * på havnivå.
+   * ingen høyde.
+   *
+   * `nuller` (DXF): er noen 0 og resten mer enn en meter unna null, er
+   * nullene høyder som mangler – en 2D-strek kjedet inn i en 3D-linje – ikke en
+   * bunn på havnivå. I en KOF står høyden der med vilje, og 0,000 er en høyde:
+   * et utløp i sjøen.
    */
-  function rydd(linjer) {
+  function rydd(linjer, nuller) {
     const ut = [];
     for (const l of linjer) {
       const p = [];
@@ -46,9 +49,9 @@ const TraseImport = (() => {
         p.push(q);
       }
       if (p.length < 2) continue;
-      // alle 0, eller noen 0 og resten over en meter fra null: nullene er høyder som mangler
+      // alle 0 – eller i en DXF noen 0 og resten over en meter fra null: nullene er høyder som mangler
       const z = p.map(q => q.z).filter(Number.isFinite);
-      if (z.some(v => v === 0) && z.every(v => v === 0 || Math.abs(v) > 1)) for (const q of p) if (q.z === 0) q.z = NaN;
+      if (z.some(v => v === 0) && z.every(v => v === 0 || (nuller && Math.abs(v) > 1))) for (const q of p) if (q.z === 0) q.z = NaN;
       ut.push(Object.assign({}, l, { punkter: p }));
     }
     return ut;
@@ -122,7 +125,8 @@ const TraseImport = (() => {
         continue;
       }
       if ((p.kode === 'KUMBUNN' || p.kode === 'KUMTOPP') && EGENKUM.test(p.navn)) { hoppet.kumpunkt = (hoppet.kumpunkt || 0) + 1; continue; }
-      const eget = EGET.exec(p.navn);
+      // bare med programmets egne koder – «S-1B» fra et annet program er ikke røret 1
+      const eget = EGNE_KODER.has(p.kode) && EGET.exec(p.navn);
       if (eget) {
         const k = p.kode + '|' + eget[1];
         if (!egne.has(k)) egne.set(k, { navn: `${p.kode} – rør ${eget[1]}`, lag: p.kode, punkter: [] });
@@ -159,16 +163,21 @@ const TraseImport = (() => {
     return ut;
   }
 
-  /** Polylinjens punkt med buene lagt inn; `b` på et punkt gjelder strekket til det neste. */
+  /**
+   * Polylinjens punkt med buene lagt inn; `b` på et punkt gjelder strekket til
+   * det neste. En lukket polylinje med to hjørner er en sirkel når lukkingen er
+   * en bue – her ble den en halv; uten bue er lukkingen bare veien tilbake.
+   */
   function medBuer(p, lukket) {
     const ut = [];
     let buer = 0;
+    const lukk = lukket && p.length >= 2 && (p.length > 2 || !!p[p.length - 1].b);
     for (let k = 0; k < p.length; k++) {
       ut.push({ o: p[k].o, n: p[k].n, z: p[k].z });
-      const neste = k + 1 < p.length ? p[k + 1] : lukket && p.length > 2 ? p[0] : null;
+      const neste = k + 1 < p.length ? p[k + 1] : lukk ? p[0] : null;
       if (neste && p[k].b) { ut.push(...bue(p[k], neste, p[k].b)); buer++; }
     }
-    if (lukket && p.length > 2) ut.push({ o: p[0].o, n: p[0].n, z: p[0].z });
+    if (lukk) ut.push({ o: p[0].o, n: p[0].n, z: p[0].z });
     return { punkter: ut, buer };
   }
 
@@ -181,7 +190,8 @@ const TraseImport = (() => {
    * papirrommet (67 = 1 – rammen og tittelfeltet, som ellers kunne fått hele
    * fila avvist som et lokalt system) og flatenett (polyface og mesh, som ble
    * lest som linjer med flatepostene i (0, 0)). En flate med normalen ned
-   * (230 = −1) er speilet: x snus, ellers havnet traseen på negativ øst.
+   * (230 = −1) er speilet: x snus, ellers havnet traseen på negativ øst – og
+   * høyden snus med den (den vilkårlige aksen gir x og z motsatt vei, y står).
    */
   function lesDxf(tekst) {
     const r = String(tekst).split(/\r?\n/);
@@ -202,7 +212,10 @@ const TraseImport = (() => {
       return { type, felt };
     };
     const en = (felt, kode) => { const f = felt.find(p => p[0] === kode); return f ? f[1].trim() : null; };
-    const speil = (felt, p) => { if (tall(en(felt, '230') ?? '1') < 0) for (const q of p) q.o = -q.o; return p; };
+    const speil = (felt, p) => {
+      if (tall(en(felt, '230') ?? '1') < 0) for (const q of p) { q.o = -q.o; if (Number.isFinite(q.z)) q.z = -q.z; }
+      return p;
+    };
     while (i < par.length) {
       if (par[i][0] !== '0') { i++; continue; }
       if (par[i][1].trim() === 'ENDSEC') break;
@@ -244,13 +257,16 @@ const TraseImport = (() => {
         linjer.push({ navn: lag, lag, punkter: speil(felt, m.punkter) });
       } else if (type === 'ARC') {
         const cx = tall(en(felt, '10')), cy = tall(en(felt, '20')), z = tall(en(felt, '30') ?? 'NaN'), R = tall(en(felt, '40'));
-        const a0 = tall(en(felt, '50')) * Math.PI / 180;
-        let a1 = tall(en(felt, '51')) * Math.PI / 180;
+        const a0 = tall(en(felt, '50')) * Math.PI / 180, a1 = tall(en(felt, '51')) * Math.PI / 180;
         if (![cx, cy, R, a0, a1].every(Number.isFinite) || !(R > 0)) continue;
-        while (a1 <= a0) a1 += 2 * Math.PI;   // mot klokka fra start til slutt
-        const n = Math.min(2000, Math.max(2, Math.ceil((a1 - a0) * R / BUESTEG))), p = [];
+        /* Mot klokka fra start til slutt. Her sto `while (a1 <= a0) a1 += 2π`,
+           og en vinkel på 1e300 i en ødelagt fil ga en løkke uten ende. */
+        const TAU = 2 * Math.PI;
+        let sveip = ((a1 - a0) % TAU + TAU) % TAU;
+        if (!(sveip > 1e-9)) sveip = TAU;
+        const n = Math.min(2000, Math.max(2, Math.ceil(sveip * R / BUESTEG))), p = [];
         for (let k = 0; k <= n; k++) {
-          const a = a0 + (a1 - a0) * k / n;
+          const a = a0 + sveip * k / n;
           p.push({ o: cx + R * Math.cos(a), n: cy + R * Math.sin(a), z });
         }
         streker.push({ lag, punkter: speil(felt, p) });
@@ -268,7 +284,7 @@ const TraseImport = (() => {
       nr.set(l.lag, (nr.get(l.lag) || 0) + 1);
       l.navn = `${l.lag} (${nr.get(l.lag)})`;
     }
-    return { linjer: rydd(linjer), sone: null, hoppet, merknader };
+    return { linjer: rydd(linjer, true), sone: null, hoppet, merknader };
   }
 
   /**
@@ -302,28 +318,37 @@ const TraseImport = (() => {
     }
     // streken på den andre siden av et punkt der nøyaktig to møtes
     const videre = (nd, fra) => (nd.ender.length === 2 ? nd.ender.find(y => y !== fra) || null : null);
+    const kopi = q => ({ o: q.o, n: q.n, z: q.z });
+    /* I en skjøt er det to høyder, én fra hver strek. En 2D-strek har 0 eller
+       ingenting der en 3D-strek har høyden – den som har en høyde, vinner. Her
+       vant den som sto først. */
+    const skjot = (a, b) => { if ((!Number.isFinite(a.z) || a.z === 0) && Number.isFinite(b.z) && b.z !== 0) a.z = b.z; };
     const ut = [];
     for (const x of s) {
       if (x.brukt) continue;
       x.brukt = true;
-      const p = x.st.punkter.slice();
+      const p = x.st.punkter.map(kopi);
       // framover fra b-enden
       for (let nd = x.b, cur = x; ;) {
         const y = videre(nd, cur);
         if (!y || y.brukt) break;
         y.brukt = true;
         const fram = y.a === nd, q = fram ? y.st.punkter : y.st.punkter.slice().reverse();
-        for (let k = 1; k < q.length; k++) p.push(q[k]);
+        skjot(p[p.length - 1], q[0]);
+        for (let k = 1; k < q.length; k++) p.push(kopi(q[k]));
         nd = fram ? y.b : y.a; cur = y;
       }
       // bakover fra a-enden – samlet og satt foran til slutt
       const foran = [];
+      let forste = p[0];
       for (let nd = x.a, cur = x; ;) {
         const y = videre(nd, cur);
         if (!y || y.brukt) break;
         y.brukt = true;
         const slutt = y.b === nd, q = slutt ? y.st.punkter : y.st.punkter.slice().reverse();
-        for (let k = q.length - 2; k >= 0; k--) foran.push(q[k]);
+        skjot(forste, q[q.length - 1]);
+        for (let k = q.length - 2; k >= 0; k--) foran.push(kopi(q[k]));
+        forste = foran[foran.length - 1];
         nd = slutt ? y.a : y.b; cur = y;
       }
       ut.push({ navn: x.st.lag, lag: x.st.lag, punkter: foran.reverse().concat(p) });

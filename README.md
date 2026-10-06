@@ -232,7 +232,8 @@ rapporteres som et innmålt, med grøft og alt.
   KOF-hodet, ellers gjettes det som for rørene. Høydene i fila brukes bare om
   det velges – som bunn innvendig eller topp rør, låst. En ende kobles på et
   innmålt rør med samme kode innen en halv meter, og blir en grein av en annen
-  trase i samme system bare på samme sted (5 cm). Alt er ett angresteg.
+  trase i samme system bare på samme sted (5 cm) – der flere ender møtes, er
+  røret som renner ut, roten. Alt er ett angresteg.
 * **Feste:** en ende som klikkes nær et målt punkt på et innmålt rør, blir en
   påkobling med høyden derfra (låst, med kilden – merknadene sier fra om
   punktet endres). En ende på en annen trase blir en grein som følger den.
@@ -247,10 +248,11 @@ rapporteres som et innmålt, med grøft og alt.
   høydene i kummene og de frie endene som gir minst graving: overdekningen
   holdes langs hele røret – prøvd der kontrollen prøver – og fallet er minst
   kodens minste fall og høyst det største. Låste høyder, påkoblinger og
-  greiner står. Greiner som renner inn, får plass: røret holdes lavt nok der de
-  kommer inn (legg hovedrøret først). Svaret låses, merket «lagt» – et nytt
-  trykk legger dem på nytt, og punktfeltet viser det. Det er ett angresteg.
-  Går det ikke, endres ingenting, og statuslinja sier hvorfor: dybden, greina,
+  greiner står. Greiner som renner inn, får plass – med greinene sine, hele
+  veien opp: røret holdes lavt nok der de kommer inn, så et nett legges fra
+  utløpet og oppover i én runde. Svaret låses, merket «lagt» – et nytt trykk
+  legger dem på nytt, og punktfeltet viser det. Det er ett angresteg. Går det
+  ikke, endres ingenting, og statuslinja sier hvorfor: dybden, greina,
   påkoblingen eller de låste høydene.
 * **◯ Kum** setter en kum i et punkt (velg rør når traseen har flere). Kummen
   får egen grop i grøfta, og volumet står for seg i massetabellen.
@@ -449,8 +451,9 @@ De planlagte rørene: bunn ↔ topp med godset, sideavstanden i knekker, høyden
 for selvfall og trykk mellom kontrollpunktene, kummer, greiner og påkoblinger,
 kontrollene (overdekning, fall og motfall med millimeteravrundingen, kryssing,
 høybrekk, lavbrekk og fall for trykkrør), høydene lagt på knapp mot fasit regnet
-for hånd – faste punkt over taket, greiner som renner inn, hvorfor det ikke går,
-og 150 rør på tilfeldig terreng uten merknad etterpå –
+for hånd – faste punkt over taket, greiner som renner inn og nett av greiner,
+hvorfor det ikke går, og 150 rør og 120 nett på tilfeldig terreng uten
+uforklart merknad etterpå –
 fallet mellom kontrollpunktene og ryddingen av plandelen når prosjektfila åpnes.
 
 ```bash
@@ -477,9 +480,9 @@ node test/traseimportprove.js
 
 Traseer fra fil: KOF med linjeblokker, lukkede og åpne linjer, punkt med samme
 kode og koder med mellomrom, sonen fra hodet, stikningsfila røreksporten skriver
-lest tilbake; DXF med løse streker som kjedes (ikke gjennom en T), LWPOLYLINE med
-høyde, 2D- og 3D-polylinjer, buer og ARC, papirrom, flatenett, speiling og
-20 000 streker på tid. `npm test` kjører alle sju.
+lest tilbake; DXF med løse streker som kjedes (ikke gjennom en T, og med
+3D-høyden i skjøtene), LWPOLYLINE med høyde, 2D- og 3D-polylinjer, buer, sirkler
+og ARC, papirrom, flatenett, speiling med høyden og 20 000 streker på tid. `npm test` kjører alle sju.
 
 ```bash
 node test/demo-ydestad.js

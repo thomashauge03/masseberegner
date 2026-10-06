@@ -504,8 +504,12 @@ console.log('\n7. Høydene lagt på knapp');
   const mot = LH({ s: [0, 100], fast: [null, null], prover: li, minFall: 10, maksFall: 5 });
   paastand('største fall under minste: sagt rett ut', /største fall er mindre enn minste/.test(mot.feil || ''), JSON.stringify(mot));
   const sted = LH({ s: [0, 50, 50, 100], fast: [null, null, 17.3456, null], prover: li, minFall: 10, maksFall: 50 });
-  paastand('to kontrollpunkt på samme sted: et sprang ned er lov, motfall ikke', !sted.feil && sted.topp[2] === 17.3456
-    && sted.topp[1] >= 17.3456 - 0.005 - 1e-9, JSON.stringify(sted));
+  paastand('to kontrollpunkt på samme sted: et sprang ned er lov, motfall ikke – heller ikke 5 mm', !sted.feil && sted.topp[2] === 17.3456
+    && sted.topp[1] >= 17.3456 - 1e-9, JSON.stringify(sted));
+  // taket i det frie punktet er 17,343, det faste står 4,9 mm høyere på samme sted: det er motfall, ikke avrunding
+  const lavt = []; for (let s = 0; s <= 100; s++) lavt.push({ s, U: 17.343 });
+  const motsprang = LH({ s: [0, 50, 50, 100], fast: [null, null, 17.3449, null], prover: lavt, minFall: 0 });
+  paastand('  et fast punkt 4,9 mm over det frie på samme sted: ingen profil', !!motsprang.feil, JSON.stringify(motsprang));
 }
 
 console.log('\n7b. Faste punkt, greiner og hvorfor det ikke går');
@@ -572,15 +576,15 @@ console.log('\n7b. Faste punkt, greiner og hvorfor det ikke går');
   // hovedrøret låst for hånd i taket: greina kan ikke legges, og svaret sier hvorfor
   for (const x of gr.laast) if (x.ror === 'r1') { x.lagt = false; x.bunn = RorPlan.bunnFraTopp(x.punkt === 'p1' ? 18 : 17, SP); }
   const stengt = RorPlan.leggHoyderFor({ bygg: bygg(gr, T20), ror: 'r2', koder: {}, terrengZ: T20 });
-  paastand('hovedrøret låst for høyt: grunnen er greina', stengt.grunn === 'grein' && /legg høydene på det røret først/.test(stengt.feil),
+  paastand('hovedrøret låst for høyt: grunnen er greina', stengt.grunn === 'grein' && /fra utløpet og oppover/.test(stengt.feil),
     JSON.stringify(stengt));
   // og hovedrøret selv: det som står fast, står – merknaden sier at greina ikke får fall
   for (const x of gr.laast) if (x.ror === 'r1') x.lagt = true;
   gr.kummer.push({ id: 'k1', ror: 'r1', punkt: 'p2', diameter: 1000 });
   gr.laast.push({ ror: 'r1', punkt: 'p2', bunn: RorPlan.bunnFraTopp(17.9, SP) });
   const merket = LF(gr, T20);
-  paastand('en låst kum i møtet: hovedrøret legges uten greina, og det sies fra', !merket.feil && /greinene/.test(merket.merk || ''),
-    JSON.stringify(merket));
+  paastand('en låst kum i møtet: hovedrøret legges uten greina, og det sies fra', !merket.feil
+    && /greina ved 10 m får ikke fall inn i en høyde som er låst/.test(merket.merk || ''), JSON.stringify(merket));
 
   /* HVORFOR. Terrenget stiger 80 ‰ mot fallet: et fritt rør må over 6 m ned. */
   const dyp = LF(plan1([[0, 0], [100, 0]], [{ kode: 'SP 160PE' }]), x => 20 + 0.08 * x);
@@ -604,6 +608,93 @@ console.log('\n7b. Faste punkt, greiner og hvorfor det ikke går');
   const utenT = RorPlan.leggHoyderFor({ bygg: bygg(plan1([[0, 0], [100, 0]], [{ kode: 'SP 160PE' }]), () => NaN), ror: 'r1', koder: {},
     terrengZ: () => NaN });
   paastand('uten terreng: sagt rett ut', /terrenget mangler/.test(utenT.feil || ''), JSON.stringify(utenT));
+  // et hull i terrenget midt på: lagt uten det, og telt
+  const hullT = (x, y) => (x > 40 && x < 50 ? NaN : 20 - 0.002 * x);
+  const hull = LF(plan1([[0, 0], [100, 0]], [{ kode: 'SP 160PE' }]), hullT);
+  paastand('et hull i terrenget: lagt likevel, og hvor mye som mangler', !hull.feil && hull.mangler === 9, JSON.stringify(hull));
+}
+
+console.log('\n7d. Nett av greiner, fra utløpet og oppover');
+{
+  /* Flere traseer, alle SP 160PE, flatt terreng på 20. `nett` setter greinene
+     slik «Trase fra fil» gjør det: den som renner ut av et punkt, er roten der,
+     og de som renner inn, er greiner av den. */
+  const T20 = () => 20;
+  const nett = (traseer, greiner) => {
+    const p = RorPlan.nyPlan();
+    traseer.forEach(([id, pts], i) => {
+      p.traseer.push({ id, punkter: pts.map(([x, y], j) => ({ id: id + 'p' + (j + 1), lat: y, lon: x })) });
+      p.ror.push({ id: 'r' + (i + 1), trase: id, kode: 'SP 160PE', side: 0, regel: null, motsatt: false });
+    });
+    for (const [trase, ende, til, punkt] of greiner) p.greiner.push({ trase, ende, til: { trase: til, punkt } });
+    return p;
+  };
+  const trykk = (p, ror) => {
+    const svar = RorPlan.leggHoyderFor({ bygg: bygg(p, T20), ror, koder: {}, terrengZ: T20 });
+    if (svar.feil) return svar;
+    p.laast = p.laast.filter(x => !(x.ror === ror && x.lagt));
+    p.laast.push(...svar.laast.map(x => ({ ror, punkt: x.punkt, bunn: x.bunn, lagt: true })));
+    return svar;
+  };
+  const rene = p => RorPlan.kontroller({ bygg: bygg(p, T20), koder: {}, mal: RorPlan.nyPlanmal(), terrengZ: T20, andre: [] })
+    .filter(v => v.type === 'fall' || v.type === 'motfall' || v.type === 'overdekning');
+  /* Hovedrøret delt i fire kummer (M1–M4, 50 m hver) og en sidegrein B på
+     40 m inn i kummen mellom M2 og M3. Her fikk ingen av de 120 rekkefølgene
+     en ren profil: greina ble regnet uten greinene sine. */
+  const p = nett([['M1', [[0, 0], [50, 0]]], ['M2', [[50, 0], [100, 0]]], ['M3', [[100, 0], [150, 0]]], ['M4', [[150, 0], [200, 0]]],
+    ['B', [[100, 40], [100, 0]]]],
+  [['M1', 'slutt', 'M2', 'M2p1'], ['M2', 'slutt', 'M3', 'M3p1'], ['B', 'slutt', 'M3', 'M3p1'], ['M3', 'slutt', 'M4', 'M4p1']]);
+  const logg = ['r4', 'r3', 'r2', 'r5', 'r1'].map(r => { const s = trykk(p, r); return r + (s.feil ? ' FEIL ' + s.feil : ''); });
+  paastand('hovedrør i kummer med en sidegrein: fra utløpet og oppover, i én runde', logg.every(x => !/FEIL/.test(x)), logg.join(' | '));
+  paastand('  og ingen merknad om fall eller overdekning noe sted', !rene(p).length, rene(p).map(v => v.tekst).join(' | '));
+  // en kjede på tre, flatt: C er utløpet, B renner i C, A i B
+  const k3 = nett([['A', [[0, 0], [60, 0]]], ['B', [[60, 0], [120, 0]]], ['C', [[120, 0], [180, 0]]]],
+    [['A', 'slutt', 'B', 'Bp1'], ['B', 'slutt', 'C', 'Cp1']]);
+  const k3logg = ['r3', 'r2', 'r1'].map(r => { const s = trykk(k3, r); return r + (s.feil ? ' FEIL ' + s.feil : ''); });
+  paastand('en kjede på tre: fra utløpet og oppover', k3logg.every(x => !/FEIL/.test(x)) && !rene(k3).length,
+    k3logg.join(' | ') + ' ' + rene(k3).map(v => v.tekst).join(' | '));
+  /* Den midterste tegnet MOT strømmen: B starter i C og renner mot starten
+     sin. Greina snus når kravet regnes – og kravene fra greinene dens må snus
+     med den, ellers står de i feil ende. */
+  const mot = nett([['A', [[0, 0], [60, 0]]], ['B', [[120, 0], [60, 0]]], ['C', [[120, 0], [180, 0]]]],
+    [['A', 'slutt', 'B', 'Bp2'], ['B', 'start', 'C', 'Cp1']]);
+  mot.ror[1].motsatt = true;
+  const motlogg = ['r3', 'r2', 'r1'].map(r => { const s = trykk(mot, r); return r + (s.feil ? ' FEIL ' + s.feil : ''); });
+  paastand('  med den midterste tegnet mot strømmen likeså', motlogg.every(x => !/FEIL/.test(x)) && !rene(mot).length,
+    motlogg.join(' | ') + ' ' + rene(mot).map(v => v.tekst).join(' | '));
+  /* ÉN GREIN SOM IKKE GÅR, TAR IKKE DE ANDRE MED SEG. To greiner inn i
+     hovedrøret; den andre er låst 5 m ned i enden sin (topp 13,0), så møtet
+     må ligge på 12,6 eller lavere – og da må hovedrøret 6,9 m ned i enden. Den
+     strengeste slippes, ikke den første; den andre står. */
+  const to = nett([['H', [[0, 0], [100, 0], [200, 0]]], ['G1', [[50, 40], [50, 0]]], ['G2', [[150, 40], [150, 0]]]], []);
+  to.traseer[0].punkter.splice(1, 1, { id: 'Hp2', lat: 0, lon: 50 }, { id: 'Hp3', lat: 0, lon: 150 });
+  to.traseer[0].punkter[3] = { id: 'Hp4', lat: 0, lon: 200 };
+  to.greiner.push({ trase: 'G1', ende: 'slutt', til: { trase: 'H', punkt: 'Hp2' } }, { trase: 'G2', ende: 'slutt', til: { trase: 'H', punkt: 'Hp3' } });
+  to.laast.push({ ror: 'r3', punkt: 'G2p1', bunn: RorPlan.bunnFraTopp(12.4, SP) });
+  const hs = RorPlan.leggHoyderFor({ bygg: bygg(to, T20), ror: 'r1', koder: {}, terrengZ: T20 });
+  paastand('en grein som ville trukket røret for dypt, slippes – den strengeste, og det sies hvorfor', !hs.feil && hs.greiner === 2
+    && /^greina ved 150 m får ikke fall inn hit uten at røret legges mer enn 6 m dypere/.test(hs.merk || '') && !/ 50 m/.test(hs.merk),
+    JSON.stringify(hs));
+  to.laast.push(...hs.laast.map(x => ({ ror: 'r1', punkt: x.punkt, bunn: x.bunn, lagt: true })));
+  const g1 = RorPlan.leggHoyderFor({ bygg: bygg(to, T20), ror: 'r2', koder: {}, terrengZ: T20 });
+  paastand('  den andre greina får fortsatt fall inn', !g1.feil, JSON.stringify(g1));
+  // og en grein som ikke får fall uansett – låst 7 m ned – sies som det
+  to.laast = to.laast.filter(x => x.ror !== 'r1');
+  to.laast.find(x => x.punkt === 'G2p1').bunn = RorPlan.bunnFraTopp(11, SP);
+  const ua = RorPlan.leggHoyderFor({ bygg: bygg(to, T20), ror: 'r1', koder: {}, terrengZ: T20 });
+  paastand('en grein som ikke får fall uansett: sagt som det', !ua.feil
+    && /greina ved 150 m får ikke fall med det som står fast på greina/.test(ua.merk || ''), JSON.stringify(ua));
+  /* EN GREIN SOM IKKE TÅLER SIN EGEN GREIN, SKAL LIKEVEL HA FALL INN. A er låst
+     på 12,6 og kan møte B på 12,2 – men da må B ned under 6 m i den andre
+     enden. B selv kan godt renne inn i hovedrøret; regnet med A så den umulig
+     ut, og hovedrøret sa at greina ikke fikk fall. */
+  const sub = nett([['H', [[0, 0], [100, 0]]], ['B', [[50, 40], [50, 0]]], ['A', [[90, 40], [50, 40]]]],
+    [['B', 'slutt', 'H', 'Hp2'], ['A', 'slutt', 'B', 'Bp1']]);
+  sub.traseer[0].punkter.splice(1, 0, { id: 'Hp2', lat: 0, lon: 50 });
+  sub.traseer[0].punkter[2].id = 'Hp3';
+  sub.laast.push({ ror: 'r3', punkt: 'Ap1', bunn: RorPlan.bunnFraTopp(12.6, SP) });
+  const hsub = RorPlan.leggHoyderFor({ bygg: bygg(sub, T20), ror: 'r1', koder: {}, terrengZ: T20 });
+  paastand('en grein som ikke tåler sin egen grein, får likevel fall inn', !hsub.feil && !/ 50 m/.test(hsub.merk || ''), JSON.stringify(hsub));
 }
 
 console.log('\n7c. Knappen på tilfeldig terreng: ingen merknad etterpå');
@@ -638,6 +729,46 @@ console.log('\n7c. Knappen på tilfeldig terreng: ingen merknad etterpå');
   }
   paastand(`${lagt} rør lagt, ${dypt} for dype eller stengt – ingen merknad etter knappen`, !verst.length && lagt >= 100,
     verst.slice(0, 3).join(' | '));
+
+  /* MED GREINER: et hovedrør og én til tre greiner som renner inn – i starten
+     eller enden av greina – på skrått og bølgete terreng. Hovedrøret legges
+     først, så greinene. Etterpå skal kontrollen ikke ha noe å si, og en grein
+     som ikke kan legges, skal hovedrøret alt ha sagt fra om. */
+  let rene = 0, merket = 0;
+  const galt = [];
+  for (let k = 0; k < 120; k++) {
+    const a1 = tilf() * 2, f1 = 0.01 + tilf() * 0.04, g = (tilf() - 0.5) * 0.04, gy = (tilf() - 0.5) * 0.04;
+    const T = (x, y) => 20 + g * x + gy * y + a1 * Math.sin(f1 * x + 0.2 * y);
+    const n = 3 + Math.floor(tilf() * 5), pts = [[0, 0]];
+    for (let i = 1; i < n; i++) pts.push([pts[i - 1][0] + 10 + tilf() * 40, pts[i - 1][1] + (tilf() - 0.5) * 10]);
+    const plan = plan1(pts, [{ kode: 'SP 160PE', motsatt: tilf() < 0.3 }]);
+    for (let i = 1; i < n - 1; i++) if (tilf() < 0.5) plan.kummer.push({ id: 'k' + i, ror: 'r1', punkt: 'p' + (i + 1), diameter: 1000 });
+    const nb = 1 + Math.floor(tilf() * 3);
+    for (let b = 0; b < nb; b++) {
+      const j = Math.floor(tilf() * n), P = pts[j], L = 15 + tilf() * 50, v = tilf() * Math.PI * 2;
+      const Q = [P[0] + L * Math.cos(v), P[1] + L * Math.sin(v)], M = [(P[0] + Q[0]) / 2, (P[1] + Q[1]) / 2], iStart = tilf() < 0.5;
+      const bp = iStart ? [P, M, Q] : [Q, M, P];
+      plan.traseer.push({ id: 'g' + b, punkter: bp.map(([x, y], i) => ({ id: 'g' + b + 'p' + (i + 1), lat: y, lon: x })) });
+      // greina renner inn i hovedrøret: møtet er enden nedstrøms
+      plan.ror.push({ id: 'rg' + b, trase: 'g' + b, kode: 'SP 160PE', side: 0, regel: null, motsatt: iStart });
+      plan.greiner.push({ trase: 'g' + b, ende: iStart ? 'start' : 'slutt', til: { trase: 't1', punkt: 'p' + (j + 1) } });
+    }
+    const leggPaa = ror => {
+      const svar = RorPlan.leggHoyderFor({ bygg: bygg(plan, T), ror, koder: {}, terrengZ: T });
+      if (!svar.feil) plan.laast.push(...svar.laast.map(x => ({ ror, punkt: x.punkt, bunn: x.bunn, lagt: true })));
+      return svar;
+    };
+    const hoved = leggPaa('r1');
+    if (hoved.feil) continue;
+    const greiner = plan.ror.slice(1).map(r => leggPaa(r.id));
+    if (hoved.merk) { merket++; continue; }
+    if (greiner.some(s => s.feil)) { galt.push(`#${k}: en grein feilet uten at hovedrøret sa fra – ${greiner.find(s => s.feil).feil}`); continue; }
+    const v = RorPlan.kontroller({ bygg: bygg(plan, T), koder: {}, mal: RorPlan.nyPlanmal(), terrengZ: T, andre: [] })
+      .filter(x => x.type === 'fall' || x.type === 'motfall' || x.type === 'overdekning');
+    if (v.length) galt.push(`#${k}: ${v[0].tekst}`); else rene++;
+  }
+  paastand(`med greiner: ${rene} nett rene, ${merket} der hovedrøret sa fra – ingen merknad uten forklaring`, !galt.length && rene >= 90,
+    galt.slice(0, 3).join(' | '));
 }
 
 /* ---------------- sluttsum ---------------- */

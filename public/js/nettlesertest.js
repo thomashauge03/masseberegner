@@ -11147,6 +11147,19 @@ const Nettlesertest = {
         const sirkel = App.byggRor().merknader.filter(m => m.type === 'grein');
         this.sjekk('tre ender i samme punkt: to greiner, ingen sirkel', App.P.ror.plan.greiner.length === gF + 2 && !sirkel.length,
           JSON.stringify(App.P.ror.plan.greiner.slice(gF)) + ' ' + sirkel.map(m => m.tekst).join(' | '));
+        /* ET HOVEDRØR DELT I KUMMER, MED EN SIDEGREIN INN I ÉN AV DEM. Røret ut
+           av kummen er roten: de som renner inn – hovedrøret ovenfra og
+           sidegreina – er greiner av det. Her ble hovedrøret ut av kummen en
+           grein av sidegreina, og høydene kunne ikke legges i noen rekkefølge. */
+        const hk = (navn, x, y) => Eksport.kofPunkt(navn, 'SP', o.y + y, o.x + x, 10);
+        const kummer = ['.PUNKT', ' 09_91', hk('A1', 600, 100), hk('A2', 650, 100), ' 09_99', ' 09_91', hk('B1', 650, 100), hk('B2', 700, 100), ' 09_99',
+          ' 09_91', hk('C1', 700, 100), hk('C2', 750, 100), ' 09_99', ' 09_91', hk('D1', 700, 140), hk('D2', 700, 100), ' 09_99'].join('\n');
+        const gK = App.P.ror.plan.greiner.length;
+        RorPlanUI.importerTraseTekst('kummer.kof', kummer, { linjer: [0, 1, 2, 3], koder: ['SP 160PE', 'SP 160PE', 'SP 160PE', 'SP 160PE'], hoyder: 'ingen' });
+        const TK = App.P.ror.plan.traseer.slice(-4), [tA, tB, tC, tD] = TK, nyeG = App.P.ror.plan.greiner.slice(gK);
+        const har = (t, ende, til) => nyeG.some(g => g.trase === t.id && g.ende === ende && g.til.trase === til.id && g.til.punkt === til.punkter[0].id);
+        this.sjekk('kummer med en sidegrein: røret ut av kummen er roten', nyeG.length === 3 && har(tA, 'slutt', tB) && har(tB, 'slutt', tC)
+          && har(tD, 'slutt', tC) && !nyeG.some(g => g.trase === tC.id), JSON.stringify(nyeG));
         // papirrommet i en DXF: rammen ved (0, 0) avviser ikke fila
         const papir = d('0', 'SECTION', '2', 'ENTITIES', '0', 'LWPOLYLINE', '8', 'SP_160', '90', '2', '70', '0',
           '10', o.x + 300, '20', o.y, '10', o.x + 340, '20', o.y,
@@ -11277,6 +11290,14 @@ const Nettlesertest = {
       RorPlanUI.leggHoyder('r1');
       this.sjekk('en kum satt rett før trykket, får høyden sin', App.P.ror.plan.laast.some(x => x.ror === 'r1' && x.punkt === 'p2' && x.lagt),
         JSON.stringify(App.P.ror.plan.laast));
+      // en kum i ENDEN tatt bort: enden er et kontrollpunkt uansett, og høyden knappen la der, står
+      const r1 = App.P.ror.plan.ror.find(x => x.id === 'r1');
+      RorPlanUI._vekslKum(r1, 'p3');
+      RorPlanUI.leggHoyder('r1');
+      const iEnden = (App.P.ror.plan.laast.find(x => x.ror === 'r1' && x.punkt === 'p3') || {}).bunn;
+      RorPlanUI._vekslKum(r1, 'p3');
+      this.sjekk('en kum i enden tatt bort: høyden der står', App.P.ror.plan.laast.some(x => x.ror === 'r1' && x.punkt === 'p3' && x.lagt
+        && x.bunn === iEnden), JSON.stringify(App.P.ror.plan.laast));
       // en låst høyde som gjør det umulig: ingenting endres, og statuslinja sier hvorfor
       RorPlanUI.laas('r1', 'p3', 21.0);
       clearTimeout(App._tidsavbrudd);
@@ -11285,6 +11306,21 @@ const Nettlesertest = {
       RorPlanUI.leggHoyder('r1');
       this.sjekk('umulig: ingenting endres', JSON.stringify(App.P.ror.plan.laast) === foerL);
       this.sjekk('  og det står hvorfor – den låste høyden', /Høydene ble ikke lagt: de låste høydene gir ikke fallet/.test(status()), status());
+      /* En lagt høyde i en ende som er blitt en grein, gjelder ikke – høyden er
+         hovedrørets. Punktfeltet viste den som «lagt», og «Lås» ville skrevet den
+         gamle høyden over hovedrørets. */
+      const pl = App.P.ror.plan, p2 = pl.traseer[0].punkter[1];
+      pl.traseer.push({ id: 't9', punkter: [{ id: 'q91', lat: p2.lat, lon: p2.lon }, { id: 'q92', lat: p2.lat + 0.0003, lon: p2.lon }] });
+      pl.ror.push({ id: 'r9', trase: 't9', kode: 'SP 160PE', side: 0, regel: null, motsatt: true });
+      pl.greiner.push({ trase: 't9', ende: 'start', til: { trase: 't1', punkt: p2.id } });
+      pl.laast.push({ ror: 'r9', punkt: 'q91', bunn: 12, lagt: true });
+      clearTimeout(App._tidsavbrudd);
+      await App.beregnRor();
+      RorPlanUI.punktfelt('r9', 'q91');
+      const gtekst = document.getElementById('dialoginnhold').textContent;
+      this.sjekk('en lagt høyde i en grein-ende vises ikke – greina henter høyden', !/Lagt av/.test(gtekst) && /Grein – høyden hentes/.test(gtekst),
+        gtekst.slice(0, 120));
+      document.getElementById('dialog').classList.add('skjult');
     } finally {
       Terreng.prototype.z = ekteZ; Terreng.prototype.lastKorridorer = ekteLast;
       App._terrengnokkel = ''; App._groftNokkel = '';

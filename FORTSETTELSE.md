@@ -24,11 +24,11 @@ med `Nettlesertest.kjor()`. Utviklingstjeneren startes med `node server.js`
 (port 5178). Programmet ligger også på https://masseberegner.vercel.app.
 
 Ved siste lagring: **894 prøver i selvtesten, 194 i rørprøven
-(`test/rorprove.js`), 219 i grøfteprøven (`test/groftprove.js`), 164 i
+(`test/rorprove.js`), 219 i grøfteprøven (`test/groftprove.js`), 175 i
 planprøven (`test/rorplanprove.js`), 63 i eksportprøven
-(`test/roreksportprove.js`), 77 i avviksprøven (`test/roravvikprove.js`), 38 i
+(`test/roreksportprove.js`), 77 i avviksprøven (`test/roravvikprove.js`), 45 i
 traseprøven (`test/traseimportprove.js`), 53 i anleggsprøven og 258 i
-tomteprøven, alle grønne; 1469 av 1469 i nettlesertesten.** «Klikk i modellen flytter snittet
+tomteprøven, alle grønne; 1472 av 1472 i nettlesertesten.** «Klikk i modellen flytter snittet
 dit» i `veg3d` kan feile når vinduet emuleres 1440 × 900 i en mindre rute –
 klikket lander én rad ved siden av; det gjør den likt på `main`. «og merknaden
 sier det som gjelder nå» i `flereAnlegg` feilet én gang i hele runden og aldri
@@ -77,8 +77,12 @@ Plan: `docs/superpowers/plans/2026-10-06-ror-etappe3d2.md`.
     eller topp rør, låst).
   - Endene festes strengt: påkobling bare på samme rør innen 0,5 m, grein
     bare på samme sted (5 cm) i samme system – etter at alle linjene er
-    lagret (`_festGreiner`). Id-ene og de innmålte punktene finnes én gang
-    per fil. Alt er ett angresteg.
+    lagret (`_festGreiner`, med rutenett). Der ender møtes, er røret som
+    renner ut, roten; et knekkpunkt midt på er alltid roten. Id-ene og de
+    innmålte punktene finnes én gang per fil. Alt er ett angresteg.
+  - Kjent grense: å tegne et tegnet anlegg med titusener av punkt tar
+    sekunder (en dra-markør per punkt i Leaflet). Det gjaldt før også; med
+    «Trase fra fil» er det lettere å komme dit.
 - **⤓ Legg høydene** (`RorPlan.leggHoyder`/`leggHoyderFor`): dynamisk
   programmering over kontrollpunktene på et selvfallsrør, i hele centimeter.
   - Minst gravedybde, med overdekningen (prøvd der `kontroller` prøver,
@@ -88,8 +92,12 @@ Plan: `docs/superpowers/plans/2026-10-06-ror-etappe3d2.md`.
     legges på nytt neste gang; punktfeltet viser det og har knappen.
   - Et fast punkt over taket løfter taket ved siden av seg; to faste etter
     hverandre gir linja selv.
-  - Greiner som renner inn, gir et lavere tak i møtet (`moter`, greinas egen
-    programmering) – legg hovedrøret først.
+  - Greiner som renner inn, gir et lavere tak i møtet (`moterFor`, greinas
+    egen programmering med greinenes greiner, rekursivt) – et nett legges fra
+    utløpet og oppover i én runde. Går det ikke, slippes det strengeste møtet
+    ett om gangen, og `merk` sier hvilke greiner og hvorfor.
+  - En kum tatt bort inne på traseen tar det knappen la der med seg; i en
+    ende står høyden (`_inne`).
   - Høydene rundes ned til hel millimeter.
   - Går det ikke, endres ingenting, og statuslinja sier hvorfor (`hvorfor`:
     dybde, grein, påkobling, låst) og hvor.
