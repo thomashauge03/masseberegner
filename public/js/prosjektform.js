@@ -160,12 +160,19 @@ function _rettPlan(a, RP) {
   }
   a.ror.plan = { traseer, ror, kummer, laast, greiner };
   const m = erObjekt(a.mal.plan) ? a.mal.plan : {}, kum = erObjekt(m.kum) ? m.kum : {};
-  const std = RP.StandardPlanmal, ell = (v, s) => (v === null ? s : v);
+  const av = erObjekt(m.avvik) ? m.avvik : {};
+  const std = RP.StandardPlanmal, sa = std.avvik, ell = (v, s) => (v === null ? s : v);
   a.mal.plan = {
     overdekning: ell(RP.klem('overdekning', m.overdekning), std.overdekning),
     kryssKlaring: ell(RP.klem('kryssKlaring', m.kryssKlaring), std.kryssKlaring),
     kum: { diameter: ell(RP.klem('diameter', kum.diameter), std.kum.diameter),
-      arbeidsrom: ell(RP.klem('arbeidsrom', kum.arbeidsrom), std.kum.arbeidsrom) }
+      arbeidsrom: ell(RP.klem('arbeidsrom', kum.arbeidsrom), std.kum.arbeidsrom) },
+    // avviket mot innmålt: en fil fra før etappe 3c har det ikke, og knappen er da av
+    avvik: { vis: av.vis === true,
+      plan: ell(RP.klem('avvikPlan', av.plan), sa.plan),
+      selvfall: ell(RP.klem('avvikHoyde', av.selvfall), sa.selvfall),
+      trykk: ell(RP.klem('avvikHoyde', av.trykk), sa.trykk),
+      sok: ell(RP.klem('sok', av.sok), sa.sok) }
   };
   for (const k of Object.values(a.ror.koder)) {
     for (const f of ['gods', 'overdekning', 'minFall', 'maksFall']) {

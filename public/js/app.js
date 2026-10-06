@@ -3332,6 +3332,50 @@ const App = {
   },
 
   /**
+   * De innmålte røranleggene i prosjektet, med rørene i regnesonen – til
+   * avviket mot innmålt (RorAvvik). Rørene er de samme som kartet viser:
+   * rettingene gjelder, og et punkt som er slått av, er ikke med.
+   */
+  _innmalteRor() {
+    const ut = [];
+    for (const a of this.P.anlegg) {
+      if (a.type !== 'ror' || !a.ror || a.ror.plan || !a.ror.punkter.length) continue;
+      const b = Ror.byggLinjer(a.ror, a.mal, Ror.lagTilXY(a.ror.sone, this.sone));
+      ut.push({ anlegg: a.id, navn: a.navn || 'Rør', koder: a.ror.koder, linjer: b.linjer });
+    }
+    return ut;
+  },
+
+  /**
+   * De andre tegnede anleggene som ligger nær dette – med rørene sine, også de
+   * uten høyder ennå. Terrenget deres hentes sammen med det aktive: høydene
+   * deres kommer av terrenget, og kryssingskontrollen (`_andreRor`) bygger dem
+   * med det som er lastet. Her manglet det, og et tegnet anlegg ved siden av
+   * fikk ingen linjer – et kryss med det ble aldri sett.
+   *
+   * NÆR er innenfor terrengbeltet rundt rørene i dette anlegget. Et anlegg på
+   * et annet sted i prosjektet kan ikke krysse, og terrenget dit hentes ikke.
+   */
+  _andrePlanerNaer(traser, halv) {
+    if (!traser.length) return [];
+    const boks = { x0: Infinity, x1: -Infinity, y0: Infinity, y1: -Infinity };
+    const ta = (b, q) => {
+      b.x0 = Math.min(b.x0, q.x); b.x1 = Math.max(b.x1, q.x); b.y0 = Math.min(b.y0, q.y); b.y1 = Math.max(b.y1, q.y);
+    };
+    for (const l of traser) for (const q of l.xy) ta(boks, q);
+    const ut = [];
+    for (const a of this.P.anlegg) {
+      if (a.type !== 'ror' || a.id === this.P.aktivt || !a.ror || !a.ror.plan || !a.ror.plan.traseer.length) continue;
+      const b = this.byggPlan(a), linjer = b.linjer.concat(b.utenHoyde || []);
+      const hans = { x0: Infinity, x1: -Infinity, y0: Infinity, y1: -Infinity };
+      for (const l of linjer) for (const q of l.xy) ta(hans, q);
+      if (hans.x0 > boks.x1 + halv || boks.x0 > hans.x1 + halv || hans.y0 > boks.y1 + halv || boks.y0 > hans.y1 + halv) continue;
+      ut.push({ anlegg: a, linjer });
+    }
+    return ut;
+  },
+
+  /**
    * Regnesonen for et røranlegg.
    *
    * Har prosjektet en veg eller en tomt, er det den som bestemmer – med sin
@@ -3397,13 +3441,17 @@ const App = {
        høyder før terrenget er hentet, og uten dem ville ingenting blitt hentet.
        Nøkkelen for et tegnet anlegg er traseene – linjene endrer seg med
        terrenget (mellompunktene), og da ville samme terreng blitt bedt om igjen. */
-    const traser = bygg.linjer.concat(bygg.utenHoyde || []);
+    const egne = bygg.linjer.concat(bygg.utenHoyde || []);
+    // de andre tegnede anleggene i nærheten får terrenget sitt med – se _andrePlanerNaer
+    const andre = r.plan ? this._andrePlanerNaer(egne, halv) : [];
+    const traser = egne.concat(andre.flatMap(x => x.linjer));
     /* Kodene som er slått av, er med i nøkkelen: et rør som var skjult mens
        terrenget ble hentet, fikk ellers aldri korridoren sin når det ble slått
        på igjen – nøkkelen var den samme. */
+    const tegnet = p => JSON.stringify(p.plan.traseer) + JSON.stringify(p.plan.ror.map(x => [x.id, x.side]))
+      + JSON.stringify(Object.keys(p.koder).filter(k => p.koder[k].vis === false));
     const nokkel = 'ror#' + this.sone + '#' + halv + '#' + (r.plan
-      ? JSON.stringify(r.plan.traseer) + JSON.stringify(r.plan.ror.map(x => [x.id, x.side]))
-        + JSON.stringify(Object.keys(r.koder).filter(k => r.koder[k].vis === false))
+      ? tegnet(r) + andre.map(x => '#' + x.anlegg.id + tegnet(x.anlegg.ror)).join('')
       : bygg.linjer.map(l => l.id + ':' + l.punkter.length + ':' + l.lengde.toFixed(2)).join('|'));
     const anleggFoer = this.P.aktivt;
     if (nokkel !== this._terrengnokkel && traser.length) {
@@ -3446,7 +3494,8 @@ const App = {
     const kummer = (bygg.kummer || []).map(k => ({ id: k.id, x: k.x, y: k.y, bunnlop: k.bunnlop, diameter: k.diameter, eier: k.ror }));
     const groftNokkel = JSON.stringify([bygg.linjer.map(l => [l.id, l.punkter.map(p => [p.id, p.z]), l.xy]), r.koder,
       this.P.mal.groft, r.groft, fm.punkter, fm.rekkevidde, this._terrengnokkel, lastet, this.sone, this.P.faktorer,
-      bakkefaktor, kummer, r.plan ? this.P.mal.plan : null]);
+      // bare kummene i planmalen: knappen og toleransene for avviket skal ikke regne grøfta på nytt
+      bakkefaktor, kummer, r.plan ? this.P.mal.plan.kum : null]);
     if (groftNokkel !== this._groftNokkel || !this._groftResultat) {
       this._groftResultat = Groft.beregn({
         linjer: bygg.linjer, koder: r.koder, mal: this.P.mal.groft, justering: r.groft,
@@ -3455,6 +3504,11 @@ const App = {
       });
       this._groftNokkel = groftNokkel;
     }
+    /* AVVIKET MOT INNMÅLT – bare når knappen er på. Det leser planen og de
+       innmålte rørene og endrer ingen av dem. */
+    const av = r.plan && this.P.mal.plan.avvik;
+    const avvik = av && av.vis ? RorAvvik.sammenlign({ plan: bygg.linjer, planKoder: r.koder,
+      innmalt: this._innmalteRor(), toleranse: av, bakkefaktor }) : null;
     this.resultat = {
       type: 'ror', bygg, linjer: bygg.linjer, profiler, sone: this.sone,
       bakkefaktor,
@@ -3462,10 +3516,10 @@ const App = {
          enslige punkt og rettinger finnes ikke der. */
       merknader: r.plan
         ? bygg.merknader.concat(RorPlan.kontroller({ bygg, koder: r.koder, mal: this.P.mal.plan, terrengZ,
-          andre: this._andreRor() }), RorPlan.fjell(this._groftResultat, bygg))
+          andre: this._andreRor() }), RorPlan.fjell(this._groftResultat, bygg), avvik ? avvik.merknader : [])
         : Ror.merknader(bygg, profiler, this.P.mal.maksAvstand),
       groft: this._groftResultat,
-      plan: !!r.plan, kummer: bygg.kummer || [], kontroll: bygg.kontroll || []
+      plan: !!r.plan, kummer: bygg.kummer || [], kontroll: bygg.kontroll || [], avvik
     };
     this.merkResultat();
     vis();
