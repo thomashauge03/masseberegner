@@ -17,14 +17,17 @@
 const RorPlan = (() => {
   function _ror() { return typeof Ror !== 'undefined' ? Ror : require('./ror.js'); }
 
-  /** Anleggets standard: overdekning til topp rør, klaring i kryss, kummene. */
-  const StandardPlanmal = { overdekning: 2.0, kryssKlaring: 0.3, kum: { diameter: 1000, arbeidsrom: 0.5 } };
+  /** Anleggets standard: overdekning til topp rør, klaring i kryss, kummene – og
+      avviket mot innmålt (se roravvik.js): av til knappen slås på, toleransene i m. */
+  const StandardPlanmal = { overdekning: 2.0, kryssKlaring: 0.3, kum: { diameter: 1000, arbeidsrom: 0.5 },
+    avvik: { vis: false, plan: 0.10, selvfall: 0.03, trykk: 0.10, sok: 1.0 } };
   /** Systemene som renner av seg selv – resten følger terrenget. */
   const SELVFALL = new Set(['spill', 'felles', 'overvann', 'drens']);
   /** Minste fall (‰) når koden ikke sier noe. */
   const STANDARD_MINFALL = { spill: 10, felles: 10, overvann: 5, drens: 5 };
   const GRENSER = { side: [-10, 10], diameter: [400, 3000], gods: [0.5, 100], overdekning: [0, 10],
-    minFall: [0, 1000], maksFall: [0, 1000], kryssKlaring: [0, 5], arbeidsrom: [0, 3] };
+    minFall: [0, 1000], maksFall: [0, 1000], kryssKlaring: [0, 5], arbeidsrom: [0, 3],
+    avvikPlan: [0.005, 2], avvikHoyde: [0.005, 2], sok: [0.1, 10] };
 
   function nyPlan() { return { traseer: [], ror: [], kummer: [], laast: [], greiner: [] }; }
   function nyPlanmal() { return JSON.parse(JSON.stringify(StandardPlanmal)); }

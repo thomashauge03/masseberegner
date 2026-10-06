@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node test/selftest.js && node test/rorprove.js && node test/groftprove.js && node test/rorplanprove.js && node test/roreksportprove.js"
+    "test": "node test/selftest.js && node test/rorprove.js && node test/groftprove.js && node test/rorplanprove.js && node test/roreksportprove.js && node test/roravvikprove.js"
   },
   "private": true
 }
