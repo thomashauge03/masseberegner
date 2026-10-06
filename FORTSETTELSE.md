@@ -24,11 +24,11 @@ med `Nettlesertest.kjor()`. Utviklingstjeneren startes med `node server.js`
 (port 5178). Programmet ligger også på https://masseberegner.vercel.app.
 
 Ved siste lagring: **894 prøver i selvtesten, 194 i rørprøven
-(`test/rorprove.js`), 219 i grøfteprøven (`test/groftprove.js`), 138 i
+(`test/rorprove.js`), 219 i grøfteprøven (`test/groftprove.js`), 164 i
 planprøven (`test/rorplanprove.js`), 63 i eksportprøven
-(`test/roreksportprove.js`), 77 i avviksprøven (`test/roravvikprove.js`), 19 i
+(`test/roreksportprove.js`), 77 i avviksprøven (`test/roravvikprove.js`), 38 i
 traseprøven (`test/traseimportprove.js`), 53 i anleggsprøven og 258 i
-tomteprøven, alle grønne; 1453 av 1453 i nettlesertesten.** «Klikk i modellen flytter snittet
+tomteprøven, alle grønne; 1469 av 1469 i nettlesertesten.** «Klikk i modellen flytter snittet
 dit» i `veg3d` kan feile når vinduet emuleres 1440 × 900 i en mindre rute –
 klikket lander én rad ved siden av; det gjør den likt på `main`. «og merknaden
 sier det som gjelder nå» i `flereAnlegg` feilet én gang i hele runden og aldri
@@ -62,20 +62,37 @@ Spec: `docs/superpowers/specs/2026-10-06-ror-etappe3d2-design.md`.
 Plan: `docs/superpowers/plans/2026-10-06-ror-etappe3d2.md`.
 
 - **📂 Trase fra fil** (`traseimport.js`, ren modul, og `RorPlanUI.importerTraseTekst`):
-  - KOF: `09_91`–`09_99`-linjer, `09_96` lukket, og ellers punkt med samme
-    kode etter hverandre; sonen leses av `01`-posten.
-  - DXF: LINE (kjedes), LWPOLYLINE med høyden i 38, og 3D-POLYLINE uten
-    spline-punktene.
-  - Punkt utenfor UTM i Norge hoppes over, eller fila avvises, som for rørene.
-  - Dialogen har linjene, koden per linje, koordinatsystemet og «Høydene i
-    fila» (bruk ikke, bunn innvendig eller topp rør, låst).
-  - Endene festes som når traseen tegnes, med 0,5 m. Alt er ett angresteg.
+  - KOF: `09_91`–`09_99`-linjer (en ny `09_91` avslutter en åpen), `09_96`
+    lukket, ellers punkt med samme kode etter hverandre; koder med mellomrom
+    i håndskrevne filer; programmets egen stikningsfil (tre høyder om
+    hverandre) samles per kode og rør, kummene telles; sonen fra `01`-posten.
+  - DXF: LINE og ARC (kjedes gjennom et rutenett, bare der nøyaktig to
+    møtes), LWPOLYLINE med høyden i 38, 2D- og 3D-POLYLINE uten
+    spline-punktene, buer hver meter. Papirrom (67 = 1) og flatenett hoppes
+    over og telles; 230 = −1 speiles; en 0 i en 3D-kjede er ukjent.
+  - Punkt utenfor UTM i Norge hoppes over per linje; fila avvises bare når
+    ingen linje står igjen.
+  - Dialogen har linjene, koden per linje, koordinatsystemet (også filas
+    UTM34/36), merknadene og «Høydene i fila» (bruk ikke, bunn innvendig
+    eller topp rør, låst).
+  - Endene festes strengt: påkobling bare på samme rør innen 0,5 m, grein
+    bare på samme sted (5 cm) i samme system – etter at alle linjene er
+    lagret (`_festGreiner`). Id-ene og de innmålte punktene finnes én gang
+    per fil. Alt er ett angresteg.
 - **⤓ Legg høydene** (`RorPlan.leggHoyder`/`leggHoyderFor`): dynamisk
   programmering over kontrollpunktene på et selvfallsrør, i hele centimeter.
-  - Minst gravedybde, med overdekningen og fallet innenfor kravene.
+  - Minst gravedybde, med overdekningen (prøvd der `kontroller` prøver,
+    `proverLangs`) og fallet innenfor kravene; største fall 0 er flatt.
   - Låst av brukeren, påkoblinger og greiner står. Det knappen la, er merket
-    `lagt` og legges på nytt neste gang.
-  - Går det ikke, endres ingenting, og statuslinja sier hvor.
+    `lagt`, gjelder bare i en kum og en ende som ikke er en grein (`bygg`), og
+    legges på nytt neste gang; punktfeltet viser det og har knappen.
+  - Et fast punkt over taket løfter taket ved siden av seg; to faste etter
+    hverandre gir linja selv.
+  - Greiner som renner inn, gir et lavere tak i møtet (`moter`, greinas egen
+    programmering) – legg hovedrøret først.
+  - Høydene rundes ned til hel millimeter.
+  - Går det ikke, endres ingenting, og statuslinja sier hvorfor (`hvorfor`:
+    dybde, grein, påkobling, låst) og hvor.
 
 ### Rør, etappe 3d-1 – kummer i 3D, trykkrør, grøftekasse og spunt
 

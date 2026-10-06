@@ -229,11 +229,11 @@ const RorUI = {
     return ut;
   },
 
-  /** En feilmelding der brukeren ser den – ikke bare i statuslinja. */
-  _feil(tekst) {
+  /** En feilmelding der brukeren ser den – ikke bare i statuslinja. «Trase fra fil» har sin egen tittel. */
+  _feil(tekst, tittel = 'Rør fra fil') {
     this.app.status('⚠ ' + tekst);
     const boks = document.getElementById('dialog');
-    document.getElementById('dialogtittel').textContent = 'Rør fra fil';
+    document.getElementById('dialogtittel').textContent = tittel;
     document.getElementById('dialoginnhold').innerHTML =
       `<p class="notis" style="font-size:13px">${escapeHtml(tekst)}</p>
        <div class="knapperad" style="justify-content:flex-end"><button class="knapp primaer" id="rorFeilOk">OK</button></div>`;

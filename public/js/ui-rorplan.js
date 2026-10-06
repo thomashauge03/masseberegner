@@ -54,26 +54,34 @@ const RorPlanUI = {
    * @returns {boolean} om fila kunne leses
    */
   importerTraseTekst(navn, tekst, valg) {
-    const app = this.app;
-    if (!app.erPlan()) { RorUI._feil('Traseer fra fil hentes inn i et tegnet røranlegg – velg eller lag et i anleggslista.'); return false; }
+    const app = this.app, feil = m => RorUI._feil(m, 'Trase fra fil');
+    if (!app.erPlan()) { feil('Traseer fra fil hentes inn i et tegnet røranlegg – velg eller lag et i anleggslista.'); return false; }
     let les;
-    try { les = TraseImport.les(navn, tekst); } catch (e) { RorUI._feil(e.message); return false; }
+    try { les = TraseImport.les(navn, tekst); } catch (e) { feil(e.message); return false; }
     const alle = les.linjer.flatMap(l => l.punkter);
     if (!alle.length) {
-      RorUI._feil(`Fant ingen linjer i ${navn}` + (les.merknader.length ? ` – ${les.merknader[0]}` : '')
+      feil(`Fant ingen linjer i ${navn}` + (les.merknader.length ? ` – ${les.merknader[0]}` : '')
         + (Object.keys(les.hoppet || {}).length ? ` (bare ${Object.entries(les.hoppet).map(([t, n]) => `${n} ${t}`).join(', ')})` : '') + '.');
       return false;
     }
-    // koordinatene: som for rørene fra maskinstyringen – punkt utenfor UTM i Norge hoppes over og telles
-    const kk = Ror.sjekkKoordinater(alle);
-    if (kk.melding) { RorUI._feil(kk.melding); return false; }
-    if (kk.utenfor) {
-      for (const l of les.linjer) l.punkter = l.punkter.filter(p => Ror.erUtm(p));
-      les.linjer = les.linjer.filter(l => l.punkter.length >= 2);
+    /* KOORDINATENE PER LINJE. Punkt utenfor UTM i Norge hoppes over og telles,
+       som for rørene fra maskinstyringen. Men her ble de talt for hele fila: en
+       trase på fire punkt i en tegning med en ramme på seks streker ved (0, 0)
+       ble avvist som «NTM eller et lokalt system». Nå avvises fila bare når
+       ingen linje står igjen. */
+    let utenfor = 0;
+    for (const l of les.linjer) {
+      const gode = l.punkter.filter(p => Ror.erUtm(p));
+      utenfor += l.punkter.length - gode.length;
+      l.punkter = gode;
     }
-    const sone = les.sone ? { sone: les.sone, grunn: 'fila' } : Ror.gjettSone(alle.filter(p => Ror.erUtm(p)), null, RorUI._prosjektpunkter());
+    const antall = les.linjer.length;
+    les.linjer = les.linjer.filter(l => l.punkter.length >= 2);
+    if (!les.linjer.length) { feil(Ror.sjekkKoordinater(alle).melding || `Ingen linjer i ${navn} ligger i UTM i Norge.`); return false; }
+    const sone = les.sone ? { sone: les.sone, grunn: 'fila' }
+      : Ror.gjettSone(les.linjer.flatMap(l => l.punkter), null, RorUI._prosjektpunkter());
     if (valg) return this._lagreTraseFil(navn, les, Object.assign({ sone: sone.sone }, valg));
-    this._traseFilDialog(navn, les, sone, kk.utenfor);
+    this._traseFilDialog(navn, les, sone, { punkt: utenfor, linjer: antall - les.linjer.length });
     return true;
   },
 
@@ -100,14 +108,20 @@ const RorPlanUI = {
       // et lag som ikke er en rørkode, står tomt – en feil kode som ser riktig ut, er verre enn ingen
       + `list="planKodeliste" value="${escapeAttr(this._kodeFraLag(l.lag) || '')}" placeholder="f.eks. SP 160PE"></td></tr>`).join('');
     const grunn = { fila: 'oppgitt i fila', prosjektet: 'ved de andre anleggene i prosjektet', standard: 'standard – sjekk at traseen havner riktig' };
+    const bort = utenfor.linjer ? `${utenfor.linjer} ${utenfor.linjer === 1 ? 'linje' : 'linjer'} og ` : '';
+    // sonen fila oppgir, er med i lista også når den ikke er en av de tre vanlige – her sto UTM32 ved siden av «oppgitt i fila»
+    const soner = [...new Set([32, 33, 35, sone.sone])].sort((a, b) => a - b);
     innhold.innerHTML = `<p class="notis">${escapeHtml(navn)}: ${les.linjer.length} ${les.linjer.length === 1 ? 'linje' : 'linjer'}`
-      + (utenfor ? ` · ${utenfor} punkt utenfor UTM i Norge er hoppet over` : '') + (hoppet ? ` · hoppet over: ${escapeHtml(hoppet)}` : '')
+      + (utenfor.punkt ? ` · ${bort}${utenfor.punkt} punkt utenfor UTM i Norge er hoppet over` : '')
+      + (hoppet ? ` · hoppet over: ${escapeHtml(hoppet)}` : '')
+      + (les.merknader.length ? ` · ${escapeHtml(les.merknader.slice(0, 3).join(' · '))}`
+        + (les.merknader.length > 3 ? ` · og ${les.merknader.length - 3} til` : '') : '')
       + '. Hver linje blir en trase med ett rør; flere rør legges til i Rør-fanen.</p>'
       + `<datalist id="planKodeliste">${forslag.map(k => `<option value="${escapeAttr(k)}">`).join('')}</datalist>`
       + '<div class="tabellrull"><table class="trasefil"><thead><tr><th scope="col">Med</th><th scope="col">Linje</th>'
       + `<th scope="col">Punkt</th><th scope="col">Lengde</th><th scope="col">Rør</th></tr></thead><tbody>${rader}</tbody></table></div>`
       + '<div class="rorinnstilling"><label for="tfSone">Koordinatsystem</label><select id="tfSone" class="minivalg">'
-      + [32, 33, 35].map(s => `<option value="${s}"${s === sone.sone ? ' selected' : ''}>EUREF89 UTM${s}</option>`).join('')
+      + soner.map(s => `<option value="${s}"${s === sone.sone ? ' selected' : ''}>EUREF89 UTM${s}</option>`).join('')
       + `</select> <span class="notis">${grunn[sone.grunn] || ''}</span></div>`
       + `<div class="rorinnstilling"><label for="tfHoyder">Høydene i fila</label><select id="tfHoyder" class="minivalg"${harZ ? '' : ' disabled'}>`
       + [['ingen', 'Bruk ikke – terrenget og fallet gir dem'], ['bunn', 'Bunn innvendig – låses'], ['topp', 'Topp rør – låses']]
@@ -130,9 +144,17 @@ const RorPlanUI = {
   },
 
   /**
-   * Lagrer linjene som traseer, ett angresteg for alle. Endene festes som når
-   * en trase tegnes – til et innmålt rør eller en annen trase – men med en
-   * halv meter, ikke fjorten skjermpunkt: fila er målt, ikke klikket.
+   * Lagrer linjene som traseer, ett angresteg for alle.
+   *
+   * ENDENE FESTES STRENGERE ENN NÅR EN TRASE TEGNES – fila er målt, ikke
+   * klikket. Her festet en ende seg til hva som helst innen en halv meter:
+   * to parallelle rør i samme grøft ble en grein, og en ende ble flyttet til
+   * et innmålt rør av en annen sort uten at noe ble koblet. Nå:
+   * - en påkobling bare på et innmålt punkt med samme kode, eller samme
+   *   system og dimensjon, innen en halv meter;
+   * - en grein bare på et punkt på en annen trase i samme system, på samme
+   *   sted (5 cm) – og etter at alle linjene er lagret, så det ikke avhenger
+   *   av rekkefølgen i fila om en grein finner hovedrøret (se `_festGreiner`).
    */
   _lagreTraseFil(navn, les, valg) {
     const app = this.app, r = app.P.ror, plan = r.plan;
@@ -140,33 +162,134 @@ const RorPlanUI = {
     if (!linjer.length) { app.status('Ingen linjer valgt'); return false; }
     app.merk('traseer fra fil');
     let antall = 0, laast = 0;
-    const koblet = [];
+    const koblet = [], notater = [], nye = [];
+    // de innmålte punktene og id-ene finnes én gang for hele fila – her ble alt bygd på nytt for hver ende og hvert punkt
+    const innmalt = this._innmaltePunkt(), ider = this._idGiver();
     linjer.forEach((l, k) => {
       const kode = valg.koder ? valg.koder[k] : valg.kode;
       const punkter = l.punkter.map(p => { const g = Geo.fraUtm(p.o, p.n, valg.sone); return { lat: g.lat, lon: g.lon }; });
       for (const i of [0, punkter.length - 1]) {
-        const fest = this._fest(L.latLng(punkter[i].lat, punkter[i].lon), 0.5);
+        const fest = this._festPaa(punkter[i], kode, innmalt);
         if (fest) punkter[i] = { lat: fest.lat, lon: fest.lon, fest };
       }
-      const svar = this.lagreTrase(punkter, [{ kode, side: 0, regel: valg.regel || null }], { stille: true, sone: valg.sone });
+      const svar = this.lagreTrase(punkter, [{ kode, side: 0, regel: valg.regel || null }], { stille: true, sone: valg.sone, ider });
       antall++;
+      nye.push({ trase: svar.trase, kode });
       koblet.push(...svar.koblet);
+      notater.push(...svar.notater);
       if (valg.hoyder !== 'bunn' && valg.hoyder !== 'topp') return;
       // høydene i fila: låst som bunn innvendig der de finnes – men en påkobling står
       const ror = svar.nye[0], kd = RorPlan.kodeAv(r.koder, kode);
+      // det som alt er låst på det nye røret – en påkobling – i et oppslag, ikke et søk per punkt
+      const finnes = new Set(plan.laast.filter(x => x.ror === ror.id).map(x => x.punkt));
       l.punkter.forEach((p, i) => {
         const pid = svar.trase.punkter[i].id;
-        if (!Number.isFinite(p.z) || plan.laast.some(x => x.ror === ror.id && x.punkt === pid)) return;
+        if (!Number.isFinite(p.z) || finnes.has(pid)) return;
         plan.laast.push({ ror: ror.id, punkt: pid, bunn: Math.round((valg.hoyder === 'bunn' ? p.z : RorPlan.bunnFraTopp(p.z, kd)) * 1000) / 1000 });
         laast++;
       });
     });
+    const greiner = this._festGreiner(nye);
     app.tegnAlt();
     app.planlegg(30);
     app.status(`${antall} ${antall === 1 ? 'trase' : 'traseer'} fra ${navn}`
-      + (laast ? ` · ${laast} høyder låst fra fila` : '') + (koblet.length ? ` · ${koblet.length} ender koblet` : '')
-      + ' – høydene kommer når terrenget er hentet');
+      + (laast ? ` · ${laast} høyder låst fra fila` : '') + (koblet.length ? ` · ${koblet.length} ${koblet.length === 1 ? 'ende' : 'ender'} koblet på innmålte rør` : '')
+      + (greiner ? ` · ${greiner} ${greiner === 1 ? 'ende er en grein' : 'ender er greiner'} av en annen trase` : '')
+      + (laast ? ' – det som ikke er låst, kommer når terrenget er hentet' : ' – høydene kommer når terrenget er hentet')
+      + (notater.length ? ' · ' + [...new Set(notater)].join(' · ') : ''));
     return true;
+  },
+
+  /** Nye id-er med en teller per prefiks. `RorPlan.nyId` leter fra 1 hver gang: 10 000 punkt fra en fil tok to sekunder. */
+  _idGiver() {
+    const brukt = RorPlan.alleIder(this.plan(), this.app.P.ror.groft), teller = {};
+    return pre => {
+      let n = teller[pre] || 1;
+      while (brukt.has(pre + n)) n++;
+      teller[pre] = n + 1;
+      brukt.add(pre + n);
+      return pre + n;
+    };
+  },
+
+  /** Punktene på de innmålte rørene i de andre anleggene – det en ende kan kobles på. */
+  _innmaltePunkt() {
+    const app = this.app, ut = [];
+    for (const a of app.P.anlegg) {
+      if (a.type !== 'ror' || a.id === app.P.aktivt || !a.ror || a.ror.plan) continue;
+      const b = Ror.byggLinjer(a.ror, a.mal || Ror.StandardRormal, Ror.lagTilXY(a.ror.sone, a.ror.sone));
+      for (const l of b.linjer) {
+        for (const p of l.punkter) {
+          const [lat, lon] = Ror.tilLatLon(p, a.ror.sone);
+          ut.push({ lat, lon, anlegg: a.id, punkt: p.id, topp: p.z, kode: p.kode, koder: a.ror.koder });
+        }
+      }
+    }
+    return ut;
+  },
+
+  /** Samme rør: samme kode, eller samme system og dimensjon. */
+  _sammeRor(kode, k, annen, ka) {
+    return annen === kode || (k.dim > 0 && ka.dim === k.dim && !!k.system && ka.system === k.system);
+  },
+
+  /** En ende fra en fil på et innmålt punkt: samme rør, innen en halv meter – ellers står den der fila sier. */
+  _festPaa(p, kode, innmalt) {
+    const k = RorPlan.kodeAv(this.app.P.ror.koder, kode), her = L.latLng(p.lat, p.lon);
+    let best = null;
+    for (const q of innmalt) {
+      // grovt først: en halv meter er under 1e-5 grader i begge retninger så langt nord
+      if (Math.abs(q.lat - p.lat) > 1e-5 || Math.abs(q.lon - p.lon) > 2.5e-5) continue;
+      if (!this._sammeRor(kode, k, q.kode, RorPlan.kodeAv(q.koder, q.kode))) continue;
+      const d = Kart.kart.distance(her, L.latLng(q.lat, q.lon));
+      if (d <= 0.5 && (!best || d < best.d)) best = Object.assign({ d }, q);
+    }
+    return best;
+  },
+
+  /**
+   * Greinene blant traseene fra en fil: en ende på samme sted (5 cm) som et
+   * punkt på en annen trase med rør i samme system, blir en grein av den.
+   *
+   * ETTER AT ALLE ER LAGRET. Festet mens de ble lagret, fant en grein bare
+   * traseer som sto foran den i fila. Et punkt som selv er en grein-ende,
+   * tar ikke imot: der tre linjer møtes, blir det en kjede, ikke en sirkel.
+   * En ende som er koblet på et innmålt rør, er ferdig.
+   * @returns {number} hvor mange ender som ble greiner
+   */
+  _festGreiner(nye) {
+    const r = this.app.P.ror, plan = r.plan;
+    const system = new Map();   // trase → kodene og systemene på den
+    for (const x of plan.ror) {
+      if (!system.has(x.trase)) system.set(x.trase, []);
+      system.get(x.trase).push({ kode: x.kode, k: RorPlan.kodeAv(r.koder, x.kode) });
+    }
+    const erGrein = (tid, ende) => plan.greiner.some(g => g.trase === tid && g.ende === ende);
+    let antall = 0;
+    for (const { trase: t, kode } of nye) {
+      const k = RorPlan.kodeAv(r.koder, kode);
+      for (const [i, ende] of [[0, 'start'], [t.punkter.length - 1, 'slutt']]) {
+        const p = t.punkter[i];
+        if (erGrein(t.id, ende) || plan.laast.some(x => x.punkt === p.id && x.kilde)) continue;
+        const her = L.latLng(p.lat, p.lon);
+        let best = null;
+        for (const u of plan.traseer) {
+          if (u.id === t.id || !(system.get(u.id) || []).some(x => x.kode === kode || (!!k.system && x.k.system === k.system))) continue;
+          u.punkter.forEach((q, j) => {
+            if (Math.abs(q.lat - p.lat) > 1e-6 || Math.abs(q.lon - p.lon) > 2.5e-6) return;
+            const uende = j === 0 ? 'start' : j === u.punkter.length - 1 ? 'slutt' : null;
+            if (uende && erGrein(u.id, uende)) return;
+            const d = Kart.kart.distance(her, L.latLng(q.lat, q.lon));
+            if (d <= 0.05 && (!best || d < best.d)) best = { d, u, q };
+          });
+        }
+        if (!best) continue;
+        plan.greiner.push({ trase: t.id, ende, til: { trase: best.u.id, punkt: best.q.id } });
+        p.lat = best.q.lat; p.lon = best.q.lon;
+        antall++;
+      }
+    }
+    return antall;
   },
 
   /* ---------------- ny trase ---------------- */
@@ -190,27 +313,18 @@ const RorPlanUI = {
   /**
    * Et rør å feste til nær klikket: et punkt på en annen trase i dette
    * anlegget (greining), eller et målt punkt på et innmålt rør i et annet
-   * anlegg (påkobling). Det nærmeste innen fjorten skjermpunkt vinner – eller
-   * innen `tolMeter` når punktet kommer fra en fil.
+   * anlegg (påkobling). Det nærmeste innen fjorten skjermpunkt vinner. En
+   * linje fra en fil festes strengere – se `_lagreTraseFil`.
    */
-  _fest(latlng, tolMeter) {
-    const app = this.app, tol = Number.isFinite(tolMeter) ? tolMeter : RorUI._toleranse(latlng);
+  _fest(latlng) {
+    const tol = RorUI._toleranse(latlng);
     let best = null;
     const prov = (lat, lon, mer) => {
       const d = Kart.kart.distance(latlng, L.latLng(lat, lon));
       if (d <= tol && (!best || d < best.d)) best = Object.assign({ d, lat, lon }, mer);
     };
     for (const t of this.plan().traseer) for (const p of t.punkter) prov(p.lat, p.lon, { trase: t.id, punkt: p.id });
-    for (const a of app.P.anlegg) {
-      if (a.type !== 'ror' || a.id === app.P.aktivt || !a.ror || a.ror.plan) continue;
-      const b = Ror.byggLinjer(a.ror, a.mal || Ror.StandardRormal, Ror.lagTilXY(a.ror.sone, a.ror.sone));
-      for (const l of b.linjer) {
-        for (const p of l.punkter) {
-          const [lat, lon] = Ror.tilLatLon(p, a.ror.sone);
-          prov(lat, lon, { anlegg: a.id, punkt: p.id, topp: p.z, kode: p.kode, koder: a.ror.koder });
-        }
-      }
-    }
+    for (const q of this._innmaltePunkt()) prov(q.lat, q.lon, { anlegg: q.anlegg, punkt: q.punkt, topp: q.topp, kode: q.kode, koder: q.koder });
     return best;
   },
 
@@ -321,14 +435,14 @@ const RorPlanUI = {
     if (!o.stille) app.merk('ny trase');
     // den første traseen bestemmer sonen punktene tegnes i – fra en fil er det filas
     if (!plan.traseer.length) r.sone = o.sone || Geo.sone(punkter[0].lon);
-    const brukt = RorPlan.alleIder(plan, this.app.P.ror.groft);
-    const ny = id => { brukt.add(id); return id; };
-    const t = { id: ny(RorPlan.nyId(brukt, 't')), punkter: [] };
-    for (const p of punkter) t.punkter.push({ id: ny(RorPlan.nyId(brukt, 'p')), lat: p.lat, lon: p.lon });
+    // `ider`: fra en fil deles id-giveren av alle linjene
+    const ny = o.ider || this._idGiver();
+    const t = { id: ny('t'), punkter: [] };
+    for (const p of punkter) t.punkter.push({ id: ny('p'), lat: p.lat, lon: p.lon });
     plan.traseer.push(t);
     r.koder = Ror.koderFra(rader.map(x => ({ kode: x.kode })), r.koder);
     const nye = rader.map(x => {
-      const ror = { id: ny(RorPlan.nyId(brukt, 'r')), trase: t.id, kode: x.kode, side: x.side || 0, regel: x.regel, motsatt: false };
+      const ror = { id: ny('r'), trase: t.id, kode: x.kode, side: x.side || 0, regel: x.regel, motsatt: false };
       plan.ror.push(ror);
       return ror;
     });
@@ -414,6 +528,8 @@ const RorPlanUI = {
     if (i >= 0) {
       app.merk('tok bort kum');
       plan.kummer.splice(i, 1);
+      // det knappen la i kummen, går med den – ellers sto et fallbrudd igjen uten kum
+      plan.laast = plan.laast.filter(x => !(x.ror === ror.id && x.punkt === punkt && x.lagt));
       app.status('Kummen er tatt bort');
     } else {
       app.merk('ny kum');
@@ -766,7 +882,15 @@ const RorPlanUI = {
       };
     }
     for (const b of e.querySelectorAll('[data-kumslett]')) {
-      b.onclick = () => { const plan = P(); app.merk('slettet kum'); plan.kummer = plan.kummer.filter(k => k.id !== b.dataset.kumslett); ferdig(); };
+      b.onclick = () => {
+        const plan = P(), K = plan.kummer.find(k => k.id === b.dataset.kumslett);
+        if (!K) return;
+        app.merk('slettet kum');
+        plan.kummer = plan.kummer.filter(k => k !== K);
+        // det knappen la i kummen, går med den
+        plan.laast = plan.laast.filter(x => !(x.ror === K.ror && x.punkt === K.punkt && x.lagt));
+        ferdig();
+      };
     }
     // et ugyldig tall settes tilbake i feltet selv – fanen tegnes ikke på nytt av det
     const tall = (id, felt, les, sett) => {
@@ -859,9 +983,11 @@ const RorPlanUI = {
     const ror = plan.ror.find(x => x.id === rorId);
     if (!ror) return;
     const k = RorPlan.kodeAv(app.P.ror.koder, ror.kode);
-    const L = plan.laast.find(x => x.ror === rorId && x.punkt === punkt);
     const kum = plan.kummer.find(x => x.ror === rorId && x.punkt === punkt);
     const c = res && res.kontroll ? res.kontroll.find(x => x.ror === rorId && x.punkt === punkt) : null;
+    // det knappen la der det ikke lenger er et kontrollpunkt, gjelder ikke (se RorPlan.bygg)
+    const L0 = plan.laast.find(x => x.ror === rorId && x.punkt === punkt);
+    const L = L0 && L0.lagt && res && res.kontroll && !c ? null : L0;
     const l = res && res.linjer.find(x => x.id === rorId);
     const lp = l && l.punkter.find(p => p.id === rorId + ':' + punkt);
     const bunnNa = L ? L.bunn : c ? c.bunn : lp ? RorPlan.bunnFraTopp(lp.z, k)
@@ -870,7 +996,11 @@ const RorPlanUI = {
     const boks = document.getElementById('dialog'), innhold = document.getElementById('dialoginnhold');
     document.getElementById('dialogtittel').textContent = `${ror.kode} · ${kum ? 'kum ' + kum.id : 'punkt ' + punkt}`;
     const kb = L && L.kilde ? this._kildeBunn(L) : null;
-    const tilstand = !L ? 'Fri – følger overdekningen under terrenget.'
+    /* LAGT ER IKKE LÅST. Høyden «⤓ Legg høydene» la, legges på nytt neste gang
+       knappen trykkes; den sto her som «Låst.», og man kunne ikke se hvilke
+       høyder et nytt trykk ville skrive over. */
+    const tilstand = !L ? (c && c.fra ? 'Grein – høyden hentes fra røret den er festet til.' : 'Fri – følger overdekningen under terrenget.')
+      : L.lagt ? 'Lagt av «⤓ Legg høydene» – legges på nytt neste gang knappen trykkes. «Lås» gjør høyden til din.'
       : !L.kilde ? 'Låst.'
         : kb == null ? 'Låst – koblet på et innmålt rør som ikke finnes lenger.'
           : Math.abs(L.bunn - kb) <= 0.0005 ? 'Låst – hentet fra et innmålt rør.'
@@ -882,12 +1012,15 @@ const RorPlanUI = {
       + (selvfall ? '<div class="rorinnstilling"><label for="ppFall">Fall videre i fallretningen</label>'
         + '<input id="ppFall" class="minitall" type="number" step="0.5" min="0"> ‰ <button class="knapp" id="ppFallKnapp">Sett</button></div>' : '')
       + '<div class="knapperad" style="justify-content:flex-end">'
+      + (selvfall ? '<button class="knapp" id="ppLegg" title="Høydene i kummene og de frie endene på hele røret som gir minst graving – '
+        + 'det du har låst selv, står">⤓ Legg høydene</button>' : '')
       + (L && L.kilde ? '<button class="knapp" id="ppHent">Hent på nytt</button>' : '')
-      + (L ? '<button class="knapp" id="ppLaasOpp">Lås opp</button>' : '')
+      + (L ? `<button class="knapp" id="ppLaasOpp">${L.lagt ? 'Gjør fri' : 'Lås opp'}</button>` : '')
       + '<button class="knapp" id="ppAvbryt">Avbryt</button><button class="knapp primaer" id="ppLaas">Lås</button></div>';
     const lukk = () => boks.classList.add('skjult');
     const tall = id => parseFloat(String(innhold.querySelector('#' + id).value).replace(',', '.'));
     innhold.querySelector('#ppAvbryt').onclick = lukk;
+    if (selvfall) innhold.querySelector('#ppLegg').onclick = () => { lukk(); this.leggHoyder(rorId); };
     innhold.querySelector('#ppLaas').onclick = () => {
       const v = tall('ppBunn');
       if (!Number.isFinite(v)) { app.status('Skriv bunn innvendig i meter over havet'); return; }
@@ -941,29 +1074,40 @@ const RorPlanUI = {
    * brukeren har låst selv, står. Ett angresteg. Går det ikke, endres ingenting.
    */
   leggHoyder(rorId) {
-    const app = this.app, res = app.resultat;
-    if (!res || !res.plan || !res.bygg || !res.bygg.linjer.some(l => l.id === rorId)) {
-      app.status('Høydene er ikke regnet ennå – prøv igjen om et øyeblikk');
-      return false;
-    }
-    const svar = RorPlan.leggHoyderFor({ bygg: res.bygg, ror: rorId, koder: app.P.ror.koder,
-      terrengZ: (x, y) => (app.terreng ? app.terreng.z(x, y) : NaN) });
+    const app = this.app;
+    if (!app.erPlan() || !this.plan().ror.some(x => x.id === rorId)) return false;
+    /* BYGD NÅ, IKKE FRA FORRIGE BEREGNING. Rett etter en endring – en kum satt,
+       en høyde låst – var `resultat` den gamle, og knappen la høydene etter den. */
+    const terr = app.terreng && app.terreng.sone === app.sone ? app.terreng : null;
+    const svar = RorPlan.leggHoyderFor({ bygg: app.byggRor(), ror: rorId, koder: app.P.ror.koder,
+      terrengZ: terr ? (x, y) => terr.z(x, y) : () => NaN });
     if (svar.feil) {
       const t = v => Rapport.tall(v, 0);
       app.status('Høydene ble ikke lagt: ' + svar.feil
-        + (Number.isFinite(svar.fra) && svar.til > svar.fra ? ` mellom ${t(svar.fra)} og ${t(svar.til)} m` : '')
-        + (svar.feil === 'ingen profil oppfyller kravene' ? ' – låste høyder eller fallet gjør det umulig innen 6 m dybde' : ''));
+        + (Number.isFinite(svar.fra) && svar.til > svar.fra ? ` (${t(svar.fra)}–${t(svar.til)} m)` : ''));
       return false;
     }
-    if (!svar.laast.length) { app.status('Alle kontrollpunktene på røret er låst eller koblet – ingenting å legge'); return false; }
+    const plan = this.plan(), lagt = new Set(svar.laast.map(x => x.punkt));
+    /* Det knappen la sist, i punkt som ikke lenger er kontrollpunkt – kummen er
+       tatt bort, enden er blitt en grein – går i samme angresteg. */
+    const borte = plan.laast.filter(x => x.ror === rorId && x.lagt && !lagt.has(x.punkt));
+    if (!svar.laast.length && !borte.length) {
+      app.status('Alle kontrollpunktene på røret er låst eller koblet – ingenting å legge');
+      return false;
+    }
+    const foer = JSON.stringify(plan.laast);
     app.merk('la høydene');
+    plan.laast = plan.laast.filter(x => !borte.includes(x));
     for (const x of svar.laast) this._settLaast(rorId, x.punkt, x.bunn, true);
+    const endret = JSON.stringify(this.plan().laast) !== foer;
     // lagt på nytt til det samme: ingen tom angrepost
     app.slippMerke();
-    app.tegnAlt();
-    app.planlegg(30);
-    app.status(`Høydene er lagt i ${svar.laast.length} kontrollpunkt – minst graving med overdekningen og fallet innenfor kravene`);
-    return true;
+    if (endret) { app.tegnAlt(); app.planlegg(30); }
+    app.status((endret ? `Høydene er lagt i ${svar.laast.length} kontrollpunkt – minst graving med overdekningen og fallet innenfor kravene`
+      : 'Høydene ligger allerede der knappen legger dem – ingenting er endret')
+      + (svar.greiner ? ` · tatt hensyn til ${svar.greiner} ${svar.greiner === 1 ? 'grein' : 'greiner'} som renner inn` : '')
+      + (svar.merk ? ` · ⚠ ${svar.merk}` : ''));
+    return endret;
   },
 
   /** Bunn innvendig i det innmålte punktet en påkobling henter fra – eller null om det er borte. */

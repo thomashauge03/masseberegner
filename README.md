@@ -224,12 +224,15 @@ rapporteres som et innmålt, med grøft og alt.
   velges ett eller flere rør – kode, sideavstand fra traseen (positiv til høyre
   i tegneretningen) og regel. Rør i samme trase blir én grøft.
 * **📂 Trase fra fil:** traseene i en VA-plan (DXF) eller en stikningsfil (KOF)
-  hentes inn. DXF: linjer (løse streker kjedes), polylinjer og 3D-polylinjer;
-  KOF: `09_91`–`09_99`-linjer og punkt med samme kode etter hverandre. Velg
-  linjene og rørkoden for hver; koordinatsystemet leses av KOF-hodet, ellers
-  gjettes det som for rørene. Høydene i fila brukes bare om det velges – som
-  bunn innvendig eller topp rør, låst. Endene festes som når traseen tegnes.
-  Alt er ett angresteg.
+  hentes inn. DXF: linjer og buer (løse streker kjedes, men ikke gjennom et
+  kryss), polylinjer med buer, 2D- og 3D-polylinjer; papirrommet og flatenett
+  hoppes over. KOF: `09_91`–`09_99`-linjer, punkt med samme kode etter
+  hverandre, og programmets egen stikningsfil (bunn, topp og gravebunn per
+  rør). Velg linjene og rørkoden for hver; koordinatsystemet leses av
+  KOF-hodet, ellers gjettes det som for rørene. Høydene i fila brukes bare om
+  det velges – som bunn innvendig eller topp rør, låst. En ende kobles på et
+  innmålt rør med samme kode innen en halv meter, og blir en grein av en annen
+  trase i samme system bare på samme sted (5 cm). Alt er ett angresteg.
 * **Feste:** en ende som klikkes nær et målt punkt på et innmålt rør, blir en
   påkobling med høyden derfra (låst, med kilden – merknadene sier fra om
   punktet endres). En ende på en annen trase blir en grein som følger den.
@@ -240,12 +243,15 @@ rapporteres som et innmålt, med grøft og alt.
 * **Selvfall og trykk:** spillvann, felles, overvann og drens går rett mellom
   kontrollpunktene; vann og kabel følger terrenget meter for meter. Fallet går i
   tegneretningen – **⇄ Snu fallretning** snur det.
-* **⤓ Legg høydene** (Rør-fanen, per selvfallsrør) finner høydene i kummene og
-  de frie endene som gir minst graving: overdekningen holdes langs hele røret,
-  og fallet er minst kodens minste fall og høyst det største. Låste høyder,
-  påkoblinger og greiner står. Svaret låses (merket «lagt», så et nytt trykk
-  legger dem på nytt), og det er ett angresteg. Går det ikke – en låst høyde
-  for høyt, eller mer enn 6 m dybde – endres ingenting, og statuslinja sier hvor.
+* **⤓ Legg høydene** (Rør-fanen og punktfeltet, per selvfallsrør) finner
+  høydene i kummene og de frie endene som gir minst graving: overdekningen
+  holdes langs hele røret – prøvd der kontrollen prøver – og fallet er minst
+  kodens minste fall og høyst det største. Låste høyder, påkoblinger og
+  greiner står. Greiner som renner inn, får plass: røret holdes lavt nok der de
+  kommer inn (legg hovedrøret først). Svaret låses, merket «lagt» – et nytt
+  trykk legger dem på nytt, og punktfeltet viser det. Det er ett angresteg.
+  Går det ikke, endres ingenting, og statuslinja sier hvorfor: dybden, greina,
+  påkoblingen eller de låste høydene.
 * **◯ Kum** setter en kum i et punkt (velg rør når traseen har flere). Kummen
   får egen grop i grøfta, og volumet står for seg i massetabellen.
 * **Kontrollene:** overdekning under grensen, motfall og for lite eller for mye
@@ -443,7 +449,8 @@ De planlagte rørene: bunn ↔ topp med godset, sideavstanden i knekker, høyden
 for selvfall og trykk mellom kontrollpunktene, kummer, greiner og påkoblinger,
 kontrollene (overdekning, fall og motfall med millimeteravrundingen, kryssing,
 høybrekk, lavbrekk og fall for trykkrør), høydene lagt på knapp mot fasit regnet
-for hånd,
+for hånd – faste punkt over taket, greiner som renner inn, hvorfor det ikke går,
+og 150 rør på tilfeldig terreng uten merknad etterpå –
 fallet mellom kontrollpunktene og ryddingen av plandelen når prosjektfila åpnes.
 
 ```bash
@@ -468,9 +475,11 @@ men utenfor søkebredden og merknadene.
 node test/traseimportprove.js
 ```
 
-Traseer fra fil: KOF med linjeblokker, lukkede linjer og punkt med samme kode,
-sonen fra hodet, programmets egen KOF lest tilbake; DXF med løse streker som
-kjedes, LWPOLYLINE med høyde og 3D-polylinjer. `npm test` kjører alle sju.
+Traseer fra fil: KOF med linjeblokker, lukkede og åpne linjer, punkt med samme
+kode og koder med mellomrom, sonen fra hodet, stikningsfila røreksporten skriver
+lest tilbake; DXF med løse streker som kjedes (ikke gjennom en T), LWPOLYLINE med
+høyde, 2D- og 3D-polylinjer, buer og ARC, papirrom, flatenett, speiling og
+20 000 streker på tid. `npm test` kjører alle sju.
 
 ```bash
 node test/demo-ydestad.js

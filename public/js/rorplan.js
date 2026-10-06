@@ -245,14 +245,22 @@ const RorPlan = (() => {
       for (let i = 0; i < n; i++) {
         const pid = t.punkter[i].id;
         const ende = i === 0 ? 'start' : i === n - 1 ? 'slutt' : null;
-        const L = laastHer.get(pid), K = kumHer.get(pid);
-        if (!ende && !L && !K) continue;
+        const K = kumHer.get(pid);
         const far = ende && !brutt.has(r.id + ':' + ende) ? forelder(r, ende) : null;
-        let topp, fra = null;
+        const harFar = !!far && toppVed.has(far.ror.id + ':' + far.punkt);
+        let L = laastHer.get(pid);
+        /* DET KNAPPEN LA, GJELDER DER KNAPPEN LEGGER: i en kum og i en ende som
+           ikke er en grein. Ble kummen tatt bort, sto høyden igjen og gjorde
+           punktet til et kontrollpunkt – et fallbrudd uten kum, som neste trykk
+           la på nytt. I en grein vant den over høyden fra hovedrøret. */
+        if (L && L.lagt && ((!ende && !K) || harFar)) L = null;
+        if (!ende && !L && !K) continue;
+        let topp, fra = null, fraPunkt = null;
         if (L) topp = toppFraBunn(L.bunn, k);
-        else if (far && toppVed.has(far.ror.id + ':' + far.punkt)) { topp = toppVed.get(far.ror.id + ':' + far.punkt); fra = far.ror.id; }
+        else if (harFar) { topp = toppVed.get(far.ror.id + ':' + far.punkt); fra = far.ror.id; fraPunkt = far.punkt; }
         else topp = Tnaer(s[i]) - ov;
-        ktr.push({ i, s: s[i], topp, laast: !!L, lagt: !!(L && L.lagt), kum: K ? K.id : null, fra, punkt: pid, kilde: !!(L && L.kilde) });
+        ktr.push({ i, s: s[i], topp, laast: !!L, lagt: !!(L && L.lagt), kum: K ? K.id : null, fra, fraPunkt, punkt: pid,
+          kilde: !!(L && L.kilde) });
       }
       if (ktr.some(c => !Number.isFinite(c.topp))) {
         utenHoyde.push({ id: r.id, kode: r.kode, xy, punkter: sone, grunn: 'terreng' });
@@ -313,8 +321,9 @@ const RorPlan = (() => {
       const vedKnekk = i => rader.find(q => q.i === i).z;
       for (let i = 0; i < n; i++) toppVed.set(r.id + ':' + t.punkter[i].id, vedKnekk(i));
       for (const c of ktr) {
+        // `fraPunkt`: punktet på røret en grein henter høyden fra – se `leggHoyderFor`
         kontroll.push({ ror: r.id, s: c.s, punkt: c.punkt, x: xy[c.i].x, y: xy[c.i].y, topp: c.topp,
-          bunn: bunnFraTopp(c.topp, k), laast: c.laast, lagt: c.lagt, kum: c.kum, fra: c.fra, kilde: c.kilde });
+          bunn: bunnFraTopp(c.topp, k), laast: c.laast, lagt: c.lagt, kum: c.kum, fra: c.fra, fraPunkt: c.fraPunkt, kilde: c.kilde });
       }
       for (const K of kumHer.values()) {
         const i = t.punkter.findIndex(p => p.id === K.punkt);
@@ -656,36 +665,60 @@ const RorPlan = (() => {
    * - det beste er det med størst sum av høyder langs røret, vektet med
    *   lengden – minst gravedybde i snitt.
    * For hver verdi i et punkt regnes det høyeste neste punktet linja tåler
-   * én gang, så prøvepunktene går gjennom én gang per verdi, ikke per par.
+   * én gang, så prøvepunktene går gjennom én gang per verdi. Parene er
+   * verdier × verdier per strekk – 600 × 600 med 6 m dybde; 6 km med 300
+   * kummer tar under et halvt sekund.
+   *
+   * ET FAST PUNKT OVER TAKET – en påkobling på et grunt rør, en høyde låst for
+   * hånd – bryter overdekningen der det står, og det kan ikke flyttes. Her
+   * måtte linja likevel under taket i første prøvepunkt, en meter unna:
+   * overskuddet ble ganget med lengden av strekket, og 9 mm for lite
+   * overdekning i en lås la neste punkt 45 cm for dypt. Nå løftes taket ved
+   * siden av et slikt punkt med overskuddet, rett ned til null i neste
+   * kontrollpunkt. Overdekningen er brutt der den var brutt fra før, og
+   * kontrollen sier fra. To faste punkt etter hverandre gir linja mellom seg
+   * selv: knappen kan ikke endre den, og den skal ikke hindre resten.
    *
    * @param {object} o
    *   s        – stasjonene til kontrollpunktene, stigende
    *   fast     – topp der punktet er fast, ellers null
-   *   prover   – [{ s, U }]: hver meter langs røret; U = taket (NaN = ukjent)
-   *   minFall, maksFall – ‰; maksFall null = ingen grense
+   *   prover   – [{ s, U }]: der kontrollen prøver; U = taket (NaN = ukjent)
+   *   moter    – [{ s, z }]: høyeste topp der en grein renner inn (se `leggHoyderFor`)
+   *   minFall, maksFall – ‰; maksFall null = ingen grense, 0 = flatt, som i kontrollen
    *   motsatt  – fallet går mot starten
    *   steg     – høydesteget (m), standard 0,01
    *   dyp      – hvor langt under taket det letes (m), standard 6
-   * @returns {{ topp: number[] } | { feil: string, fra: number, til: number }}
+   * @returns {{ topp: number[], hoyest: number } | { feil: string, fra: number, til: number, i: number|null }}
+   *   `hoyest` er den høyeste toppen siste punkt kan ha; `i` er strekket det stoppet på
    */
   function leggHoyder(o) {
     const s = o.s, n = s.length, steg = o.steg || 0.01, dyp = o.dyp || 6;
-    if (n < 2) return { feil: 'røret har ikke to kontrollpunkt', fra: 0, til: 0 };
+    if (n < 2) return { feil: 'røret har ikke to kontrollpunkt', fra: 0, til: 0, i: null };
     const fmin = (o.minFall || 0) / 1000;
-    const fmax = Number.isFinite(o.maksFall) && o.maksFall > 0 ? o.maksFall / 1000 : Infinity;
-    const prover = o.prover.filter(p => Number.isFinite(p.U));
+    // HER STO `maksFall > 0`: 0 var «ingen grense», mens kontrollen leste det som flatt
+    const fmax = Number.isFinite(o.maksFall) ? o.maksFall / 1000 : Infinity;
+    if (fmax < fmin) return { feil: 'største fall er mindre enn minste fall for koden', fra: s[0], til: s[n - 1], i: null };
+    const prover = o.prover.filter(p => Number.isFinite(p.U)), moter = o.moter || [];
     // taket i et punkt: prøven nærmest, så et punkt over et hull i terrenget likevel får ett
     const Uved = sv => {
       let best = null;
       for (const p of prover) if (!best || Math.abs(p.s - sv) < Math.abs(best.s - sv)) best = p;
       return best ? best.U : NaN;
     };
-    const nivaa = [];
+    const fast = i => Number.isFinite(o.fast[i]);
+    const nivaa = [], over = [];
     for (let i = 0; i < n; i++) {
-      if (Number.isFinite(o.fast[i])) { nivaa.push([o.fast[i]]); continue; }
       const U = Uved(s[i]);
-      if (!Number.isFinite(U)) return { feil: 'terrenget mangler', fra: s[i], til: s[i] };
-      const topp = Math.floor(U / steg + 1e-9), bunn = Math.ceil((U - dyp) / steg - 1e-9), liste = [];
+      if (fast(i)) {
+        nivaa.push([o.fast[i]]);
+        over.push(Number.isFinite(U) ? Math.max(0, o.fast[i] - U) : 0);
+        continue;
+      }
+      over.push(0);
+      if (!Number.isFinite(U)) return { feil: 'terrenget mangler', fra: s[i], til: s[i], i: null };
+      let tak = U;
+      for (const m of moter) if (Math.abs(m.s - s[i]) < 1e-6) tak = Math.min(tak, m.z);
+      const topp = Math.floor(tak / steg + 1e-9), bunn = Math.ceil((U - dyp) / steg - 1e-9), liste = [];
       for (let k = topp; k >= bunn; k--) liste.push(k * steg);
       nivaa.push(liste);
     }
@@ -693,38 +726,72 @@ const RorPlan = (() => {
     const fra = [];
     for (let i = 0; i + 1 < n; i++) {
       const L = s[i + 1] - s[i];
-      const inni = prover.filter(p => p.s > s[i] + 1e-9 && p.s < s[i + 1] - 1e-9);
       const A = nivaa[i], B = nivaa[i + 1];
       const ny = B.map(() => -Infinity), hvor = B.map(() => -1);
-      for (let a = 0; a < A.length; a++) {
-        if (best[a] === -Infinity) continue;
-        const za = A[a];
-        let tak = Infinity;
-        for (const p of inni) {
+      if (fast(i) && fast(i + 1)) {
+        if (best[0] > -Infinity) { ny[0] = best[0] + (A[0] + B[0]) / 2 * L; hvor[0] = 0; }
+      } else {
+        // taket i prøvepunktene mellom, løftet ved et fast punkt over sitt eget
+        const inni = [];
+        for (const p of prover) {
+          if (!(p.s > s[i] + 1e-9 && p.s < s[i + 1] - 1e-9)) continue;
           const u = (p.s - s[i]) / L;
-          tak = Math.min(tak, (p.U - za * (1 - u)) / u);
+          inni.push({ u, U: p.U + over[i] * (1 - u) + over[i + 1] * u });
         }
-        // fallet i fallretningen: z[i] − z[i+1] mot slutten, motsatt mot starten
-        let hoy, lav;
-        if (!o.motsatt) { hoy = za - fmin * L; lav = za - fmax * L; } else { lav = za + fmin * L; hoy = za + fmax * L; }
-        hoy = Math.min(hoy, tak);
-        for (let b = 0; b < B.length; b++) {
-          const zb = B[b];
-          if (zb > hoy + 1e-9 || zb < lav - 1e-9) continue;
-          const v = best[a] + (za + zb) / 2 * L;
-          if (v > ny[b]) { ny[b] = v; hvor[b] = a; }
+        for (const m of moter) if (m.s > s[i] + 1e-9 && m.s < s[i + 1] - 1e-9) inni.push({ u: (m.s - s[i]) / L, U: m.z });
+        for (let a = 0; a < A.length; a++) {
+          if (best[a] === -Infinity) continue;
+          const za = A[a];
+          let tak = Infinity;
+          for (const q of inni) tak = Math.min(tak, (q.U - za * (1 - q.u)) / q.u);
+          // fallet i fallretningen: z[i] − z[i+1] mot slutten, motsatt mot starten
+          let hoy, lav;
+          if (!(L > 1e-6)) {
+            // to punkt på samme sted: et sprang ned i fallretningen er lov, motfall ikke
+            if (!o.motsatt) { hoy = za + steg / 2; lav = -Infinity; } else { lav = za - steg / 2; hoy = Infinity; }
+          } else if (!o.motsatt) { hoy = za - fmin * L; lav = za - fmax * L; } else { lav = za + fmin * L; hoy = za + fmax * L; }
+          hoy = Math.min(hoy, tak);
+          for (let b = 0; b < B.length; b++) {
+            const zb = B[b];
+            if (zb > hoy + 1e-9 || zb < lav - 1e-9) continue;
+            const v = best[a] + (za + zb) / 2 * L;
+            if (v > ny[b]) { ny[b] = v; hvor[b] = a; }
+          }
         }
       }
-      if (ny.every(v => v === -Infinity)) return { feil: 'ingen profil oppfyller kravene', fra: s[i], til: s[i + 1] };
+      if (ny.every(v => v === -Infinity)) return { feil: 'ingen profil oppfyller kravene', fra: s[i], til: s[i + 1], i };
       best = ny;
       fra.push(hvor);
     }
     let b = 0;
     for (let k = 1; k < best.length; k++) if (best[k] > best[b]) b = k;
+    // listene går ovenfra, så den første som kan nås, er den høyeste
+    const hoyest = nivaa[n - 1][best.findIndex(v => v > -Infinity)];
     const topp = new Array(n);
     topp[n - 1] = nivaa[n - 1][b];
     for (let i = n - 2; i >= 0; i--) { b = fra[i][b]; topp[i] = nivaa[i][b]; }
-    return { topp };
+    return { topp, hoyest };
+  }
+
+  /**
+   * Prøvepunktene langs en linje, der `kontroller` prøver overdekningen: hvert
+   * knekkpunkt, hver meter fra det, og enden. U er taket – terrenget minus
+   * grensen.
+   *
+   * HER VAR DE HVER METER FRA STARTEN AV RØRET, og taket i et kontrollpunkt var
+   * prøven nærmest – opptil en halv meter unna. Kontrollen prøver andre steder,
+   * og hvert niende rør fikk merknad om for lite overdekning rett etter knappen.
+   */
+  function proverLangs(l, T) {
+    const sl = stasjonering(l.xy), prover = [];
+    const prov = (sv, x, y) => { const Tz = T(x, y); prover.push({ s: sv, U: Number.isFinite(Tz) ? Tz - l.plan.grense : NaN }); };
+    for (let i = 0; i + 1 < l.xy.length; i++) {
+      const L = sl[i + 1] - sl[i], a = l.xy[i], c = l.xy[i + 1];
+      for (let d = 0; d < L - 1e-9; d += STEG) { const u = d / L; prov(sl[i] + d, a.x + (c.x - a.x) * u, a.y + (c.y - a.y) * u); }
+    }
+    const e = l.xy.length - 1;
+    prov(sl[e], l.xy[e].x, l.xy[e].y);
+    return { sl, prover };
   }
 
   /**
@@ -734,38 +801,114 @@ const RorPlan = (() => {
    * knappen la sist (`lagt`), er fri igjen. Svaret er bunn innvendig, til å
    * låses; eller hvorfor det ikke går.
    *
+   * GREINENE SOM RENNER INN. En grein henter høyden fra dette røret der den er
+   * festet. Lagt rett under taket, ble røret liggende så høyt der at en grein
+   * som renner inn på flatt terreng aldri fikk fall. Nå finnes den høyeste
+   * høyden hver grein kan møte røret i – med greinas egen programmering, møtet
+   * fritt – og røret holdes under den der. Går ikke det med det som ellers står
+   * fast på røret, legges røret uten, og svaret sier fra (`merk`).
+   *
    * @param {object} o  bygg, ror (id), koder, terrengZ, steg?, dyp?
-   * @returns {{ laast: Array<{punkt:string, bunn:number}> } | { feil: string, fra?: number, til?: number }}
+   * @returns {{ laast: Array<{punkt:string, bunn:number}>, greiner: number, merk: string|null }
+   *   | { feil: string, grunn?: string, fra?: number, til?: number }}
+   *   grunn: 'dyp' | 'grein' | 'pakobling' | 'laast' – se `hvorfor`
    */
   function leggHoyderFor(o) {
     const l = o.bygg.linjer.find(x => x.id === o.ror);
-    if (!l) return { feil: 'røret har ingen høyder ennå' };
-    if (l.plan.regel !== 'selvfall') return { feil: 'bare selvfallsrør får høydene lagt – et trykkrør følger terrenget' };
-    const k = kodeAv(o.koder, l.kode);
-    const ktr = o.bygg.kontroll.filter(c => c.ror === o.ror).sort((a, b) => a.s - b.s);
-    const T = o.terrengZ || (() => NaN);
-    const sl = stasjonering(l.xy), Lsum = sl[sl.length - 1];
-    const prover = [];
-    for (let sv = 0; sv <= Lsum + 1e-9; sv += STEG) {
-      let j = 1;
-      while (j < sl.length - 1 && sl[j] < sv) j++;
-      const a = l.xy[j - 1], c = l.xy[j], d = sl[j] - sl[j - 1];
-      const u = d > 0 ? Math.max(0, Math.min(1, (sv - sl[j - 1]) / d)) : 0;
-      const Tz = T(a.x + (c.x - a.x) * u, a.y + (c.y - a.y) * u);
-      prover.push({ s: sv, U: Number.isFinite(Tz) ? Tz - l.plan.grense : NaN });
+    if (!l) {
+      const u = (o.bygg.utenHoyde || []).find(x => x.id === o.ror);
+      return { feil: !u ? 'røret har ingen høyder' : u.grunn === 'dimensjon' ? 'røret har ingen dimensjon – sett den i Koder-fanen'
+        : 'terrenget mangler langs røret – det hentes fra Kartverket når anlegget regnes' };
     }
+    if (l.plan.regel !== 'selvfall') return { feil: 'bare selvfallsrør får høydene lagt – et trykkrør følger terrenget' };
+    const T = o.terrengZ || (() => NaN);
     // fast er det brukeren har låst, påkoblingene og greinene – ikke det knappen la sist
     const fast = c => (c.laast && !c.lagt) || !!c.fra;
-    const svar = leggHoyder({ s: ktr.map(c => c.s), fast: ktr.map(c => (fast(c) ? c.topp : null)), prover,
-      minFall: minFall(k), maksFall: maksFall(k), motsatt: l.plan.motsatt, steg: o.steg, dyp: o.dyp });
-    if (svar.feil) return svar;
+    const oppsett = (linje, fri) => {
+      const k = kodeAv(o.koder, linje.kode);
+      const ktr = o.bygg.kontroll.filter(c => c.ror === linje.id).sort((a, b) => a.s - b.s);
+      const { sl, prover } = proverLangs(linje, T);
+      return { k, ktr, sl, arg: { s: ktr.map(c => c.s), fast: ktr.map(c => (fast(c) && c !== fri ? c.topp : null)), prover,
+        minFall: minFall(k), maksFall: maksFall(k), motsatt: linje.plan.motsatt, steg: o.steg, dyp: o.dyp } };
+    };
+    // den høyeste toppen greina kan møte røret i – møtet er siste punkt, så en grein som starter i møtet, snus
+    const hoyesteMote = (lb, g) => {
+      const { ktr, arg } = oppsett(lb, g), j = ktr.indexOf(g);
+      if (j !== 0 && j !== ktr.length - 1) return NaN;
+      if (j === 0) {
+        const S = arg.s[arg.s.length - 1];
+        Object.assign(arg, { s: arg.s.map(v => S - v).reverse(), fast: arg.fast.slice().reverse(),
+          prover: arg.prover.map(p => ({ s: S - p.s, U: p.U })).reverse(), motsatt: !arg.motsatt });
+      }
+      const svar = leggHoyder(arg);
+      return svar.feil ? NaN : svar.hoyest;
+    };
+    const { k, ktr, sl, arg } = oppsett(l, null);
+    const moter = [];
+    for (const g of o.bygg.kontroll) {
+      if (g.fra !== o.ror || !g.fraPunkt) continue;
+      const lb = o.bygg.linjer.find(x => x.id === g.ror), j = l.punkter.findIndex(p => p.id === o.ror + ':' + g.fraPunkt);
+      if (!lb || lb.plan.regel !== 'selvfall' || j < 0) continue;
+      const H = hoyesteMote(lb, g);
+      if (Number.isFinite(H)) moter.push({ s: sl[j], z: H });
+    }
+    let svar = leggHoyder(Object.assign({}, arg, { moter }));
+    if (svar.feil && moter.length) {
+      const uten = leggHoyder(arg);
+      if (!uten.feil) svar = uten;
+    }
+    if (svar.feil) return Object.assign(svar, hvorfor(svar, ktr, arg));
+    // et møte i et fast punkt – en kum låst for hånd – flytter ikke knappen: sjekk profilen mot hvert møte
+    const ved = sv => {
+      let j = 1;
+      while (j < arg.s.length - 1 && arg.s[j] < sv) j++;
+      const L = arg.s[j] - arg.s[j - 1];
+      return L > 0 ? svar.topp[j - 1] + (svar.topp[j] - svar.topp[j - 1]) * (sv - arg.s[j - 1]) / L : svar.topp[j];
+    };
+    const merk = moter.some(m => ved(m.s) > m.z + 1e-6) ? 'greinene som renner inn, får ikke fall hit med det som står fast på røret' : null;
+    /* NED TIL HEL MILLIMETER. Rundet av til nærmeste kunne punktet havne en
+       halv millimeter over det programmeringen fant: over taket, og over den
+       høyeste høyden en grein tåler å møte røret i – så greina ikke fikk fall. */
     return { laast: ktr.map((c, i) => ({ c, topp: svar.topp[i] })).filter(x => !fast(x.c))
-      .map(x => ({ punkt: x.c.punkt, bunn: Math.round(bunnFraTopp(x.topp, k) * 1000) / 1000 })) };
+      .map(x => ({ punkt: x.c.punkt, bunn: Math.floor(bunnFraTopp(x.topp, k) * 1000 + 1e-6) / 1000 })), greiner: moter.length, merk };
+  }
+
+  /**
+   * Hvorfor knappen ikke fant noen profil. «Låste høyder eller fallet» sto for
+   * alt – også når røret bare måtte dypere, og når en påkobling lå for grunt.
+   *
+   * Det som avgjør strekket det stoppet på, er det faste punktet foran det og
+   * det i enden av det: bak et fast punkt begynner alt på nytt. Er det ingen
+   * faste punkt der, kan det bare være dybden – et fritt rør kan alltid legges
+   * dypere. Ellers prøves det dobbelt så dypt; går det, er det dybden, og
+   * ellers det faste punktet: en grein, en påkobling eller en høyde låst for
+   * hånd. (Mye dypere ble mange ganger tregere – parene er verdier × verdier.)
+   */
+  function hvorfor(svar, ktr, arg) {
+    if (svar.i == null) return {};
+    const dyp = arg.dyp || 6;
+    let F = null;
+    for (let j = svar.i; j >= 0 && F == null; j--) if (Number.isFinite(arg.fast[j])) F = j;
+    const G = Number.isFinite(arg.fast[svar.i + 1]) ? svar.i + 1 : null;
+    const med = [F, G].filter(j => j != null).map(j => ktr[j]);
+    if (!med.length || !leggHoyder(Object.assign({}, arg, { dyp: 2 * dyp })).feil) {
+      return { grunn: 'dyp', fra: svar.fra, til: svar.til, feil: `røret må ligge mer enn ${dyp} m dypere enn overdekningen krever for å få fallet` };
+    }
+    const hvor = { fra: F != null ? ktr[F].s : svar.fra, til: svar.til };
+    if (med.some(c => c.fra)) {
+      return Object.assign(hvor, { grunn: 'grein', feil: 'greina henter høyden fra røret den er festet til, og derfra får den ikke fallet '
+        + 'uten å komme over overdekningen – legg høydene på det røret først, eller lås det dypere der greina kommer inn' });
+    }
+    if (med.some(c => c.kilde)) {
+      return Object.assign(hvor, { grunn: 'pakobling', feil: 'høyden i påkoblingen gir ikke fallet uten å komme over overdekningen '
+        + '– sjekk det innmålte røret, eller lås høydene for hånd' });
+    }
+    return Object.assign(hvor, { grunn: 'laast', feil: 'de låste høydene gir ikke fallet uten å komme over overdekningen – lås dem opp eller endre dem' });
   }
 
   return { StandardPlanmal, GRENSER, nyPlan, nyPlanmal, klem, nyId, alleIder, kodeAv, gods,
     toppFraBunn, bunnFraTopp, regel, overdekning, minFall, maksFall, forskyv, stasjonering, bygg, kontroller, fjell,
-    fallSpenn, brekk, leggHoyder, leggHoyderFor };
+    fallSpenn, brekk, leggHoyder, leggHoyderFor, proverLangs };
 })();
 
 if (typeof module !== 'undefined') module.exports = RorPlan;
