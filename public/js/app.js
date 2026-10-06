@@ -5405,12 +5405,13 @@ const App = {
       const e = document.querySelector(velger);
       if (e) e.classList.toggle('skjult', !pa);
     };
-    /* RØRENE HAR INGEN MASSER I ETAPPE 1, INGEN MAL Å FYLLE UT OG INGEN
-       EKSPORT. Fanene for det ville stått tomme, og en tom fane ser ut som en
-       som er i stykker. De får Rør og Koder i stedet; Forklaring er felles. */
+    /* RØRENE HAR SINE MASSER I RØR-FANEN OG INGEN VEGMAL Å FYLLE UT. Fanene
+       for det ville stått tomme, og en tom fane ser ut som en som er i
+       stykker. De får Rør og Koder i stedet; Forklaring er felles – og fra
+       etappe 3b Eksport, med rørenes egne filer. */
     vis('.fane[data-fane="masser"]', !ror);
     vis('.fane[data-fane="grunn"]', !ror);
-    vis('.fane[data-fane="eksport"]', !ror);
+    vis('.fane[data-fane="eksport"]', true);
     vis('.fane[data-fane="hoyder"]', !tomt && !ror);
     vis('.fane[data-fane="linje"]', !tomt && !ror);
     vis('.fane[data-fane="mal"]', !tomt && !ror);
@@ -5434,22 +5435,22 @@ const App = {
        hvilket format det tilfeldigvis kommer i. Innholdsordet står derfor
        først, og «alle» henger på som det tillegget det er. */
     const alle = this.alleAnlegg();
-    const navn = (vegtekst, tomtetekst, alletekst) =>
-      alle ? alletekst : (tomt ? tomtetekst : vegtekst);
+    const navn = (vegtekst, tomtetekst, alletekst, rortekst) =>
+      alle ? alletekst : (tomt ? tomtetekst : ror ? rortekst : vegtekst);
     tekst('knappEksportKof', navn('Stikningsdata (KOF)', 'Hjørner og utslag (KOF)',
-      'Stikningsdata, alle (KOF)'));
+      'Stikningsdata, alle (KOF)', 'Stikningspunkt for rørene (KOF)'));
     tekst('knappEksportLandxml', navn('Linjeføring og profil (LandXML)', 'Flater og utslag (LandXML)',
-      'Linjer og flater, alle (LandXML)'));
+      'Linjer og flater, alle (LandXML)', 'Rørene som 3D-linjer (LandXML)'));
     tekst('knappEksportSosi', navn('Kartdata (SOSI)', 'Tomteflate (SOSI)',
-      'Kartdata, alle (SOSI)'));
+      'Kartdata, alle (SOSI)', 'Rørene som kartdata (SOSI)'));
     tekst('knappEksportDxf', navn('Tegning (DXF)', 'Tegning av tomta (DXF)',
-      'Tegning, alle (DXF)'));
+      'Tegning, alle (DXF)', 'Tegning av rørene (DXF)'));
     tekst('knappEksportStikning', navn('Stikningsdata (CSV)', 'Stikningspunkt (CSV)',
-      'Stikningsdata, alle (CSV)'));
+      'Stikningsdata, alle (CSV)', 'Stikningsliste for rørene (CSV)'));
     tekst('knappEksportMasser', navn('Masseoppsett per profil (CSV)', 'Massesammendrag (CSV)',
-      'Masseoppsett, alle (CSV)'));
+      'Masseoppsett, alle (CSV)', 'Grøftemasser per kode (CSV)'));
     tekst('knappEksportGeojson', navn('Linje og fotavtrykk (GeoJSON)', 'Tomt, grense og utslag (GeoJSON)',
-      'Kartobjekter, alle (GeoJSON)'));
+      'Kartobjekter, alle (GeoJSON)', 'Rørene og kummene (GeoJSON)'));
     tekst('knappEksportRutenett', alle ? 'Rutenett, alle tomter (CSV)' : 'Rutenett per celle (CSV)');
     /* Rutenettet finnes bare for en tomt. Gjelder eksporten HELE prosjektet, er
        spørsmålet om det finnes en tomt i det – ikke om man tilfeldigvis står i
@@ -5477,8 +5478,13 @@ const App = {
           + 'Der skråningen ikke landet, blir utslagslinja delt opp og merket – den lukkes '
           + 'aldri over et sted som ikke er regnet. Ta en prøveimport av én fil før dere '
           + 'baserer en jobb på dem.'
-          : 'Formatene er skrevet etter spesifikasjonene, men er ikke prøvd mot hvert enkelt '
-          + 'mottakersystem. Ta en prøveimport av én fil før dere baserer en jobb på dem.';
+          : ror
+            ? 'Hvert rør kommer med tre høyder som egne lag: bunn innvendig (bunnløpet), topp rør og '
+            + 'gravebunn – den som setter opp maskina, velger. Kummene kommer med bunnløp og lokk. '
+            + 'Stikningspunktene er hvert knekkpunkt, hver 10. meter og enden. Ta en prøveimport av '
+            + 'én fil før dere baserer en jobb på dem.'
+            : 'Formatene er skrevet etter spesifikasjonene, men er ikke prøvd mot hvert enkelt '
+            + 'mottakersystem. Ta en prøveimport av én fil før dere baserer en jobb på dem.';
     }
     for (const [navn, tekst, etter] of [['tomthoyde', 'Høyde', 'masser'], ['tomtemal', 'Tomtemal', 'tomthoyde']]) {
       if (document.querySelector('.fane[data-fane="' + navn + '"]')) continue;

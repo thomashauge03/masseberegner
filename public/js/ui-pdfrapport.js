@@ -136,7 +136,7 @@ const Pdfrapport = {
         await this._bygg(a2, res, delt);
         rader.push(rad);
         return true;
-      }, { medRor: true });
+      });
       if (!tatt.length) {
         app.status('Ingen av anleggene kunne rapporteres – '
           + hoppet.map(h => (h.anlegg.navn || h.anlegg.type) + ': ' + h.grunn).join('; '));

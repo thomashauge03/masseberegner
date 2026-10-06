@@ -173,7 +173,7 @@ const Nettlesertest = {
       'groftBeregning', 'groftFane', 'groftKoder', 'groftVerktoy', 'groftKnutepunkt', 'groftProfil', 'groft3d',
       'groftRapport',
       'planBeregning', 'planNyttAnlegg', 'planTegnTrase', 'planRediger', 'planFane', 'planProfil', 'planRapport',
-      'planForklaring',
+      'planForklaring', 'planEksport',
       'lovlighet', 'framdrift', 'gamleFilerOgUtskifting', 'opprydding'];
     for (const navn of proever) {
       try {
@@ -8736,25 +8736,31 @@ const Nettlesertest = {
       this.sjekk('og en lengdeprofil per rør over 20 m', profiler === 3, String(profiler));
       this.sjekk('bunnteksten sier hva høydene er', !!html && /topp rør/.test(html));
 
-      /* EKSPORTKNAPPENE KJENNER BARE VEG OG TOMT. `kanEksportere` svarer ja for
-         et regnet røranlegg – rapporten trenger det – og alt som ikke var en
-         tomt, ble skrevet som en veg. */
+      /* EKSPORTKNAPPENE SKRIVER RØRENE SOM RØR (etappe 3b). Før kjente de bare
+         veg og tomt, og alt som ikke var en tomt, ble skrevet som en veg – da
+         sto knappene sperret for rør. Nå får hvert format rørene, og innholdet
+         er rør: ingen SENTER-punkt og ingen vegkanter. Rutenettet er bare for
+         tomt, og sier det. */
       {
         const gammelNed = Rapport.lastNed;
         const filer = [];
         let kastet = null;
-        Rapport.lastNed = navn => { filer.push(navn); };
+        Rapport.lastNed = (navn, innhold) => { filer.push({ navn, innhold }); };
         try {
           for (const kall of [() => Rapport.eksporter('kof'), () => Rapport.eksporter('landxml'),
             () => Rapport.eksporter('sosi'), () => Rapport.eksporter('dxf'), () => Rapport.eksportStikning(),
-            () => Rapport.eksportMasser(), () => Rapport.eksportGeojson(), () => Rapport.eksportRutenett()]) {
+            () => Rapport.eksportMasser(), () => Rapport.eksportGeojson()]) {
             try { kall(); } catch (e) { kastet = e.message; }
           }
         } finally { Rapport.lastNed = gammelNed; }
-        this.sjekk('eksportknappene skriver ingen fil for rør', filer.length === 0 && !kastet,
-          kastet || filer.join(', '));
+        const endelser = filer.map(f => f.navn.replace(/^.*?(\.[A-Za-z]+|_[a-z]+\.csv)$/, '$1'));
+        this.sjekk('eksportknappene skriver en fil per format for rør', !kastet && endelser.join(',')
+          === '.KOF,.xml,.sos,.dxf,_stikning.csv,_groftemasser.csv,.geojson', kastet || endelser.join(','));
+        this.sjekk('og innholdet er rør, ikke en veg', filer.length === 7 && /RORTOPP/.test(filer[0].innhold)
+          && !/SENTER/.test(filer[0].innhold) && /<PlanFeature /.test(filer[1].innhold) && !/<Alignment /.test(filer[1].innhold));
+        Rapport.eksportRutenett();
         const linje = document.getElementById('statuslinje').textContent;
-        this.sjekk('og sier hvorfor', /[Rr]ør/.test(linje), linje);
+        this.sjekk('rutenettet er bare for tomt, og sier det', /bare for en tomt/.test(linje), linje);
       }
 
       html = null;
@@ -8770,17 +8776,18 @@ const Nettlesertest = {
       this.sjekk('rørene står i oversikten som rør', !!html && /<td>rør<\/td>/.test(html));
       this.sjekk('og som egen del', !!html && /Lengdeprofiler/.test(html));
       this.sjekk('uten å vente på masser som aldri kommer', Date.now() - t0 < 30000, (Date.now() - t0) + ' ms');
-      /* Samleeksporten tar vegen, hopper over røret og sier det. */
+      /* Samleeksporten tar både vegen og røret – med prefikset foran punktnavnene. */
       {
         const gammelNed = Rapport.lastNed;
         const filer = [];
-        Rapport.lastNed = navn => { filer.push(navn); };
+        Rapport.lastNed = (navn, innhold) => { filer.push({ navn, innhold }); };
         const t1 = Date.now();
         try { await Rapport.eksporterAlle('kof'); } finally { Rapport.lastNed = gammelNed; }
         const svar = document.getElementById('statuslinje').textContent;
-        this.sjekk('samleeksporten skriver én fil', filer.length === 1, filer.join(', '));
-        this.sjekk('og sier at røret ikke er med', /Ikke med:.*rør kan ikke eksporteres/.test(svar), svar);
-        this.sjekk('uten å vente på røret', Date.now() - t1 < 30000, (Date.now() - t1) + ' ms');
+        this.sjekk('samleeksporten skriver én fil', filer.length === 1, filer.map(f => f.navn).join(', '));
+        this.sjekk('med vegen og røret', filer.length === 1 && /SENTER/.test(filer[0].innhold) && /RORTOPP/.test(filer[0].innhold)
+          && !/Ikke med/.test(svar), svar);
+        this.sjekk('innen rimelig tid', Date.now() - t1 < 30000, (Date.now() - t1) + ' ms');
       }
     } finally {
       Rapport.visRapport = gammel;
@@ -9537,6 +9544,54 @@ const Nettlesertest = {
         App.visFane('ror');
       });
     } finally {
+      await this._rorTilbake(foer);
+    }
+  },
+
+  /** Eksporten av et tegnet anlegg: fanen, hver knapp, og samlefila med et innmålt anlegg ved siden av. */
+  async planEksport() {
+    const foer = JSON.stringify(App.P);
+    const gammelNed = Rapport.lastNed;
+    const filer = [];
+    Rapport.lastNed = (navn, innhold) => { filer.push({ navn, innhold }); };
+    try {
+      await this._medFlattTerreng(21.5, async () => {
+        await this._planProsjekt();
+        const fane = document.querySelector('.fane[data-fane="eksport"]');
+        this.sjekk('Eksport-fanen vises for et tegnet anlegg', !!fane && !fane.classList.contains('skjult'));
+        const tekst = id => document.getElementById(id).textContent;
+        this.sjekk('knappene sier hva de lager for rør', /3D-linjer/.test(tekst('knappEksportLandxml'))
+          && /[Gg]røftemasser/.test(tekst('knappEksportMasser')), tekst('knappEksportLandxml'));
+        this.sjekk('rutenettet er skjult for rør', document.getElementById('knappEksportRutenett').classList.contains('skjult'));
+        for (const id of ['knappEksportKof', 'knappEksportLandxml', 'knappEksportSosi', 'knappEksportDxf',
+          'knappEksportStikning', 'knappEksportMasser', 'knappEksportGeojson']) document.getElementById(id).click();
+        const inn = slutt => (filer.find(f => f.navn.endsWith(slutt)) || {}).innhold || '';
+        this.sjekk('en fil per knapp', filer.length === 7, filer.map(f => f.navn).join(', '));
+        this.sjekk('KOF med bunn, topp, gravebunn og kummen', ['RORBUNN', 'RORTOPP', 'GRAVBUNN', 'KUMBUNN']
+          .every(k => inn('.KOF').includes(k)));
+        this.sjekk('LandXML med en linje per rør og høyde', (inn('.xml').match(/<PlanFeature /g) || []).length === 6,
+          String((inn('.xml').match(/<PlanFeature /g) || []).length));
+        this.sjekk('SOSI med rørledningene og kummen', /Rørledning/.test(inn('.sos')) && /\.\.OBJTYPE Kum/.test(inn('.sos')));
+        this.sjekk('DXF med et lag per kode og høyde', /SP_160PE_BUNN/.test(inn('.dxf')) && /VL_110PE_GRAVEBUNN/.test(inn('.dxf')));
+        this.sjekk('stikningslista med de tre høydene', /Bunn_innvendig;Topp_ror;Gravebunn/.test(inn('_stikning.csv')));
+        this.sjekk('grøftemassene per kode', /Graving_m3/.test(inn('_groftemasser.csv')) && /SP 160PE/.test(inn('_groftemasser.csv')));
+        let geo = null;
+        try { geo = JSON.parse(inn('.geojson')); } catch (e) { geo = null; }
+        this.sjekk('GeoJSON med rørene og kummen', !!geo && geo.features.filter(f => f.properties.type === 'ror').length === 2
+          && geo.features.some(f => f.properties.type === 'kum'));
+        // samlefila: et innmålt anlegg ved siden av det tegnede
+        filer.length = 0;
+        await RorUI.importerTekst(this._rorXml(), 'asbuilts_Prove.xml', {}, { sone: 32, maal: 'nytt' });
+        clearTimeout(App._tidsavbrudd);
+        App.settEksportomfang('alle');
+        try { await Rapport.eksporterAlle('landxml'); } finally { App.settEksportomfang('dette'); }
+        const svar = document.getElementById('statuslinje').textContent;
+        const xml = filer.length ? filer[0].innhold : '';
+        this.sjekk('samlefila har begge røranleggene', filer.length === 1 && xml.includes('Planlagte rør – 1 SP 160PE – bunn innvendig')
+          && (xml.match(/<PlanFeature /g) || []).length > 6 && xml.includes('Planlagte rør – k1 bunnløp') && !/Ikke med/.test(svar), svar);
+      });
+    } finally {
+      Rapport.lastNed = gammelNed;
       await this._rorTilbake(foer);
     }
   },
