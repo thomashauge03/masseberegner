@@ -2083,8 +2083,34 @@ const App = {
     document.documentElement.setAttribute('data-peker', grov ? 'grov' : 'fin');
   },
 
+  /**
+   * Etiketten i et `.felt` hører til feltet ved siden av den. Uten en kobling
+   * leser en skjermleser bare «redigeringsfelt, tall» – trettini felt i malen
+   * og alle i tomtepanelet sto slik. Feltene i index.html har `for`; de som
+   * lages i koden, kobles her når de dukker opp.
+   */
+  kobleEtiketter(rot = document) {
+    for (const felt of rot.querySelectorAll('.felt')) {
+      const etikett = felt.querySelector(':scope > label');
+      const kontroll = felt.querySelector(':scope > input, :scope > select, :scope > textarea');
+      if (!etikett || !kontroll) continue;
+      if ((kontroll.labels && kontroll.labels.length) || kontroll.getAttribute('aria-label')) continue;
+      if (kontroll.id) etikett.htmlFor = kontroll.id;
+      else kontroll.setAttribute('aria-label', etikett.textContent.trim());
+    }
+  },
+
   async start() {
     this.settPekertype();
+    this.kobleEtiketter();
+    // nye felt kobles når de kommer – samlet, så en tabell som tegnes om ikke koster noe
+    if (typeof MutationObserver !== 'undefined') {
+      let venter = null;
+      new MutationObserver(() => {
+        if (venter) return;
+        venter = setTimeout(() => { venter = null; this.kobleEtiketter(); }, 150);
+      }).observe(document.body, { childList: true, subtree: true });
+    }
     if (window.matchMedia) {
       const q = window.matchMedia('(pointer: coarse)');
       // et nettbrett med tastatur bytter pekertype midt i økten

@@ -410,12 +410,16 @@ const Kart = {
        Bare i Rediger. Mens man tegner skal punktet alltid pa enden - ellers
        havner et klikk som tilfeldigvis ligger nær et tidligere strekk midt i
        rekken, og linjen gar i sikksakk. */
-    this.lag.linje.on('click', e => {
+    /* SKYGGELINJA ER EN DEL AV LINJA. Den ligger under, tre piksler bredere på
+       hver side, og et klikk der traff skyggen – ingenting skjedde, og halve
+       klikkflaten var borte. Begge får samme lytter. */
+    const settInn = e => {
       if (this.modus !== 'rediger') return;
       L.DomEvent.stop(e);
-      const plass = this.settInnPunkt(e.latlng, 40);
-      if (plass >= 0) this.app.status(`Satte inn knekkpunkt ${plass + 1} – dra det dit du vil ha svingen`);
-    });
+      this.settInnPunkt(e.latlng, 40);
+    };
+    this.lag.linje.on('click', settInn);
+    this.lag.linjeSkygge.on('click', settInn);
 
     /* Et dobbeltklikk gir to click-hendelser før dblclick kommer. Mens man
        tegnet ble derfor det siste punktet lagt inn to ganger: ett for klikket
@@ -424,6 +428,9 @@ const Kart = {
        det. Utenfor tegnemodus er det ingen grunn til a vente. */
     kart.on('click', e => {
       if (this.modus !== 'tegn' && this.modus !== 'tegnTomt' && this.modus !== 'tegnTrase') { this.klikk(e); return; }
+      /* Det andre klikket i et dobbeltklikk er ikke et punkt – heller ikke når
+         det kom for sent til at ventetiden under fanget det. */
+      if (e.originalEvent && e.originalEvent.detail > 1) { clearTimeout(this._klikkVent); this._klikkVent = null; return; }
       clearTimeout(this._klikkVent);
       const kopi = { latlng: e.latlng };
       this._klikkVent = setTimeout(() => { this._klikkVent = null; this.klikk(kopi); }, 220);
@@ -778,6 +785,8 @@ const Kart = {
     for (let i = 1; i < langs.length; i++) {
       if (pr.s <= langs[i] + 1e-9) { plass = i; break; }
     }
+    // radiene som bygges nå, før punktet settes inn – naboene skal ikke miste sine
+    const for_ = app.linje.oppnaddeRadier ? app.linje.oppnaddeRadier(P.ip.length) : [];
     app.merk('sett inn knekkpunkt');
     const nytt = { lat: latlng.lat, lon: latlng.lng, r: P.standardRadius || 0 };
     P.ip.splice(plass, 0, nytt);
@@ -786,10 +795,25 @@ const Kart = {
        plutselig dele pa den samme strekningen. Linjeføringen korter dem inn
        for a fa dem til a passe, og resultatet kan bli en radius pa under en
        meter - en sving ingen kjører. Da er det bedre a gi det nye punktet en
-       radius som faktisk far plass. */
+       radius som faktisk far plass.
+       OG NABOENE SKAL BEHOLDE SINE. Her ble bare det nye punktets kurve
+       sjekket, og en 30-meterskurve ved siden av kunne falle til under en
+       meter uten et ord. */
+    const naboTap = () => {
+      const l = app.linje;
+      const etter = l && l.oppnaddeRadier ? l.oppnaddeRadier(P.ip.length) : [];
+      const tap = [];
+      for (const ny of [plass - 1, plass + 1]) {
+        const gammel = ny < plass ? ny : ny - 1;
+        const r0 = for_[gammel], r1 = etter[ny];
+        if (r0 > 0 && !(r1 >= r0 * 0.75)) tap.push({ nr: ny + 1, fra: r0, til: r1 || 0 });
+      }
+      return tap;
+    };
     const passer = () => {
       const l = app.byggLinje();
       if (!l) return true;
+      if (naboTap().length) return false;
       const kurve = (l.kurver || []).find(k => k.ip === plass);
       // ingen kurve i det hele tatt er greit ved radius 0
       if (!kurve) return !nytt.r;
@@ -797,14 +821,20 @@ const Kart = {
     };
     let kortet = false;
     while (nytt.r > 5 && !passer()) { nytt.r = Math.round(nytt.r / 2); kortet = true; }
-    if (nytt.r <= 5 && !passer()) { nytt.r = 0; kortet = true; }
+    if (nytt.r <= 5 && !passer()) { nytt.r = 0; kortet = true; app.byggLinje(); }
+    const tap = naboTap();
 
     app.linjeEndret();
-    if (kortet) {
+    if (tap.length) {
+      // selve knekken i kurven flytter naboen – det går ikke å unngå, men det skal sies
+      app.status(`Satte inn knekkpunkt ${plass + 1} – kurven i knekkpunkt `
+        + tap.map(t => `${t.nr} gikk fra radius ${Math.round(t.fra)} til ${Math.round(t.til)} m`).join(', og i ')
+        + '. Angre (Ctrl+Z) om det ikke var meningen.');
+    } else if (kortet) {
       app.status(nytt.r
         ? `Satte inn knekkpunkt ${plass + 1} med radius ${nytt.r} m – det var ikke plass til mer`
         : `Satte inn knekkpunkt ${plass + 1} uten kurve – det var ikke plass til en radius her`);
-    }
+    } else app.status(`Satte inn knekkpunkt ${plass + 1} – dra det dit du vil ha svingen`);
     return plass;
   },
 
@@ -844,6 +874,13 @@ const Kart = {
       /* Tegner man, har man valgt. Flagget skal ikke bli hengende og be om et
          valg man alt har tatt med hånda. */
       if (this.app.P.ubestemt) this.app.velgAnleggstype('veg');
+      /* Et punkt under en meter fra det forrige er et dobbelt klikk, ikke et
+         nytt knekkpunkt – to punkt oppå hverandre gir et strekk uten retning. */
+      const forrige = P.ip[P.ip.length - 1];
+      if (forrige) {
+        const a = Geo.tilUtm(forrige.lat, forrige.lon, this.app.sone), b = Geo.tilUtm(e.latlng.lat, e.latlng.lng, this.app.sone);
+        if (Math.hypot(a.x - b.x, a.y - b.y) < 1) return;
+      }
       this.app.merk('nytt knekkpunkt');
       P.ip.push({ lat: e.latlng.lat, lon: e.latlng.lng, r: P.standardRadius || 0 });
       this.app.linjeEndret();

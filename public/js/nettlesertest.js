@@ -182,7 +182,7 @@ const Nettlesertest = {
       'groftRapport',
       'planBeregning', 'planNyttAnlegg', 'planTegnTrase', 'planRediger', 'planFane', 'planProfil', 'planRapport',
       'planForklaring', 'planEksport', 'planEksportSoner', 'planAvvik', 'planTerrengAndre',
-      'vegProfilLengde', 'vegLinjeslutt', 'vegStigningIKurve', 'vegKnapper', 'vegSluttretting', 'lagringOgAngre', 'angreposter',
+      'vegProfilLengde', 'vegLinjeslutt', 'vegStigningIKurve', 'vegKnapper', 'vegSluttretting', 'lagringOgAngre', 'angreposter', 'grensesnittVeg',
       'lovlighet', 'framdrift', 'gamleFilerOgUtskifting', 'opprydding'];
     for (const navn of proever) {
       try {
@@ -10344,6 +10344,64 @@ const Nettlesertest = {
     } finally {
       App.bekreft = gammelBekreft;
     }
+  },
+
+  /**
+   * Grensesnittet for vegen (pulje 6): forholdstallet, helningen, skyveren,
+   * etikettene, tallfeltene, skyggelinja og dobbeltklikket.
+   */
+  async grensesnittVeg() {
+    const T = Tverrprofil;
+    this.sjekk('brattere enn 1:1 skrives «5:1», ikke «1:0,20»', T._somForhold(-5) === '5:1' && T._somForhold(2.5) === '2,5:1',
+      `${T._somForhold(-5)} / ${T._somForhold(2.5)}`);
+    this.sjekk('slakere skrives «1:1,5»', T._somForhold(1 / 1.5) === '1:1,5' && T._somForhold(0.5) === '1:2');
+    // helningen i stykket pekeren står i – ikke et snitt over et knekkpunkt i malen
+    const liste = [[0, 0], [1, 0], [1.0001, 1], [3, 1]];
+    this.sjekk('helningen leses i stykket pekeren står i', T._helning(liste, 0.9) === 0 && Math.abs(T._helning(liste, 2) - 0) < 1e-9,
+      `${T._helning(liste, 0.9)} / ${T._helning(liste, 2)}`);
+    this.sjekk('hullene i en liste finnes', JSON.stringify(T._hullene([[0, 1], [0.1, 1], [2, 1], [2.1, 1]])) === '[[0.1,2]]');
+    // etikettene er koblet, og statuslinja leses opp – også i felt som lages i koden
+    await this.vent(200);
+    const uten = [...document.querySelectorAll('.felt input, .felt select')]
+      .filter(el => !(el.labels && el.labels.length) && !el.getAttribute('aria-label'));
+    this.sjekk('hvert felt har en etikett som er koblet til det', uten.length === 0, uten.map(el => el.id).join(', '));
+    this.sjekk('statuslinja leses opp', document.getElementById('statuslinje').getAttribute('role') === 'status');
+    // tallfeltene: minste verdi ligger på steget, så pilene gir runde tall
+    const skjev = [...document.querySelectorAll('input[type=number][min][step]')].filter(el => {
+      const st = parseFloat(el.step), mi = parseFloat(el.min);
+      return Number.isFinite(st) && Number.isFinite(mi) && Math.abs(Math.round(mi / st) * st - mi) > 1e-9;
+    });
+    this.sjekk('minste verdi ligger på steget i alle tallfelt', skjev.length === 0, skjev.map(el => el.id).join(', '));
+
+    await this._medVeg(async ll => {
+      App.P.ip = [ll(0, 0), ll(100, 0), ll(200, 0)];
+      App.P.vip = [{ s: 0, z: 100, k: 1 }, { s: 200, z: 100, k: 1 }];
+      clearTimeout(App._tidsavbrudd);
+      await App.oppdater();
+      // skyveren går ett profil om gangen
+      App.settTverrStasjon(App.resultat.profiler[3].s);
+      const sk = document.getElementById('tverrSkyver');
+      this.sjekk('skyveren har ett steg per profil', +sk.max === App.resultat.profiler.length - 1 && +sk.value === 3,
+        `${sk.max} / ${sk.value}`);
+      // et klikk på skyggelinja setter inn et punkt, som et klikk på linja
+      const modus = Kart.modus;
+      Kart.modus = 'rediger';
+      const n = App.P.ip.length;
+      const p = App.linje.punktVed(150);
+      const g = Geo.fraUtm(p.x, p.y, App.sone);
+      Kart.lag.linjeSkygge.fire('click', { latlng: L.latLng(g.lat, g.lon), originalEvent: new MouseEvent('click') });
+      this.sjekk('et klikk på skyggelinja setter inn et knekkpunkt', App.P.ip.length === n + 1, `${n} → ${App.P.ip.length}`);
+      // tegnemodus: et dobbeltklikk og et punkt oppå det forrige er ikke nye punkt
+      Kart.modus = 'tegn';
+      const m = App.P.ip.length;
+      const siste = App.P.ip[App.P.ip.length - 1];
+      Kart.klikk({ latlng: L.latLng(siste.lat, siste.lon + 1e-6) });
+      this.sjekk('et punkt under en meter fra det forrige blir ikke et nytt knekkpunkt', App.P.ip.length === m);
+      Kart.kart.fire('click', { latlng: L.latLng(siste.lat + 0.001, siste.lon), originalEvent: new MouseEvent('click', { detail: 2 }) });
+      await this.vent(300);
+      this.sjekk('det andre klikket i et dobbeltklikk blir ikke et punkt', App.P.ip.length === m);
+      Kart.modus = modus;
+    });
   },
 
   /**

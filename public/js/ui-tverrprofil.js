@@ -10,10 +10,13 @@ const Tverrprofil = {
     this.lerret = document.getElementById('tverrprofil');
     this.ctx = this.lerret.getContext('2d');
     const skyver = document.getElementById('tverrSkyver');
+    /* SKYVEREN ER PROFILENE, ETT STEG PER PROFIL. Her gikk den fra 0 til 100
+       uansett hvor mange det var: på en veg med 400 profiler hoppet den fire
+       om gangen, og noen profiler kunne man ikke komme til med den. */
     skyver.oninput = () => {
       const res = app.resultat;
-      if (!res) return;
-      const i = Math.round(skyver.value / 100 * (res.profiler.length - 1));
+      if (!res || !Array.isArray(res.profiler) || !res.profiler.length) return;
+      const i = Math.max(0, Math.min(res.profiler.length - 1, Math.round(+skyver.value)));
       app.settTverrStasjon(res.profiler[i].s);
     };
     document.getElementById('tverrForrige').onclick = () => this.flytt(-1);
@@ -56,20 +59,20 @@ const Tverrprofil = {
    */
   _helning(liste, t) {
     if (!liste || liste.length < 2) return null;
-    let i = 0;
-    for (let j = 1; j < liste.length; j++) {
-      if (Math.abs(liste[j][0] - t) < Math.abs(liste[i][0] - t)) i = j;
-    }
-    /* To nabopunkt rundt treffet gir en jevnere avlesning enn ett steg. Men
-       punktene kan ligge oppa hverandre - knekkpunktene i malen legges inn
-       med en brøkdel av en millimeter mellom seg, og siste punkt star to
-       ganger - sa det ma søkes utover til det er en virkelig avstand a dele
-       pa. Uten det ga hver avlesning nær kanten ingen helning i det hele
-       tatt. */
-    let lav = Math.max(0, i - 1), hoy = Math.min(liste.length - 1, i + 1);
+    /* HELNINGEN I STYKKET PEKEREN STÅR I – samme stykke som høyden leses i
+       (`_hoydeVed`). Her ble det nærmeste punktet tatt, og helningen regnet
+       over begge naboene: rett ved et knekkpunkt i malen – grøftekanten, foten –
+       ble det et snitt av to helt ulike helninger, og avlesningen sa 30 % i
+       en grøft på 1:1. */
+    let lav = 0;
+    while (lav < liste.length - 2 && t > liste[lav + 1][0]) lav++;
+    let hoy = lav + 1;
+    /* Punktene kan ligge oppå hverandre – knekkpunktene i malen legges inn
+       med en brøkdel av en millimeter mellom seg – så det søkes utover til
+       det er en virkelig avstand å dele på. */
     while (liste[hoy][0] - liste[lav][0] < 1e-6) {
-      if (lav > 0) lav--;
-      else if (hoy < liste.length - 1) hoy++;
+      if (hoy < liste.length - 1) hoy++;
+      else if (lav > 0) lav--;
       else return null;
     }
     return (liste[hoy][1] - liste[lav][1]) / (liste[hoy][0] - liste[lav][0]);
@@ -109,12 +112,26 @@ const Tverrprofil = {
     return false;
   },
 
-  /** «1:1,5» ved siden av prosenten – det malet en maskinfører kjenner. */
+  /** Hullene i en liste – stykkene [t0, t1] der det er mer enn `grense` mellom to punkt. */
+  _hullene(liste, grense = 1.0) {
+    const ut = [];
+    for (let i = 0; i + 1 < (liste || []).length; i++) {
+      if (liste[i + 1][0] - liste[i][0] > grense) ut.push([liste[i][0], liste[i + 1][0]]);
+    }
+    return ut;
+  },
+
+  /**
+   * «1:1,5» ved siden av prosenten – det målet en maskinfører kjenner. Brattere
+   * enn 1:1 skrives andre veien, «5:1», slik malen og bransjen sier det; her
+   * sto en fjellskjæring som «1:0,20».
+   */
   _somForhold(helning) {
     const a = Math.abs(helning);
     if (a < 1e-4) return 'flatt';
     if (a > 20) return 'nesten loddrett';
-    return '1:' + (1 / a).toFixed(a > 1 ? 2 : 1).replace('.', ',');
+    const tall = v => String(+v.toFixed(v >= 10 ? 0 : 1)).replace('.', ',');
+    return a > 1 + 1e-9 ? tall(a) + ':1' : '1:' + tall(1 / a);
   },
 
   flytt(retning) {
@@ -133,7 +150,12 @@ const Tverrprofil = {
     const res = this.app.resultat;
     if (res && profil) {
       const i = res.profiler.indexOf(profil);
-      if (i >= 0) document.getElementById('tverrSkyver').value = Math.round(i / Math.max(1, res.profiler.length - 1) * 100);
+      if (i >= 0) {
+        const skyver = document.getElementById('tverrSkyver');
+        skyver.max = String(Math.max(0, res.profiler.length - 1));
+        skyver.value = String(i);
+        skyver.setAttribute('aria-valuetext', `Profil ${profil.s.toFixed(1)}`);
+      }
       const a = profil.areal;
       document.getElementById('tverrEtikett').innerHTML =
         `Profil <b>${profil.s.toFixed(1)}</b> · veg ${profil.vegnivaa.toFixed(2)} · terr ${isFinite(profil.terrengSenter) ? profil.terrengSenter.toFixed(2) : '–'} · `
@@ -273,7 +295,20 @@ const Tverrprofil = {
     bane(trau.concat([[trau[trau.length - 1][0], zMin], [trau[0][0], zMin]]), true); c.fill();
     c.fillStyle = Farger.fyllingFlate;     // fylling: over bunnen i trauet
     bane(trau.concat([[trau[trau.length - 1][0], zMax], [trau[0][0], zMax]]), true); c.fill();
+    /* ET HULL I TERRENGMODELLEN ER IKKE SKJÆRING. Flatene ble tegnet rett over
+       hullet – 5,7 m² skjæring malt der volumtallet ikke har noe. Der det ikke
+       finnes data, males flaten bort, og hullet står som hull. */
+    for (const [t0, t1] of this._hullene(terr)) {
+      c.fillStyle = Farger.flate;
+      c.fillRect(px(t0), m.o, px(t1) - px(t0), H - m.u - m.o);
+    }
     c.restore();
+    for (const [t0, t1] of this._hullene(terr)) {
+      c.save();
+      c.strokeStyle = Farger.blekkSvak; c.setLineDash([4, 4]); c.lineWidth = 1;
+      c.strokeRect(px(t0), m.o, px(t1) - px(t0), H - m.u - m.o);
+      c.restore();
+    }
 
     /* Fjellet er den delen av skjæringen som ma sprenges. Det blir skravert
        oppa skjæringsfargen i stedet for a fa en egen kulør, sa det leses som
@@ -474,7 +509,11 @@ const Tverrprofil = {
        hoppet over nar snittet regnes. `_hoydeVed` interpolerer da rett over
        hullet og finner pa en høyde som ser like troverdig ut som de andre.
        Er det mer enn et par steg mellom nabopunktene, er det et hull. */
-    const hull = this._erHull(terr, t);
+    /* OG FORBI ENDEN AV LISTA, innenfor foten: mangler terrenget der, slutter
+       lista før foten, og avlesningen sto stille på det ytterste punktet over
+       en meter av snittet – «Skjæring her 1,14 m» uansett hvor pekeren var. */
+    const hull = this._erHull(terr, t)
+      || (!utenfor && terr.length > 0 && (t < gT0 - 1e-6 || t > gT1 + 1e-6));
     const zT = (utenfor || hull) ? NaN : this._hoydeVed(terr, t);
     const zJ = (utenfor || hull) ? NaN : this._hoydeVed(jord, t);
     // volumene males fra terrenget ETTER rensk, ikke fra det ratt terrenget
