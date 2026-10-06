@@ -159,6 +159,8 @@ function _rettPlan(a, RP) {
     if (erObjekt(k) && id(k.anlegg) && id(k.punkt) && tall(k.topp) !== null) {
       ut.kilde = { anlegg: id(k.anlegg), punkt: id(k.punkt), topp: tall(k.topp) };
     }
+    // lagt av «Legg høydene» (etappe 3d-2) – en påkobling er aldri det
+    else if (l.lagt === true) ut.lagt = true;
     laast.push(ut);
   }
   const greiner = [];

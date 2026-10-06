@@ -1311,7 +1311,7 @@ const App = {
     const plan = this.erPlan();
     for (const id of ['verktoyRorImport', 'verktoyRorAv', 'verktoyRorBryt', 'verktoyRorKoble']) bytt(id, ror && !plan);
     for (const id of ['verktoyGroftStrekning', 'verktoyGroftSammen']) bytt(id, ror);
-    for (const id of ['verktoyTrase', 'verktoyKum', 'verktoySnu']) bytt(id, plan);
+    for (const id of ['verktoyTrase', 'verktoyTraseFil', 'verktoyKum', 'verktoySnu']) bytt(id, plan);
     // oversiktskartet: for innmålte og tegnede rør – det tegner alle røranleggene
     bytt('verktoyRorKart', ror);
     if (tomt) { this.tomtTilSkjema(); this.visTomtemasser(); }

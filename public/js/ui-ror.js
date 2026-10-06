@@ -222,6 +222,9 @@ const RorUI = {
         const [lat, lon] = Ror.tilLatLon(a.ror.punkter[0], a.ror.sone);
         ut.push({ lat, lon });
       }
+      // et tegnet anlegg har traseene, ikke målte punkt – sonen til en trase fra fil måles også mot dem
+      const t = a.ror && a.ror.plan && a.ror.plan.traseer && a.ror.plan.traseer[0];
+      if (t && t.punkter && t.punkter.length) ut.push({ lat: t.punkter[0].lat, lon: t.punkter[0].lon });
     }
     return ut;
   },

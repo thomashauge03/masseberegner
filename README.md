@@ -223,6 +223,13 @@ rapporteres som et innmålt, med grøft og alt.
   avslutter (tilbaketasten tar bort det siste, Esc avbryter). I «Rør i traseen»
   velges ett eller flere rør – kode, sideavstand fra traseen (positiv til høyre
   i tegneretningen) og regel. Rør i samme trase blir én grøft.
+* **📂 Trase fra fil:** traseene i en VA-plan (DXF) eller en stikningsfil (KOF)
+  hentes inn. DXF: linjer (løse streker kjedes), polylinjer og 3D-polylinjer;
+  KOF: `09_91`–`09_99`-linjer og punkt med samme kode etter hverandre. Velg
+  linjene og rørkoden for hver; koordinatsystemet leses av KOF-hodet, ellers
+  gjettes det som for rørene. Høydene i fila brukes bare om det velges – som
+  bunn innvendig eller topp rør, låst. Endene festes som når traseen tegnes.
+  Alt er ett angresteg.
 * **Feste:** en ende som klikkes nær et målt punkt på et innmålt rør, blir en
   påkobling med høyden derfra (låst, med kilden – merknadene sier fra om
   punktet endres). En ende på en annen trase blir en grein som følger den.
@@ -233,6 +240,12 @@ rapporteres som et innmålt, med grøft og alt.
 * **Selvfall og trykk:** spillvann, felles, overvann og drens går rett mellom
   kontrollpunktene; vann og kabel følger terrenget meter for meter. Fallet går i
   tegneretningen – **⇄ Snu fallretning** snur det.
+* **⤓ Legg høydene** (Rør-fanen, per selvfallsrør) finner høydene i kummene og
+  de frie endene som gir minst graving: overdekningen holdes langs hele røret,
+  og fallet er minst kodens minste fall og høyst det største. Låste høyder,
+  påkoblinger og greiner står. Svaret låses (merket «lagt», så et nytt trykk
+  legger dem på nytt), og det er ett angresteg. Går det ikke – en låst høyde
+  for høyt, eller mer enn 6 m dybde – endres ingenting, og statuslinja sier hvor.
 * **◯ Kum** setter en kum i et punkt (velg rør når traseen har flere). Kummen
   får egen grop i grøfta, og volumet står for seg i massetabellen.
 * **Kontrollene:** overdekning under grensen, motfall og for lite eller for mye
@@ -429,7 +442,8 @@ node test/rorplanprove.js
 De planlagte rørene: bunn ↔ topp med godset, sideavstanden i knekker, høydene
 for selvfall og trykk mellom kontrollpunktene, kummer, greiner og påkoblinger,
 kontrollene (overdekning, fall og motfall med millimeteravrundingen, kryssing,
-høybrekk, lavbrekk og fall for trykkrør),
+høybrekk, lavbrekk og fall for trykkrør), høydene lagt på knapp mot fasit regnet
+for hånd,
 fallet mellom kontrollpunktene og ryddingen av plandelen når prosjektfila åpnes.
 
 ```bash
@@ -448,7 +462,15 @@ node test/roravvikprove.js
 Avviket mot innmålt: kodelikheten, sideavviket med fortegn (også i en knekk og
 forbi enden), høydeavviket med godset til hver sin kode, toleransene for
 selvfall og trykk, knytningen til nærmeste rør, dekningen og hullene, punkt nær
-men utenfor søkebredden og merknadene. `npm test` kjører alle seks.
+men utenfor søkebredden og merknadene.
+
+```bash
+node test/traseimportprove.js
+```
+
+Traseer fra fil: KOF med linjeblokker, lukkede linjer og punkt med samme kode,
+sonen fra hodet, programmets egen KOF lest tilbake; DXF med løse streker som
+kjedes, LWPOLYLINE med høyde og 3D-polylinjer. `npm test` kjører alle sju.
 
 ```bash
 node test/demo-ydestad.js
@@ -481,6 +503,7 @@ public/js/groft.js       grøfta: rutenett, felles grøft, kummer, fjell, lag, d
 public/js/rorplan.js     planlagte rør: høydene, kummer, greiner, påkoblinger og kontrollene
 public/js/roreksport.js  rørene til KOF, LandXML, SOSI, DXF og GeoJSON – bunn, topp og gravebunn
 public/js/roravvik.js    planlagte rør mot innmålte: avvik i plan og høyde, dekning og toleranser
+public/js/traseimport.js traseer fra KOF og DXF
 public/js/ui-ror*.js     rørene i skjermen: import, faner, profil, 3D
 public/js/ui-rorplan.js  planlagte rør i skjermen: tegning, redigering, Rør-fanen, punktfeltet
 public/js/ui-groft.js    grøfta i skjermen: Rør-fanen, verktøyene i kartet, normalgrøfta

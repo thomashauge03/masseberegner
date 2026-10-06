@@ -252,7 +252,7 @@ const RorPlan = (() => {
         if (L) topp = toppFraBunn(L.bunn, k);
         else if (far && toppVed.has(far.ror.id + ':' + far.punkt)) { topp = toppVed.get(far.ror.id + ':' + far.punkt); fra = far.ror.id; }
         else topp = Tnaer(s[i]) - ov;
-        ktr.push({ i, s: s[i], topp, laast: !!L, kum: K ? K.id : null, fra, punkt: pid, kilde: !!(L && L.kilde) });
+        ktr.push({ i, s: s[i], topp, laast: !!L, lagt: !!(L && L.lagt), kum: K ? K.id : null, fra, punkt: pid, kilde: !!(L && L.kilde) });
       }
       if (ktr.some(c => !Number.isFinite(c.topp))) {
         utenHoyde.push({ id: r.id, kode: r.kode, xy, punkter: sone, grunn: 'terreng' });
@@ -314,7 +314,7 @@ const RorPlan = (() => {
       for (let i = 0; i < n; i++) toppVed.set(r.id + ':' + t.punkter[i].id, vedKnekk(i));
       for (const c of ktr) {
         kontroll.push({ ror: r.id, s: c.s, punkt: c.punkt, x: xy[c.i].x, y: xy[c.i].y, topp: c.topp,
-          bunn: bunnFraTopp(c.topp, k), laast: c.laast, kum: c.kum, fra: c.fra, kilde: c.kilde });
+          bunn: bunnFraTopp(c.topp, k), laast: c.laast, lagt: c.lagt, kum: c.kum, fra: c.fra, kilde: c.kilde });
       }
       for (const K of kumHer.values()) {
         const i = t.punkter.findIndex(p => p.id === K.punkt);
@@ -644,9 +644,128 @@ const RorPlan = (() => {
     return f.length ? { min: Math.min(...f), maks: Math.max(...f) } : null;
   }
 
+  /**
+   * Høydene i kontrollpunktene på et selvfallsrør som gir minst graving
+   * innenfor kravene. Røret går rett mellom kontrollpunktene, som ellers.
+   *
+   * DYNAMISK PROGRAMMERING over kontrollpunktene, med høyder i hele `steg`:
+   * - et fritt punkt kan ligge fra taket (terrenget minus overdekningen) og
+   *   `dyp` meter ned; et fast punkt (låst, påkobling, grein) har én verdi;
+   * - et par av naboverdier er lovlig når fallet er innenfor kravene og linja
+   *   mellom dem holder seg under taket i hvert prøvepunkt;
+   * - det beste er det med størst sum av høyder langs røret, vektet med
+   *   lengden – minst gravedybde i snitt.
+   * For hver verdi i et punkt regnes det høyeste neste punktet linja tåler
+   * én gang, så prøvepunktene går gjennom én gang per verdi, ikke per par.
+   *
+   * @param {object} o
+   *   s        – stasjonene til kontrollpunktene, stigende
+   *   fast     – topp der punktet er fast, ellers null
+   *   prover   – [{ s, U }]: hver meter langs røret; U = taket (NaN = ukjent)
+   *   minFall, maksFall – ‰; maksFall null = ingen grense
+   *   motsatt  – fallet går mot starten
+   *   steg     – høydesteget (m), standard 0,01
+   *   dyp      – hvor langt under taket det letes (m), standard 6
+   * @returns {{ topp: number[] } | { feil: string, fra: number, til: number }}
+   */
+  function leggHoyder(o) {
+    const s = o.s, n = s.length, steg = o.steg || 0.01, dyp = o.dyp || 6;
+    if (n < 2) return { feil: 'røret har ikke to kontrollpunkt', fra: 0, til: 0 };
+    const fmin = (o.minFall || 0) / 1000;
+    const fmax = Number.isFinite(o.maksFall) && o.maksFall > 0 ? o.maksFall / 1000 : Infinity;
+    const prover = o.prover.filter(p => Number.isFinite(p.U));
+    // taket i et punkt: prøven nærmest, så et punkt over et hull i terrenget likevel får ett
+    const Uved = sv => {
+      let best = null;
+      for (const p of prover) if (!best || Math.abs(p.s - sv) < Math.abs(best.s - sv)) best = p;
+      return best ? best.U : NaN;
+    };
+    const nivaa = [];
+    for (let i = 0; i < n; i++) {
+      if (Number.isFinite(o.fast[i])) { nivaa.push([o.fast[i]]); continue; }
+      const U = Uved(s[i]);
+      if (!Number.isFinite(U)) return { feil: 'terrenget mangler', fra: s[i], til: s[i] };
+      const topp = Math.floor(U / steg + 1e-9), bunn = Math.ceil((U - dyp) / steg - 1e-9), liste = [];
+      for (let k = topp; k >= bunn; k--) liste.push(k * steg);
+      nivaa.push(liste);
+    }
+    let best = nivaa[0].map(() => 0);
+    const fra = [];
+    for (let i = 0; i + 1 < n; i++) {
+      const L = s[i + 1] - s[i];
+      const inni = prover.filter(p => p.s > s[i] + 1e-9 && p.s < s[i + 1] - 1e-9);
+      const A = nivaa[i], B = nivaa[i + 1];
+      const ny = B.map(() => -Infinity), hvor = B.map(() => -1);
+      for (let a = 0; a < A.length; a++) {
+        if (best[a] === -Infinity) continue;
+        const za = A[a];
+        let tak = Infinity;
+        for (const p of inni) {
+          const u = (p.s - s[i]) / L;
+          tak = Math.min(tak, (p.U - za * (1 - u)) / u);
+        }
+        // fallet i fallretningen: z[i] − z[i+1] mot slutten, motsatt mot starten
+        let hoy, lav;
+        if (!o.motsatt) { hoy = za - fmin * L; lav = za - fmax * L; } else { lav = za + fmin * L; hoy = za + fmax * L; }
+        hoy = Math.min(hoy, tak);
+        for (let b = 0; b < B.length; b++) {
+          const zb = B[b];
+          if (zb > hoy + 1e-9 || zb < lav - 1e-9) continue;
+          const v = best[a] + (za + zb) / 2 * L;
+          if (v > ny[b]) { ny[b] = v; hvor[b] = a; }
+        }
+      }
+      if (ny.every(v => v === -Infinity)) return { feil: 'ingen profil oppfyller kravene', fra: s[i], til: s[i + 1] };
+      best = ny;
+      fra.push(hvor);
+    }
+    let b = 0;
+    for (let k = 1; k < best.length; k++) if (best[k] > best[b]) b = k;
+    const topp = new Array(n);
+    topp[n - 1] = nivaa[n - 1][b];
+    for (let i = n - 2; i >= 0; i--) { b = fra[i][b]; topp[i] = nivaa[i][b]; }
+    return { topp };
+  }
+
+  /**
+   * «Legg høydene» for ett selvfallsrør, fra det `bygg` ga. De frie
+   * kontrollpunktene – endene og kummene som verken er låst av brukeren eller
+   * hentet fra en annen trase – får høydene som gir minst graving. En høyde
+   * knappen la sist (`lagt`), er fri igjen. Svaret er bunn innvendig, til å
+   * låses; eller hvorfor det ikke går.
+   *
+   * @param {object} o  bygg, ror (id), koder, terrengZ, steg?, dyp?
+   * @returns {{ laast: Array<{punkt:string, bunn:number}> } | { feil: string, fra?: number, til?: number }}
+   */
+  function leggHoyderFor(o) {
+    const l = o.bygg.linjer.find(x => x.id === o.ror);
+    if (!l) return { feil: 'røret har ingen høyder ennå' };
+    if (l.plan.regel !== 'selvfall') return { feil: 'bare selvfallsrør får høydene lagt – et trykkrør følger terrenget' };
+    const k = kodeAv(o.koder, l.kode);
+    const ktr = o.bygg.kontroll.filter(c => c.ror === o.ror).sort((a, b) => a.s - b.s);
+    const T = o.terrengZ || (() => NaN);
+    const sl = stasjonering(l.xy), Lsum = sl[sl.length - 1];
+    const prover = [];
+    for (let sv = 0; sv <= Lsum + 1e-9; sv += STEG) {
+      let j = 1;
+      while (j < sl.length - 1 && sl[j] < sv) j++;
+      const a = l.xy[j - 1], c = l.xy[j], d = sl[j] - sl[j - 1];
+      const u = d > 0 ? Math.max(0, Math.min(1, (sv - sl[j - 1]) / d)) : 0;
+      const Tz = T(a.x + (c.x - a.x) * u, a.y + (c.y - a.y) * u);
+      prover.push({ s: sv, U: Number.isFinite(Tz) ? Tz - l.plan.grense : NaN });
+    }
+    // fast er det brukeren har låst, påkoblingene og greinene – ikke det knappen la sist
+    const fast = c => (c.laast && !c.lagt) || !!c.fra;
+    const svar = leggHoyder({ s: ktr.map(c => c.s), fast: ktr.map(c => (fast(c) ? c.topp : null)), prover,
+      minFall: minFall(k), maksFall: maksFall(k), motsatt: l.plan.motsatt, steg: o.steg, dyp: o.dyp });
+    if (svar.feil) return svar;
+    return { laast: ktr.map((c, i) => ({ c, topp: svar.topp[i] })).filter(x => !fast(x.c))
+      .map(x => ({ punkt: x.c.punkt, bunn: Math.round(bunnFraTopp(x.topp, k) * 1000) / 1000 })) };
+  }
+
   return { StandardPlanmal, GRENSER, nyPlan, nyPlanmal, klem, nyId, alleIder, kodeAv, gods,
     toppFraBunn, bunnFraTopp, regel, overdekning, minFall, maksFall, forskyv, stasjonering, bygg, kontroller, fjell,
-    fallSpenn, brekk };
+    fallSpenn, brekk, leggHoyder, leggHoyderFor };
 })();
 
 if (typeof module !== 'undefined') module.exports = RorPlan;

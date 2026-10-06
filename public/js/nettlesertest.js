@@ -192,7 +192,7 @@ const Nettlesertest = {
       'groftBeregning', 'groftFane', 'groftKoder', 'groftVerktoy', 'groftKnutepunkt', 'groftProfil', 'groft3d',
       'groftRapport', 'groftAvstiving',
       'planBeregning', 'planNyttAnlegg', 'planTegnTrase', 'planRediger', 'planFane', 'planProfil', 'planRapport',
-      'planForklaring', 'planEksport', 'planEksportSoner', 'planAvvik', 'planTerrengAndre', 'planTrykk', 'kummer3d', 'rorOversiktskart',
+      'planForklaring', 'planEksport', 'planEksportSoner', 'planAvvik', 'planTerrengAndre', 'planTrykk', 'kummer3d', 'planTraseFil', 'planLeggHoyder', 'rorOversiktskart',
       'vegProfilLengde', 'vegLinjeslutt', 'vegStigningIKurve', 'vegKnapper', 'vegSluttretting', 'lagringOgAngre', 'angreposter', 'grensesnittVeg', 'vegRegler', 'vegRettelser',
       'lovlighet', 'framdrift', 'gamleFilerOgUtskifting', 'opprydding'];
     for (const navn of proever) {
@@ -11049,6 +11049,122 @@ const Nettlesertest = {
       brekk2.value = '0.01';
       brekk2.dispatchEvent(new Event('change'));
       this.sjekk('en terskel under 5 cm settes tilbake i feltet', brekk2.value === '4' && App.P.mal.plan.brekk === 4, brekk2.value);
+    } finally {
+      Terreng.prototype.z = ekteZ; Terreng.prototype.lastKorridorer = ekteLast;
+      App._terrengnokkel = ''; App._groftNokkel = '';
+      await this._rorTilbake(foer);
+    }
+  },
+
+  /**
+   * «Trase fra fil»: en KOF gjennom dialogen – valget, koden og høydene
+   * låst – og angre; en DXF rett inn; en fil i et annet system avvises; og en
+   * ende som treffer en trase blir en grein.
+   */
+  async planTraseFil() {
+    const foer = JSON.stringify(App.P);
+    try {
+      await this._medFlattTerreng(21.5, async () => {
+        const { a } = await this._planProsjekt();
+        const o = Geo.tilUtm(58.1412, 7.0705, 32);
+        const P = (navn, kode, x, y, z) => Eksport.kofPunkt(navn, kode, o.y + y, o.x + x, z);
+        const kof = ['-05 Prøve', ' 01 Prove        06102026   2      22 0000 $11100000000', '.PUNKT',
+          ' 09_91', P('S1', 'SP160', 0, 30, 19.6), P('S2', 'SP160', 40, 30, 19.4), P('S3', 'SP160', 80, 32, 19.2), ' 09_99',
+          ' 09_91', P('V1', 'VL110', 0, 40, 20), P('V2', 'VL110', 60, 40, 20), ' 09_99'].join('\r\n');
+        const traser = () => a.ror.plan.traseer.length, foerT = traser();
+        RorPlanUI.importerTraseTekst('prove.kof', kof);
+        const dlg = document.getElementById('dialoginnhold');
+        this.sjekk('dialogen viser begge linjene', !!dlg.querySelector('#tfl0') && !!dlg.querySelector('#tfl1')
+          && /2 linjer/.test(dlg.textContent), dlg.textContent.slice(0, 200));
+        this.sjekk('sonen er lest fra fila', document.getElementById('tfSone').value === '32' && /oppgitt i fila/.test(dlg.textContent));
+        document.getElementById('tfl1').checked = false;
+        document.getElementById('tfk0').value = 'SP 160PE';
+        document.getElementById('tfHoyder').value = 'bunn';
+        document.getElementById('tfLagre').click();
+        const ny = a.ror.plan.traseer[a.ror.plan.traseer.length - 1];
+        const ror = a.ror.plan.ror.find(x => x.trase === ny.id);
+        this.sjekk('én trase med ett rør er hentet inn', traser() === foerT + 1 && !!ror && ror.kode === 'SP 160PE', String(traser()));
+        const laast = a.ror.plan.laast.filter(x => x.ror === ror.id);
+        this.sjekk('høydene i fila er låst som bunn innvendig', laast.length === 3 && laast.some(x => x.bunn === 19.6) && laast.some(x => x.bunn === 19.2),
+          JSON.stringify(laast));
+        const p0 = Geo.tilUtm(ny.punkter[0].lat, ny.punkter[0].lon, 32);
+        this.naer('og punktene står der fila sier', Math.hypot(p0.x - o.x, p0.y - (o.y + 30)), 0, 0.001);
+        await App.angre();
+        this.sjekk('angre tar hele importen bort', App.P.ror.plan.traseer.length === foerT && !App.P.ror.plan.ror.some(x => x.kode === 'SP 160PE' && x.id === ror.id));
+        // en DXF med en 3D-polylinje, uten høydene
+        const d = (...r) => r.join('\n');
+        const dxf = d('0', 'SECTION', '2', 'ENTITIES', '0', 'POLYLINE', '8', 'OV_160', '66', '1', '70', '8',
+          '0', 'VERTEX', '8', 'OV_160', '10', o.x + 0, '20', o.y - 30, '30', '19',
+          '0', 'VERTEX', '8', 'OV_160', '10', o.x + 50, '20', o.y - 30, '30', '18.8',
+          '0', 'SEQEND', '8', 'OV_160', '0', 'ENDSEC', '0', 'EOF');
+        const f2 = App.P.ror.plan.traseer.length;
+        this.sjekk('en DXF hentes inn', RorPlanUI.importerTraseTekst('prove.dxf', dxf, { linjer: [0], kode: 'OV 160PVC', hoyder: 'ingen' })
+          && App.P.ror.plan.traseer.length === f2 + 1);
+        this.sjekk('  uten høydene, når det er valgt', !App.P.ror.plan.laast.some(x => App.P.ror.plan.ror.some(r2 => r2.id === x.ror && r2.kode === 'OV 160PVC')));
+        // en fil i et lokalt system avvises med en forklaring
+        const lokal = ['.PUNKT', ' 09_91', Eksport.kofPunkt('L1', 'SP', 1000, 2000, 10), Eksport.kofPunkt('L2', 'SP', 1010, 2000, 10), ' 09_99'].join('\n');
+        const f3 = App.P.ror.plan.traseer.length;
+        this.sjekk('en fil i et lokalt system avvises', RorPlanUI.importerTraseTekst('lokal.kof', lokal) === false
+          && App.P.ror.plan.traseer.length === f3 && /UTM i Norge/.test(document.getElementById('dialoginnhold').textContent));
+        document.getElementById('dialog').classList.add('skjult');
+        // en linje som begynner 0,3 m fra et punkt på traseen blir en grein av den
+        const t1 = App.P.ror.plan.traseer.find(t => t.id === 't1'), q = Geo.tilUtm(t1.punkter[1].lat, t1.punkter[1].lon, 32);
+        const grein = ['.PUNKT', ' 09_91', Eksport.kofPunkt('G1', 'SP', q.y + 0.3, q.x, 10), Eksport.kofPunkt('G2', 'SP', q.y + 25, q.x, 10), ' 09_99'].join('\n');
+        RorPlanUI.importerTraseTekst('grein.kof', grein, { linjer: [0], kode: 'SP 160PE', hoyder: 'ingen' });
+        const tg = App.P.ror.plan.traseer[App.P.ror.plan.traseer.length - 1];
+        this.sjekk('en ende som treffer en trase, blir en grein', App.P.ror.plan.greiner.some(g => g.trase === tg.id && g.til.trase === 't1' && g.til.punkt === 'p2'),
+          JSON.stringify(App.P.ror.plan.greiner));
+      });
+    } finally {
+      document.getElementById('dialog').classList.add('skjult');
+      await this._rorTilbake(foer);
+    }
+  },
+
+  /**
+   * «⤓ Legg høydene» på et selvfallsrør i et terreng som faller for lite:
+   * kontrollene er rene etterpå, et nytt trykk legger det knappen la på
+   * nytt, angre tar det bort, og et trykkrør har ingen knapp.
+   */
+  async planLeggHoyder() {
+    const foer = JSON.stringify(App.P);
+    const ekteZ = Terreng.prototype.z, ekteLast = Terreng.prototype.lastKorridorer;
+    try {
+      const o = Geo.tilUtm(58.1412, 7.0705, 32);
+      // terrenget faller 2 ‰ mot øst – for lite for spillvann med frie ender
+      Terreng.prototype.z = x => 21.5 - 0.002 * (x - o.x);
+      Terreng.prototype.lastKorridorer = async function () {};
+      App._terrengnokkel = ''; App._groftNokkel = '';
+      await this._planProsjekt();
+      const merk = () => App.resultat.merknader.filter(m => m.linje === 'r1' && (m.type === 'fall' || m.type === 'motfall' || m.type === 'overdekning'));
+      this.sjekk('uten knappen: fallet er for lite', merk().some(m => m.type === 'fall'), App.resultat.merknader.map(m => m.type).join(','));
+      App.visFane('ror');
+      const knapp = document.querySelector('#rorInnhold [data-planlegg="r1"]');
+      this.sjekk('selvfallsrøret har knappen, trykkrøret ikke', !!knapp && !document.querySelector('#rorInnhold [data-planlegg="r2"]'));
+      knapp.click();
+      const lagt = App.P.ror.plan.laast.filter(x => x.ror === 'r1');
+      this.sjekk('høydene er låst og merket som lagt', lagt.length === 3 && lagt.every(x => x.lagt === true), JSON.stringify(lagt));
+      clearTimeout(App._tidsavbrudd);
+      await App.beregnRor();
+      this.sjekk('og kontrollene er rene', merk().length === 0, merk().map(m => m.tekst).join(' | '));
+      const sp = App.resultat.kontroll.filter(c => c.ror === 'r1').sort((x, y) => x.s - y.s);
+      const fall = 1000 * (sp[0].bunn - sp[sp.length - 1].bunn) / (sp[sp.length - 1].s - sp[0].s);
+      this.sjekk('  med fallet på kravet, ikke mer', fall >= 9.9 && fall < 10.6, fall.toFixed(2));
+      // et nytt trykk endrer ingenting – og gir ingen tom angrepost
+      const poster = App.historikk.bakover.length;
+      document.querySelector('#rorInnhold [data-planlegg="r1"]').click();
+      this.sjekk('et nytt trykk gir ingen ny angrepost når ingenting endres', App.historikk.bakover.length === poster);
+      await App.angre();
+      this.sjekk('angre tar høydene bort', !App.P.ror.plan.laast.some(x => x.ror === 'r1'));
+      // en låst høyde som gjør det umulig: ingenting endres, og statuslinja sier hvorfor
+      RorPlanUI.laas('r1', 'p3', 21.0);
+      clearTimeout(App._tidsavbrudd);
+      await App.beregnRor();
+      const foerL = JSON.stringify(App.P.ror.plan.laast);
+      RorPlanUI.leggHoyder('r1');
+      this.sjekk('umulig: ingenting endres', JSON.stringify(App.P.ror.plan.laast) === foerL);
+      this.sjekk('  og det står hvorfor', /Høydene ble ikke lagt: ingen profil oppfyller kravene/.test(document.getElementById('statuslinje').textContent),
+        document.getElementById('statuslinje').textContent);
     } finally {
       Terreng.prototype.z = ekteZ; Terreng.prototype.lastKorridorer = ekteLast;
       App._terrengnokkel = ''; App._groftNokkel = '';

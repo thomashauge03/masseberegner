@@ -409,6 +409,15 @@ console.log('\n5. Plandelen i prosjektfila');
   paastand('kodefeltene ryddes', !('gods' in k) && k.minFall === 12 && !('regel' in k), JSON.stringify(k));
   const Q = Prosjektform.klargjor({ navn: 'q', aktivt: 'a1', anlegg: [{ id: 'a1', type: 'ror', ror: { punkter: [] } }] });
   paastand('et innmålt anlegg får ingen plan', !('plan' in Q.anlegg[0].ror) && !('plan' in Q.anlegg[0].mal));
+  // «lagt» av knappen står seg – men en påkobling er aldri lagt, og bare true teller
+  const P4 = Prosjektform.klargjor({ navn: 'p', aktivt: 'a1', anlegg: [{ id: 'a1', type: 'ror', ror: { punkter: [], koder: {},
+    plan: { traseer: [{ id: 't1', punkter: [{ id: 'p1', lat: 58.1, lon: 7 }, { id: 'p2', lat: 58.2, lon: 7 }, { id: 'p3', lat: 58.3, lon: 7 }] }],
+      ror: [{ id: 'r1', trase: 't1', kode: 'SP 160PE' }],
+      laast: [{ ror: 'r1', punkt: 'p1', bunn: 7, lagt: true }, { ror: 'r1', punkt: 'p2', bunn: 7, lagt: true, kilde: { anlegg: 'x', punkt: 'y', topp: 7.2 } },
+        { ror: 'r1', punkt: 'p3', bunn: 7, lagt: 'ja' }] } } }] });
+  const l4 = P4.anlegg[0].ror.plan.laast;
+  paastand('«lagt» står seg, men ikke på en påkobling, og bare som true', l4[0].lagt === true && !('lagt' in l4[1]) && !('lagt' in l4[2]),
+    JSON.stringify(l4));
 }
 
 console.log('\n6. Fallet fra–til');
@@ -425,6 +434,58 @@ console.log('\n6. Fallet fra–til');
   const s = RorPlan.fallSpenn(b.kontroll, Object.assign({}, b.linjer[0], {
     plan: Object.assign({}, b.linjer[0].plan, { motsatt: true }) }));
   paastand('snudd rør: motfall gir negativt fall', s.min === -10 && Math.abs(s.maks + 2) < 1e-9, JSON.stringify(s));
+}
+
+console.log('\n7. Høydene lagt på knapp');
+{
+  const LH = RorPlan.leggHoyder;
+  // en li som faller 2 ‰, overdekning 2 m, kravet 10 ‰: fra taket i toppen, så 10 ‰
+  const li = []; for (let s = 0; s <= 100; s++) li.push({ s, U: 20 - 0.002 * s - 2 });
+  const a = LH({ s: [0, 50, 100], fast: [null, null, null], prover: li, minFall: 10 });
+  paastand('jevn li: øverst under taket, så minste fall', !a.feil && a.topp.map(v => v.toFixed(2)).join(' ') === '18.00 17.50 17.00',
+    JSON.stringify(a));
+  // en dump på 2 m ved 25–35 m: linja fra start må under den – det beste er minste fall og så høyt som mulig
+  const dump = []; for (let s = 0; s <= 100; s++) dump.push({ s, U: 20 - (Math.abs(s - 30) < 5 ? 2 : 0) - 2 });
+  const d = LH({ s: [0, 50, 100], fast: [null, null, null], prover: dump, minFall: 10 });
+  paastand('en dump midt i et strekk: linja holder seg under den', !d.feil && d.topp.map(v => v.toFixed(2)).join(' ') === '16.26 15.76 15.26',
+    JSON.stringify(d));
+  const u = LH({ s: [0, 50, 100], fast: [null, null, 18.5], prover: li, minFall: 10 });
+  paastand('en låst ende for høyt: ingen profil, og hvor det stopper', u.feil === 'ingen profil oppfyller kravene' && u.fra === 50 && u.til === 100,
+    JSON.stringify(u));
+  const m = LH({ s: [0, 50, 100], fast: [null, null, null], prover: li, minFall: 10, motsatt: true });
+  paastand('fallet mot starten: øverst i slutten', !m.feil && m.topp.map(v => v.toFixed(2)).join(' ') === '16.80 17.30 17.80', JSON.stringify(m));
+  // bratt li (50 ‰) med største fall 20 ‰: røret kan ikke følge den
+  const bratt = []; for (let s = 0; s <= 100; s++) bratt.push({ s, U: 20 - 0.05 * s - 2 });
+  const b = LH({ s: [0, 50, 100], fast: [null, null, null], prover: bratt, minFall: 10, maksFall: 20 });
+  const fall = (i, j) => 1000 * (b.topp[i] - b.topp[j]) / 50;
+  paastand('største fall holdes', !b.feil && fall(0, 1) <= 20 + 1e-6 && fall(1, 2) <= 20 + 1e-6, JSON.stringify(b));
+  paastand('  og røret ligger under taket hele veien', !b.feil && bratt.every(p => {
+    const i = p.s <= 50 ? 0 : 1, uu = (p.s - (i ? 50 : 0)) / 50;
+    return b.topp[i] + (b.topp[i + 1] - b.topp[i]) * uu <= p.U + 1e-9;
+  }));
+  const f = LH({ s: [0, 50, 100], fast: [null, 17.2, null], prover: li, minFall: 10 });
+  paastand('et fast punkt står', !f.feil && f.topp[1] === 17.2 && f.topp[0] <= 18 && f.topp[2] <= 17.2 - 0.5 + 1e-9, JSON.stringify(f));
+
+  /* MED BYGG: kummen midt på og frie ender. Etter knappen er kontrollene rene,
+     og et nytt trykk legger det knappen la sist, på nytt. */
+  const T = x => 20 - 0.002 * x;
+  const plan = plan1([[0, 0], [50, 0], [100, 0]], [{ kode: 'SP 160PE' }], { kummer: [{ id: 'k1', ror: 'r1', punkt: 'p2', diameter: 1000 }] });
+  const foer = RorPlan.kontroller({ bygg: bygg(plan, T), koder: {}, mal: RorPlan.nyPlanmal(), terrengZ: T, andre: [] });
+  paastand('uten knappen: for lite fall (terrenget faller bare 2 ‰)', foer.some(v => v.type === 'fall'));
+  const svar = RorPlan.leggHoyderFor({ bygg: bygg(plan, T), ror: 'r1', koder: {}, terrengZ: T });
+  paastand('knappen gir de tre frie punktene', !svar.feil && svar.laast.map(x => x.punkt).join(',') === 'p1,p2,p3', JSON.stringify(svar));
+  plan.laast.push(...svar.laast.map(x => ({ ror: 'r1', punkt: x.punkt, bunn: x.bunn, lagt: true })));
+  const etter = RorPlan.kontroller({ bygg: bygg(plan, T), koder: {}, mal: RorPlan.nyPlanmal(), terrengZ: T, andre: [] });
+  paastand('etter knappen: ingen merknad om fall eller overdekning', !etter.some(v => v.type === 'fall' || v.type === 'overdekning'),
+    JSON.stringify(etter.map(v => v.tekst)));
+  const igjen = RorPlan.leggHoyderFor({ bygg: bygg(plan, T), ror: 'r1', koder: {}, terrengZ: T });
+  paastand('det knappen la, er fritt neste gang', !igjen.feil && igjen.laast.length === 3, JSON.stringify(igjen));
+  plan.laast.find(x => x.punkt === 'p2').lagt = false;
+  plan.laast.find(x => x.punkt === 'p2').bunn = 17.0;
+  const bruker = RorPlan.leggHoyderFor({ bygg: bygg(plan, T), ror: 'r1', koder: {}, terrengZ: T });
+  paastand('det brukeren låste selv, står', !bruker.feil && bruker.laast.map(x => x.punkt).join(',') === 'p1,p3', JSON.stringify(bruker));
+  const trykk = RorPlan.leggHoyderFor({ bygg: bygg(plan1([[0, 0], [100, 0]], [{ kode: 'VL 110PE' }]), T), ror: 'r1', koder: {}, terrengZ: T });
+  paastand('et trykkrør får ingen høyder lagt', !!trykk.feil && /selvfall/.test(trykk.feil));
 }
 
 /* ---------------- sluttsum ---------------- */

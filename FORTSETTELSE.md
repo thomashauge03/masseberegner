@@ -16,18 +16,19 @@ Kjør testene først, så du vet du starter fra noe som virker:
 npm test
 ```
 
-(selvtesten, rørprøven, grøfteprøven, planprøven, eksportprøven og avviksprøven
-etter hverandre)
+(selvtesten, rørprøven, grøfteprøven, planprøven, eksportprøven, avviksprøven
+og traseprøven etter hverandre)
 
 Nettlesertesten kjøres ved å åpne programmet med `?test=1`, eller fra konsollen
 med `Nettlesertest.kjor()`. Utviklingstjeneren startes med `node server.js`
 (port 5178). Programmet ligger også på https://masseberegner.vercel.app.
 
 Ved siste lagring: **894 prøver i selvtesten, 194 i rørprøven
-(`test/rorprove.js`), 219 i grøfteprøven (`test/groftprove.js`), 124 i
+(`test/rorprove.js`), 219 i grøfteprøven (`test/groftprove.js`), 138 i
 planprøven (`test/rorplanprove.js`), 63 i eksportprøven
-(`test/roreksportprove.js`), 77 i avviksprøven (`test/roravvikprove.js`), 53 i
-anleggsprøven og 258 i tomteprøven, alle grønne; 1434 av 1434 i nettlesertesten.** «Klikk i modellen flytter snittet
+(`test/roreksportprove.js`), 77 i avviksprøven (`test/roravvikprove.js`), 19 i
+traseprøven (`test/traseimportprove.js`), 53 i anleggsprøven og 258 i
+tomteprøven, alle grønne; 1453 av 1453 i nettlesertesten.** «Klikk i modellen flytter snittet
 dit» i `veg3d` kan feile når vinduet emuleres 1440 × 900 i en mindre rute –
 klikket lander én rad ved siden av; det gjør den likt på `main`. «og merknaden
 sier det som gjelder nå» i `flereAnlegg` feilet én gang i hele runden og aldri
@@ -54,6 +55,27 @@ automatisk.** Delte prosjekt (database og innlogging) er holdt utenfor.
 Underveis ba brukeren om et **oversiktskart for rørene** – ett kart med alle
 typene i hver sin farge og tegnforklaring, og ett kart per type. Det kom foran
 resten av «Utenfor 3a».
+
+### Rør, etappe 3d-2 – traseer fra DXF og KOF, og høydene lagt på knapp
+
+Spec: `docs/superpowers/specs/2026-10-06-ror-etappe3d2-design.md`.
+Plan: `docs/superpowers/plans/2026-10-06-ror-etappe3d2.md`.
+
+- **📂 Trase fra fil** (`traseimport.js`, ren modul, og `RorPlanUI.importerTraseTekst`):
+  - KOF: `09_91`–`09_99`-linjer, `09_96` lukket, og ellers punkt med samme
+    kode etter hverandre; sonen leses av `01`-posten.
+  - DXF: LINE (kjedes), LWPOLYLINE med høyden i 38, og 3D-POLYLINE uten
+    spline-punktene.
+  - Punkt utenfor UTM i Norge hoppes over, eller fila avvises, som for rørene.
+  - Dialogen har linjene, koden per linje, koordinatsystemet og «Høydene i
+    fila» (bruk ikke, bunn innvendig eller topp rør, låst).
+  - Endene festes som når traseen tegnes, med 0,5 m. Alt er ett angresteg.
+- **⤓ Legg høydene** (`RorPlan.leggHoyder`/`leggHoyderFor`): dynamisk
+  programmering over kontrollpunktene på et selvfallsrør, i hele centimeter.
+  - Minst gravedybde, med overdekningen og fallet innenfor kravene.
+  - Låst av brukeren, påkoblinger og greiner står. Det knappen la, er merket
+    `lagt` og legges på nytt neste gang.
+  - Går det ikke, endres ingenting, og statuslinja sier hvor.
 
 ### Rør, etappe 3d-1 – kummer i 3D, trykkrør, grøftekasse og spunt
 

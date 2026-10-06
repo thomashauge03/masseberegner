@@ -20,10 +20,154 @@ const RorPlanUI = {
     for (const [knapp, modus] of [['verktoyTrase', 'tegnTrase'], ['verktoyKum', 'kum'], ['verktoySnu', 'snuTrase']]) {
       if (id(knapp)) id(knapp).onclick = () => Kart.settModus(Kart.modus === modus ? 'rediger' : modus);
     }
+    if (id('verktoyTraseFil') && id('traseFil')) {
+      id('verktoyTraseFil').onclick = () => id('traseFil').click();
+      id('traseFil').onchange = async e => {
+        const f = e.target.files && e.target.files[0];
+        e.target.value = '';   // samme fil en gang til skal også lastes
+        if (f) this.importerTraseTekst(f.name, await this._lesTekst(f));
+      };
+    }
     return this;
   },
 
   plan() { return this.app.P.ror.plan; },
+
+  /* ---------------- trase fra fil ---------------- */
+
+  /**
+   * Teksten i en fil: UTF-8 når den er det, ellers Windows-1252. DXF og KOF
+   * fra eldre programmer er ofte ANSI, og lest som UTF-8 ble æøå i lagnavnene
+   * til spørsmålstegn.
+   */
+  async _lesTekst(f) {
+    const buf = await f.arrayBuffer();
+    try { return new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch (e) { return new TextDecoder('windows-1252').decode(buf); }
+  },
+
+  /**
+   * «Trase fra fil»: linjene i en KOF- eller DXF-fil blir traseer i det
+   * tegnede anlegget, med røret brukeren velger i hver. Høydene i fila brukes
+   * bare når det velges – da låses de som bunn innvendig. Alt er ett
+   * angresteg. `valg` er for prøven og hopper over dialogen:
+   * { linjer: [indekser], kode | koder: [per linje], regel?, hoyder: 'ingen'|'bunn'|'topp', sone? }.
+   * @returns {boolean} om fila kunne leses
+   */
+  importerTraseTekst(navn, tekst, valg) {
+    const app = this.app;
+    if (!app.erPlan()) { RorUI._feil('Traseer fra fil hentes inn i et tegnet røranlegg – velg eller lag et i anleggslista.'); return false; }
+    let les;
+    try { les = TraseImport.les(navn, tekst); } catch (e) { RorUI._feil(e.message); return false; }
+    const alle = les.linjer.flatMap(l => l.punkter);
+    if (!alle.length) {
+      RorUI._feil(`Fant ingen linjer i ${navn}` + (les.merknader.length ? ` – ${les.merknader[0]}` : '')
+        + (Object.keys(les.hoppet || {}).length ? ` (bare ${Object.entries(les.hoppet).map(([t, n]) => `${n} ${t}`).join(', ')})` : '') + '.');
+      return false;
+    }
+    // koordinatene: som for rørene fra maskinstyringen – punkt utenfor UTM i Norge hoppes over og telles
+    const kk = Ror.sjekkKoordinater(alle);
+    if (kk.melding) { RorUI._feil(kk.melding); return false; }
+    if (kk.utenfor) {
+      for (const l of les.linjer) l.punkter = l.punkter.filter(p => Ror.erUtm(p));
+      les.linjer = les.linjer.filter(l => l.punkter.length >= 2);
+    }
+    const sone = les.sone ? { sone: les.sone, grunn: 'fila' } : Ror.gjettSone(alle.filter(p => Ror.erUtm(p)), null, RorUI._prosjektpunkter());
+    if (valg) return this._lagreTraseFil(navn, les, Object.assign({ sone: sone.sone }, valg));
+    this._traseFilDialog(navn, les, sone, kk.utenfor);
+    return true;
+  },
+
+  /** En rørkode av et lag- eller kodenavn – når det kan tolkes som et rør med dimensjon, eller anlegget har koden. */
+  _kodeFraLag(lag) {
+    const kode = String(lag || '').trim();
+    if (!kode) return null;
+    if (this.app.P.ror.koder[kode]) return kode;
+    const k = Ror.tolkKode(kode);
+    return k.form === 'linje' && k.dim > 0 ? kode : null;
+  },
+
+  /** Dialogen: linjene med avkrysning og kode, sonen og høydene i fila. */
+  _traseFilDialog(navn, les, sone, utenfor) {
+    const app = this.app, koder = app.P.ror.koder, t = (v, d = 0) => Rapport.tall(v, d);
+    const boks = document.getElementById('dialog'), innhold = document.getElementById('dialoginnhold');
+    document.getElementById('dialogtittel').textContent = 'Trase fra fil';
+    const forslag = [...new Set(Object.keys(koder).filter(k => koder[k].form !== 'punkt').concat(this._andreKoder()))];
+    const harZ = les.linjer.some(l => l.punkter.some(p => Number.isFinite(p.z)));
+    const hoppet = Object.entries(les.hoppet || {}).map(([ty, n]) => `${n} ${ty}`).join(', ');
+    const rader = les.linjer.map((l, i) => `<tr><td><input type="checkbox" id="tfl${i}" checked></td>`
+      + `<td><label for="tfl${i}">${escapeHtml(l.navn)}</label></td><td>${l.punkter.length}</td><td>${t(TraseImport.lengde(l))} m</td>`
+      + `<td><label class="sr-only" for="tfk${i}">Kode for ${escapeHtml(l.navn)}</label><input id="tfk${i}" class="plankode" `
+      // et lag som ikke er en rørkode, står tomt – en feil kode som ser riktig ut, er verre enn ingen
+      + `list="planKodeliste" value="${escapeAttr(this._kodeFraLag(l.lag) || '')}" placeholder="f.eks. SP 160PE"></td></tr>`).join('');
+    const grunn = { fila: 'oppgitt i fila', prosjektet: 'ved de andre anleggene i prosjektet', standard: 'standard – sjekk at traseen havner riktig' };
+    innhold.innerHTML = `<p class="notis">${escapeHtml(navn)}: ${les.linjer.length} ${les.linjer.length === 1 ? 'linje' : 'linjer'}`
+      + (utenfor ? ` · ${utenfor} punkt utenfor UTM i Norge er hoppet over` : '') + (hoppet ? ` · hoppet over: ${escapeHtml(hoppet)}` : '')
+      + '. Hver linje blir en trase med ett rør; flere rør legges til i Rør-fanen.</p>'
+      + `<datalist id="planKodeliste">${forslag.map(k => `<option value="${escapeAttr(k)}">`).join('')}</datalist>`
+      + '<div class="tabellrull"><table class="trasefil"><thead><tr><th scope="col">Med</th><th scope="col">Linje</th>'
+      + `<th scope="col">Punkt</th><th scope="col">Lengde</th><th scope="col">Rør</th></tr></thead><tbody>${rader}</tbody></table></div>`
+      + '<div class="rorinnstilling"><label for="tfSone">Koordinatsystem</label><select id="tfSone" class="minivalg">'
+      + [32, 33, 35].map(s => `<option value="${s}"${s === sone.sone ? ' selected' : ''}>EUREF89 UTM${s}</option>`).join('')
+      + `</select> <span class="notis">${grunn[sone.grunn] || ''}</span></div>`
+      + `<div class="rorinnstilling"><label for="tfHoyder">Høydene i fila</label><select id="tfHoyder" class="minivalg"${harZ ? '' : ' disabled'}>`
+      + [['ingen', 'Bruk ikke – terrenget og fallet gir dem'], ['bunn', 'Bunn innvendig – låses'], ['topp', 'Topp rør – låses']]
+        .map(([v, tekst]) => `<option value="${v}">${tekst}</option>`).join('')
+      + `</select>${harZ ? '' : ' <span class="notis">fila har ingen høyder</span>'}</div>`
+      + '<div class="knapperad" style="justify-content:flex-end"><button class="knapp" id="tfAvbryt">Avbryt</button>'
+      + '<button class="knapp primaer" id="tfLagre">Hent inn</button></div>';
+    const lukk = () => boks.classList.add('skjult');
+    innhold.querySelector('#tfAvbryt').onclick = () => { lukk(); app.status('Ingen traseer ble hentet'); };
+    innhold.querySelector('#tfLagre').onclick = () => {
+      const valgte = les.linjer.map((l, i) => i).filter(i => innhold.querySelector('#tfl' + i).checked);
+      if (!valgte.length) { app.status('Kryss av minst én linje'); return; }
+      const kodene = valgte.map(i => innhold.querySelector('#tfk' + i).value.trim());
+      if (kodene.some(k => !k)) { app.status('Skriv rørkoden for hver linje som skal med'); return; }
+      lukk();
+      this._lagreTraseFil(navn, les, { linjer: valgte, koder: kodene, sone: +innhold.querySelector('#tfSone').value,
+        hoyder: innhold.querySelector('#tfHoyder').value });
+    };
+    boks.classList.remove('skjult');
+  },
+
+  /**
+   * Lagrer linjene som traseer, ett angresteg for alle. Endene festes som når
+   * en trase tegnes – til et innmålt rør eller en annen trase – men med en
+   * halv meter, ikke fjorten skjermpunkt: fila er målt, ikke klikket.
+   */
+  _lagreTraseFil(navn, les, valg) {
+    const app = this.app, r = app.P.ror, plan = r.plan;
+    const linjer = (valg.linjer || []).map(i => les.linjer[i]).filter(Boolean);
+    if (!linjer.length) { app.status('Ingen linjer valgt'); return false; }
+    app.merk('traseer fra fil');
+    let antall = 0, laast = 0;
+    const koblet = [];
+    linjer.forEach((l, k) => {
+      const kode = valg.koder ? valg.koder[k] : valg.kode;
+      const punkter = l.punkter.map(p => { const g = Geo.fraUtm(p.o, p.n, valg.sone); return { lat: g.lat, lon: g.lon }; });
+      for (const i of [0, punkter.length - 1]) {
+        const fest = this._fest(L.latLng(punkter[i].lat, punkter[i].lon), 0.5);
+        if (fest) punkter[i] = { lat: fest.lat, lon: fest.lon, fest };
+      }
+      const svar = this.lagreTrase(punkter, [{ kode, side: 0, regel: valg.regel || null }], { stille: true, sone: valg.sone });
+      antall++;
+      koblet.push(...svar.koblet);
+      if (valg.hoyder !== 'bunn' && valg.hoyder !== 'topp') return;
+      // høydene i fila: låst som bunn innvendig der de finnes – men en påkobling står
+      const ror = svar.nye[0], kd = RorPlan.kodeAv(r.koder, kode);
+      l.punkter.forEach((p, i) => {
+        const pid = svar.trase.punkter[i].id;
+        if (!Number.isFinite(p.z) || plan.laast.some(x => x.ror === ror.id && x.punkt === pid)) return;
+        plan.laast.push({ ror: ror.id, punkt: pid, bunn: Math.round((valg.hoyder === 'bunn' ? p.z : RorPlan.bunnFraTopp(p.z, kd)) * 1000) / 1000 });
+        laast++;
+      });
+    });
+    app.tegnAlt();
+    app.planlegg(30);
+    app.status(`${antall} ${antall === 1 ? 'trase' : 'traseer'} fra ${navn}`
+      + (laast ? ` · ${laast} høyder låst fra fila` : '') + (koblet.length ? ` · ${koblet.length} ender koblet` : '')
+      + ' – høydene kommer når terrenget er hentet');
+    return true;
+  },
 
   /* ---------------- ny trase ---------------- */
 
@@ -46,10 +190,11 @@ const RorPlanUI = {
   /**
    * Et rør å feste til nær klikket: et punkt på en annen trase i dette
    * anlegget (greining), eller et målt punkt på et innmålt rør i et annet
-   * anlegg (påkobling). Det nærmeste innen fjorten skjermpunkt vinner.
+   * anlegg (påkobling). Det nærmeste innen fjorten skjermpunkt vinner – eller
+   * innen `tolMeter` når punktet kommer fra en fil.
    */
-  _fest(latlng) {
-    const app = this.app, tol = RorUI._toleranse(latlng);
+  _fest(latlng, tolMeter) {
+    const app = this.app, tol = Number.isFinite(tolMeter) ? tolMeter : RorUI._toleranse(latlng);
     let best = null;
     const prov = (lat, lon, mer) => {
       const d = Kart.kart.distance(latlng, L.latLng(lat, lon));
@@ -170,11 +315,12 @@ const RorPlanUI = {
    * bunnløp. Samme system og dimensjon med en annen skrivemåte («SP 160 PE»)
    * er samme rør.
    */
-  lagreTrase(punkter, rader) {
+  lagreTrase(punkter, rader, o = {}) {
     const app = this.app, r = app.P.ror, plan = r.plan;
-    app.merk('ny trase');
-    // den første traseen bestemmer sonen punktene tegnes i
-    if (!plan.traseer.length) r.sone = Geo.sone(punkter[0].lon);
+    // `stille`: en av flere fra en fil – angreposten, tegningen og statuslinja tar den som kaller
+    if (!o.stille) app.merk('ny trase');
+    // den første traseen bestemmer sonen punktene tegnes i – fra en fil er det filas
+    if (!plan.traseer.length) r.sone = o.sone || Geo.sone(punkter[0].lon);
     const brukt = RorPlan.alleIder(plan, this.app.P.ror.groft);
     const ny = id => { brukt.add(id); return id; };
     const t = { id: ny(RorPlan.nyId(brukt, 't')), punkter: [] };
@@ -209,10 +355,13 @@ const RorPlanUI = {
     }
     this._sistKode = rader[rader.length - 1].kode;
     RorUI.valgt = nye[0].id;
-    app.tegnAlt();
-    app.planlegg(30);
-    app.status(`Traseen er lagret med ${nye.length} rør` + (koblet.length ? ' – ' + koblet.join(' og ') : '')
-      + ' – høydene kommer når terrenget er hentet' + (notater.length ? ' · ' + notater.join(' · ') : ''));
+    if (!o.stille) {
+      app.tegnAlt();
+      app.planlegg(30);
+      app.status(`Traseen er lagret med ${nye.length} rør` + (koblet.length ? ' – ' + koblet.join(' og ') : '')
+        + ' – høydene kommer når terrenget er hentet' + (notater.length ? ' · ' + notater.join(' · ') : ''));
+    }
+    return { trase: t, nye, koblet, notater };
   },
 
   /* ---------------- redigering i kartet ---------------- */
@@ -430,6 +579,8 @@ const RorPlanUI = {
           + (gr ? ` · graving ${t(gr.gravingLos + gr.sprengning)} m³` : '') + '</button>'
           + ` <button class="minilenke" data-planendre="${escapeAttr(x.id)}">Endre</button>`
           + ` <button class="minilenke" data-plansnu="${escapeAttr(x.id)}">Snu</button>`
+          + (reg === 'selvfall' ? ` <button class="minilenke" data-planlegg="${escapeAttr(x.id)}" title="Høydene i kummene og de frie `
+            + 'endene som gir minst graving, med overdekningen og fallet innenfor kravene – låst, og kan angres">⤓ Legg høydene</button>' : '')
           + ` <button class="minilenke" data-planslett="${escapeAttr(x.id)}">Slett</button></div>`;
       }
       tr += '</div>';
@@ -579,6 +730,7 @@ const RorPlanUI = {
     for (const b of e.querySelectorAll('[data-plansnu]')) {
       b.onclick = () => { const x = rorAv(b.dataset.plansnu); if (!x) return; app.merk('snudde røret'); x.motsatt = !x.motsatt; ferdig(); };
     }
+    for (const b of e.querySelectorAll('[data-planlegg]')) b.onclick = () => this.leggHoyder(b.dataset.planlegg);
     for (const b of e.querySelectorAll('[data-planslett]')) {
       b.onclick = () => {
         const id = b.dataset.planslett, plan = P();
@@ -772,11 +924,46 @@ const RorPlanUI = {
    * nytt». Her ble den skrevet over, og «Lås» uten å endre noe ga «treffer»
    * i merknadene. Høyden er brukerens til den hentes på nytt.
    */
-  _settLaast(rorId, punkt, bunn) {
+  _settLaast(rorId, punkt, bunn, lagt) {
     const plan = this.plan(), i = plan.laast.findIndex(x => x.ror === rorId && x.punkt === punkt);
     const ny = { ror: rorId, punkt, bunn: Math.round(bunn * 1000) / 1000 };
     if (i >= 0 && plan.laast[i].kilde) ny.kilde = plan.laast[i].kilde;
+    // lagt av knappen – låst for hånd mister merket og står fast
+    else if (lagt) ny.lagt = true;
     if (i >= 0) plan.laast[i] = ny; else plan.laast.push(ny);
+  },
+
+  /**
+   * «⤓ Legg høydene» for et selvfallsrør: de frie kontrollpunktene – kummene
+   * og endene som ikke er låst eller koblet – får høydene som gir minst
+   * graving, med overdekningen og fallet innenfor kravene (`RorPlan.leggHoyderFor`).
+   * De låses merket `lagt`, så et nytt trykk legger dem på nytt; det
+   * brukeren har låst selv, står. Ett angresteg. Går det ikke, endres ingenting.
+   */
+  leggHoyder(rorId) {
+    const app = this.app, res = app.resultat;
+    if (!res || !res.plan || !res.bygg || !res.bygg.linjer.some(l => l.id === rorId)) {
+      app.status('Høydene er ikke regnet ennå – prøv igjen om et øyeblikk');
+      return false;
+    }
+    const svar = RorPlan.leggHoyderFor({ bygg: res.bygg, ror: rorId, koder: app.P.ror.koder,
+      terrengZ: (x, y) => (app.terreng ? app.terreng.z(x, y) : NaN) });
+    if (svar.feil) {
+      const t = v => Rapport.tall(v, 0);
+      app.status('Høydene ble ikke lagt: ' + svar.feil
+        + (Number.isFinite(svar.fra) && svar.til > svar.fra ? ` mellom ${t(svar.fra)} og ${t(svar.til)} m` : '')
+        + (svar.feil === 'ingen profil oppfyller kravene' ? ' – låste høyder eller fallet gjør det umulig innen 6 m dybde' : ''));
+      return false;
+    }
+    if (!svar.laast.length) { app.status('Alle kontrollpunktene på røret er låst eller koblet – ingenting å legge'); return false; }
+    app.merk('la høydene');
+    for (const x of svar.laast) this._settLaast(rorId, x.punkt, x.bunn, true);
+    // lagt på nytt til det samme: ingen tom angrepost
+    app.slippMerke();
+    app.tegnAlt();
+    app.planlegg(30);
+    app.status(`Høydene er lagt i ${svar.laast.length} kontrollpunkt – minst graving med overdekningen og fallet innenfor kravene`);
+    return true;
   },
 
   /** Bunn innvendig i det innmålte punktet en påkobling henter fra – eller null om det er borte. */

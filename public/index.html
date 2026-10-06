@@ -542,6 +542,8 @@
         <button id="verktoyGroftSammen" class="verktoyknapp skjult" aria-pressed="false" title="Klikk to rør som ligger i én bred grøft med flat bunn mellom seg">⊔ Felles grøft</button>
         <!-- TEGNEDE RØR: traseene og kummene i et planlagt anlegg – se RorPlanUI. -->
         <button id="verktoyTrase" class="verktoyknapp skjult" aria-pressed="false" title="Klikk punktene langs traseen. Dobbeltklikk eller Enter avslutter, Esc avbryter.">✎ Ny trase</button>
+        <button id="verktoyTraseFil" class="verktoyknapp skjult" title="Hent traseer fra en DXF- eller KOF-fil – en VA-plan eller en stikningsfil">📂 Trase fra fil</button>
+        <input type="file" id="traseFil" accept=".kof,.dxf" hidden>
         <button id="verktoyKum" class="verktoyknapp skjult" aria-pressed="false" title="Klikk et punkt på en trase for å sette en kum – eller ta den bort">◯ Kum</button>
         <button id="verktoySnu" class="verktoyknapp skjult" aria-pressed="false" title="Klikk en trase for å snu fallretningen for rørene i den">⇄ Snu fallretning</button>
         <input type="file" id="rorFil" accept=".xml,application/xml,text/xml" hidden>
@@ -1214,6 +1216,8 @@
 <script src="js/rorplan.js"></script>
 <script src="js/roreksport.js"></script>
 <script src="js/roravvik.js"></script>
+<!-- Traseer fra KOF og DXF – ren logikk, prøvene i test/traseimportprove.js. -->
+<script src="js/traseimport.js"></script>
 <!-- Formen paa prosjektfila: anleggslista og vinduene inn i det aktive
      anlegget. Ligger for seg fordi app.js ikkje kan lastast av ein node-proeve
      - sjaa toppen av prosjektform.js. Maa lastast FOER app.js. -->
