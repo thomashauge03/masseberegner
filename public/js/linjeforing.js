@@ -133,6 +133,11 @@ class Linjeforing {
     // 3) Bygg elementlisten
     let s = 0;
     let fra = { x: P[0].x, y: P[0].y };
+    /* Stasjonen til hvert knekkpunkt – midt i kurven når det har en, ellers der
+       linja går gjennom det. Advarslene om et knekkpunkt står der: her fikk et
+       punkt uten kurve sin advarsel på profil 0. */
+    this.ipStasjon = new Array(nP).fill(NaN);
+    this.ipStasjon[0] = 0;
     for (let i = 1; i < nP - 1; i++) {
       /* Et knekkpunkt uten kurve er en skarp knekk - linja skal fortsatt gå
          gjennom punktet. Uten dette ble punktet stille hoppet over, og linja
@@ -149,6 +154,7 @@ class Linjeforing {
           s += rett;
           fra = { x: P[i].x, y: P[i].y };
         }
+        this.ipStasjon[i] = s;
         continue;
       }
       const { inn, ut, avbøy } = data[i];
@@ -172,6 +178,7 @@ class Linjeforing {
         // selve knekkpunktet, der tangentene møtes - brukes av LandXML-eksporten
         ipPunkt: { x: P[i].x, y: P[i].y }
       });
+      this.ipStasjon[i] = s + buelengde / 2;
       s += buelengde;
       fra = EC;
     }
@@ -180,6 +187,7 @@ class Linjeforing {
       this.elementer.push({ type: 'linje', x1: fra.x, y1: fra.y, x2: P[nP - 1].x, y2: P[nP - 1].y, s0: s, lengde: sisteRett, retning: Math.atan2(P[nP - 1].y - fra.y, P[nP - 1].x - fra.x) });
       s += sisteRett;
     }
+    this.ipStasjon[nP - 1] = s;
     this.lengde = s;
   }
 
@@ -273,7 +281,7 @@ class Linjeforing {
       const utv = norm(sub(P[i + 1], P[i]));
       const avboy = Math.atan2(inn.x * utv.y - inn.y * utv.x, inn.x * utv.x + inn.y * utv.y);
       if (Math.abs(avboy) < 1e-7) continue;          // rett fram: ikke et hjørne
-      ut.push({ kilde: P[i].kilde != null ? P[i].kilde : i, avboy });
+      ut.push({ kilde: P[i].kilde != null ? P[i].kilde : i, avboy, s: this.ipStasjon ? this.ipStasjon[i] : NaN });
     }
     return ut;
   }

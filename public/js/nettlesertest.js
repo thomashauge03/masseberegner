@@ -1076,7 +1076,8 @@ const Nettlesertest = {
     this.sjekk('rapporten har lengdeprofil', /Lengdeprofil<\/h2>\s*<img/.test(html));
     this.sjekk('rapporten har tverrsnitt', html.includes('Tverrsnitt') && (html.match(/<img/g) || []).length >= 3);
     this.sjekk('rapporten har stikningsdata', html.includes('Stikningsdata'));
-    this.sjekk('rapporten har koordinater', /\d{7}\.\d{3}/.test(html));
+    // desimalkomma, som resten av rapporten – her sto punktum i én tabell og komma i den neste
+    this.sjekk('rapporten har koordinater, med desimalkomma', /\d{7},\d{3}/.test(html) && !/\d{7}\.\d{3}/.test(html));
     this.sjekk('rapporten har massetabell', html.includes('Masser per'));
     // bildene er base64, og der dukker "NaN" opp som ren tilfeldighet
     const utenBilder = html.replace(/data:image\/[a-z]+;base64,[^"']+/g, '');

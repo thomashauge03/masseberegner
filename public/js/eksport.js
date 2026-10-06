@@ -330,8 +330,9 @@ ${this.landxmlAlignment(app, res, navn)}
   /**
    * SOSI – norsk standard for kartdata.
    *
-   * Koordinatene oppgis i hele centimeter, som ENHET 0.01 sier. Filen far
-   * senterlinjen som en kurve og fotavtrykket som en flate.
+   * Koordinatene oppgis i hele centimeter, som ENHET 0.01 sier. Filen får
+   * senterlinjen og de to vegkantene som kurver. (Her sto at fotavtrykket kom
+   * som en flate – det har fila aldri hatt.)
    */
   /**
    * Objektene en veg bidrar med, uten hode og uten `.SLUTT`.
@@ -459,13 +460,27 @@ ${this.landxmlAlignment(app, res, navn)}
        hele jordarbeidsbredden ved profil 0 - målt 9,7 m - og en flate med et
        hull i er ingen flate. Å duplisere startpunktet i stedet gir en strekning
        uten lengde, som enkelte lesere klager på. */
+    /* EN HØYDE SOM MANGLER, ER IKKE KOTE 0. Her sto `q.z || 0`: der terrenget
+       hadde et hull, lå skråningsfoten på havnivået – en loddrett strek hundre
+       meter ned i en flate bygd av laget. Nå får punktet høyden på linja mellom
+       nærmeste punkt med høyde på hver side; finnes ingen, er det 0 som før. */
+    const medHoyde = punkt => punkt.map((q, i) => {
+      if (Number.isFinite(q.z)) return q;
+      let a = i - 1, b = i + 1;
+      while (a >= 0 && !Number.isFinite(punkt[a].z)) a--;
+      while (b < punkt.length && !Number.isFinite(punkt[b].z)) b++;
+      const za = a >= 0 ? punkt[a].z : NaN, zb = b < punkt.length ? punkt[b].z : NaN;
+      const z = Number.isFinite(za) && Number.isFinite(zb) ? za + (zb - za) * (i - a) / (b - a)
+        : Number.isFinite(za) ? za : Number.isFinite(zb) ? zb : 0;
+      return Object.assign({}, q, { z });
+    });
     const polylinje = (lag, farge, punkt, lukket) => {
       const navn = lagpre + lag;
       par(0, 'POLYLINE'); par(8, navn); par(62, farge); par(66, 1);
       par(70, 8 | (lukket ? 1 : 0));
-      for (const q of punkt) {
+      for (const q of medHoyde(punkt)) {
         par(0, 'VERTEX'); par(8, navn); par(70, 32);
-        par(10, q.o.toFixed(4)); par(20, q.n.toFixed(4)); par(30, (q.z || 0).toFixed(4));
+        par(10, q.o.toFixed(4)); par(20, q.n.toFixed(4)); par(30, q.z.toFixed(4));
       }
       par(0, 'SEQEND'); par(8, navn);
     };
@@ -498,8 +513,10 @@ ${this.landxmlAlignment(app, res, navn)}
     for (let k = 0; k <= antall; k++) {
       const q = app.linje.punktVed(k * 50);
       if (!q || !Number.isFinite(q.x)) continue;
+      // teksten står på vegen, ikke på kote 0 under den
+      const z = app.vprofil && typeof app.vprofil.hoyde === 'function' ? app.vprofil.hoyde(k * 50) : NaN;
       par(0, 'TEXT'); par(8, lagpre + 'PROFILNUMMER'); par(62, 7);
-      par(10, q.x.toFixed(4)); par(20, q.y.toFixed(4)); par(30, '0');
+      par(10, q.x.toFixed(4)); par(20, q.y.toFixed(4)); par(30, Number.isFinite(z) ? z.toFixed(4) : '0');
       par(40, '2'); par(1, String(k * 50));
     }
     return ut;

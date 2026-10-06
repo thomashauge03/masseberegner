@@ -1698,6 +1698,56 @@ console.log('\n4g. Hull i terrenget skal ikke velte lengdeprofilen');
 }
 
 /* ------------------------------------------------------------------ */
+console.log('\n4w. Rapportens bolker og stikningstabell, og merknadene');
+{
+  const Rapport = require(path.join(__dirname, '..', 'public', 'js', 'ui-rapport.js'));
+  const regn = (L, dS) => M.beregnMasser({
+    linje: new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: L, y: 0, r: 0 }]),
+    profil: new Vertikalprofil([{ s: 0, z: 100, k: 0 }, { s: L, z: 100, k: 0 }]),
+    terreng: { z: (x) => 101 + x / 50 }, mal: {}, fjell: new M.Fjellmodell({ standarddybde: 5 }),
+    profilAvstand: dS, bakkefaktor: 1
+  });
+  /* Med 15 m profilavstand ble radene 0–30, 20–45, 40–60: overlappende, med
+     etiketter som ikke var strekningene som var summert. */
+  const r15 = regn(105, 15);
+  const { bolk, rader } = Rapport.bolker(r15, 20);
+  sjekk('bolken er et helt antall profilavstander: 30 m ved 15', bolk, 30, 1e-9);
+  paastand('radene overlapper ikke og henger sammen', rader.every((r, i) => !i || Math.abs(r.fra - rader[i - 1].til) < 1e-9)
+    && rader[0].fra === 0 && Math.abs(rader[rader.length - 1].til - 105) < 1e-9);
+  paastand('etikettene er strekningene som er med: 0–30, 30–60 …', rader[0].til === 30 && rader[1].fra === 30 && rader[1].til === 60);
+  sjekk('summen av radene er summen', rader.reduce((a, r) => a + r.skjaering, 0), r15.sum.skjaering, 1e-6);
+  sjekk('med 5 m: 20 m som før', Rapport.bolker(regn(100, 5), 20).bolk, 20, 1e-9);
+  /* Stikningstabellen tok med profilene der stasjonen gikk opp i 5: med 3 m
+     profilavstand ble det hver 15. meter, uten at noe sa det. */
+  const r3 = regn(100, 3);
+  Rapport.app = { linje: new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 100, y: 0, r: 0 }]),
+    fallVed: () => ({ venstre: 0.05, hoyre: 0.05 }) };
+  const st = Rapport.stikningstabell(r3, 5);
+  sjekk('stikningen har hver andre profil: hver 6. meter', st.hver, 6, 1e-9);
+  paastand('og alle de profilene, pluss enden', st.length === 18 && st[1].s === 6 && st[st.length - 1].s === 100,
+    `${st.length}: ${st.slice(0, 4).map(r => r.s).join(',')} … ${st[st.length - 1].s}`);
+  // slitelaget står som egen post – det kjøpes uansett
+  sjekk('slitelaget kjøpes – egen post i massebalansen', r15.balanse.slitelagKjopes, r15.sum.slitelag, 1e-9);
+  paastand('og er ikke lagt inn i det egne masser mangler', Math.abs(r15.balanse.manglerTotalt
+    - r15.balanse.manglerFylling - r15.balanse.manglerBaerelag) < 1e-9);
+  sjekk('brukt profilavstand står i resultatet', r15.profilAvstand, 15, 1e-9);
+  // et knekkpunkt uten kurve har sin stasjon – advarselen sto på profil 0
+  const hjorne = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 100, y: 0, r: 0 }, { x: 100, y: 80, r: 0 }]);
+  sjekk('et skarpt hjørne har stasjonen der linja går gjennom det', hjorne.skarpeHjorner()[0].s, 100, 1e-9);
+  const rh = M.beregnMasser({ linje: hjorne, profil: new Vertikalprofil([{ s: 0, z: 100, k: 0 }, { s: 180, z: 100, k: 0 }]),
+    terreng: { z: () => 101 }, mal: { minRadius: 20 }, fjell: new M.Fjellmodell({ standarddybde: 5 }), profilAvstand: 10, bakkefaktor: 1 });
+  const mh = rh.merknader.find(m => /skarpt hjørne/.test(m.tekst));
+  paastand('og merknaden står der, ikke på profil 0', !!mh && Math.abs(mh.s - 100) < 1e-9, mh ? String(mh.s) : 'ingen');
+  // faktormerknaden sier tallet som faktisk brukes
+  const rf = M.beregnMasser({ linje: hjorne, profil: new Vertikalprofil([{ s: 0, z: 100, k: 0 }, { s: 180, z: 100, k: 0 }]),
+    terreng: { z: () => 101 }, mal: {}, faktorer: { sprengningsfaktor: 'tull' }, fjell: new M.Fjellmodell({ standarddybde: 5 }),
+    profilAvstand: 10, bakkefaktor: 1 });
+  const mf = rf.merknader.find(m => m.type === 'inngang' && /ikke et tall/.test(m.tekst));
+  paastand('en ugyldig faktor: merknaden sier faktorens standard, ikke malens', !!mf
+    && mf.tekst.includes(String(M.StandardFaktorer.sprengningsfaktor)), mf ? mf.tekst : 'ingen');
+}
+
+/* ------------------------------------------------------------------ */
 console.log('\n4f. Eksportformatene');
 {
   /* Eksporten hadde ingen dekning i det hele tatt, verken her eller i

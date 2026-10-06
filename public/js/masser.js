@@ -1645,8 +1645,11 @@ function rettInngang(mal, faktorer, fjell, dS, bf, plasser) {
         continue;
       }
       if (!erTall(v)) {
-        merknader.push({ s: 0, type: 'inngang', tekst: `${navn} er ikke et tall – bruker ${StandardMal[felt] != null ? StandardMal[felt] : lav}` });
-        obj[felt] = (hva === 'mal' ? StandardMal[felt] : StandardFaktorer[felt]);
+        /* Teksten sier tallet som faktisk brukes. Her leste den alltid
+           StandardMal – for en faktor sto det «bruker 1» mens 1,5 ble brukt. */
+        const brukt = hva === 'mal' ? StandardMal[felt] : StandardFaktorer[felt];
+        merknader.push({ s: 0, type: 'inngang', tekst: `${navn} er ikke et tall – bruker ${brukt != null ? brukt : lav}` });
+        obj[felt] = brukt;
         continue;
       }
       if (v < lav || v > høy) {
@@ -2016,9 +2019,11 @@ function beregnMasser(o) {
 
   /* En linje uten lengde gir null i alle poster. Det er et gyldig tall, og
      nettopp derfor farlig: rapporten ser ferdig ut. */
+  /* En merknad om HELE linja har ingen stasjon (s: NaN) – her sto den på
+     profil 0, i rapporten, PDF-en og sidepanelet, som om noe var galt der. */
   if (!(linje.lengde > 1e-6)) {
     merknader.push({
-      s: 0, type: 'linje',
+      s: NaN, type: 'linje',
       tekst: 'Linjen har ingen lengde – sett minst to punkt som ikke ligger oppå hverandre'
     });
   }
@@ -2038,8 +2043,10 @@ function beregnMasser(o) {
      lenger nede, per profil, mot `mal.minRadius`. */
   for (const a of (linje.advarsler || [])) {
     const kurve = (linje.kurver || []).find(k => k.ip === a.ip);
+    // et knekkpunkt uten kurve har stasjonen der linja går gjennom det – ikke profil 0
+    const ved = linje.ipStasjon ? linje.ipStasjon[a.ip] : NaN;
     merknader.push({
-      s: kurve ? kurve.sBC : 0,
+      s: kurve ? kurve.sBC : (Number.isFinite(ved) ? ved : NaN),
       type: /kortet inn/.test(a.tekst || '') ? 'avvik' : 'linje',
       tekst: a.tekst || String(a)
     });
@@ -2056,7 +2063,7 @@ function beregnMasser(o) {
       const grader = Math.abs(h.avboy) * 180 / Math.PI;
       if (grader < 1) continue;              // praktisk talt rett fram
       merknader.push({
-        s: 0, type: 'kurvatur',
+        s: Number.isFinite(h.s) ? h.s : NaN, type: 'kurvatur',
         tekst: `Knekkpunkt ${h.kilde + 1} er et skarpt hjørne – avbøyningen er `
           + `${kom(grader, 0)}°, og det er ingen kurve der. Minstekravet er `
           + `${mal.minRadius} m.`
@@ -2209,7 +2216,7 @@ function beregnMasser(o) {
 
   if (antallAvkortet) {
     merknader.push({
-      s: 0, type: 'avkortet',
+      s: NaN, type: 'avkortet',
       tekst: `${antallAvkortet} profiler er avkortet ved beregningsbredden på ${mal.beregningsbredde} m `
         + 'fra vegkant. Masser utenfor er ikke tatt med.'
     });
@@ -2304,6 +2311,8 @@ function beregnMasser(o) {
     mal, faktorer,
     lengde: linje.lengde * bf,
     lengdeKart: linje.lengde,
+    // profilavstanden som er BRUKT – den kan være klemt (se rettInngang); sidepanelet viste den innskrevne
+    profilAvstand: dS,
     bakkefaktor: bf,
     arealFaktor,
     balanse: {
@@ -2315,6 +2324,11 @@ function beregnMasser(o) {
       overskuddFjell, overskuddLos, tilDeponi,
       overskuddFjellFast, overskuddLosFast, utAvAnlegget,
       manglerTotalt: manglerFylling + manglerBaerelag,
+      /* SLITELAGET KJØPES UANSETT – knust grus lages ikke av skjæringen. Det
+         sto ikke i «Må kjøres inn», og tallet var systematisk for lavt med
+         hele slitelaget. Det står som egen post, ikke inne i `manglerTotalt`:
+         den er det egne masser mangler, og den bruker optimaliseringen. */
+      slitelagKjopes: sum.slitelag,
       overskudd: Math.max(0, balanse),
       underskudd: Math.max(0, -balanse)
     }

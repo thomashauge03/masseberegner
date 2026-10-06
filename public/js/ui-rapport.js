@@ -82,7 +82,7 @@ const Rapport = {
       <div class="sumkort">
         <h4>Nøkkeltall</h4>
         <div class="sumrad"><span>Veglengde</span><span class="verdi">${t(res.lengde, 1)} m</span></div>
-        <div class="sumrad"><span>Profiler</span><span class="verdi">${res.profiler.length} <small>hver ${t(res.mal.profilAvstand || (res.stasjoner[1] - res.stasjoner[0]), 0)} m</small></span></div>
+        <div class="sumrad"><span>Profiler</span><span class="verdi">${res.profiler.length} <small>hver ${(dS => t(dS, dS % 1 ? 1 : 0))(res.profilAvstand || (res.stasjoner[1] - res.stasjoner[0]))} m</small></span></div>
         <div class="sumrad"><span>Største skjæringsdybde</span><span class="verdi">${t(maksSkjaering, 1)} m</span></div>
         <div class="sumrad"><span>Største fyllingshøyde</span><span class="verdi">${t(maksFylling, 1)} m</span></div>
       </div>
@@ -134,6 +134,7 @@ ${this.sprengningsrader(res)}
         ${b.manglerTotalt > 1
         ? `<div class="sumrad stor"><span>Må kjøres inn</span><span class="verdi merke-varsel">${t(b.manglerTotalt)} m³</span></div>`
         : `<div class="sumrad stor"><span>Overskudd av sprengstein</span><span class="verdi merke-fylling">${t(b.overskuddFjell)} m³</span></div>`}
+        ${b.slitelagKjopes > 0.5 ? `<div class="sumrad" title="Knust grus lages ikke av skjæringen – slitelaget kjøpes og kjøres inn uansett."><span>Slitelag – kjøpes inn i tillegg</span><span class="verdi">${t(b.slitelagKjopes)} m³</span></div>` : ''}
         <div class="sumrad"><span>Til deponi (rensk + ubrukbar løsmasse)</span><span class="verdi">${t(b.tilDeponi)} m³</span></div>
         ${b.overskuddLos > 1
         ? `<div class="sumrad"><span>Brukbar løsmasse til overs</span><span class="verdi">${t(b.overskuddLos)} m³</span></div>`
@@ -234,7 +235,8 @@ ${this.sprengningsrader(res)}
         ${this.skograd()}
         <div class="strek"></div>
         <div class="sumrad"><span>Dybde til fjell</span><span class="verdi ${antallObs ? '' : 'merke-varsel'}">${antallObs ? antallObs + ' observasjoner' : 'Kun anslag'}</span></div>
-        <div class="sumrad"><span>Sprengning ved 0,5 m grunnere fjell</span><span class="verdi">${t(u.fjellGrunnere)} m³</span></div>
+        <div class="sumrad"><span>Sprengning ved 0,5 m grunnere fjell${u.begrenset ? '*' : ''}</span><span class="verdi">${t(u.fjellGrunnere)} m³</span></div>
+        ${u.begrenset ? '<div class="sumrad"><small>* Der fjellet ligger grunnere enn en halvmeter, er det flyttet opp til terrenget og ikke lenger.</small></div>' : ''}
         <div class="sumrad"><span>Sprengning nå</span><span class="verdi merke-fjell">${t(u.fjellNa)} m³</span></div>
         <div class="sumrad"><span>Sprengning ved 0,5 m dypere fjell</span><span class="verdi">${t(u.fjellDypere)} m³</span></div>
         <div class="strek"></div>
@@ -554,13 +556,61 @@ ${this.sprengningsrader(res)}
     return bilder;
   },
 
-  /** Koordinater og høyder for senterlinjen, til utsetting i felt. */
+  /**
+   * Massene i bolker på omtrent `onsket` meter – tabellen i rapporten og PDF-en.
+   *
+   * BOLKEN ER ET HELT ANTALL PROFILAVSTANDER, OG HVERT STREKK HØRER TIL ÉN.
+   * Her ble hvert strekk lagt i bolken det BEGYNTE i, og bolken fikk slutten
+   * til det siste: med 15 m profilavstand ble radene 0–30, 20–45, 40–60 –
+   * overlappende, med etiketter som ikke var strekningene som var summert.
+   * Nå er bolken n · profilavstand (30 m ved 15, 21 m ved 7), hvert strekk går
+   * i bolken midten ligger i, og etiketten er fra–til for det som faktisk er med.
+   *
+   * @returns {{bolk:number, rader:Array}}
+   */
+  bolker(res, onsket = 20) {
+    const dS = res.stasjoner && res.stasjoner.length > 1 ? res.stasjoner[1] - res.stasjoner[0] : onsket;
+    const bolk = dS > 0 ? Math.max(dS, dS * Math.ceil(onsket / dS - 1e-9)) : onsket;
+    const rader = [];
+    let na = null, nokkel = null;
+    for (const iv of res.intervaller) {
+      const k = Math.floor(((iv.fra + iv.til) / 2) / bolk + 1e-9);
+      if (!na || k !== nokkel) {
+        na = { fra: iv.fra, til: iv.til, rensk: 0, skjaering: 0, fjell: 0, los: 0, fylling: 0, baerelag: 0, slitelag: 0 };
+        nokkel = k;
+        rader.push(na);
+      }
+      na.rensk += iv.volum.rensk;
+      na.skjaering += iv.volum.skjaering;
+      na.fjell += iv.volum.skjaeringFjell;
+      na.los += iv.volum.skjaeringLosmasse;
+      na.fylling += iv.volum.fylling;
+      na.baerelag += iv.volum.baerelag;
+      na.slitelag += iv.volum.slitelag;
+      na.til = iv.til;
+    }
+    return { bolk, rader };
+  },
+
+  /**
+   * Koordinater og høyder for senterlinjen, til utsetting i felt.
+   *
+   * HVER k-TE PROFIL, IKKE PROFILENE SOM TILFELDIGVIS GÅR OPP I STEGET. Her
+   * ble det tatt med de profilene der stasjonen gikk opp i 5 eller 10: med
+   * 7 m profilavstand ble sju av tretti med, uten at noe sa det. Nå er steget
+   * det nærmeste hele antall profilavstander, og tabellen sier hvor tett den
+   * er (`hver` på lista).
+   */
   stikningstabell(res, steg) {
     const app = this.app;
     const rader = [];
     const mal = res.mal;
+    const dS = res.stasjoner && res.stasjoner.length > 1 ? res.stasjoner[1] - res.stasjoner[0] : steg;
+    const hver = steg > 0 && dS > 0 ? Math.max(1, Math.round(steg / dS)) * dS : 0;
+    const sist = res.profiler.length ? res.profiler[res.profiler.length - 1].s : 0;
+    rader.hver = hver || dS;
     for (const p of res.profiler) {
-      if (steg > 0 && Math.abs(p.s % steg) > 1e-6 && p.s !== res.profiler[res.profiler.length - 1].s) continue;
+      if (hver > 0 && Math.abs(p.s / hver - Math.round(p.s / hver)) > 1e-6 && p.s !== sist) continue;
       const hbV = p.halvbreddeVenstre != null ? p.halvbreddeVenstre : p.halvbredde;
       const hbH = p.halvbreddeHoyre != null ? p.halvbreddeHoyre : p.halvbredde;
       const vk = app.linje.punktMedAvvik(p.s, -hbV);
@@ -593,25 +643,9 @@ ${this.sprengningsrader(res)}
     const s = res.sum, b = res.balanse, m = res.mal, f = res.faktorer;
     const dato = new Date().toLocaleDateString('nb-NO', { day: '2-digit', month: 'long', year: 'numeric' });
 
-    // Samle volum per 20 m for en lesbar tabell
-    const bolk = 20;
-    const rader = [];
-    let gjeldende = null;
-    for (const iv of res.intervaller) {
-      const start = Math.floor(iv.fra / bolk) * bolk;
-      if (!gjeldende || gjeldende.fra !== start) {
-        gjeldende = { fra: start, til: start + bolk, rensk: 0, skjaering: 0, fjell: 0, los: 0, fylling: 0, baerelag: 0, slitelag: 0 };
-        rader.push(gjeldende);
-      }
-      gjeldende.rensk += iv.volum.rensk;
-      gjeldende.skjaering += iv.volum.skjaering;
-      gjeldende.fjell += iv.volum.skjaeringFjell;
-      gjeldende.los += iv.volum.skjaeringLosmasse;
-      gjeldende.fylling += iv.volum.fylling;
-      gjeldende.baerelag += iv.volum.baerelag;
-      gjeldende.slitelag += iv.volum.slitelag;
-      gjeldende.til = iv.til;
-    }
+    // volumene i bolker på omtrent 20 m – se `bolker`
+    const { bolk, rader } = this.bolker(res, 20);
+    const n = (v, d) => this.n(v, d);
 
     const merknader = res.merknader.map(v =>
       `<tr><td>${Number.isFinite(v.s) && v.type !== 'inngang' ? v.s.toFixed(0) : '–'}</td><td>${v.type}</td><td>${v.tekst}</td></tr>`).join('');
@@ -648,13 +682,14 @@ ${res.sprengning && res.sprengning.lopemeter > 0 ? `<tr><td>&nbsp;&nbsp;– løp
 
 <h2>Massebalanse</h2>
 <table class="noekkel">
-<tr><td>Tilgjengelig fra fjellskjæring (× ${f.fjellIFylling})</td><td>${t(b.fraFjell)} m³</td></tr>
-<tr><td>Tilgjengelig brukbar løsmasse (${Math.round(f.brukbarLosmasse * 100)} % × ${f.losmasseIFylling})</td><td>${t(b.brukbarLos)} m³</td></tr>
+<tr><td>Tilgjengelig fra fjellskjæring (× ${t(f.fjellIFylling, 2)})</td><td>${t(b.fraFjell)} m³</td></tr>
+<tr><td>Tilgjengelig brukbar løsmasse (${Math.round(f.brukbarLosmasse * 100)} % × ${t(f.losmasseIFylling, 2)})</td><td>${t(b.brukbarLos)} m³</td></tr>
 <tr><td>Fylling dekket av egne masser</td><td>${t(b.fyllFraLos + b.fyllFraFjell)} av ${t(b.fyllingBehov)} m³</td></tr>
 <tr><td>Bærelag dekket av egen sprengstein</td><td>${t(b.baerelagFraFjell)} av ${t(b.baerelagBehov)} m³</td></tr>
-<tr class="sum"><td>${b.manglerTotalt > 1 ? 'Må kjøres inn' : 'Overskudd av sprengstein'}</td><td>${t(b.manglerTotalt > 1 ? b.manglerTotalt : b.overskuddFjell)} m³</td></tr>
+<tr class="sum"><td>${b.manglerTotalt > 1 ? 'Må kjøres inn' : 'Overskudd av sprengstein (fyllingsvolum)'}</td><td>${t(b.manglerTotalt > 1 ? b.manglerTotalt : b.overskuddFjell)} m³</td></tr>
+${b.slitelagKjopes > 0.5 ? `<tr><td>Slitelag – kjøpes inn i tillegg</td><td>${t(b.slitelagKjopes)} p.a.m³</td></tr>` : ''}
 <tr><td>Til deponi (rensk + ubrukbar løsmasse)</td><td>${t(b.tilDeponi)} m³</td></tr>
-<tr><td>Sprengt fjell, løst volum (× ${f.sprengningsfaktor})</td><td>${t(b.fjellSprengtLos)} p.a.m³</td></tr>
+<tr><td>Sprengt fjell, løst volum (× ${t(f.sprengningsfaktor, 2)})</td><td>${t(b.fjellSprengtLos)} p.a.m³</td></tr>
 </table>
 </div>
 
@@ -662,18 +697,18 @@ ${res.sprengning && res.sprengning.lopemeter > 0 ? `<tr><td>&nbsp;&nbsp;– løp
 <h2>Forutsetninger</h2>
 <table class="noekkel">
 <tr><td>Veiklasse</td><td>${klassenavn(app)}</td></tr>
-<tr><td>Vegbredde inkl. skulder</td><td>${m.vegbredde} m</td></tr>
-<tr><td>Tverrfall</td><td>${(m.tverrfall * 100).toFixed(1)} % ${m.tverrfallType === 'tak' ? '(tosidig)' : '(ensidig)'}</td></tr>
-<tr><td>Overbygning (bærelag + slitelag)</td><td>${(m.baerelagTykkelse + m.slitelagTykkelse).toFixed(2)} m</td></tr>
-<tr><td>Grøftedybde under planum</td><td>${m.grofteDybdePlanum} m</td></tr>
-<tr><td>Grøftebunn</td><td>${m.grofteBunn} m</td></tr>
-<tr><td>Skjæring i løsmasse</td><td>1:${m.skjaeringLosmasse}</td></tr>
-<tr><td>Skjæring i fjell</td><td>1:${m.skjaeringFjell}</td></tr>
-<tr><td>Fyllingsskråning</td><td>1:${m.fylling}</td></tr>
+<tr><td>Vegbredde inkl. skulder</td><td>${t(m.vegbredde, 2)} m</td></tr>
+<tr><td>Tverrfall</td><td>${t(m.tverrfall * 100, 1)} % ${m.tverrfallType === 'tak' ? '(tosidig)' : '(ensidig)'}</td></tr>
+<tr><td>Overbygning (bærelag + slitelag)</td><td>${t(m.baerelagTykkelse + m.slitelagTykkelse, 2)} m</td></tr>
+<tr><td>Grøftedybde under planum</td><td>${t(m.grofteDybdePlanum, 2)} m</td></tr>
+<tr><td>Grøftebunn</td><td>${t(m.grofteBunn, 2)} m</td></tr>
+<tr><td>Skjæring i løsmasse</td><td>1:${t(m.skjaeringLosmasse, 1)}</td></tr>
+<tr><td>Skjæring i fjell</td><td>1:${t(m.skjaeringFjell, 1)}</td></tr>
+<tr><td>Fyllingsskråning</td><td>1:${t(m.fylling, 1)}</td></tr>
 <tr><td>Profilavstand</td><td>${t(res.stasjoner[1] - res.stasjoner[0], 1)} m</td></tr>
-<tr><td>Standard dybde til fjell</td><td>${app.P.fjell.standarddybde} m</td></tr>
+<tr><td>Standard dybde til fjell</td><td>${t(app.P.fjell.standarddybde, 2)} m</td></tr>
 <tr><td>Observasjoner av fjelldybde</td><td>${app.P.fjell.punkter.length} stk</td></tr>
-<tr><td>Lengdekorreksjon UTM → bakke</td><td>${res.bakkefaktor === 1 ? 'ikke brukt' : '× ' + res.bakkefaktor.toFixed(6)}</td></tr>
+<tr><td>Lengdekorreksjon UTM → bakke</td><td>${res.bakkefaktor === 1 ? 'ikke brukt' : '× ' + t(res.bakkefaktor, 6)}</td></tr>
 </table>
 <p class="liten">Volumene er regnet med gjennomsnittlig endeareal mellom profilene, med Pappus-korreksjon for kurvatur.
 Skjæring og fylling er regnet mot planum (under overbygningen) og mot terreng etter rensk.
@@ -681,11 +716,11 @@ p.f. = prosjektert fast volum, p.a. = prosjektert anbrakt volum.</p>
 </div>
 </div>
 
-<h2>Masser per ${bolk} meter</h2>
+<h2>Masser per ${t(bolk, bolk % 1 ? 1 : 0)} meter</h2>
 <table>
 <thead><tr><th>Fra–til</th><th>Rensk</th><th>Skjæring løsm.</th><th>Skjæring fjell</th><th>Skjæring sum</th><th>Fylling</th><th>Bærelag</th><th>Slitelag</th></tr></thead>
 <tbody>
-${rader.map(r => `<tr><td>${r.fra}–${r.til.toFixed(0)}</td><td>${t(r.rensk)}</td><td>${t(r.los)}</td><td>${t(r.fjell)}</td><td>${t(r.skjaering)}</td><td>${t(r.fylling)}</td><td>${t(r.baerelag)}</td><td>${t(r.slitelag)}</td></tr>`).join('')}
+${rader.map(r => `<tr><td>${t(r.fra)}–${t(r.til)}</td><td>${t(r.rensk)}</td><td>${t(r.los)}</td><td>${t(r.fjell)}</td><td>${t(r.skjaering)}</td><td>${t(r.fylling)}</td><td>${t(r.baerelag)}</td><td>${t(r.slitelag)}</td></tr>`).join('')}
 <tr class="sum"><td>Sum</td><td>${t(s.rensk)}</td><td>${t(s.skjaeringLosmasse)}</td><td>${t(s.skjaeringFjell)}</td><td>${t(s.skjaering)}</td><td>${t(s.fylling)}</td><td>${t(s.baerelag)}</td><td>${t(s.slitelag)}</td></tr>
 </tbody></table>
 
@@ -694,26 +729,26 @@ ${rader.map(r => `<tr><td>${r.fra}–${r.til.toFixed(0)}</td><td>${t(r.rensk)}</
 
 <h2>Tverrsnitt</h2>
 <div class="tverrsnitt">
-${tegninger.tverrsnitt.map(t => `<figure>
-  <img src="${t.bilde}" alt="Tverrsnitt profil ${t.s.toFixed(0)}">
-  <figcaption>Profil ${t.s.toFixed(0)} · skjæring ${t.areal.skjaering.toFixed(1)} m²
-    (fjell ${t.areal.skjaeringFjell.toFixed(1)}) · fylling ${t.areal.fylling.toFixed(1)} m²</figcaption>
+${tegninger.tverrsnitt.map(x => `<figure>
+  <img src="${x.bilde}" alt="Tverrsnitt profil ${t(x.s)}">
+  <figcaption>Profil ${t(x.s)} · skjæring ${t(x.areal.skjaering, 1)} m²
+    (fjell ${t(x.areal.skjaeringFjell, 1)}) · fylling ${t(x.areal.fylling, 1)} m²</figcaption>
 </figure>`).join('')}
 </div>
 
 <h2>Stikningsdata – senterlinje</h2>
 <p class="liten">EUREF89 UTM${app.sone}. VK og HK er venstre og høyre vegkant.
-Z er ferdig vegnivå. Hele oppsettet med hver ${t(res.stasjoner[1] - res.stasjoner[0], 1)} meter
-kan hentes som CSV under fanen «Linje».</p>
+Z er ferdig vegnivå. Tabellen har hver ${t(stikning.hver, stikning.hver % 1 ? 1 : 0)} meter; hele oppsettet med hver
+${t(res.stasjoner[1] - res.stasjoner[0], 1)} meter kan hentes som CSV under fanen «Eksport».</p>
 <table class="stikning">
 <thead><tr><th>Profil</th><th>Nord</th><th>Øst</th><th>Z veg</th><th>Z terreng</th>
 <th>VK nord</th><th>VK øst</th><th>VK Z</th><th>HK nord</th><th>HK øst</th><th>HK Z</th></tr></thead>
 <tbody>
-${stikning.map(r => `<tr><td>${r.s.toFixed(0)}</td>
-<td>${r.n.toFixed(3)}</td><td>${r.o.toFixed(3)}</td><td>${r.z.toFixed(3)}</td>
-<td>${isFinite(r.terreng) ? r.terreng.toFixed(3) : '–'}</td>
-<td>${r.vkN.toFixed(3)}</td><td>${r.vkO.toFixed(3)}</td><td>${r.vkZ.toFixed(3)}</td>
-<td>${r.hkN.toFixed(3)}</td><td>${r.hkO.toFixed(3)}</td><td>${r.hkZ.toFixed(3)}</td></tr>`).join('')}
+${stikning.map(r => `<tr><td>${t(r.s)}</td>
+<td>${n(r.n, 3)}</td><td>${n(r.o, 3)}</td><td>${n(r.z, 3)}</td>
+<td>${isFinite(r.terreng) ? n(r.terreng, 3) : '–'}</td>
+<td>${n(r.vkN, 3)}</td><td>${n(r.vkO, 3)}</td><td>${n(r.vkZ, 3)}</td>
+<td>${n(r.hkN, 3)}</td><td>${n(r.hkO, 3)}</td><td>${n(r.hkZ, 3)}</td></tr>`).join('')}
 </tbody></table>
 
 ${merknader ? `<h2>Merknader</h2><table><thead><tr><th>Profil</th><th>Type</th><th>Merknad</th></tr></thead><tbody>${merknader}</tbody></table>` : ''}
@@ -2116,3 +2151,6 @@ function klassenavn(app) {
 function escapeHtml(s) {
   return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
+
+// de rene delene (bolker, stikningstabell) prøves i node – se test/selftest.js
+if (typeof module !== 'undefined') module.exports = Rapport;

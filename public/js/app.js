@@ -2845,7 +2845,8 @@ const App = {
       plasser: this.P.plasser,
       profilAvstand: this.P.profilAvstand, bakkefaktor: this.bakkefaktor()
     });
-    this.resultat.mal.profilAvstand = this.P.profilAvstand;
+    // den som er brukt – motoren klemmer en urimelig verdi, og da skal skjermen si det samme
+    this.resultat.mal.profilAvstand = this.resultat.profilAvstand;
     this.merkResultat();
     /* VEGEN SKAL OGSÅ VISE HVA DEN SLIPPER Å GRAVE.
        `naboTok` ble bare regnet for TOMTER, så en veg som gikk gjennom en
@@ -3004,12 +3005,19 @@ const App = {
       const grunn = (this.resultat && this.resultat.sum) ? this.resultat.sum : kjor(lagFjell(0)).sum;
       const grunnere = kjor(lagFjell(-0.5)).sum;   // fjellet ligger høyere
       const dypere = kjor(lagFjell(+0.5)).sum;
+      /* Fjell grunnere enn en halvmeter kan ikke flyttes en halvmeter opp – det
+         stopper i terrenget (`Math.max(0, …)` over). Da er «0,5 m grunnere» ikke
+         det som er regnet, og teksten må si det. */
+      const f = this.P.fjell;
+      const begrenset = [f.standarddybde, ...(f.strekninger || []).map(s => s.dybde), ...f.punkter.map(p => p.dybde)]
+        .some(d => Number.isFinite(d) && d < 0.5);
       return {
         fjellNa: grunn.skjaeringFjell,
         fjellGrunnere: grunnere.skjaeringFjell,
         fjellDypere: dypere.skjaeringFjell,
         spenn: Math.abs(grunnere.skjaeringFjell - dypere.skjaeringFjell),
-        skjaeringTotalt: grunn.skjaering
+        skjaeringTotalt: grunn.skjaering,
+        begrenset
       };
     } catch (e) { return null; }
   },

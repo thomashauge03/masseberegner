@@ -180,7 +180,9 @@ const Pdfrapport = {
     tilstand.sidetall++;
     P.tekst(this.MARG, 34, this._sperret('MASSEBEREGNING'),
       { storrelse: 6.4, fet: true, farge: this.ROD });
-    P.tekst(this.MARG, 54, String(app.P.navn), { storrelse: this.T1, fet: true, farge: this.SVART });
+    // navnet kortes av – et langt navn gikk over margen (L22)
+    P.tekst(this.MARG, 54, this._kort(P, String(app.P.navn), (innmarg - this.MARG) * 0.9, this.T1),
+      { storrelse: this.T1, fet: true, farge: this.SVART });
     P.rektangel(this.MARG, 64, innmarg - this.MARG, 2.5, { fyll: this.ROD });
     let y = 96;
     P.tekst(this.MARG, y, 'HELE PROSJEKTET', { storrelse: this.T3, fet: true, farge: this.SVART });
@@ -196,7 +198,8 @@ const Pdfrapport = {
     }
     y += 12;
     for (const r of rader) {
-      P.tekst(this.MARG, y, r.kode + ' · ' + r.navn, { storrelse: this.T4, farge: this.SVART });
+      P.tekst(this.MARG, y, this._kort(P, r.kode + ' · ' + r.navn, kol[1] - this.MARG - 90, this.T4),
+        { storrelse: this.T4, farge: this.SVART });
       if (r.type === 'ror') {
         /* Grøftemassene er en annen sort enn vegens og tomtas skjæring og
            fylling – de står i raden som tekst, og raden teller ikke i summen. */
@@ -212,8 +215,8 @@ const Pdfrapport = {
     /* Et anlegg som ikke kom med står her med grunnen sin. Uten linjen ser
        summen ut som hele prosjektet, og det er den ikke. */
     for (const h of hoppet) {
-      P.tekst(this.MARG, y, (h.anlegg.navn || h.anlegg.type) + ' – ikke regnet: ' + h.grunn,
-        { storrelse: this.T5, farge: this.ROD });
+      P.tekst(this.MARG, y, this._kort(P, (h.anlegg.navn || h.anlegg.type) + ' – ikke regnet: ' + h.grunn,
+        innmarg - this.MARG, this.T5), { storrelse: this.T5, farge: this.ROD });
       y += 12;
     }
     y += 4;
@@ -292,14 +295,17 @@ const Pdfrapport = {
          «MASSEBEREGNING» i 15 pt fet hvit på hver eneste side, dobbelt så stort
          som prosjektnavnet. Men det ordet er likt i hver rapport programmet har
          laget; prosjektnavnet er det eneste som skiller denne fra alle andre. */
+      /* Prosjektnavnet kortes av før datoen: et navn på rundt femti tegn skrev
+         over den (L22). Fet skrift er bredere enn den `_kort` måler, derav marginen. */
+      const navn = this._kort(P, String(app.P.navn), (innmarg - xTekst - 90) * 0.92, this.T2);
       if (tilstand.sidetall === 1) {
         P.tekst(xTekst, 22, this._sperret('MASSEBEREGNING'),
           { storrelse: 6.4, fet: true, farge: this.ROD });
-        P.tekst(xTekst, 38, String(app.P.navn), { storrelse: this.T2, fet: true, farge: this.SVART });
+        P.tekst(xTekst, 38, navn, { storrelse: this.T2, fet: true, farge: this.SVART });
         P.tekst(xTekst, 50, this._kort(P, undertittel, 300, this.T4),
           { storrelse: this.T4, farge: this.GRA });
       } else {
-        P.tekst(xTekst, 32, String(app.P.navn), { storrelse: this.T2, fet: true, farge: this.SVART });
+        P.tekst(xTekst, 32, navn, { storrelse: this.T2, fet: true, farge: this.SVART });
         P.tekst(xTekst, 45, this._kort(P, undertittel, 300, this.T4),
           { storrelse: this.T4, farge: this.GRA });
       }
@@ -319,8 +325,11 @@ const Pdfrapport = {
      *   Uten den ba overskriften bare om plass til seg selv, og «Tverrsnitt»
      *   ble stående alene nederst på siden med tegningene på den neste.
      */
+    /* Uten `behov` ber overskriften om plass til et tabellhode og første rad
+       etter seg. Her var det 12: tabellhodet trenger 23 pt, og da ble
+       «Stikningsdata» og «Merknader» stående alene nederst på siden. */
     const overskrift = (tekst, behov) => {
-      plass((behov != null ? behov : 12) + 34);
+      plass((behov != null ? behov : 30) + 34);
       tilstand.y += 12;
       P.tekst(this.MARG, tilstand.y, tekst.toUpperCase(),
         { storrelse: this.T3, fet: true, farge: this.SVART });
@@ -554,9 +563,11 @@ const Pdfrapport = {
         [`Brukbar løsmasse (${Math.round(f.brukbarLosmasse * 100)} %)`, t(b.brukbarLos) + ' m³'],
         ['Fylling av egne masser', `${t(b.fyllFraLos + b.fyllFraFjell)} av ${t(b.fyllingBehov)} m³`],
         ['Bærelag av egen stein', `${t(b.baerelagFraFjell)} av ${t(b.baerelagBehov)} m³`],
-        [b.manglerTotalt > 1 ? 'Må kjøres inn' : 'Overskudd av sprengstein',
+        [b.manglerTotalt > 1 ? 'Må kjøres inn' : 'Overskudd av sprengstein (fyllingsvolum)',
           t(b.manglerTotalt > 1 ? b.manglerTotalt : b.overskuddFjell) + ' m³', true,
           b.manglerTotalt > 1],
+        // slitelaget kjøpes uansett – knust grus lages ikke av skjæringen
+        ...(b.slitelagKjopes > 0.5 ? [['Slitelag – kjøpes inn i tillegg', t(b.slitelagKjopes) + ' p.a.m³']] : []),
         ['Overskudd brukbar løsmasse', t(b.overskuddLos) + ' m³'],
         ['Til deponi', t(b.tilDeponi) + ' m³'],
         [`Sprengt fjell, løst (x ${t(f.sprengningsfaktor, 2)})`, t(b.fjellSprengtLos) + ' p.a.m³']
@@ -646,28 +657,16 @@ const Pdfrapport = {
     }
 
     /* ---------------- masser per bolk ---------------- */
-    const bolk = 20;
-    const bolker = [];
-    let na = null;
-    for (const iv of res.intervaller) {
-      const start = Math.floor(iv.fra / bolk) * bolk;
-      if (!na || na.fra !== start) {
-        na = { fra: start, til: start + bolk, rensk: 0, skjaering: 0, fjell: 0, los: 0, fylling: 0, baerelag: 0, slitelag: 0 };
-        bolker.push(na);
-      }
-      na.rensk += iv.volum.rensk; na.skjaering += iv.volum.skjaering;
-      na.fjell += iv.volum.skjaeringFjell; na.los += iv.volum.skjaeringLosmasse;
-      na.fylling += iv.volum.fylling; na.baerelag += iv.volum.baerelag;
-      na.slitelag += iv.volum.slitelag; na.til = iv.til;
-    }
-    overskrift(`Masser per ${bolk} meter`);
+    // samme bolker som HTML-rapporten – se Rapport.bolker
+    const { bolk, rader: bolker } = Rapport.bolker(res, 20);
+    overskrift(`Masser per ${t(bolk, bolk % 1 ? 1 : 0)} meter`);
     tabell(
       [{ tekst: 'Fra–til', bredde: 14, venstre: true }, { tekst: 'Rensk', bredde: 11 },
       { tekst: 'Skjær. løsm.', bredde: 13 }, { tekst: 'Skjær. fjell', bredde: 13 },
       { tekst: 'Skjær. sum', bredde: 12 }, { tekst: 'Fylling', bredde: 11 },
       { tekst: 'Bærelag', bredde: 11 }, { tekst: 'Slitelag', bredde: 11 }],
       bolker.map(r => ({
-        celler: [`${r.fra}–${r.til.toFixed(0)}`, t(r.rensk), t(r.los), t(r.fjell),
+        celler: [`${t(r.fra)}–${t(r.til)}`, t(r.rensk), t(r.los), t(r.fjell),
           t(r.skjaering), t(r.fylling), t(r.baerelag), t(r.slitelag)]
       })).concat([{
         sum: true,
@@ -679,9 +678,11 @@ const Pdfrapport = {
     /* ---------------- stikning ---------------- */
     const steg = res.lengdeKart > 600 ? 10 : 5;
     const stikning = Rapport.stikningstabell(res, steg);
+    const n3 = v => Rapport.n(v, 3);      // desimalkomma, uten tusenskille – som i resten av dokumentet
     overskrift('Stikningsdata – senterlinje');
     brodtekst(`EUREF89 UTM${app.sone}. VK og HK er venstre og høyre vegkant. Z er ferdig vegnivå. `
-      + `Hele oppsettet med hver ${t(res.stasjoner[1] - res.stasjoner[0], 1)} meter kan hentes som CSV under fanen «Linje».`);
+      + `Tabellen har hver ${t(stikning.hver, stikning.hver % 1 ? 1 : 0)} meter; hele oppsettet med hver `
+      + `${t(res.stasjoner[1] - res.stasjoner[0], 1)} meter kan hentes som CSV under fanen «Eksport».`);
     tilstand.y += 2;
     tabell(
       [{ tekst: 'Profil', bredde: 8, venstre: true }, { tekst: 'Nord', bredde: 14 }, { tekst: 'Øst', bredde: 13 },
@@ -689,10 +690,10 @@ const Pdfrapport = {
       { tekst: 'VK nord', bredde: 14 }, { tekst: 'VK øst', bredde: 13 }, { tekst: 'VK Z', bredde: 10 },
       { tekst: 'HK nord', bredde: 14 }, { tekst: 'HK øst', bredde: 13 }, { tekst: 'HK Z', bredde: 10 }],
       stikning.map(r => ({
-        celler: [r.s.toFixed(0), r.n.toFixed(3), r.o.toFixed(3), r.z.toFixed(3),
-          isFinite(r.terreng) ? r.terreng.toFixed(3) : '–',
-          r.vkN.toFixed(3), r.vkO.toFixed(3), r.vkZ.toFixed(3),
-          r.hkN.toFixed(3), r.hkO.toFixed(3), r.hkZ.toFixed(3)]
+        celler: [t(r.s), n3(r.n), n3(r.o), n3(r.z),
+          isFinite(r.terreng) ? n3(r.terreng) : '–',
+          n3(r.vkN), n3(r.vkO), n3(r.vkZ),
+          n3(r.hkN), n3(r.hkO), n3(r.hkZ)]
       })),
       { storrelse: 6.4, radhoyde: 9.6 }
     );
