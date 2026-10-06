@@ -36,9 +36,22 @@ const Rorkart = (() => {
   const SVAK = [0.38, 0.38, 0.38];
 
   const hexTilRgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255);
+  const rgbTilHex = rgb => '#' + rgb.map(v => Math.round(Math.max(0, Math.min(1, v)) * 255).toString(16).padStart(2, '0')).join('');
 
   /**
-   * Farge per rørkode, for hele prosjektet.
+   * Nyanse nr. `i` i en familie. Når familiens egne er brukt opp, lages nye av
+   * dem – lysere, så mørkere, så enda lysere – så seks vannledninger ikke får
+   * samme blå. Her gikk den rundt, og VL 32 og VL 160 ble like.
+   */
+  function nyanse(fam, i) {
+    const n = fam.length, runde = Math.floor(i / n), grunn = hexTilRgb(fam[i % n]);
+    if (!runde) return fam[i % n];
+    const lys = runde % 2 === 1, f = Math.min(0.75, 0.3 + 0.15 * Math.floor((runde - 1) / 2));
+    return rgbTilHex(grunn.map(v => (lys ? v + (1 - v) * f : v * (1 - f))));
+  }
+
+  /**
+   * Farge per rørkode, for hele prosjektet – hver kode sin.
    * @param {Object<string, {system?:string, dim?:number}>} koder  kodene som har rør
    * @returns {Map<string, {rgb:number[], hex:string, system:string, nr:number}>}
    */
@@ -50,12 +63,17 @@ const Rorkart = (() => {
       if (!grupper.has(sys)) grupper.set(sys, []);
       grupper.get(sys).push({ kode, dim: +k.dim || 0 });
     }
-    const ut = new Map();
-    for (const [sys, liste] of grupper) {
+    const ut = new Map(), brukt = new Set();
+    for (const sys of Object.keys(FAMILIER)) {
+      const liste = grupper.get(sys);
+      if (!liste) continue;
       liste.sort((a, b) => b.dim - a.dim || (a.kode < b.kode ? -1 : a.kode > b.kode ? 1 : 0));
       const fam = FAMILIER[sys];
       liste.forEach((x, i) => {
-        const hex = fam[i % fam.length];
+        let hex = nyanse(fam, i);
+        // to like etter avrundingen: et hakk mørkere til den er ledig
+        for (let t = 1; brukt.has(hex) && t < 20; t++) hex = rgbTilHex(hexTilRgb(nyanse(fam, i)).map(v => v * (1 - 0.04 * t)));
+        brukt.add(hex);
         ut.set(x.kode, { rgb: hexTilRgb(hex), hex, system: sys, nr: i });
       });
     }
@@ -180,7 +198,7 @@ const Rorkart = (() => {
     const valgte = (valg.koder || []).filter(k => finnes.has(k));
     if (!valgte.length) throw new Error('Velg minst én rørtype');
     const ut = [{
-      tittel: valgte.length === 1 ? valgte[0] : 'Alle valgte rør', koder: valgte, graa: [],
+      tittel: valgte.length === 1 ? valgte[0] : 'Alle valgte rør', koder: valgte, graa: [], samle: true,
       utsnitt: utsnitt(boksFor(data, valgte), opp.kart)
     }];
     if (valg.perType && valgte.length > 1) {
@@ -233,6 +251,16 @@ const Rorkart = (() => {
     const pt = v => v * MM;
     const papir = tilPapir(u);
     const iKart = (x, y) => { const [mx, my] = papir(x, y); return [pt(K.x + mx), pt(K.y + my)]; };
+    /* Kummene på siden: de som hører til typene her. En innmålt kum uten noe
+       rør innen to meter hører ikke til noen type, og står bare på samlesiden. */
+    const kummerHer = (data.kummer || []).filter(k => (k.kode == null ? !!side.samle : side.koder.includes(k.kode)));
+    // en tekst som får plass i bredden (mm) – ellers kortet, med «…»
+    const kort = (tekst, st, fet, maksMm) => {
+      let s = String(tekst);
+      if (P.bredteAv(s, st, fet) <= pt(maksMm)) return s;
+      while (s.length > 1 && P.bredteAv(s + '…', st, fet) > pt(maksMm)) s = s.slice(0, -1);
+      return s + '…';
+    };
     P.nySide();
 
     // ---- kartflaten
@@ -253,8 +281,7 @@ const Rorkart = (() => {
         P.sti(l.xy.map(q => iKart(q.x, q.y)), { farge: f ? f.rgb : SVART, tykkelse: pt(tykkelse(l.dim)),
           stiplet: l.kilde === 'planlagt' ? [pt(3), pt(1.6)] : null });
       }
-      for (const k of data.kummer || []) {
-        if (k.kode != null && !med.has(k.kode)) continue;
+      for (const k of kummerHer) {
         const [x, y] = iKart(k.x, k.y);
         // kummen i målestokk, men aldri mindre enn at den synes
         const r = Math.max(pt(0.9), pt(((+k.d || 1) / 2) * 1000 / u.N));
@@ -262,8 +289,14 @@ const Rorkart = (() => {
       }
     });
     P.rektangel(pt(K.x), pt(K.y), pt(K.b), pt(K.h), { strek: SVART, tykkelse: pt(0.3) });
-    if (!bakgrunn && o.merknad) {
-      P.tekst(pt(K.x + 3), pt(K.y + K.h - 3), o.merknad, { storrelse: 7, farge: SVAK });
+    /* Det som mangler, står i kartet – også når bare noen fliser ble borte.
+       Hvite ruter i bakgrunnen uten et ord ser ut som et kart med hull i
+       terrenget. */
+    const notis = !bakgrunn ? o.merknad
+      : bakgrunn.mangler ? `${bakgrunn.mangler} av ${bakgrunn.av} fliser i bakgrunnskartet manglet` : null;
+    if (notis) {
+      P.rektangel(pt(K.x + 1.5), pt(K.y + K.h - 6.2), P.bredteAv(notis, 7) + pt(3), pt(4.6), { fyll: [1, 1, 1] });
+      P.tekst(pt(K.x + 3), pt(K.y + K.h - 3), notis, { storrelse: 7, farge: SVAK });
     }
 
     // ---- tegnforklaringen
@@ -273,44 +306,70 @@ const Rorkart = (() => {
       y += st / MM + luft;
       P.tekst(pt(F.x), pt(y), tekst, { storrelse: st, fet, farge });
     };
-    linje(data.prosjekt || 'Prosjekt', 13, true, SVART, 2);
+    linje(kort(data.prosjekt || 'Prosjekt', 13, true, F.b), 13, true, SVART, 2);
     linje('Oversiktskart – rør', 9, false, SVAK);
     y += 3;
-    linje(side.tittel, 12, true, SVART);
+    linje(kort(side.tittel, 12, true, F.b), 12, true, SVART);
     linje(`Målestokk 1:${tall(u.N)} ved utskrift på ${opp.papir.navn}`, 8, false, SVAK);
     y += 5;
     linje('Tegnforklaring', 9, true, SVART);
     y += 1.5;
-    const prove = (farge, stiplet, tykk) => {
-      const yy = pt(y - 1.2);
-      P.sti([[pt(F.x), yy], [pt(F.x + 12), yy]], { farge, tykkelse: pt(tykk), stiplet });
+    const prove = (x, yy, farge, stiplet, tykk, lengde = 12) => {
+      P.sti([[pt(x), pt(yy - 1.2)], [pt(x + lengde), pt(yy - 1.2)]], { farge, tykkelse: pt(tykk), stiplet });
     };
-    for (const kode of side.koder) {
-      const f = farger.get(kode), om = omKode(data, kode);
-      const dim = (data.linjer.find(l => l.kode === kode) || {}).dim;
-      y += 5;
-      prove(f ? f.rgb : SVART, om.kilde === 'planlagt' ? [pt(3), pt(1.6)] : null, tykkelse(dim));
-      P.tekst(pt(F.x + 15), pt(y), kode, { storrelse: 9, fet: true });
-      y += 3.6;
-      P.tekst(pt(F.x + 15), pt(y), `${tall(om.lengde)} m · ${om.antall} rør · ${om.kilde}`, { storrelse: 7, farge: SVAK });
-      if (y > F.y + F.h - 60) break;                 // resten får ikke plass – sjelden, men aldri over linjalen
-    }
-    if ((side.graa || []).length) {
-      y += 5;
-      prove(GRAA, null, 0.35);
-      P.tekst(pt(F.x + 15), pt(y), 'Andre rør i prosjektet', { storrelse: 8, farge: SVAK });
-    }
     const paSiden = data.linjer.filter(l => side.koder.includes(l.kode));
     const harPlan = paSiden.some(l => l.kilde === 'planlagt'), harMalt = paSiden.some(l => l.kilde !== 'planlagt');
+    const harGraa = (side.graa || []).length > 0;
+    /* ALLE KODENE SKAL STÅ I FORKLARINGEN. Her ble det stoppet når kolonnen var
+       full: på A4 sto elleve, og den tolvte var en farge i kartet uten forklaring.
+       Får de ikke plass med to linjer hver, får de én; så to kolonner; og først
+       når heller ikke det holder, står det hvor mange som mangler. */
+    const ekstra = (harGraa ? 5 : 0) + (harPlan && harMalt ? 10.5 : 0) + (kummerHer.length ? 6 : 0);
+    const plass = (F.y + F.h - 62) - ekstra - y;
+    const n = side.koder.length, RAD = 4.8;
+    const modus = n * 8.6 <= plass ? 'to' : n * RAD <= plass ? 'en' : 'kolonner';
+    const rader = modus === 'kolonner' ? Math.max(1, Math.floor(plass / RAD)) : n;
+    const kapasitet = modus === 'kolonner' ? 2 * rader : n;
+    const vises = n > kapasitet ? side.koder.slice(0, kapasitet - 1) : side.koder;
+    const start = y;
+    vises.forEach((kode, i) => {
+      const f = farger.get(kode), om = omKode(data, kode);
+      const dim = (data.linjer.find(l => l.kode === kode) || {}).dim;
+      const farge = f ? f.rgb : SVART, stiplet = om.kilde === 'planlagt' ? [pt(3), pt(1.6)] : null;
+      if (modus === 'to') {
+        y += 5;
+        prove(F.x, y, farge, stiplet, tykkelse(dim));
+        P.tekst(pt(F.x + 15), pt(y), kort(kode, 9, true, F.b - 15), { storrelse: 9, fet: true });
+        y += 3.6;
+        P.tekst(pt(F.x + 15), pt(y), `${tall(om.lengde)} m · ${om.antall} rør · ${om.kilde}`, { storrelse: 7, farge: SVAK });
+        return;
+      }
+      const kol = modus === 'kolonner' ? Math.floor(i / rader) : 0, rad = modus === 'kolonner' ? i % rader : i;
+      const bredde = modus === 'kolonner' ? F.b / 2 - 1.5 : F.b;
+      const x0 = F.x + kol * (F.b / 2 + 1.5), yy = start + RAD * (rad + 1);
+      prove(x0, yy, farge, stiplet, tykkelse(dim), 7);
+      P.tekst(pt(x0 + 9), pt(yy), kort(kode, 7.5, true, bredde - 9 - 13), { storrelse: 7.5, fet: true });
+      P.tekst(pt(x0 + bredde), pt(yy), `${tall(om.lengde)} m`, { storrelse: 6.5, farge: SVAK, juster: 'h' });
+    });
+    if (modus !== 'to') y = start + RAD * Math.min(rader, vises.length);
+    if (vises.length < n) {
+      y += RAD;
+      P.tekst(pt(F.x), pt(y), `+ ${n - vises.length} rørtyper til`, { storrelse: 7.5, fet: true, farge: SVAK });
+    }
+    if (harGraa) {
+      y += 5;
+      prove(F.x, y, GRAA, null, 0.35);
+      P.tekst(pt(F.x + 15), pt(y), 'Andre rør i prosjektet', { storrelse: 8, farge: SVAK });
+    }
     if (harPlan && harMalt) {
       y += 6;
-      prove(SVART, null, 0.6);
+      prove(F.x, y, SVART, null, 0.6);
       P.tekst(pt(F.x + 15), pt(y), 'Heltrukken: innmålt', { storrelse: 8 });
       y += 4.5;
-      prove(SVART, [pt(3), pt(1.6)], 0.6);
+      prove(F.x, y, SVART, [pt(3), pt(1.6)], 0.6);
       P.tekst(pt(F.x + 15), pt(y), 'Stiplet: planlagt', { storrelse: 8 });
     }
-    if ((data.kummer || []).some(k => k.kode == null || side.koder.includes(k.kode))) {
+    if (kummerHer.length) {
       y += 6;
       P.sirkel(pt(F.x + 6), pt(y - 1.2), pt(1.2), { fyll: [1, 1, 1], strek: SVART, tykkelse: pt(0.25) });
       P.tekst(pt(F.x + 15), pt(y), 'Kum', { storrelse: 8 });

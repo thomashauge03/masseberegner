@@ -122,6 +122,26 @@ Brukeren har gitt fullmakt til å ta designvalgene. De står under.
     ingen nett trengs.
   - Prosjektet er urørt etterpå: `P` og angrelista er de samme.
 
+## Etter gjennomgangen
+
+- **Tegnforklaringen tar med alle kodene.**
+  - Er det ikke plass til to linjer hver, får hver kode én linje. Så kommer
+    to kolonner.
+  - Først når heller ikke det holder, står «+ N rørtyper til». På A3 skjer
+    det etter 60–70 koder, på A4 etter 30–40.
+  - Lange navn kortes med «...».
+- **Hver kode har sin farge.** Når en familie er brukt opp, lages nye nyanser
+  av den, lysere og så mørkere.
+- **Bakgrunnen:**
+  - Hver side har én frist, 40 s for alle flisene.
+  - «Avbryt» i framdriftsboksen stopper hele hentingen.
+  - Svikter én side, prøves ikke de neste.
+  - En flis som svikter, prøves én gang til.
+  - Hvor mange fliser som manglet, står i kartet og i statuslinja.
+  - Lerretet slippes etter hver side.
+- **Én henting om gangen.**
+- **En innmålt kum uten rør innen 2 m** står bare på samlesiden.
+
 ## Utenfor
 
 - Påskrift langs rørene og automatisk plassering av etiketter.

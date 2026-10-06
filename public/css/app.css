@@ -1035,6 +1035,7 @@ ul.groftjusteringer li { margin: 3px 0; }
 #framdriftTekst { font-family: var(--skrift-tittel); text-transform: uppercase; letter-spacing: .05em; font-weight: 700; font-size: 15px; }
 .stolpe { height: 8px; background: var(--kant); margin-top: 12px; overflow: hidden; }
 #framdriftStolpe { height: 100%; width: 0%; background: var(--hm-raud); transition: width .15s; }
+#framdriftAvbryt { margin-top: 14px; }
 
 /* ── markørar i kartet ─────────────────────────────────── */
 .ip-markor {

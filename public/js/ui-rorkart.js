@@ -116,8 +116,14 @@ const RorkartUI = {
   /** Knappen: valget, så fila. */
   async apne() {
     const app = this.app;
+    if (this._paagaar) { app.status('Oversiktskartet lages allerede – vent til det er ferdig'); return null; }
     if (!this.harRor()) { app.status('Prosjektet har ingen rør å tegne – importer en fil eller tegn en trase først'); return null; }
-    const data = this.samle();
+    let data;
+    try { data = this.samle(); } catch (e) {
+      app.status('Klarte ikke å samle rørene til kartet: ' + e.message);
+      console.error(e);
+      return null;
+    }
     if (!data.linjer.length) { app.status('Ingen av rørene har nok punkt til å bli en strek i kartet'); return null; }
     const valg = await this.dialog(data);
     if (!valg) return null;
@@ -155,7 +161,8 @@ const RorkartUI = {
         <table class="rorkoder rorkartkoder"><thead><tr><th scope="col">Med</th><th scope="col">Rørtype</th>
           <th scope="col">Lengde</th><th scope="col">Rør</th><th scope="col">Kilde</th></tr></thead>
           <tbody>${rader}</tbody></table>
-        <div class="knapperad"><button class="knapp" id="rkAlle">Alle</button><button class="knapp" id="rkIngen">Ingen</button></div>
+        <div class="knapperad"><button class="knapp" id="rkAlle" aria-label="Kryss av alle rørtypene">Alle</button>
+          <button class="knapp" id="rkIngen" aria-label="Fjern krysset for alle rørtypene">Ingen</button></div>
         <div class="rorinnstilling"><label><input type="checkbox" id="rkPerType" checked> Ett kart per type i tillegg</label></div>
         <div class="rorinnstilling"><label for="rkBakgrunn">Bakgrunnskart</label>
           <select id="rkBakgrunn" class="minivalg"><option value="topograatone">Gråtone (Kartverket)</option>
@@ -172,6 +179,8 @@ const RorkartUI = {
       innhold.querySelector('#rkIngen').onclick = () => bokser().forEach(b => { b.checked = false; });
       let avgjort = false;
       const gammelLukk = lukkeknapp.onclick;
+      // markøren tilbake dit den kom fra når valget lukkes – knappen som åpnet det
+      const forrige = document.activeElement;
       const taste = e => { if (e.key === 'Escape') lukk(null); };
       const lukk = svar => {
         if (avgjort) return;
@@ -180,6 +189,7 @@ const RorkartUI = {
         ramme.classList.remove('bred');
         lukkeknapp.onclick = gammelLukk;
         document.removeEventListener('keydown', taste);
+        if (forrige && typeof forrige.focus === 'function') forrige.focus();
         los(svar);
       };
       lukkeknapp.onclick = () => lukk(null);
@@ -194,6 +204,8 @@ const RorkartUI = {
       document.addEventListener('keydown', taste);
       ramme.classList.add('bred');
       boks.classList.remove('skjult');
+      const forste = innhold.querySelector('tbody input[type=checkbox]');
+      if (forste) forste.focus();
     });
   },
 
@@ -201,36 +213,65 @@ const RorkartUI = {
    * Bakgrunnskartet for et utsnitt: flisene satt sammen på et lerret, som JPEG.
    *
    * Flisene hentes med fetch, så lerretet ikke blir «skittent» – tjenesten
-   * svarer Access-Control-Allow-Origin: *. En flis som ikke kommer, blir hvit;
-   * mangler mer enn halvparten, er det ikke et kart, og siden lages uten.
-   * @returns {Promise<?{bytes, bredde, hoyde}>}
+   * svarer Access-Control-Allow-Origin: *. En flis som ikke kommer, prøves én
+   * gang til og blir ellers hvit; mangler mer enn halvparten, er det ikke et
+   * kart, og siden lages uten. Hvor mange som manglet, står i svaret.
+   *
+   * ÉN FRIST FOR HELE SIDEN, og «Avbryt» stopper alt. Her ventet hver flis
+   * opp til 15 s for seg, seks om gangen: en A3-side kunne stå i over seks
+   * minutter på et nett som ikke svarte, med hele programmet bak
+   * framdriftsboksen.
+   *
+   * @param {object} plan  fra Rorkart.flisplan
+   * @param {{signal?:AbortSignal, frist?:number, framdrift?:(andel:number) => void}} [o]
+   * @returns {Promise<?{bytes, bredde, hoyde, mangler:number, av:number}>}
    */
-  async hentBakgrunn(plan) {
+  async hentBakgrunn(plan, o = {}) {
     if (!plan || !plan.fliser.length || !plan.bredde || !plan.hoyde) return null;
+    const stopp = new AbortController();
+    const frist = setTimeout(() => stopp.abort(), o.frist || 40000);
+    const avbryt = () => stopp.abort();
+    if (o.signal) { if (o.signal.aborted) stopp.abort(); else o.signal.addEventListener('abort', avbryt); }
     const l = document.createElement('canvas');
     l.width = plan.bredde; l.height = plan.hoyde;
     const c = l.getContext('2d');
     c.fillStyle = '#ffffff';
     c.fillRect(0, 0, l.width, l.height);
-    let ok = 0;
-    const ko = plan.fliser.slice();
+    let ok = 0, ferdig = 0;
     const hent = async f => {
-      const stopp = new AbortController();
-      const tid = setTimeout(() => stopp.abort(), 15000);
-      try {
-        const svar = await fetch(f.url, { mode: 'cors', signal: stopp.signal });
-        if (!svar.ok) return;
-        const bilde = await createImageBitmap(await svar.blob());
-        c.drawImage(bilde, Math.floor(f.px), Math.floor(f.py));
-        ok++;
-      } catch (e) { /* flisa mangler – resten tegnes */ } finally { clearTimeout(tid); }
+      for (let forsok = 0; forsok < 2 && !stopp.signal.aborted; forsok++) {
+        try {
+          const svar = await fetch(f.url, { mode: 'cors', signal: stopp.signal });
+          // 4xx: flisa finnes ikke – å spørre igjen gir det samme svaret
+          if (!svar.ok) { if (svar.status < 500) return; continue; }
+          const bilde = await createImageBitmap(await svar.blob());
+          c.drawImage(bilde, Math.floor(f.px), Math.floor(f.py));
+          if (bilde.close) bilde.close();
+          ok++;
+          return;
+        } catch (e) { /* prøves én gang til, om fristen ikke er ute */ }
+      }
     };
-    // seks om gangen – nok til å gå fort, få nok til ikke å hamre på tjenesten
-    await Promise.all(Array.from({ length: Math.min(6, ko.length) }, async () => {
-      while (ko.length) await hent(ko.shift());
-    }));
-    if (ok < plan.fliser.length / 2) return null;
-    return { bytes: bytesFraDataUrl(l.toDataURL('image/jpeg', 0.85)), bredde: l.width, hoyde: l.height };
+    const ko = plan.fliser.slice();
+    try {
+      // seks om gangen – nok til å gå fort, få nok til ikke å hamre på tjenesten
+      await Promise.all(Array.from({ length: Math.min(6, ko.length) }, async () => {
+        while (ko.length && !stopp.signal.aborted) {
+          await hent(ko.shift());
+          ferdig++;
+          if (o.framdrift) o.framdrift(ferdig / plan.fliser.length);
+        }
+      }));
+      if (ok < plan.fliser.length / 2) return null;
+      const blob = await new Promise(los => l.toBlob(los, 'image/jpeg', 0.85));
+      if (!blob) return null;
+      return { bytes: new Uint8Array(await blob.arrayBuffer()), bredde: plan.bredde, hoyde: plan.hoyde,
+        mangler: plan.fliser.length - ok, av: plan.fliser.length };
+    } finally {
+      clearTimeout(frist);
+      if (o.signal) o.signal.removeEventListener('abort', avbryt);
+      l.width = 0; l.height = 0;           // sju megapiksler per side slippes med en gang
+    }
   },
 
   /**
@@ -240,22 +281,36 @@ const RorkartUI = {
    * @param {object} [data] fra `samle`
    * @returns {Promise<?Uint8Array>}
    */
-  async lag(valg, lastNed = true, data = this.samle()) {
+  async lag(valg, lastNed = true, data = null) {
     const app = this.app;
-    app.framdrift(true, 'Lager oversiktskartet…', 0.1);
+    if (this._paagaar) { app.status('Oversiktskartet lages allerede – vent til det er ferdig'); return null; }
+    this._paagaar = true;
+    const avbryt = new AbortController();
+    const knapp = document.getElementById('framdriftAvbryt');
+    app.framdrift(true, 'Lager oversiktskartet…', 0.05);
     try {
+      data = data || this.samle();
       const sidene = Rorkart.sider(data, valg);
       const bakgrunner = new Map();
-      let mangler = 0;
+      let mangler = 0, feilet = false;
       if (valg.bakgrunn) {
-        for (let i = 0; i < sidene.length; i++) {
-          app.framdrift(true, `Henter bakgrunnskart ${i + 1} av ${sidene.length}…`, 0.1 + 0.7 * i / sidene.length);
-          const bilde = await this.hentBakgrunn(Rorkart.flisplan(sidene[i].utsnitt, data.sone, valg.bakgrunn));
-          if (bilde) bakgrunner.set(i, bilde); else mangler++;
+        if (knapp) { knapp.classList.remove('skjult'); knapp.onclick = () => avbryt.abort(); }
+        for (let i = 0; i < sidene.length && !avbryt.signal.aborted; i++) {
+          /* KOM IKKE BAKGRUNNEN FOR ÉN SIDE, PRØVES IKKE DE NESTE. Nettet som
+             sviktet der, svikter for dem også, og hver side ville ventet hele
+             fristen sin. */
+          if (feilet) { mangler++; continue; }
+          const tekst = `Henter bakgrunnskart ${i + 1} av ${sidene.length}…`;
+          const bilde = await this.hentBakgrunn(Rorkart.flisplan(sidene[i].utsnitt, data.sone, valg.bakgrunn), {
+            signal: avbryt.signal, framdrift: a => app.framdrift(true, tekst, 0.05 + 0.85 * (i + a) / sidene.length) });
+          if (bilde) bakgrunner.set(i, bilde); else { mangler++; feilet = true; }
         }
       }
+      if (avbryt.signal.aborted) { app.status('Oversiktskartet ble avbrutt – ingen fil er laget'); return null; }
+      app.framdrift(true, 'Tegner oversiktskartet…', 0.92);
       const P = Rorkart.lagPdf(data, valg, sidene, bakgrunner, mangler ? 'Bakgrunnskartet kunne ikke hentes' : null);
       const bytes = await P.bygg();
+      const hull = [...bakgrunner.values()].reduce((s, b) => s + (b.mangler || 0), 0);
       if (lastNed) {
         const blob = new Blob([bytes], { type: 'application/pdf' });
         const a = document.createElement('a');
@@ -266,13 +321,16 @@ const RorkartUI = {
       }
       app.status(`Oversiktskart ${lastNed ? 'lastet ned' : 'laget'} · ${sidene.length} side${sidene.length === 1 ? '' : 'r'}`
         + ` · ${(bytes.length / 1024).toFixed(0)} kB`
-        + (mangler ? ` · bakgrunnskartet kunne ikke hentes for ${mangler} av ${sidene.length}` : ''));
+        + (mangler ? ` · bakgrunnskartet kunne ikke hentes for ${mangler} av ${sidene.length}` : '')
+        + (hull ? ` · ${hull} fliser manglet i bakgrunnskartet` : ''));
       return bytes;
     } catch (e) {
       app.status('Klarte ikke å lage oversiktskartet: ' + e.message);
       console.error(e);
       return null;
     } finally {
+      this._paagaar = false;
+      if (knapp) { knapp.classList.add('skjult'); knapp.onclick = null; }
       app.framdrift(false);
     }
   }

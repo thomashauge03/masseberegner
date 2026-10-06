@@ -9194,13 +9194,23 @@ const Nettlesertest = {
           && /\/MediaBox \[0 0 841\.89 595\.28\]/.test(tekst), (tekst.match(/\/Count \d+/) || [''])[0]);
         this.sjekk('hver side har bakgrunnskartet', (tekst.match(/\/Subtype \/Image/g) || []).length === 3,
           String((tekst.match(/\/Subtype \/Image/g) || []).length));
-        this.sjekk('  hentet fra Kartverkets UTM-fliser for sone 32', adresser.length > 0
-          && adresser.every(u => /\/topograatone\/default\/utm32n\/\d+\/\d+\/\d+\.png$/.test(u)), adresser[0] || 'ingen');
+        // nøyaktig de flisene flisplanen ber om for sidene – i rekkefølgen nivå/rad/kolonne
+        const ventet = new Set(Rorkart.sider(data, valg).flatMap(s => Rorkart.flisplan(s.utsnitt, 32, 'topograatone').fliser.map(f => f.url)));
+        // sidene overlapper, så samme flis kan hentes til flere av dem – nettleseren har den da i hurtigbufferen
+        this.sjekk('  hentet fra Kartverkets UTM-fliser for sone 32 – de flisene sidene dekker', new Set(adresser).size === ventet.size
+          && adresser.every(u => ventet.has(u)), `${new Set(adresser).size} av ${ventet.size}: ${adresser[0] || 'ingen'}`);
         const strommer = (await PdfImport.lesStrommer(bytes)).join('\n');
         this.sjekk('tegnforklaringen har typene, og Kartverket er kreditert', strommer.includes('(SP 160PE)') && strommer.includes('(VL 110PE)')
           && !strommer.includes('(OV 200PVC)') && strommer.includes('Kartgrunnlag \\251 Kartverket'));
-        this.sjekk('det tegnede er stiplet, det innmålte heltrukket – og begge står i forklaringen',
-          / 0 d /.test(strommer) && strommer.includes('Heltrukken: innm\\345lt') && strommer.includes('Stiplet: planlagt'));
+        // stiplingen i selve kartet – mellom klippet og dets Q – ikke bare i forklaringen
+        const kartet = (await PdfImport.lesStrommer(bytes)).filter(s => s.includes(' re W n')).map(s => {
+          const deler = s.slice(s.lastIndexOf('q ', s.indexOf(' re W n'))).split(/\s+/);
+          let dybde = 0, n = 0;
+          for (; n < deler.length; n++) { if (deler[n] === 'q') dybde++; else if (deler[n] === 'Q' && --dybde === 0) break; }
+          return deler.slice(0, n + 1).join(' ');
+        });
+        this.sjekk('det tegnede er stiplet i kartet, og forklaringen sier hva som er hva',
+          / 0 d /.test(kartet[0]) && strommer.includes('Heltrukken: innm\\345lt') && strommer.includes('Stiplet: planlagt'));
 
         // flisene kommer ikke: PDF-en lages likevel, uten bakgrunn, og det sies
         window.fetch = async (url, o2) => (/cache\.kartverket\.no/.test(String(url))
@@ -9212,6 +9222,33 @@ const Nettlesertest = {
           && !/\/Subtype \/Image/.test(tUten) && sUten.includes('Bakgrunnskartet kunne ikke hentes')
           && /bakgrunnskartet kunne ikke hentes/.test(document.getElementById('statuslinje').textContent),
         document.getElementById('statuslinje').textContent);
+        // sviktet den første siden, prøves ikke de neste – hver ville ventet hele fristen sin
+        let kall = 0;
+        window.fetch = async (url, o2) => {
+          if (!/cache\.kartverket\.no/.test(String(url))) return ekteFetch(url, o2);
+          kall++;
+          return new Response('', { status: 503 });
+        };
+        const forste = Rorkart.flisplan(Rorkart.sider(data, valg)[0].utsnitt, 32, 'topograatone').fliser.length;
+        await RorkartUI.lag(valg, false, data);
+        this.sjekk('en side uten bakgrunn: de neste prøver ikke', kall <= 2 * forste, `${kall} kall, første side har ${forste} fliser`);
+        // «Avbryt» stopper alt, og en ny henting kan begynne etterpå
+        window.fetch = (url, o2) => (/cache\.kartverket\.no/.test(String(url))
+          ? new Promise((los, avvis) => { o2.signal.addEventListener('abort', () => avvis(new DOMException('avbrutt', 'AbortError'))); })
+          : ekteFetch(url, o2));
+        const igang = RorkartUI.lag(valg, false, data);
+        await this.vent(50);
+        const dobbel = await RorkartUI.lag(valg, false, data);
+        this.sjekk('en henting til mens den første pågår, blir avvist', dobbel === null
+          && /lages allerede/.test(document.getElementById('statuslinje').textContent));
+        const avbryt = document.getElementById('framdriftAvbryt');
+        this.sjekk('framdriftsboksen har «Avbryt» mens bakgrunnen hentes', !avbryt.classList.contains('skjult'));
+        avbryt.click();
+        const svarEtter = await igang;
+        this.sjekk('«Avbryt» stopper hentingen: ingen fil, og statuslinja sier det', svarEtter === null
+          && /avbrutt/.test(document.getElementById('statuslinje').textContent) && avbryt.classList.contains('skjult')
+          && document.getElementById('framdrift').classList.contains('skjult'), document.getElementById('statuslinje').textContent);
+        window.fetch = ekteFetch;
 
         this.sjekk('ingenting i prosjektet er endret, og ingen angrepost', JSON.stringify(App.P) === prosjekt
           && App.P.aktivt === aktivt && App.historikk.bakover.length === poster);
