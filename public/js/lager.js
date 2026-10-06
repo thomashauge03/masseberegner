@@ -57,7 +57,14 @@ const Lager = {
       let svar;
       try { svar = arbeid(s); } catch (e) { return avvis(e); }
       const klokke = setTimeout(() => avvis(new Error('Databasen svarte ikke')), this.TIDSGRENSE);
-      t.oncomplete = () => { clearTimeout(klokke); løs(svar && svar.result !== undefined ? svar.result : svar); };
+      /* SVARET ER `result` – OGSÅ NÅR DET ER `undefined`. Her sto
+         `svar.result !== undefined ? svar.result : svar`: for et navn som ikke
+         finnes, er resultatet `undefined`, og da kom selve forespørselen
+         tilbake – et objekt, og dermed «funnet». Et prosjekt som bare lå i
+         reservelageret, sto i lista, men «Fant ikke prosjektet» da man åpnet
+         det; og sjekkene før en overskriving så et prosjekt som ikke var der. */
+      const erForesporsel = svar && typeof IDBRequest !== 'undefined' && svar instanceof IDBRequest;
+      t.oncomplete = () => { clearTimeout(klokke); løs(erForesporsel ? svar.result : svar); };
       t.onerror = () => { clearTimeout(klokke); avvis(t.error); };
       t.onabort = () => { clearTimeout(klokke); avvis(t.error || new Error('Avbrutt')); };
     });
@@ -105,12 +112,22 @@ const Lager = {
       .sort((a, b) => String(b.endret).localeCompare(String(a.endret)));
   },
 
+  /**
+   * Prosjektet med navnet, eller null når det ikke finnes.
+   *
+   * «FINNES IKKE» OG «FIKK IKKE LEST» ER IKKE DET SAMME. Her ble en feil fra
+   * databasen svelget, og svaret ble null – «finnes ikke». Sjekkene før en
+   * overskriving (Lagre, importen) skrev da rett over et prosjekt med samme
+   * navn. Nå kastes feilen når databasen ikke svarte og reservelageret heller
+   * ikke har prosjektet; den som kaller, avgjør hva som da er trygt.
+   * Står lageret i reservemodus, er reservelageret svaret, og det er ingen feil.
+   */
   async hent(navn) {
-    let fraDb = null;
+    let fraDb = null, dbFeil = null;
     try {
       const rad = await this._kjør('readonly', s => s.get(navn));
       fraDb = rad || null;
-    } catch (e) { /* reserven under kan ha det */ }
+    } catch (e) { if (!this._reserve) dbFeil = e; }
 
     let fraReserve = null;
     try {
@@ -123,7 +140,9 @@ const Lager = {
       return String(fraReserve.endret) > String(fraDb.endret) ? fraReserve.data : fraDb.data;
     }
     if (fraDb) return fraDb.data;
-    return fraReserve ? fraReserve.data : null;
+    if (fraReserve) return fraReserve.data;
+    if (dbFeil) throw new Error('Fikk ikke lest prosjektlageret: ' + (dbFeil.message || dbFeil));
+    return null;
   },
 
   /**
@@ -208,15 +227,26 @@ const Lager = {
     this.lastNed(filnavn(navn) + '.massekalk.json', JSON.stringify(data, null, 1));
   },
 
+  /**
+   * Alle prosjektene i én fil. Et prosjekt som ikke lot seg hente, legges ikke
+   * i fila som `null` – det ble telt med som eksportert, og importen hoppet
+   * over det uten et ord – men står i svaret, så det kan sies.
+   *
+   * @returns {Promise<{antall:number, mangler:string[]}>}
+   */
   async eksporterAlle() {
     const liste = await this.liste();
-    const alle = [];
-    for (const p of liste) alle.push(await this.hent(p.navn));
+    const alle = [], mangler = [];
+    for (const p of liste) {
+      let data = null;
+      try { data = await this.hent(p.navn); } catch (e) { data = null; }
+      if (data) alle.push(data); else mangler.push(p.navn);
+    }
     this.lastNed(
       'massekalk-alle-prosjekt-' + new Date().toISOString().slice(0, 10) + '.json',
       JSON.stringify({ massekalk: 1, eksportert: new Date().toISOString(), prosjekter: alle }, null, 1)
     );
-    return alle.length;
+    return { antall: alle.length, mangler };
   },
 
   /**
@@ -235,9 +265,11 @@ const Lager = {
          prosjekter ble lagt inn, uten a si hvorfor. */
       const gyldig = p && (Array.isArray(p.anlegg) ? p.anlegg.length > 0 : Array.isArray(p.ip));
       if (!gyldig) continue;
-      let navn = (p.navn || 'Uten navn').trim();
+      // løpenummeret bygges på det trimmede navnet – « Vegen » ble «Vegen  (2)» med doble mellomrom
+      const grunn = String(p.navn || '').trim() || 'Uten navn';
+      let navn = grunn;
       let n = 2;
-      while (await this.hent(navn)) navn = `${p.navn || 'Uten navn'} (${n++})`;
+      while (await this.hent(navn)) navn = `${grunn} (${n++})`;
       p.navn = navn;
       await this.lagre(navn, p);
       lagt.push(navn);

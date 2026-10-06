@@ -174,7 +174,7 @@ const Nettlesertest = {
       'groftRapport',
       'planBeregning', 'planNyttAnlegg', 'planTegnTrase', 'planRediger', 'planFane', 'planProfil', 'planRapport',
       'planForklaring', 'planEksport', 'planEksportSoner', 'planAvvik', 'planTerrengAndre',
-      'vegProfilLengde', 'vegKnapper', 'vegSluttretting',
+      'vegProfilLengde', 'vegKnapper', 'vegSluttretting', 'lagringOgAngre',
       'lovlighet', 'framdrift', 'gamleFilerOgUtskifting', 'opprydding'];
     for (const navn of proever) {
       try {
@@ -9972,6 +9972,125 @@ const Nettlesertest = {
       });
     } finally {
       App.bekreft = gammelBekreft;
+    }
+  },
+
+  /**
+   * Lagringen og angre: det som lå i reservelageret, kan åpnes; en lesefeil
+   * er ikke «finnes ikke»; navnet tas fra prosjektet, ikke midt i skrivingen;
+   * et slettet åpent prosjekt kommer ikke tilbake; «Eksporter alle» legger
+   * ikke null i fila; løpenummeret er trimmet; × i linjetabellen sletter ett
+   * punkt; og endringene i panelene kan angres.
+   */
+  async lagringOgAngre() {
+    const gammelBekreft = App.bekreft, gammelKjor = Lager._kjør, gammelNed = Lager.lastNed;
+    const navn = 'Massekalk prøve lagring';
+    const reserve = 'Massekalk prøve reserve';
+    try {
+      await this._medVeg(async ll => {
+        App.P.ip = [ll(0, 0), ll(60, 0), ll(120, 10), ll(180, 0)];
+        App.P.vip = [{ s: 0, z: 101, k: 1 }, { s: 100, z: 102, k: 1 }, { s: 190, z: 103, k: 1 }];
+        clearTimeout(App._tidsavbrudd);
+        await App.oppdater();
+        // et prosjekt som bare ligger i reservelageret, lar seg hente
+        localStorage.setItem(Lager.NOKKEL + reserve, JSON.stringify({ navn: reserve, endret: new Date().toISOString(),
+          data: { navn: reserve, anlegg: [] } }));
+        const fraReserve = await Lager.hent(reserve);
+        this.sjekk('et prosjekt bare i reservelageret lar seg hente', !!fraReserve && fraReserve.navn === reserve);
+        this.sjekk('og et som ikke finnes, er null – ikke et objekt', (await Lager.hent('Massekalk finnes ikke')) === null);
+        localStorage.removeItem(Lager.NOKKEL + reserve);
+        // en lesefeil er ikke «finnes ikke»
+        Lager._kjør = async () => { throw new Error('prøvefeil'); };
+        let kastet = false;
+        try { await Lager.hent(navn); } catch (e) { kastet = /prøvefeil/.test(e.message); }
+        this.sjekk('en lesefeil fra databasen kastes – den er ikke «finnes ikke»', kastet);
+        App.P.navn = navn; document.getElementById('prosjektnavn').value = navn;
+        App._aapnetSom = null; App._lagretSom = '';
+        App.autolagringPause--;
+        try { await App.autolagre(); } finally { App.autolagringPause++; }
+        this.sjekk('autolagringen skriver ikke når lageret ikke kan leses',
+          /Lagret ikke automatisk/.test(document.getElementById('statuslinje').textContent),
+          document.getElementById('statuslinje').textContent);
+        Lager._kjør = gammelKjor;
+        // navnet er prosjektets, ikke feltets midt i skrivingen
+        document.getElementById('prosjektnavn').value = navn + ' halvskr';
+        App.autolagringPause--;
+        try { await App.autolagre(); } finally { App.autolagringPause++; }
+        this.sjekk('autolagringen bruker navnet prosjektet har, ikke det som skrives', !!(await Lager.hent(navn))
+          && !(await Lager.hent(navn + ' halvskr')));
+        document.getElementById('prosjektnavn').value = navn;
+        // «Eksporter alle»: et prosjekt som ikke lot seg hente, er ikke null i fila – det står i svaret
+        let fil = null;
+        Lager.lastNed = (n, innhold) => { fil = innhold; };
+        const ekteHent = Lager.hent.bind(Lager);
+        Lager.hent = async n => { if (n === navn) throw new Error('prøvefeil'); return ekteHent(n); };
+        let svar;
+        try { svar = await Lager.eksporterAlle(); } finally { Lager.hent = ekteHent; Lager.lastNed = gammelNed; }
+        this.sjekk('«Eksporter alle» legger ikke null i fila, og sier hvilket som mangler', !!fil
+          && !JSON.parse(fil).prosjekter.includes(null) && svar.mangler.includes(navn), JSON.stringify(svar && svar.mangler));
+        // løpenummeret bygges på det trimmede navnet
+        const lagt = await Lager.importer(new File([JSON.stringify({ navn: '  ' + navn + '  ', anlegg: [{ type: 'veg', ip: [] }] })],
+          'prove.json'));
+        this.sjekk('løpenummeret er bygd på det trimmede navnet', lagt[0] === navn + ' (2)', JSON.stringify(lagt));
+        await Lager.slett(lagt[0]);
+        // det åpne prosjektet slettes: det kommer ikke tilbake med autolagringen
+        App._aapnetSom = navn; App._lagretSom = JSON.stringify(App.P);
+        App.bekreft = async () => true;
+        await App.apneDialog();
+        document.querySelector(`#dialoginnhold [data-slett="${navn}"]`).click();
+        for (let i = 0; i < 50 && App.P.navn === navn; i++) await this.vent(20);
+        document.getElementById('dialog').classList.add('skjult');
+        App.P.ip[1].r = (App.P.ip[1].r || 0) + 5;
+        App.autolagringPause--;
+        try { await App.autolagre(); } finally { App.autolagringPause++; }
+        this.sjekk('et slettet åpent prosjekt kommer ikke tilbake ved neste autolagring', !(await Lager.hent(navn))
+          && App.P.navn === 'Nytt prosjekt' && App._aapnetSom === null, App.P.navn);
+        App.bekreft = gammelBekreft;
+        // × i linjetabellen: to klikk på samme rad før tabellen tegnes om, sletter ett knekkpunkt
+        App.visLinjetabell();
+        const antall = App.P.ip.length;
+        const knapp = document.querySelectorAll('#ipTabell tbody tr')[1].querySelector('button');
+        knapp.click(); knapp.click();
+        this.sjekk('× to ganger på samme rad sletter ett knekkpunkt', App.P.ip.length === antall - 1, String(App.P.ip.length));
+        await App.angre();
+        this.sjekk('og det kan angres', App.P.ip.length === antall);
+        /* Etter et angre får neste endring sin egen post. Her ble merket
+           sammenlignet med tilstanden man angret TIL, og hoppet over – neste
+           angre gikk to steg tilbake. */
+        const poster0 = App.historikk.bakover.length;
+        App.merk('prøve etter angre');
+        this.sjekk('etter et angre får neste endring sin egen angrepost', App.historikk.bakover.length === poster0 + 1);
+        App.historikk.bakover.pop();
+        // angre for malfeltene, høydetabellen og fjellstrekningene
+        clearTimeout(App._tidsavbrudd);
+        await App.oppdater();
+        const vb = document.getElementById('m_slitelagTykkelse'), foerSlitelag = App.P.mal.slitelagTykkelse;
+        vb.value = String(foerSlitelag + 0.05); vb.dispatchEvent(new Event('change'));
+        await App.angre();
+        this.sjekk('et malfelt kan angres', Math.abs(App.P.mal.slitelagTykkelse - foerSlitelag) < 1e-12);
+        App.visHoydetabell();
+        const z0 = App.P.vip[1].z;
+        const hz = document.querySelectorAll('#hoydeTabell tbody tr')[1].querySelectorAll('input[type=number]')[1];
+        hz.value = String(z0 + 1); hz.dispatchEvent(new Event('change'));
+        this.sjekk('en høyde fra tabellen er lagt inn', App.P.vip[1].z === z0 + 1);
+        await App.angre();
+        this.sjekk('og kan angres', App.P.vip[1].z === z0 && !App.P.vip[1].laast);
+        const nStrekk = App.P.fjell.strekninger.length;
+        document.getElementById('knappNyStrekning').click();
+        await App.angre();
+        this.sjekk('en ny fjellstrekning kan angres', App.P.fjell.strekninger.length === nStrekk);
+        // en knapp uten noe å gjøre legger ingen angrepost
+        const poster = App.historikk.bakover.length;
+        const vip = App.P.vip;
+        App.P.vip = [vip[0]];
+        await App.rettOpp();
+        this.sjekk('«Rett opp» uten profil legger ingen angrepost', App.historikk.bakover.length === poster);
+        App.P.vip = vip;
+      });
+    } finally {
+      App.bekreft = gammelBekreft; Lager._kjør = gammelKjor; Lager.lastNed = gammelNed;
+      try { await Lager.slett(navn); } catch (e) { /* var ikke der */ }
+      localStorage.removeItem(Lager.NOKKEL + reserve);
     }
   },
 

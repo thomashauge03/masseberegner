@@ -1514,11 +1514,27 @@ const Kart = {
       }).addTo(this.kart);
       m.bindPopup(() => {
         const d = document.createElement('div');
-        d.innerHTML = `<b>Fjellobservasjon</b><br>Dybde <input type="number" step="0.1" value="${pt.dybde}"> m<br>`;
-        d.querySelector('input').onchange = ev => { pt.dybde = parseFloat(ev.target.value) || 0; app.grunnEndret(); };
+        d.innerHTML = `<b>Fjellobservasjon</b><br><label>Dybde <input type="number" step="0.1" value="${pt.dybde}"></label> m<br>`;
+        /* Endring og sletting kan angres, og et tomt felt beholder dybden – her
+           ble det `|| 0`, fjell i dagen der observasjonen sto. Punktet slås opp
+           i prosjektet som står nå: etter et angre er dette et annet. */
+        d.querySelector('input').onchange = ev => {
+          const v = parseFloat(ev.target.value);
+          if (!Number.isFinite(v) || app.P.fjell.punkter.indexOf(pt) < 0) { ev.target.value = pt.dybde; return; }
+          app.merk('endret en fjellobservasjon');
+          pt.dybde = v;
+          app.grunnEndret();
+        };
         const b = document.createElement('button');
         b.className = 'knapp'; b.textContent = 'Slett';
-        b.onclick = () => { P.fjell.punkter.splice(i, 1); this.kart.closePopup(); app.grunnEndret(); };
+        b.onclick = () => {
+          const j = app.P.fjell.punkter.indexOf(pt);
+          this.kart.closePopup();
+          if (j < 0) return;
+          app.merk('slettet en fjellobservasjon');
+          app.P.fjell.punkter.splice(j, 1);
+          app.grunnEndret();
+        };
         d.appendChild(b);
         return d;
       });

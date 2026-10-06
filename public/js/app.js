@@ -48,7 +48,13 @@ const App = {
        en endring, og skal ikke se ut som en. */
     if (this._ikkeMerk) return;
     const tekst = JSON.stringify(this.P);
-    if (tekst === this.historikk._sist) return;     // ingenting har endret seg
+    /* LIKT DET SOM ALT LIGGER ØVERST, ER INGEN NY POST. Her ble det
+       sammenlignet med `_sist` – og etter et angre er `_sist` tilstanden man
+       angret TIL. Den første endringen etterpå ble da aldri merket: et
+       malfelt, en fjellstrekning, hva som helst – og neste angre hoppet to
+       steg tilbake, forbi det man nettopp hadde angret til. */
+    const topp = this.historikk.bakover[this.historikk.bakover.length - 1];
+    if (topp && topp.tekst === tekst) return;       // ingenting har endret seg siden forrige merke
     this.historikk._sist = tekst;
     this.historikk.bakover.push({ tekst, hva: hva || 'endring' });
     if (this.historikk.bakover.length > this.historikk.grense) this.historikk.bakover.shift();
@@ -3836,6 +3842,13 @@ const App = {
 
   async _rettOpp(modus) {
     const pause = this._jobbpause();
+    /* VAKTEN FØR MERKET. Her ble angremerket tatt først, og en knapp som ikke
+       hadde noe å gjøre, la likevel en post i angrelista – et trykk på Angre
+       som ikke angret noe. */
+    if (!this.vprofil || this.P.vip.length < 2 || !this.terrengProfil || !this.resultat) {
+      this.status('Ingen profil å rette ennå.');
+      return;
+    }
     this.merk(modus === 'inngrep' ? 'minst inngrep'
       : modus === 'sprengning' ? 'unngå sprengning' : 'rett opp');
     /* PLANET RYDDES FØRST – VEGEN SKAL VÆRE LOVLIG, IKKE BLI DET NÅR NOEN
@@ -3845,11 +3858,6 @@ const App = {
        linjen seg under en centimeter. Alt som virkelig flytter den – å fjerne
        et knekkpunkt – ligger i «Gjør lovlig» og spør fortsatt først. */
     this.sikreLovligPlan();
-
-    if (!this.vprofil || this.P.vip.length < 2 || !this.terrengProfil || !this.resultat) {
-      this.status('Ingen profil å rette ennå.');
-      return;
-    }
     /* Er alt last, er det ingenting a flytte - og da gjorde knappen ingenting,
        med én linje i statuslinjen som er lett a overse. Er det brudd a rette,
        er det bedre a tilby seg a lase opp nøyaktig de høydene som star i
@@ -5097,6 +5105,12 @@ const App = {
   async _optimaliser(stille, modus) {
     const pause = this._jobbpause();
     if (!this.terreng || !this.linje) return;
+    // vaktene før merket – en knapp uten noe å gjøre skal ikke legge en tom angrepost
+    if (this.P.vip.length < 2) return;
+    if (this.P.vip.every(v => v.laast)) {
+      if (!stille) this.status('Alle høyder er låst – lås opp noen for å kunne optimalisere');
+      return;
+    }
     // «Rett opp» kaller hit selv og har alt tatt sitt merke - ikke to for en handling
     if (!stille) this.merk(modus === 'inngrep' ? 'minst inngrep'
       : modus === 'sprengning' ? 'unngå sprengning' : 'optimaliser');
@@ -5109,11 +5123,6 @@ const App = {
     this.sikreLovligPlan();
 
     const V = this.P.vip;
-    if (V.length < 2) return;
-    if (V.every(v => v.laast)) {
-      if (!stille) this.status('Alle høyder er låst – lås opp noen for å kunne optimalisere');
-      return;
-    }
     const maksTillatt = this.P.mal.stigningIKurve.reduce((a, r) => Math.max(a, r[1], r[2]), 0);
 
     const mal = this.P.mal;
@@ -6147,10 +6156,25 @@ const App = {
                       <td><input type="number" step="0.1" value="${st.dybde}"></td>
                       <td><button title="Slett">×</button></td>`;
       const [a, b, c] = tr.querySelectorAll('input');
-      a.onchange = () => { st.fra = parseFloat(a.value) || 0; this.grunnEndret(); };
-      b.onchange = () => { st.til = parseFloat(b.value) || 0; this.grunnEndret(); };
-      c.onchange = () => { st.dybde = parseFloat(c.value) || 0; this.grunnEndret(); };
-      tr.querySelector('button').onclick = () => { this.P.fjell.strekninger.splice(i, 1); this.visStrekninger(); this.grunnEndret(); };
+      /* Hver endring kan angres, og et tomt eller ugyldig felt beholder det som
+         sto der. Her ble det `|| 0`: en tømt fjelldybde var fjell i dagen på
+         hele strekningen. */
+      const felt = (inp, nokkel) => {
+        inp.onchange = () => {
+          const v = parseFloat(inp.value);
+          if (!Number.isFinite(v)) { inp.value = st[nokkel]; return; }
+          this.merk('endret en fjellstrekning');
+          st[nokkel] = v;
+          this.grunnEndret();
+        };
+      };
+      felt(a, 'fra'); felt(b, 'til'); felt(c, 'dybde');
+      tr.querySelector('button').onclick = () => {
+        const j = this.P.fjell.strekninger.indexOf(st);
+        if (j < 0) return;
+        this.merk('slettet en fjellstrekning');
+        this.P.fjell.strekninger.splice(j, 1); this.visStrekninger(); this.grunnEndret();
+      };
       tb.appendChild(tr);
     });
   },
@@ -6510,6 +6534,7 @@ const App = {
   settPunkthoyde(hvor, verdi) {
     const pr = this.resultat && this.resultat.profiler.find(p => Math.abs(p.s - this.tverrStasjon) < 1e-6);
     if (!pr || !isFinite(verdi)) return;
+    this.merk(hvor === 'senter' ? 'høyde i senterlinja' : 'høyde på vegkanten');
 
     if (hvor === 'senter') {
       const finnes = this.P.vip.find(v => Math.abs(v.s - pr.s) < 1e-6);
@@ -6541,6 +6566,7 @@ const App = {
 
   nullstillPunkthoyder() {
     const s = this.tverrStasjon;
+    this.merk('punkthøydene tilbake til malen');
     const i = this.P.tverrfall.findIndex(t => Math.abs(t.s - s) < 1e-6);
     if (i >= 0) this.P.tverrfall.splice(i, 1);
     const j = this.P.vip.findIndex(v => Math.abs(v.s - s) < 1e-6);
@@ -6596,18 +6622,22 @@ const App = {
          <td><button title="Slett">×</button></td>`;
       const [fS, fZ] = tr.querySelectorAll('input[type=number]');
       const laas = tr.querySelector('input[type=checkbox]');
+      /* Hver endring i tabellen kan angres – her kunne ingen av dem det. */
       fS.onchange = () => {
         const ny = parseFloat(fS.value);
+        this.merk('flyttet en høyde');
         if (isFinite(ny)) { v.s = Math.max(0, Math.min(this.linje ? this.linje.lengde : ny, ny)); }
         this.P.vip.sort((a, b) => a.s - b.s);
         this.profilEndret(false); this.visHoydetabell();
       };
       fZ.onchange = () => {
         const ny = parseFloat(fZ.value);
+        this.merk('endret en høyde');
         if (isFinite(ny)) { v.z = ny; v.laast = true; v.k = 0; }
         this.profilEndret(false); this.visHoydetabell();
       };
       laas.onchange = () => {
+        this.merk(laas.checked ? 'låste en høyde' : 'låste opp en høyde');
         v.laast = laas.checked;
         // Last punkt skal treffes eksakt, og da kan det ikke ha vertikalkurve
         if (v.laast) v.k = 0;
@@ -6618,6 +6648,7 @@ const App = {
         // slått opp på punktet, ikke radnummeret – tabellen kan være tegnet før en endring
         const i = this.P.vip.indexOf(v);
         if (i < 0) return;
+        this.merk('slettet en høyde');
         this.P.vip.splice(i, 1); this.profilEndret(false); this.visHoydetabell();
       };
       tb.appendChild(tr);
@@ -6655,6 +6686,7 @@ const App = {
     /* En last høyde er et punkt veien skal gjennom, ikke et knekkpunkt for
        tangentene. En vertikalkurve ville dratt linjen forbi punktet med
        A·L/8, sa den far K = 0 og treffes eksakt. */
+    this.merk('la inn en høyde');
     const finnes = this.P.vip.find(v => Math.abs(v.s - ss) < 0.05);
     if (finnes) { finnes.z = +hoyde.toFixed(3); finnes.laast = true; finnes.k = 0; }
     else this.P.vip.push({ s: +ss.toFixed(2), z: +hoyde.toFixed(3), k: 0, laast: true });
@@ -6715,6 +6747,7 @@ const App = {
     const L = this.linje ? this.linje.lengde : Infinity;
     const utenfor = rader.filter(r => r.s > L + 0.5).length;
     const beholdt = rader.filter(r => r.s <= L + 0.5);
+    this.merk('limte inn høyder');
     // Innlimte høyder er punkt veien skal gjennom, sa de far ingen vertikalkurve
     this.P.vip = beholdt.map(r => ({ s: +Math.min(r.s, L).toFixed(2), z: r.z, k: 0, laast: true }));
     this.beregn();
@@ -6755,9 +6788,16 @@ const App = {
         pt.r = parseFloat(e.target.value) || 0;
         this.linjeEndret();
       };
+      /* SLÅTT OPP PÅ PUNKTET, IKKE RADNUMMERET. Tabellen tegnes om først når
+         linja er bygd på nytt (120 ms etter), så et dobbeltklikk traff samme
+         rad to ganger – og slettet to knekkpunkt, det andre et annet enn det
+         man pekte på. */
       tr.querySelector('button').onclick = () => {
+        const j = this.P.ip.indexOf(pt);
+        if (j < 0) return;
         this.merk('slettet knekkpunkt');
-        this.P.ip.splice(i, 1);
+        this.P.ip.splice(j, 1);
+        tr.remove();
         this.linjeEndret();
       };
       tb.appendChild(tr);
@@ -6797,9 +6837,15 @@ const App = {
        Det er bare navnebyttet som spørres om. A lagre prosjektet under det
        navnet det alt har, er nettopp det man vil. */
     if (navn !== this._aapnetSom) {
-      let finnes = null;
-      try { finnes = await Lager.hent(navn); } catch (e) { /* da far det staa */ }
-      if (finnes) {
+      let finnes = null, lesefeil = null;
+      try { finnes = await Lager.hent(navn); } catch (e) { lesefeil = e; }
+      /* Fikk lageret ikke lest, vet vi ikke om navnet er i bruk. Her ble det
+         lagret som om det ikke var det – rett over et prosjekt med samme navn. */
+      if (lesefeil) {
+        const ja = await this.bekreft(`Fikk ikke sjekket om «${navn}» finnes fra før (${lesefeil.message}). `
+          + 'Lagre likevel – og kanskje skrive over et prosjekt med samme navn?', 'Lagre likevel');
+        if (!ja) { this.status('Lagringen ble avbrutt – lageret svarte ikke'); return; }
+      } else if (finnes) {
         const ja = await this.bekreft(
           `Det finnes allerede et prosjekt som heter «${navn}». Skrive over det?`,
           'Skriv over');
@@ -6873,8 +6919,11 @@ const App = {
   async autolagre() {
     if (this.autolagringPause > 0) return;
     if (!this.P || !this.harUlagret()) return;
+    /* NAVNET ER PROSJEKTETS, IKKE FELTETS. Her ble feltet lest – også midt i
+       skrivingen: «Veg Ydes» ble et eget prosjekt to sekunder etter siste
+       tastetrykk. Prosjektet får navnet når feltet er ferdig (change). */
+    const navn = String(this.P.navn || '').trim();
     // et prosjekt uten navn har brukeren ikke bestemt seg for enna
-    const navn = (document.getElementById('prosjektnavn').value || '').trim();
     if (!navn || navn === 'Nytt prosjekt') return;
     /* Her sto `!(this.P.ip || []).length`. En tomt har ingen knekkpunkt, så
        P.ip er alltid tom og autolagringen returnerte alltid tidlig – på en tomt
@@ -6890,7 +6939,11 @@ const App = {
        noe i det hele tatt. */
     if (navn !== this._aapnetSom) {
       let finnes = null;
-      try { finnes = await Lager.hent(navn); } catch (e) { /* da lar vi det staa */ }
+      // fikk lageret ikke lest, vet vi ikke om navnet er i bruk – da lagres det ikke av seg selv
+      try { finnes = await Lager.hent(navn); } catch (e) {
+        this.status(`Lagret ikke automatisk – fikk ikke sjekket om «${navn}» finnes fra før (${e.message})`);
+        return;
+      }
       if (finnes) {
         this.status(`«${navn}» finnes fra før – trykk Lagre for å skrive over`);
         return;
@@ -6947,14 +7000,27 @@ const App = {
           return this.apneDialog();
         }
         await Lager.slett(navn);
+        /* DET ÅPNE PROSJEKTET: navnet og lagret-tilstanden må bort med det.
+           Her ble de stående, og neste autolagring la prosjektet inn igjen –
+           to sekunder etter «Dette kan ikke angres». Det som står oppe, blir
+           stående, uten navn; det lagres ikke før det får et. */
+        if (navn === this._aapnetSom || navn === this.P.navn) {
+          this._aapnetSom = null;
+          this._lagretSom = '';
+          this.P.navn = 'Nytt prosjekt';
+          document.getElementById('prosjektnavn').value = this.P.navn;
+          this.visLagretMerke();
+          this.status(`«${navn}» er slettet. Det som står oppe, er ikke lagret – gi det et navn for å lagre det.`);
+        }
         this.apneDialog();
       };
     });
     const fil = innhold.querySelector('#dlgFil');
     innhold.querySelector('#dlgImport').onclick = () => fil.click();
     innhold.querySelector('#dlgEksportAlle').onclick = async () => {
-      const n = await Lager.eksporterAlle();
-      this.status(`Eksporterte ${n} prosjekt`);
+      const { antall, mangler } = await Lager.eksporterAlle();
+      this.status(`Eksporterte ${antall} prosjekt`
+        + (mangler.length ? ` – ${mangler.length} lot seg ikke hente og er ikke med: ${mangler.join(', ')}` : ''));
     };
     fil.onchange = async () => {
       const lagt = [];
@@ -7062,6 +7128,11 @@ const App = {
     id('knappApne').onclick = () => this.apneDialog();
     id('dialogLukk').onclick = () => id('dialog').classList.add('skjult');
     id('knappNy').onclick = async () => {
+      /* VENTENDE AUTOLAGRING KJØRES FØRST, som når et annet prosjekt åpnes.
+         Her ble tidtakeren stående: det man hadde gjort de siste to
+         sekundene, ble aldri lagret – eller lagret etterpå, over det nye. */
+      clearTimeout(this._autolagring);
+      if (this.autolagringPause === 0 && this.harUlagret()) await this.autolagre();
       /* Her sto det `P.ip.length`. Et prosjekt med bare en tomt i ble derfor
          kastet uten a spørre - man trykket «Ny» og tomta var borte. */
       if (this.harInnhold()) {
@@ -7131,12 +7202,16 @@ const App = {
     document.querySelectorAll('#fane-mal input, #fane-mal select, #fane-grunn input').forEach(el => {
       if (el.closest('.minitabell')) return;
       el.addEventListener('change', () => {
+        /* Malen kan angres – her kunne den ikke det. Veiklassen har sin egen
+           (velgVeiklasse), og to angreposter for ett valg er én for mye. */
+        if (el.id !== 'm_veiklasse') this.merk('endret malen');
         // en bredde brukeren har satt selv, blir stående når en smalere veiklasse velges – se malFraVeiklasse
         if (el.id === 'm_vegbredde' && !this.erRor() && !this.erTomt()) this.P.mal.vegbreddeEgen = true;
         this.skjemaTilMal(); this._terrengnokkel = ''; this.planlegg(50);
       });
     });
     id('knappNullstillMal').onclick = () => {
+      this.merk('nullstilte malen');
       this.P.mal = Object.assign({}, StandardMal);
       this.P.faktorer = Object.assign({}, StandardFaktorer);
       this.malTilSkjema(); this.planlegg(30);
@@ -7171,6 +7246,7 @@ const App = {
     id('h_limInn').onclick = () => this.limInnHoyder();
     id('h_tomTabell').onclick = async () => {
       if (!await this.bekreft('Fjerne alle innlagte høyder og lage nytt forslag fra terrenget?', 'Tøm tabellen')) return;
+      this.merk('tømte høydetabellen');
       this.P.vip = [];
       if (this.terrengProfil) this.lagProfilforslag();
       this.beregn(); this.visHoydetabell();
@@ -7195,6 +7271,7 @@ const App = {
     };
 
     id('knappNyStrekning').onclick = () => {
+      this.merk('ny fjellstrekning');
       const L = this.linje ? this.linje.lengde : 100;
       this.P.fjell.strekninger.push({ fra: 0, til: Math.round(L), dybde: this.P.fjell.standarddybde });
       this.visStrekninger(); this.grunnEndret();

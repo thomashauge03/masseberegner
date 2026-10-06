@@ -33,6 +33,8 @@ const Lengdeprofil = {
           return;
         }
         if (i >= 0) {
+          // en draging er én angrepost, tatt før høyden flytter seg
+          this.app.merk('dro en høyde i lengdeprofilen');
           this.dragIndeks = i;
           l.setPointerCapture(e.pointerId);
           e.preventDefault();
@@ -63,7 +65,8 @@ const Lengdeprofil = {
         this.app.status(`Profil ${this.app.P.vip[i].s.toFixed(0)} er låst – lås den opp under «Høyder» for å flytte den`);
         return;
       }
-      if (i >= 0) { this.dragIndeks = i; return; }
+      // en draging er én angrepost, tatt før høyden flytter seg – her kunne den ikke angres
+      if (i >= 0) { this.app.merk('dro en høyde i lengdeprofilen'); this.dragIndeks = i; return; }
       this.app.settTverrStasjon(s);
       void z;
     });
@@ -91,6 +94,7 @@ const Lengdeprofil = {
       const i = this.finnVip(e);
       const V = this.app.P.vip;
       if (i > 0 && i < V.length - 1) {
+        this.app.merk('fjernet en høyde i lengdeprofilen');
         V.splice(i, 1);
         this.app.profilEndret(false);
         this.app.visHoydetabell();
