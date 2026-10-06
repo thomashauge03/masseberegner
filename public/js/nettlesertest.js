@@ -174,6 +174,7 @@ const Nettlesertest = {
       'groftRapport',
       'planBeregning', 'planNyttAnlegg', 'planTegnTrase', 'planRediger', 'planFane', 'planProfil', 'planRapport',
       'planForklaring', 'planEksport', 'planEksportSoner', 'planAvvik', 'planTerrengAndre',
+      'vegProfilLengde', 'vegKnapper', 'vegSluttretting',
       'lovlighet', 'framdrift', 'gamleFilerOgUtskifting', 'opprydding'];
     for (const navn of proever) {
       try {
@@ -428,10 +429,20 @@ const Nettlesertest = {
     this.sjekk('«Foreslå profil» gir en profil', App.P.vip.length >= 2);
     this.sjekk('forslaget gir gyldige høyder', App.P.vip.every(v => isFinite(v.z)));
 
-    const forBalanse = App.resultat.balanse.balanse;
+    /* «Massebalanse» skal finne høyden der minst må kjøres, ut og inn – med
+       bærelaget. Prøven her sto på `balanse.balanse`, som var målet knappen
+       hadde – og den kunne aldri bli rød, for knappen gjorde jo det. Nå
+       sammenlignes kjøringen med utgangspunktet og med en profil en halv meter
+       opp og ned fra der knappen landet. */
+    const kjoring = () => App.kjoringFor(App.resultat.balanse).sum;
+    const forKjoring = kjoring();
     await App.balanser();
-    this.sjekk('«Massebalanse» flytter balansen mot null',
-      Math.abs(App.resultat.balanse.balanse) <= Math.abs(forBalanse) + 1);
+    const etter = kjoring();
+    const ved = d => App.kjoringFor(App.beregnRaskt(App.P.vip.map(v => ({ s: v.s, z: v.laast ? v.z : v.z + d, k: v.k }))).balanse).sum;
+    const raskt = App.kjoringFor(App.beregnRaskt(App.P.vip).balanse).sum;
+    this.sjekk('«Massebalanse» kjører ikke mer enn før', etter <= forKjoring + 1, `${Math.round(forKjoring)} → ${Math.round(etter)}`);
+    this.sjekk('og en halv meter opp eller ned blir det ikke mindre kjøring', ved(0.5) >= raskt - 1 && ved(-0.5) >= raskt - 1,
+      `${Math.round(ved(-0.5))} / ${Math.round(raskt)} / ${Math.round(ved(0.5))}`);
 
     /* Saboter profilen, og kjør begge modusene fra nøyaktig samme
        utgangspunkt. Sammenligner man dem etter hverandre, starter den andre
@@ -9799,6 +9810,195 @@ const Nettlesertest = {
     } finally {
       Rapport.visRapport = gammel;
       await this._rorTilbake(foer);
+    }
+  },
+
+  /**
+   * En veg med flatt terreng og en rett linje mot øst, uten nett: `f(ll)` får
+   * en funksjon fra meter øst/nord til et knekkpunkt. Terrenget og prosjektet
+   * legges tilbake etterpå.
+   */
+  async _medVeg(f) {
+    const foer = JSON.stringify(App.P);
+    const ekteZ = Terreng.prototype.z, ekteLast = Terreng.prototype.lastKorridor;
+    try {
+      Terreng.prototype.z = () => 100;
+      Terreng.prototype.lastKorridor = async function () {};
+      App._terrengnokkel = '';
+      App.P = App.nyttProsjekt();
+      delete App.P.ubestemt;
+      const o = Geo.tilUtm(58.2958, 7.2098, 32);
+      const ll = (x, y) => { const g = Geo.fraUtm(o.x + x, o.y + y, 32); return { lat: g.lat, lon: g.lon, r: 0 }; };
+      App.visAnleggsvelger(); App.visAnleggsvalg(); App.malTilSkjema();
+      await f(ll);
+    } finally {
+      Terreng.prototype.z = ekteZ; Terreng.prototype.lastKorridor = ekteLast;
+      App._terrengnokkel = '';
+      await this._rorTilbake(foer);
+    }
+  },
+
+  /**
+   * Høydene brukeren har, endres ikke av en omregning. Her sto
+   * `justerProfilTilLengde`: kortet man linja, ble knekkpunktene bak slutten
+   * slettet – også de låste – og et nytt endepunkt lagt inn i prosjektet.
+   */
+  async vegProfilLengde() {
+    await this._medVeg(async ll => {
+      App.P.ip = [ll(0, 0), ll(100, 0), ll(200, 0)];
+      App.P.vip = [{ s: 0, z: 101, k: 1 }, { s: 100, z: 102, k: 1 }, { s: 190, z: 103, k: 0, laast: true }];
+      clearTimeout(App._tidsavbrudd);
+      await App.oppdater();
+      const vip = () => JSON.stringify(App.P.vip.map(v => [v.s, v.z, !!v.laast]));
+      const foer = vip();
+      this.sjekk('en omregning lar profilen være', App.P.vip.length === 3 && !!App.resultat, vip());
+      // linja kortes: det låste punktet ved 190 står nå bak slutten
+      App.P.ip.pop();
+      clearTimeout(App._tidsavbrudd);
+      await App.oppdater();
+      this.sjekk('kortere linje: det låste punktet bak slutten står i profilen', vip() === foer, vip());
+      const L = App.linje.lengde;
+      this.sjekk('men beregningen slutter ved linjeslutt', App.vprofil.vip[App.vprofil.vip.length - 1].s <= L + 1e-6
+        && Math.abs(App.vprofil.vip[App.vprofil.vip.length - 1].s - L) < 1e-6, String(L));
+      const rader = document.querySelectorAll('#hoydeTabell tbody tr');
+      this.sjekk('høydetabellen sier at det står bak slutten', rader.length === 3 && rader[2].classList.contains('bakslutt')
+        && !rader[1].classList.contains('bakslutt'));
+      // lenger igjen: punktet er med, og prosjektet har ikke fått et nytt endepunkt
+      App.P.ip.push(ll(250, 0));
+      clearTimeout(App._tidsavbrudd);
+      await App.oppdater();
+      this.sjekk('lengre linje igjen: punktet er med, og ingen endepunkt er lagt til', vip() === foer
+        && App.vprofil.vip.some(v => Math.abs(v.s - 190) < 1e-6 && Math.abs(v.z - 103) < 1e-9), vip());
+      // ett punkt: forslaget legger seg rundt det, med høyden og uten lås
+      App.P.vip = [{ s: 60, z: 104, k: 1 }];
+      clearTimeout(App._tidsavbrudd);
+      await App.oppdater();
+      const ett = App.P.vip.find(v => Math.abs(v.s - 60) < 1e-6);
+      this.sjekk('ett punkt: forslaget beholder det, med sin høyde og uten lås', App.P.vip.length >= 2 && !!ett
+        && ett.z === 104 && !ett.laast, vip());
+      App.P.vip = [];
+      clearTimeout(App._tidsavbrudd);
+      await App.oppdater();
+      this.sjekk('en tom profil får et forslag – det er ingen høyder å miste', App.P.vip.length >= 2);
+    });
+  },
+
+  /**
+   * Knappene og feltene som endrer høyder, gjør det de sier – og bare det.
+   * Hver av disse gjorde noe annet før: «Fyll inn» kastet låste høyder, «Lås
+   * alle» lot vertikalkurven gå forbi dem, «Massebalanse» uten terreng flyttet
+   * alt åtte meter ned, å åpne samme prosjekt forkastet endringer uten
+   * spørsmål, et tomt felt ga 0,05 % tverrfall eller 1 m profilavstand, og
+   * veiklassen gjorde en bestilt bredde smalere.
+   */
+  async vegKnapper() {
+    const gammelBekreft = App.bekreft;
+    try {
+      await this._medVeg(async ll => {
+        App.P.ip = [ll(0, 0), ll(100, 0), ll(200, 0)];
+        App.P.vip = [{ s: 0, z: 101, k: 1 }, { s: 100, z: 102, k: 1 }, { s: 200, z: 103, k: 1 }];
+        clearTimeout(App._tidsavbrudd);
+        await App.oppdater();
+        // «Fyll inn»: to låste høyder tettere enn et halvt steg blir begge liggende
+        App.P.vip.push({ s: 51, z: 110, k: 0, laast: true }, { s: 53, z: 111, k: 0, laast: true });
+        App.P.vip.sort((a, b) => a.s - b.s);
+        App.fyllHoyder(10);
+        const laste = App.P.vip.filter(v => v.laast);
+        this.sjekk('«Fyll inn»: begge de låste står der de sto', laste.length === 2
+          && laste.some(v => v.s === 51 && v.z === 110) && laste.some(v => v.s === 53 && v.z === 111),
+        JSON.stringify(laste.map(v => [v.s, v.z])));
+        this.sjekk('og ingen av dem er med to ganger', new Set(App.P.vip.map(v => v.s)).size === App.P.vip.length);
+        this.sjekk('statuslinja sier det', /2 låste ligger der de lå/.test(document.getElementById('statuslinje').textContent),
+          document.getElementById('statuslinje').textContent);
+        // «Lås alle»: K = 0, så veglinja går gjennom høydene – og det kan angres
+        App.P.vip.forEach(v => { v.laast = false; v.k = 2; });
+        document.getElementById('h_laasAlle').click();
+        this.sjekk('«Lås alle» gir K = 0', App.P.vip.every(v => v.laast && v.k === 0));
+        await App.angre();
+        this.sjekk('og kan angres', App.P.vip.every(v => !v.laast && v.k === 2));
+        // punkthøyden i senterlinja på et punkt som finnes: låst, og K = 0
+        clearTimeout(App._tidsavbrudd);
+        await App.oppdater();
+        const pr = App.resultat.profiler.find(p => App.P.vip.some(v => Math.abs(v.s - p.s) < 1e-6 && v.s > 0));
+        App.settTverrStasjon(pr.s);
+        App.settPunkthoyde('senter', 105.5);
+        const v = App.P.vip.find(x => Math.abs(x.s - pr.s) < 1e-6);
+        this.sjekk('en ny høyde i senterlinja låser punktet med K = 0', v.z === 105.5 && v.laast && v.k === 0, JSON.stringify(v));
+        // tomme felt beholder det som gjaldt
+        const tf = document.getElementById('m_tverrfall');
+        tf.value = '';
+        tf.dispatchEvent(new Event('change'));
+        this.sjekk('et tomt tverrfallsfelt beholder 5 %', Math.abs(App.P.mal.tverrfall - 0.05) < 1e-12 && Number(tf.value) === 5,
+          `${App.P.mal.tverrfall} / ${tf.value}`);
+        const pa = document.getElementById('m_profilAvstand'), paFoer = App.P.profilAvstand;
+        pa.value = '';
+        pa.dispatchEvent(new Event('change'));
+        this.sjekk('et tomt felt for profilavstand beholder den', App.P.profilAvstand === paFoer, String(App.P.profilAvstand));
+        // veiklassen: en bredde brukeren har satt, blir stående når klassen krever mindre
+        const vb = document.getElementById('m_vegbredde');
+        vb.value = '5.0';
+        vb.dispatchEvent(new Event('change'));
+        App.velgVeiklasse('k3');
+        this.sjekk('en egen bredde blir stående med en smalere veiklasse', App.P.mal.vegbredde === 5 && App.P.mal.veiklasse === 'k3',
+          String(App.P.mal.vegbredde));
+        this.sjekk('og statuslinja sier det', /Vegbredden 5 m er beholdt/.test(document.getElementById('statuslinje').textContent),
+          document.getElementById('statuslinje').textContent);
+        // «Massebalanse» uten terreng: ingenting flyttes, og det sies
+        clearTimeout(App._tidsavbrudd);
+        await App.oppdater();
+        const foer = JSON.stringify(App.P.vip);
+        Terreng.prototype.z = () => NaN;
+        App.hentTerrengProfil();
+        await App.balanser();
+        this.sjekk('«Massebalanse» uten terreng flytter ingenting', JSON.stringify(App.P.vip) === foer);
+        this.sjekk('og sier hvorfor', /Fant ikke terreng/.test(document.getElementById('statuslinje').textContent),
+          document.getElementById('statuslinje').textContent);
+        Terreng.prototype.z = () => 100;
+        App.hentTerrengProfil();
+        // å åpne prosjektet som er åpent, med endringer: det spørres, og et nei lar alt stå
+        const navn = 'Massekalk prøve åpne samme';
+        App.P.navn = navn;
+        document.getElementById('prosjektnavn').value = navn;
+        await Lager.lagre(navn, JSON.parse(JSON.stringify(App.P)));
+        App._lagretSom = JSON.stringify(App.P);
+        const ny = App.P.vip[0].z + 1;
+        App.P.vip[0].z = ny;               // en endring som ikke er lagret
+        let spurt = '';
+        App.bekreft = async t => { spurt = t; return false; };
+        App.autolagringPause--;
+        try { await App.apne(navn); } finally { App.autolagringPause++; await Lager.slett(navn); }
+        this.sjekk('å åpne samme prosjekt med endringer spør først', /Gå tilbake til det som er lagret/.test(spurt), spurt);
+        this.sjekk('og et nei lar endringen stå', App.P.vip[0].z === ny, String(App.P.vip[0].z));
+      });
+    } finally {
+      App.bekreft = gammelBekreft;
+    }
+  },
+
+  /**
+   * Sluttrettingen i «Rett opp» bruker terrenget som ligger der vegen ligger
+   * NÅ. Optimaliseringen kan flytte linja sidelengs og hente nytt terreng; her
+   * brukte sluttrettingen terrengprofilen fra før. Optimaliseringen byttes ut
+   * med en som bare flytter terrenget, og prøven ser hvilket terreng den siste
+   * rettingen får.
+   */
+  async vegSluttretting() {
+    const ekteOpt = App.optimaliser, ekteRett = window.rettProfil;
+    try {
+      await this._medVeg(async ll => {
+        App.P.ip = [ll(0, 0), ll(100, 0), ll(200, 0)];
+        App.P.vip = [{ s: 0, z: 101, k: 1 }, { s: 100, z: 102, k: 1 }, { s: 200, z: 103, k: 1 }];
+        App.P.mal.maksSkjaeringsdybde = 10;
+        clearTimeout(App._tidsavbrudd);
+        await App.oppdater();
+        let sist = null;
+        App.optimaliser = async () => { Terreng.prototype.z = () => 150; App.hentTerrengProfil(); App.beregn(); };
+        window.rettProfil = (vip, o) => { sist = o && o.terrengVed ? o.terrengVed(50) : null; return ekteRett(vip, o); };
+        await App.rettOpp();
+        this.sjekk('sluttrettingen bruker terrenget etter optimaliseringen', sist === 150, String(sist));
+      });
+    } finally {
+      App.optimaliser = ekteOpt; window.rettProfil = ekteRett;
     }
   },
 

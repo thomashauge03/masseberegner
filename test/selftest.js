@@ -12,7 +12,7 @@
 const path = require('path');
 const Geo = require(path.join(__dirname, '..', 'public', 'js', 'geo.js'));
 const { Linjeforing } = require(path.join(__dirname, '..', 'public', 'js', 'linjeforing.js'));
-const { Vertikalprofil, foreslaProfil, lesHoydetabell, rettVertikalgeometri, rettProfil } = require(path.join(__dirname, '..', 'public', 'js', 'vertikalprofil.js'));
+const { Vertikalprofil, foreslaProfil, lesHoydetabell, rettVertikalgeometri, rettProfil, vipTilLengde } = require(path.join(__dirname, '..', 'public', 'js', 'vertikalprofil.js'));
 const M = require(path.join(__dirname, '..', 'public', 'js', 'masser.js'));
 const VK = require(path.join(__dirname, '..', 'public', 'js', 'veiklasser.js'));
 const H = require(path.join(__dirname, '..', 'lib', 'hoydedata.js'));
@@ -225,6 +225,38 @@ console.log('\n3. Lengdeprofil');
       + (verstN != null ? ' (verst trasé ' + verstN + ')' : ''),
     traff, 0, 0);
   }
+}
+
+/* ------------------------------------------------------------------ */
+console.log('\n3a. Profilen mot linjas lengde – høydene brukeren har, røres ikke');
+{
+  /* Her sto `justerProfilTilLengde`, som ved hver omregning slettet
+     knekkpunktene bak linjeslutt – også de låste – og la et nytt endepunkt
+     inn i prosjektet. Nå får beregningen en kopi. */
+  const vip = [{ s: 0, z: 100, k: 1 }, { s: 50, z: 105, k: 2, laast: true }, { s: 100, z: 110, k: 1, laast: true }];
+  const foer = JSON.stringify(vip);
+  const kort = vipTilLengde(vip, 80);
+  paastand('kortere linje: punktet bak slutten er ikke med i beregningen',
+    kort.length === 3 && kort[2].s === 80 && kort.every(v => v.s <= 80));
+  sjekk('men slutten ligger på linja mot det – stigningen som er tegnet', kort[2].z, 105 + 5 * 30 / 50, 1e-9);
+  paastand('og lista brukeren har, er urørt – også det låste punktet bak slutten', JSON.stringify(vip) === foer);
+  paastand('punktene foran slutten er de samme, med låsen', kort[1].z === 105 && kort[1].laast === true && kort[1].k === 2);
+  paastand('kopien er en kopi', kort[0] !== vip[0]);
+  const lang = vipTilLengde(vip, 130);
+  paastand('lengre linje: forlenget med den siste stigningen', lang.length === 4 && lang[3].s === 130
+    && Math.abs(lang[3].z - 113) < 1e-9);
+  paastand('innenfor en halv meter: som den er', vipTilLengde(vip, 100.4).length === 3);
+  const bak = vipTilLengde([{ s: 100, z: 110, k: 1 }, { s: 150, z: 115, k: 1 }], 50);
+  paastand('alle punktene bak slutten: linja mellom dem, fra start til slutt', bak.length === 2 && bak[0].s === 0
+    && Math.abs(bak[0].z - 100) < 1e-9 && bak[1].s === 50 && Math.abs(bak[1].z - 105) < 1e-9);
+  const like = vipTilLengde([{ s: 0, z: 100, k: 1 }, { s: 40, z: 104, k: 1 }, { s: 40, z: 104, k: 1 }], 60);
+  paastand('to punkt på samme profil i enden: vannrett videre, ikke en deling på null', like.length === 4
+    && Math.abs(like[3].z - 104) < 1e-9);
+  paastand('ett punkt eller ingen: som det er', vipTilLengde([{ s: 0, z: 1, k: 1 }], 50).length === 1
+    && vipTilLengde([], 50).length === 0);
+  // beregningen med kopien er den samme som med en profil som slutter der
+  const vp = new Vertikalprofil(kort);
+  sjekk('høyden ved 70 er på linja som er tegnet', vp.hoyde(70), 105 + 5 * 20 / 50, 1e-9);
 }
 
 /* ------------------------------------------------------------------ */
@@ -2022,6 +2054,22 @@ console.log('\n4d. Retting av vertikalgeometrien');
   paastand('for skarpt brudd blir slakere', A1 < A0 * 0.8, `${(A0 * 100).toFixed(1)} % → ${(A1 * 100).toFixed(1)} %`);
   paastand('trangt brudd er løst', bruddene(trangt).length === 0);
 
+  /* EN NABO MED FOR HØY K TAR PLASSEN. Rettingen satte K opp, aldri ned: en
+     kurve brukeren hadde gitt K = 8, tok plassen fra naboen, og da ble naboens
+     knekk flatet ut – høyden flyttet – i stedet for at K = 8 ble satt ned til
+     det kravet trenger. Målt med brukersatt K: 363 av 400 brudd sto igjen. */
+  const nabo = [{ s: 0, z: 100, k: 0 }, { s: 50, z: 105, k: 8 }, { s: 80, z: 105, k: 1.5 }, { s: 130, z: 100, k: 0 }];
+  const gjortN = rettVertikalgeometri(nabo, krav);
+  sjekk('naboen med for høy K settes ned til kravet', nabo[1].k, krav.minVertikalHoybrekk / 100, 1e-9);
+  sjekk('og høyden der det manglet plass, står der den sto', nabo[2].z, 105, 1e-9);
+  paastand('ingen brudd igjen', bruddene(nabo).length === 0 && gjortN.glattet === 0,
+    `${bruddene(nabo).join(',')} / glattet ${gjortN.glattet}`);
+  // de låste som står i veien, telles én gang hver – ikke én gang per runde
+  const lasteVip = [{ s: 0, z: 100, k: 0 }, { s: 20, z: 103, k: 0, laast: true }, { s: 40, z: 100, k: 0, laast: true },
+    { s: 60, z: 103, k: 0 }, { s: 80, z: 100, k: 0 }];
+  const gjortL = rettVertikalgeometri(lasteVip, krav);
+  paastand('to låste i veien er to', gjortL.laste === 2, String(gjortL.laste));
+
   /* Plassen er ikke bare avstanden til naboknekkpunktene: `_bygg` korter inn
      en kurve sa den ikke tar over naboens, sa naboens kurve spiser av plassen
      ogsa. Med avstanden alene trodde rettingen at det var rom der det ikke
@@ -2420,6 +2468,13 @@ console.log('\n6. Veiklasser, breddeutvidelse og stigningskrav');
   sjekk('klasse 3 setter overgangslengde for bredde', k3.utvidelseOvergang, 20, 1e-9);
   sjekk('klasse 3 setter egen utflating for stigning', k3.utflatingForKurve, 10, 1e-9);
   sjekk('klasse 3 krever 7,0 m i R=10 kort kurve', M.utvidelseFraRadius(k3, 10, 45) + k3.vegbredde, 7.0, 1e-9);
+  /* En bredde brukeren har satt selv, er byggherrens: den blir stående når
+     klassen krever mindre – og klassens minstebredde gjelder når den er
+     smalere. Her ble den satt til klassens tall uansett. */
+  sjekk('egen bredde over klassens minstebredde blir stående',
+    V.malFraVeiklasse('k3', Object.assign({}, KLASSISK, { vegbredde: 5.0, vegbreddeEgen: true })).vegbredde, 5.0, 1e-9);
+  sjekk('egen bredde under minstebredden: klassens',
+    V.malFraVeiklasse('k3', Object.assign({}, KLASSISK, { vegbredde: 3.5, vegbreddeEgen: true })).vegbredde, 4.0, 1e-9);
   const k2 = V.malFraVeiklasse('k2', Object.assign({}, KLASSISK));
   sjekk('klasse 2 setter veibredde', k2.vegbredde, 4.5, 1e-9);
   sjekk('klasse 2 har 20 m minsteradius', k2.minRadius, 20, 1e-9);
@@ -2528,6 +2583,18 @@ console.log('\n6b. Eget tverrfall per profil');
   const eget = [{ s: 0, venstre: 0.02, hoyre: 0.08 }, { s: 100, venstre: 0.06, hoyre: 0.04 }];
   sjekk('eget fall interpoleres', M.tverrfallVed(mal, eget, 50).venstre, 0.04, 1e-9);
   sjekk('eget fall interpoleres, høyre', M.tverrfallVed(mal, eget, 50).hoyre, 0.06, 1e-9);
+
+  /* ÉN OVERSTYRING GJELDER DER DEN ER. Her ble den første og den siste ført
+     ut til endene av vegen: én innskrevet kanthøyde på profil 100 ga det
+     fallet på hele vegen – og slo av doseringen i hver kurve. */
+  const en = [{ s: 100, venstre: -0.08, hoyre: 0.08 }];
+  sjekk('én overstyring: fallet der den er', M.tverrfallVed(mal, en, 100).venstre, -0.08, 1e-9);
+  sjekk('ti meter unna: malen igjen', M.tverrfallVed(mal, en, 110).venstre, 0.05, 1e-9);
+  sjekk('og langt unna, på den andre sida: malen', M.tverrfallVed(mal, en, 0).venstre, 0.05, 1e-9);
+  sjekk('halvveis i overgangen: midt imellom', M.tverrfallVed(mal, en, 95).venstre, (0.05 - 0.08) / 2, 1e-9);
+  const iKurve = M.tverrfallVed(mal, en, 300, 1 / 30);
+  paastand('doseringen i en kurve et annet sted står seg', Math.abs(iKurve.venstre - Math.min(mal.tverrfall, 0.05)) < 1e-9
+    && iKurve.hoyre < 0);
 
   // Vegkanthøydene skal bli akkurat som fallet tilsier
   const res = M.beregnMasser({

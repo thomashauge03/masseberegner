@@ -76,7 +76,7 @@ const App = {
        det ubestemt igjen, og uten førstevalget sto man uten vei videre */
     this.visAnleggsvalg();
     this.byggLinje();
-    this.vprofil = new Vertikalprofil(this.P.vip);
+    this.vprofil = new Vertikalprofil(this.vipForLinja());
     this.malTilSkjema();
     Kart.tegn();
     this.visSonderinger();
@@ -541,7 +541,7 @@ const App = {
       }));
       if (!linje || !(linje.lengde > 0)) return null;
       res = beregnMasser({
-        linje, profil: new Vertikalprofil(a.vip),
+        linje, profil: new Vertikalprofil(vipTilLengde(a.vip, linje.lengde)),
         terreng: this.terreng,             // rå bakke – se `ferdigflateForTomt`
         mal: a.mal, fjell: this.fjellmodellIUtm(), faktorer: this.P.faktorer,
         tverrfallOverstyring: a.tverrfall, plasser: a.plasser,
@@ -2693,25 +2693,17 @@ const App = {
     this.terrengProfil = { s, z };
   },
 
-  justerProfilTilLengde() {
-    const L = this.linje.lengde;
-    const V = this.P.vip;
-    if (!V.length) return;
-    for (let i = V.length - 1; i >= 0; i--) if (V[i].s > L + 1e-6) V.splice(i, 1);
-    if (!V.length) return;
-    const siste = V[V.length - 1];
-    if (Math.abs(siste.s - L) > 0.5) {
-      /* Star de to siste knekkpunktene pa samme profilnummer, blir dette en
-         deling pa null: stigningen blir uendelig, endepunktets høyde blir
-         Infinity eller NaN, og volumene blir stille feil. Da videreføres
-         høyden vannrett i stedet - det er ingenting a regne en stigning av. */
-      const dl = V.length > 1 ? (siste.s - V[V.length - 2].s) : 0;
-      const g = Math.abs(dl) > 1e-9 ? (siste.z - V[V.length - 2].z) / dl : 0;
-      V.push({ s: L, z: siste.z + g * (L - siste.s), k: siste.k });
-    }
+  /**
+   * Høydene slik vegen regnes – klippet til eller forlenget til linjas lengde,
+   * som en kopi. `P.vip` er brukerens, og den røres ikke av en omregning: se
+   * `vipTilLengde`.
+   */
+  vipForLinja(vip = this.P.vip) {
+    return this.linje && this.linje.lengde > 0 ? vipTilLengde(vip, this.linje.lengde) : vip;
   },
 
-  lagProfilforslag() {
+  /** Forslaget fra terrenget. `ekstra` er høyder som skal bli liggende i tillegg til de låste. */
+  lagProfilforslag(ekstra = []) {
     const vipAvstand = parseFloat(document.getElementById('vipAvstand').value) || 40;
     const k = parseFloat(document.getElementById('kVerdi').value);
     const maksBrukt = this.P.mal.stigningIKurve.reduce((a, r) => Math.max(a, r[1], r[2]), 0);
@@ -2723,8 +2715,27 @@ const App = {
       maksOverTerreng: this.P.mal.maksFyllingshoyde > 0 ? this.P.mal.maksFyllingshoyde : null,
       maksUnderTerreng: this.P.mal.maksSkjaeringsdybde > 0 ? this.P.mal.maksSkjaeringsdybde : null,
       // høyder brukeren har bestemt blir liggende
-      laste: this.lasteHoyder()
+      laste: this.lasteHoyder().concat(ekstra)
     });
+  },
+
+  /**
+   * Et forslag av seg selv – bare når det ikke finnes høyder å miste.
+   *
+   * En nytegnet veg har ingen profil, og da er forslaget fra terrenget det
+   * første den får. Her ble det også laget når profilen hadde ETT punkt – og
+   * et ulåst punkt forsvant i forslaget. Nå blir det liggende, med sin høyde.
+   * Har profilen to punkt eller flere, lages det aldri noe forslag uten at
+   * man trykker på «Foreslå profil».
+   */
+  forslagForTomProfil() {
+    const V = this.P.vip;
+    if (V.length >= 2) return;
+    const ett = V.length === 1 ? Object.assign({}, V[0]) : null;
+    this.lagProfilforslag(ett && !ett.laast ? [{ s: ett.s, z: ett.z, k: ett.k }] : []);
+    // punktet er med i forslaget med sin høyde – og låst bare om det var det
+    const igjen = ett && this.P.vip.find(v => Math.abs(v.s - ett.s) < 1e-6);
+    if (igjen && !ett.laast) igjen.laast = false;
   },
 
   /* ---------------- hovedløkke ---------------- */
@@ -2769,8 +2780,10 @@ const App = {
     await this.lastTerreng();
     if (this.P.aktivt !== anleggFoer) return;
     this.hentTerrengProfil();
-    if (this.P.vip.length < 2) this.lagProfilforslag();
-    else this.justerProfilTilLengde();
+    /* Profilen klippes og forlenges i beregningen, på en kopi – se
+       `vipForLinja`. Her sto `justerProfilTilLengde`, som slettet høydene bak
+       linjeslutt, også de låste, hver gang linja ble kortere. */
+    this.forslagForTomProfil();
     this.beregn();
   },
 
@@ -2816,7 +2829,7 @@ const App = {
        som må stilles – da er hver eneste inngang dekket, også de som skrives
        senere. */
     if (this._linjeAnlegg && this._linjeAnlegg !== this.P.aktivt) return;
-    this.vprofil = new Vertikalprofil(this.P.vip);
+    this.vprofil = new Vertikalprofil(this.vipForLinja());
     this.fjellmodell = this.fjellmodellIUtm();
     const t0 = performance.now();
     this.resultat = beregnMasser({
@@ -2882,7 +2895,14 @@ const App = {
     const mal = this.P.mal;
     if (!this.linje) return 1;
     let minste = Infinity;
-    const steg = Math.max(1, Math.abs(sB - sA) / 8);
+    /* PUNKTENE LIGGER TETTERE ENN UTFLATINGEN. Her var det ni punkt uansett
+       hvor langt strekket var: på 400 m ett hvert 50. – og en kurve med sin
+       utflating på 30–40 m kunne ligge imellom uten å bli sett. Rettingen
+       meldte seg ferdig med stigning over kravet nettopp der. Hvert punkt ser
+       ± utflatingen rundt seg (`effektivRadius`), så med punktene så tett
+       overlapper vinduene. Korte strekk er som før. */
+    const utflating = mal.utflatingForKurve != null ? mal.utflatingForKurve : (mal.utvidelseOvergang || 0);
+    const steg = Math.max(1, Math.min(Math.abs(sB - sA) / 8, utflating > 0 ? utflating : 5));
     for (let s = Math.min(sA, sB); s <= Math.max(sA, sB) + 1e-9; s += steg) {
       // effektiv radius tar med utflatingen foran og etter kurven
       const g = maksStigningFraRadius(mal, effektivRadius(this.linje, mal, s), stigning, mal.lassretning);
@@ -3035,7 +3055,7 @@ const App = {
 
   /** Rask beregning brukt av optimaliseringen. */
   beregnRaskt(vipListe, linje) {
-    const vp = new Vertikalprofil(vipListe);
+    const vp = new Vertikalprofil(vipTilLengde(vipListe, (linje || this.linje).lengde));
     return beregnMasser({
       linje: linje || this.linje, profil: vp, terreng: this.prosjektterreng(),
       mal: this.P.mal, fjell: this.fjellmodell, faktorer: this.P.faktorer,
@@ -3622,7 +3642,7 @@ const App = {
   },
   grunnEndret() { Kart.tegn(); this.visSonderinger(); this.planlegg(60); },
   profilEndret(underDrag) {
-    this.vprofil = new Vertikalprofil(this.P.vip);
+    this.vprofil = new Vertikalprofil(this.vipForLinja());
     Lengdeprofil.tegn();
     if (!underDrag) this.planlegg(30);
   },
@@ -3884,7 +3904,8 @@ const App = {
     try {
       await pause();
       const mal = this.P.mal;
-      const terrengVed = lagTerrengoppslag(this.terrengProfil.s, this.terrengProfil.z);
+      // `let`: optimaliseringen kan flytte linja sidelengs og hente nytt terreng – se sluttrettingen
+      let terrengVed = lagTerrengoppslag(this.terrengProfil.s, this.terrengProfil.z);
       /**
        * Taket og gulvet senterlinja må holde seg mellom, REGNET AV SNITTENE.
        *
@@ -4012,7 +4033,7 @@ const App = {
       for (let runde = 0; runde < 8; runde++) {
         if (performance.now() > frist) break;
         rettEnGang();
-        this.vprofil = new Vertikalprofil(this.P.vip);
+        this.vprofil = new Vertikalprofil(this.vipForLinja());
         const na = bruddRaskt();
         this.framdrift(true, `Retter profilen… ${na} brudd igjen`, 0.15 + 0.35 * (runde + 1) / 8);
         if (na === 0) break;
@@ -4066,9 +4087,9 @@ const App = {
           }
           if (beste !== 0) {
             for (const v of this.P.vip) if (!v.laast) v.z += beste;
-            this.vprofil = new Vertikalprofil(this.P.vip);
+            this.vprofil = new Vertikalprofil(this.vipForLinja());
             rettEnGang();                 // stigning og krav skal fortsatt holde
-            this.vprofil = new Vertikalprofil(this.P.vip);
+            this.vprofil = new Vertikalprofil(this.vipForLinja());
             this.beregn();
           }
         }
@@ -4087,8 +4108,15 @@ const App = {
       this.framdrift(true, 'Kontrollerer at kravene holder…', 0.96);
       await pause();
       if (this.tellBrudd().profil > 0) {
+        /* MED TERRENGET SOM LIGGER DER VEGEN LIGGER NÅ. Optimaliseringen kan
+           ha flyttet linja sidelengs og hentet nytt terreng. Her ble
+           terrengprofilen fra før flyttingen brukt, og grensene fra den siste
+           grove beregningen FØR optimaliseringen – sluttrettingen flyttet
+           høyder mot en bakke og et snitt som ikke lenger var der. */
+        terrengVed = lagTerrengoppslag(this.terrengProfil.s, this.terrengProfil.z);
+        sisteGrove = null;
         rettEnGang();
-        this.vprofil = new Vertikalprofil(this.P.vip);
+        this.vprofil = new Vertikalprofil(this.vipForLinja());
         this.beregn();
       }
       this.framdrift(true, 'Sammenligner med profilen du hadde…', 0.98);
@@ -4169,7 +4197,7 @@ const App = {
         this.framdrift(true, 'Legger tilbake profilen du hadde…', 0.99);
         await pause();
         this.byggLinje();
-        this.vprofil = new Vertikalprofil(this.P.vip);
+        this.vprofil = new Vertikalprofil(this.vipForLinja());
         this.beregn();
         this.framdrift(false);
         /* Rullebakken legger tilbake høydene, men IKKE planryddingen: den
@@ -4963,9 +4991,40 @@ const App = {
       + (laste ? ` – ${laste} låste ble liggende` : ''));
   },
 
+  /**
+   * Hvor mye som må kjøres – ut av anlegget og inn til det – med en profil.
+   * Målet for «Massebalanse»: se `balanser`.
+   */
+  kjoringFor(b) {
+    return { ut: b.utAvAnlegget, inn: b.manglerTotalt, sum: b.utAvAnlegget + b.manglerTotalt };
+  },
+
+  /**
+   * «Massebalanse»: flytter de ulåste høydene loddrett dit minst må kjøres.
+   *
+   * MÅLET ER MINST MULIG KJØRING, UT OG INN. Her ble det søkt etter høyden der
+   * fyllingen går opp med det som graves – uten bærelaget. Målt på demoen sto
+   * 3 485 m³ bærelag igjen å kjøre inn der knappen sa «i balanse»; 0,5 m
+   * lenger ned måtte ingenting kjøres inn. Bærelaget kan bare bygges av
+   * sprengstein, så en balanse med det finnes ikke alltid – i ren løsmasse må
+   * det kjøpes uansett. Det som alltid finnes, er høyden der minst må kjøres.
+   * Søket går grovt over ±8 m og fint rundt det beste; er flere like gode,
+   * vinner den som flytter profilen minst.
+   */
   async balanser() {
-    this.merk('balanser massene');
     if (!this.terreng || !this.linje) return;
+    if (this.P.vip.every(v => v.laast)) {
+      this.status('Alle høyder er låst – lås opp noen for å kunne balansere massene');
+      return;
+    }
+    /* UTEN TERRENG ER DET INGENTING Å BALANSERE. Her ble balansen null for
+       hver høyde, søket endte på −8 m, alle ulåste høyder ble flyttet åtte
+       meter ned – og statuslinja sa «Massene er i balanse». */
+    if (!this.terrengProfil || !this.terrengProfil.z.some(Number.isFinite)) {
+      this.status('Fant ikke terreng langs linja – massebalansen kan ikke regnes. Ingen høyder er flyttet.');
+      return;
+    }
+    this.merk('balanser massene');
     /* PLANET RYDDES FØRST – VEGEN SKAL VÆRE LOVLIG, IKKE BLI DET NÅR NOEN
        HUSKER Å TRYKKE PÅ EN KNAPP.
        Bare det som IKKE flytter vegen gjøres her: radier som ber om mer plass
@@ -4973,52 +5032,48 @@ const App = {
        linjen seg under en centimeter. Alt som virkelig flytter den – å fjerne
        et knekkpunkt – ligger i «Gjør lovlig» og spør fortsatt først. */
     this.sikreLovligPlan();
-
-    if (this.P.vip.every(v => v.laast)) {
-      this.status('Alle høyder er låst – lås opp noen for å kunne balansere massene');
-      return;
-    }
-    this.framdrift(true, 'Finner høyden som gir massebalanse…', 0.1);
+    this.framdrift(true, 'Finner høyden der minst må kjøres…', 0.05);
     try {
       await pause();
       const grunn = this.P.vip.map(v => ({ s: v.s, z: v.z, k: v.k, laast: v.laast }));
       // Laste høyder blir liggende; bare de andre løftes eller senkes
       const flytt = (liste, d) => liste.map(v => ({ s: v.s, z: v.laast ? v.z : v.z + d, k: v.k }));
-      const verdi = d => this.beregnRaskt(flytt(grunn, d)).balanse.balanse;
-      this._balanseTraffIkke = null;
-      let lo = -8, hi = 8;
-      let vLo = verdi(lo), vHi = verdi(hi);
-      let d;
-      if (vLo * vHi > 0) {
-        /* Ingen fortegnsskifte innenfor atte meter opp eller ned: balansen
-           lar seg ikke treffe ved a flytte profilen loddrett. Da velges
-           endepunktet som kommer nærmest - men det ma sies, ellers ser det ut
-           som om programmet fant balansen, og profilen har i stillhet flyttet
-           seg atte meter. */
-        d = Math.abs(vLo) < Math.abs(vHi) ? lo : hi;
-        this._balanseTraffIkke = Math.abs(Math.abs(vLo) < Math.abs(vHi) ? vLo : vHi);
-      } else {
-        for (let i = 0; i < 26; i++) {
-          const midt = (lo + hi) / 2;
-          const vM = verdi(midt);
-          if (vLo * vM <= 0) { hi = midt; vHi = vM; } else { lo = midt; vLo = vM; }
-          this.framdrift(true, 'Finner høyden som gir massebalanse…', 0.1 + 0.9 * i / 26);
-          if (i % 6 === 0) await pause();
-        }
-        d = (lo + hi) / 2;
+      const kjoring = d => this.kjoringFor(this.beregnRaskt(flytt(grunn, d)).balanse).sum;
+      const bedre = (v, d, bv, bd) => v < bv - 1e-6 || (Math.abs(v - bv) <= 1e-6 && Math.abs(d) < Math.abs(bd));
+      let beste = 0, bv = kjoring(0), lav = bv, hoy = bv;
+      for (let i = 0, d = -8; d <= 8 + 1e-9; i++, d += 0.5) {
+        const v = kjoring(d);
+        lav = Math.min(lav, v); hoy = Math.max(hoy, v);
+        if (bedre(v, d, bv, beste)) { bv = v; beste = d; }
+        this.framdrift(true, 'Finner høyden der minst må kjøres…', 0.05 + 0.6 * i / 33);
+        if (i % 6 === 0) await pause();
       }
+      /* Flytter profilen ingenting, er det noe galt med grunnlaget – ikke
+         noe å balansere. Da røres ikke høydene. */
+      if (hoy - lav < 0.5) {
+        this.status('Massene endrer seg ikke når profilen flyttes – sjekk at terrenget er lastet. Ingen høyder er flyttet.');
+        return;
+      }
+      // fint rundt det beste: gyllent snitt på en halv meter til hver side
+      const phi = (Math.sqrt(5) - 1) / 2;
+      let a = beste - 0.5, b = beste + 0.5;
+      let c = b - phi * (b - a), e = a + phi * (b - a), fc = kjoring(c), fe = kjoring(e);
+      for (let i = 0; i < 20; i++) {
+        if (fc < fe) { b = e; e = c; fe = fc; c = b - phi * (b - a); fc = kjoring(c); }
+        else { a = c; c = e; fc = fe; e = a + phi * (b - a); fe = kjoring(e); }
+        this.framdrift(true, 'Finner høyden der minst må kjøres…', 0.65 + 0.35 * i / 20);
+        if (i % 6 === 0) await pause();
+      }
+      const fin = (a + b) / 2, vf = kjoring(fin);
+      const d = bedre(vf, fin, bv, beste) ? fin : beste;
       this.P.vip.forEach(v => { if (!v.laast) v.z += d; });
       this.beregn();
-      if (this._balanseTraffIkke != null) {
-        const rest = Math.round(this._balanseTraffIkke);
-        this._balanseTraffIkke = null;
-        this.status(this.forran(`Fant ingen høyde som gir balanse innenfor åtte meter. `
-          + `Profilen er flyttet ${d > 0 ? '+' : ''}${d.toFixed(1)} m, og det står `
-          + `${Math.abs(rest).toLocaleString('nb-NO')} m³ igjen i ubalanse.`));
-      } else {
-        this.status(this.forran(`Massene er i balanse. Profilen er flyttet `
-          + `${d > 0 ? '+' : ''}${d.toFixed(2)} m.`));
-      }
+      const k = this.kjoringFor(this.resultat.balanse), m3 = v => Math.round(v).toLocaleString('nb-NO');
+      const flyttet = `Profilen er flyttet ${d > 0 ? '+' : ''}${d.toFixed(2)} m`;
+      this.status(this.forran(k.inn < 1 && k.ut < 1
+        ? `Massene er i balanse. ${flyttet}.`
+        : `${flyttet} – der må minst kjøres: ${m3(k.inn)} m³ inn og ${m3(k.ut)} m³ ut av anlegget.`
+          + (Math.abs(d) >= 8 - 1e-9 ? ' Det beste lå ved grensen på åtte meter.' : '')));
     } catch (e) {
       this.status('Massebalanseringen feilet: ' + e.message);
     } finally {
@@ -5067,7 +5122,7 @@ const App = {
     const kostnad = (liste, linje) => {
       const r = this.beregnRaskt(liste, linje);
       const s = r.sum, b = r.balanse;
-      const vpKost = new Vertikalprofil(liste);
+      const vpKost = new Vertikalprofil(vipTilLengde(liste, (linje || this.linje).lengde));
 
       /* To ulike malestokker, fordi de ikke er samme sak:
 
@@ -5282,7 +5337,6 @@ const App = {
     if (flyttet) {
       await this.lastTerreng();
       this.hentTerrengProfil();
-      this.justerProfilTilLengde();
       Kart.tegn();
     }
     this.beregn();
@@ -6010,11 +6064,17 @@ const App = {
        stille nullvolum: `while (t < NaN)` kjører aldri, og skjæringen ble 0
        uten at noe sa ifra at grunnlaget var ødelagt. Verdien som sto der fra
        før beholdes i stedet, og feltet settes tilbake til den. */
-    const tall = id => {
+    /* `reserve` er verdien som gjaldt, I FELTETS ENHET, for felt der den ikke
+       står rett i malen. Tverrfallet står i prosent i feltet og som brøk i
+       malen: et tomt felt fikk reserven 0,05 – og den ble delt på hundre igjen,
+       til 0,05 %. Profilavstanden står ikke i malen i det hele tatt, så et
+       tomt felt fant ingen reserve og ble 1 m. */
+    const tall = (id, reserve) => {
       const felt = document.getElementById(id);
       const v = parseFloat(felt.value);
       if (isFinite(v)) return v;
-      const gammel = m[id.replace(/^m_/, '')] ?? f[id.replace(/^f_/, '')] ?? g[id.replace(/^g_/, '')];
+      const gammel = reserve !== undefined ? reserve
+        : m[id.replace(/^m_/, '')] ?? f[id.replace(/^f_/, '')] ?? g[id.replace(/^g_/, '')];
       if (isFinite(gammel)) { felt.value = gammel; return gammel; }
       felt.value = 0;
       return 0;
@@ -6034,7 +6094,7 @@ const App = {
       return;
     }
     m.vegbredde = tall('m_vegbredde');
-    m.tverrfall = tall('m_tverrfall') / 100;
+    m.tverrfall = tall('m_tverrfall', m.tverrfall * 100) / 100;
     m.tverrfallType = document.getElementById('m_tverrfallType').value;
     m.slitelagTykkelse = tall('m_slitelagTykkelse');
     m.slitelagBredde = tall('m_slitelagBredde');
@@ -6067,7 +6127,7 @@ const App = {
     m.beregningsbredde = tall('m_beregningsbredde');
     m.sideforskyvning = tall('m_sideforskyvning');
     m.lassretning = parseInt(document.getElementById('m_lassretning').value, 10) || -1;
-    this.P.profilAvstand = Math.max(1, tall('m_profilAvstand'));
+    this.P.profilAvstand = Math.max(1, tall('m_profilAvstand', this.P.profilAvstand));
     this.P.bakkekorreksjon = document.getElementById('m_bakkekorreksjon').checked;
     f.sprengningsfaktor = tall('f_sprengningsfaktor');
     f.fjellIFylling = tall('f_fjellIFylling');
@@ -6397,15 +6457,18 @@ const App = {
   },
 
   velgVeiklasse(navn) {
+    this.merk('veiklasse');
+    const foer = this.P.mal.vegbredde;
     this.P.mal = malFraVeiklasse(navn, this.P.mal);
     this.P.mal.veiklasse = navn;
-    if (Veiklasser[navn] && !Veiklasser[navn].fri) {
-      // Vegbredden er minstekravet i klassen; byggherren kan ville ha mer
-      const k = Veiklasser[navn];
-      if (this.P.mal.vegbredde < k.vegbredde) this.P.mal.vegbredde = k.vegbredde;
-    }
     this.malTilSkjema();
     this.planlegg(30);
+    // en bredde brukeren har satt selv, og som klassen ikke krever mindre enn, blir stående – det sies
+    const k = Veiklasser[navn];
+    if (k && !k.fri && this.P.mal.vegbredde === foer && foer > k.vegbredde) {
+      this.status(`Vegbredden ${String(foer).replace('.', ',')} m er beholdt – klassen krever minst `
+        + `${String(k.vegbredde).replace('.', ',')} m`);
+    }
   },
 
   /* ---------------- punkthøyder i tverrprofilet ---------------- */
@@ -6450,7 +6513,8 @@ const App = {
 
     if (hvor === 'senter') {
       const finnes = this.P.vip.find(v => Math.abs(v.s - pr.s) < 1e-6);
-      if (finnes) { finnes.z = verdi; finnes.laast = true; }
+      // en låst høyde treffes nøyaktig – uten vertikalkurve, som et nytt punkt
+      if (finnes) { finnes.z = verdi; finnes.laast = true; finnes.k = 0; }
       else this.P.vip.push({ s: pr.s, z: verdi, k: 0, laast: true });
       this.P.vip.sort((a, b) => a.s - b.s);
       this.profilEndret(false);
@@ -6509,14 +6573,23 @@ const App = {
     if (!tb) return;
     tb.innerHTML = '';
     const V = this.P.vip;
-    V.forEach((v, i) => {
+    const L = this.linje ? this.linje.lengde : Infinity;
+    V.forEach(v => {
       const zt = this.terrengHoyde(v.s);
       const diff = zt - v.z;                     // positiv = skjæring
       const tr = document.createElement('tr');
       if (v.laast) tr.className = 'laast';
+      /* BAK LINJESLUTT: punktet står i profilen, men vegen slutter før det.
+         Det slettes ikke – blir linja lengre igjen, er det med. */
+      const bak = v.s > L + 1e-6;
+      if (bak) {
+        tr.classList.add('bakslutt');
+        tr.title = 'Bak linjeslutt – brukes ikke før linja er lengre igjen';
+      }
+      // høyden har tre desimaler: med steg 0,01 rundet et piltrykk den – og låste punktet
       tr.innerHTML =
-        `<td><input type="number" step="1" value="${+v.s.toFixed(2)}"></td>
-         <td><input type="number" step="0.01" value="${+v.z.toFixed(3)}"></td>
+        `<td><input type="number" step="1" value="${+v.s.toFixed(2)}" aria-label="Profil"></td>
+         <td><input type="number" step="0.001" value="${+v.z.toFixed(3)}" aria-label="Høyde"></td>
          <td>${isFinite(zt) ? zt.toFixed(2) : '–'}</td>
          <td class="${diff >= 0 ? 'diff-skjaering' : 'diff-fylling'}">${isFinite(diff) ? (diff >= 0 ? '+' : '') + diff.toFixed(2) : '–'}</td>
          <td><input type="checkbox" ${v.laast ? 'checked' : ''}></td>
@@ -6542,6 +6615,9 @@ const App = {
         this.visHoydetabell();
       };
       tr.querySelector('button').onclick = () => {
+        // slått opp på punktet, ikke radnummeret – tabellen kan være tegnet før en endring
+        const i = this.P.vip.indexOf(v);
+        if (i < 0) return;
         this.P.vip.splice(i, 1); this.profilEndret(false); this.visHoydetabell();
       };
       tb.appendChild(tr);
@@ -6594,12 +6670,16 @@ const App = {
     if (!this.linje || this.linje.lengde <= 0) return;
     const k = document.getElementById('h_retteLinjer').checked ? 0 : (parseFloat(document.getElementById('kVerdi').value) || 1);
     const gammel = this.vprofil;
-    const ny = [];
+    /* ALLE LÅSTE BLIR LIGGENDE. Her ble bare den første låste høyden innenfor
+       et halvt steg tatt med – lå to tettere enn det, forsvant den andre uten
+       et ord, og en låst høyde midt mellom to steg kunne komme med to ganger.
+       Låste høyder er innmålte eller bestemte; de fylles rundt, ikke over. */
+    const laste = this.P.vip.filter(v => v.laast);
+    const ny = laste.slice();
     let utenHoyde = 0;
     for (let s = 0; s <= this.linje.lengde + 1e-6; s += steg) {
       const ss = Math.min(s, this.linje.lengde);
-      const fanns = this.P.vip.find(v => Math.abs(v.s - ss) < steg / 2 && v.laast);
-      if (fanns) { ny.push(fanns); continue; }
+      if (laste.some(v => Math.abs(v.s - ss) < steg / 2)) { if (ss >= this.linje.lengde) break; continue; }
       const z = gammel && this.P.vip.length > 1 ? gammel.hoyde(ss) : this.terrengHoyde(ss);
       /* Uten høyde ble punktet lagt inn pa kote 0 - havflaten, midt i en veg
          som ligger pa to hundre. Da er det bedre a la vaere: profilen gar rett
@@ -6623,10 +6703,9 @@ const App = {
     this.P.vip = ny.sort((a, b) => a.s - b.s);
     this.profilEndret(false);
     this.visHoydetabell();
-    if (utenHoyde) {
-      this.status(`${ny.length} høyder fylt inn. ${utenHoyde} punkt ble hoppet over – ` +
-        'terrengmodellen mangler data der.');
-    }
+    this.status(`${ny.length - laste.length} høyder fylt inn`
+      + (laste.length ? `, ${laste.length} låste ligger der de lå` : '')
+      + (utenHoyde ? `. ${utenHoyde} punkt ble hoppet over – terrengmodellen mangler data der.` : ''));
   },
 
   limInnHoyder() {
@@ -6905,13 +6984,24 @@ const App = {
        Bare nar det er brukeren som apner. Er det programmet selv - som under
        nettlesertesten - er det ingen a spørre, og spørsmalet ble staende og
        vente pa et klikk som aldri kom. */
-    if (this.autolagringPause === 0 && navn !== (this.P && this.P.navn) && this.harUlagret()) {
-      await this.autolagre();
-      if (this.harUlagret()) {
+    if (this.autolagringPause === 0 && this.harUlagret()) {
+      if (navn === (this.P && this.P.navn)) {
+        /* DET SAMME PROSJEKTET: å åpne det er å gå tilbake til det som er
+           lagret. Her ble det ikke spurt i det hele tatt – vakten gjaldt bare
+           et annet navn – og den lagrede versjonen ble lagt over endringene,
+           høydene også. Nå spørres det, og et nei lar alt stå. */
         const ja = await this.bekreft(
-          `«${this.P.navn}» har endringer som ikke er lagret. Åpne «${navn}» likevel?`,
-          'Åpne uten å lagre');
+          `«${navn}» har endringer som ikke er lagret. Gå tilbake til det som er lagret, og forkaste dem?`,
+          'Forkast endringene');
         if (!ja) return;
+      } else {
+        await this.autolagre();
+        if (this.harUlagret()) {
+          const ja = await this.bekreft(
+            `«${this.P.navn}» har endringer som ikke er lagret. Åpne «${navn}» likevel?`,
+            'Åpne uten å lagre');
+          if (!ja) return;
+        }
       }
     }
     this.tomPaneler();       // alt fra forrige prosjekt ma bort først
@@ -7040,7 +7130,11 @@ const App = {
     // Alle malfeltene
     document.querySelectorAll('#fane-mal input, #fane-mal select, #fane-grunn input').forEach(el => {
       if (el.closest('.minitabell')) return;
-      el.addEventListener('change', () => { this.skjemaTilMal(); this._terrengnokkel = ''; this.planlegg(50); });
+      el.addEventListener('change', () => {
+        // en bredde brukeren har satt selv, blir stående når en smalere veiklasse velges – se malFraVeiklasse
+        if (el.id === 'm_vegbredde' && !this.erRor() && !this.erTomt()) this.P.mal.vegbreddeEgen = true;
+        this.skjemaTilMal(); this._terrengnokkel = ''; this.planlegg(50);
+      });
     });
     id('knappNullstillMal').onclick = () => {
       this.P.mal = Object.assign({}, StandardMal);
@@ -7059,8 +7153,21 @@ const App = {
 
     // Høydetabellen
     id('h_fyll').onclick = () => this.fyllHoyder(Math.max(1, parseFloat(id('h_steg').value) || 5));
-    id('h_laasAlle').onclick = () => { this.P.vip.forEach(v => v.laast = true); this.visHoydetabell(); Lengdeprofil.tegn(); };
-    id('h_laasIngen').onclick = () => { this.P.vip.forEach(v => v.laast = false); this.visHoydetabell(); Lengdeprofil.tegn(); };
+    /* «Lås alle» gir K = 0, som låsing i tabellen gjør: teksten over tabellen
+       lover at veglinja går nøyaktig gjennom en låst høyde, og med en kurve i
+       punktet gikk den A·L/8 forbi. Begge knappene kan angres, og vegen regnes
+       på nytt – her ble bare lengdeprofilen tegnet om. */
+    id('h_laasAlle').onclick = () => {
+      this.merk('låste alle høydene');
+      this.P.vip.forEach(v => { v.laast = true; v.k = 0; });
+      this.profilEndret(false); this.visHoydetabell();
+      this.status('Alle høydene er låst – veglinja går nøyaktig gjennom dem, uten vertikalkurver');
+    };
+    id('h_laasIngen').onclick = () => {
+      this.merk('låste opp alle høydene');
+      this.P.vip.forEach(v => { v.laast = false; });
+      this.profilEndret(false); this.visHoydetabell();
+    };
     id('h_limInn').onclick = () => this.limInnHoyder();
     id('h_tomTabell').onclick = async () => {
       if (!await this.bekreft('Fjerne alle innlagte høyder og lage nytt forslag fra terrenget?', 'Tøm tabellen')) return;

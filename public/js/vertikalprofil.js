@@ -445,9 +445,29 @@ function rettVertikalgeometri(vip, opsjoner = {}) {
   const kravLav = opsjoner.minVertikalLavbrekk || 0;
   const kravHoy = opsjoner.minVertikalHoybrekk || 0;
   const maksAvvikLast = opsjoner.maksAvvikLast != null ? opsjoner.maksAvvikLast : 0.01;
-  if (!(kravLav > 0) && !(kravHoy > 0)) return { satt: 0, glattet: 0, laste: 0 };
+  if (!(kravLav > 0) && !(kravHoy > 0)) return { satt: 0, glattet: 0, laste: 0, senket: 0 };
 
-  let satt = 0, glattet = 0, laste = 0;
+  let satt = 0, glattet = 0, senket = 0;
+  /* De låste som står i veien, telles én gang hver – her ble de talt én gang
+     per runde, og to låste høyder ble meldt som 324. */
+  const lasteIVeien = new Set();
+  /* EN NABO MED HØYERE K ENN KRAVET TAR PLASSEN. Her ble K bare satt opp:
+     en kurve brukeren hadde gitt K = 8, tok plassen fra naboen, og da ble
+     naboens knekk flatet ut – høyden flyttet – i stedet for at K ble satt ned
+     til det kravet trenger. Målt med brukersatt K: 363 av 400 brudd sto igjen.
+     Nå gir naboen plassen tilbake først; det flytter ingen høyde. En nabo uten
+     krav (et brudd under en halv prosent) røres ikke – kurven der er liten. */
+  const senk = j => {
+    if (j < 1 || j > vip.length - 2 || vip[j].laast) return false;
+    const a = vip[j].s - vip[j - 1].s, b = vip[j + 1].s - vip[j].s;
+    if (a < 1e-6 || b < 1e-6) return false;
+    const Aj = (vip[j + 1].z - vip[j].z) / b - (vip[j].z - vip[j - 1].z) / a;
+    if (Math.abs(Aj) < 5e-3) return false;
+    const kJ = (Aj > 0 ? kravLav : kravHoy) / 100;
+    if (!(kJ > 0) || !(vip[j].k > kJ + 1e-9)) return false;
+    vip[j].k = kJ;
+    return true;
+  };
   for (let runde = 0; runde < 400; runde++) {
     let endret = false;
     for (let i = 1; i < vip.length - 1; i++) {
@@ -482,17 +502,20 @@ function rettVertikalgeometri(vip, opsjoner = {}) {
         } else {
           // avviket kurven far fra selve knekkpunktet
           const avvik = Math.abs(A) * kreves / 8;
-          if (vip[i].laast && avvik > maksAvvikLast) { laste++; continue; }
+          if (vip[i].laast && avvik > maksAvvikLast) { lasteIVeien.add(i); continue; }
           vip[i].k = trengsK;
           satt++; endret = true;
           continue;
         }
       }
 
+      // naboene gir plassen tilbake før en høyde flyttes – se `senk`
+      if (senk(i - 1) | senk(i + 1)) { senket++; endret = true; continue; }
+
       /* For skarpt for avstanden: knekken selv ma bli mindre. Med plass
          meter tilgjengelig er største brudd som lar seg runde av
          plass/krav - høyden dras mot den tangentskjæringen. */
-      if (vip[i].laast) { laste++; continue; }
+      if (vip[i].laast) { lasteIVeien.add(i); continue; }
       const maksA = plass / krav;
       const ønsketA = Math.sign(A) * maksA;
       /* Holder naboene i ro og løser for høyden som gir ønsket brudd:
@@ -500,6 +523,10 @@ function rettVertikalgeometri(vip, opsjoner = {}) {
       const z1 = vip[i - 1].z, z2 = vip[i + 1].z;
       const nyZ = (z2 / dEtter + z1 / dFor - ønsketA) / (1 / dEtter + 1 / dFor);
       if (!isFinite(nyZ)) continue;
+      /* Står høyden alt der, er det ingenting å flytte. Her ble det likevel
+         talt som en glatting og en endring – og løkka gikk alle 400 rundene
+         uten å gjøre noe. */
+      if (Math.abs(nyZ - vip[i].z) < 1e-9) continue;
       // halvveis hver runde, sa naboknekkpunktene far følge med
       vip[i].z += (nyZ - vip[i].z) * 0.5;
       vip[i].k = Math.max(vip[i].k, krav / 100);
@@ -507,7 +534,7 @@ function rettVertikalgeometri(vip, opsjoner = {}) {
     }
     if (!endret) break;
   }
-  return { satt, glattet, laste };
+  return { satt, glattet, laste: lasteIVeien.size, senket };
 }
 
 /**
@@ -553,6 +580,43 @@ function lesHoydetabell(tekst) {
   return ut;
 }
 
+/**
+ * Høydene slik beregningen bruker dem på en linje som er L lang – en kopi,
+ * lista brukeren har, røres ikke.
+ *
+ * HER STO `justerProfilTilLengde`, og den ble kjørt ved hver omregning. Den
+ * slettet knekkpunktene bak linjeslutt – også de låste – og la et nytt
+ * endepunkt inn i prosjektet. Kortet man linja et øyeblikk mens man dro i et
+ * knekkpunkt, var høydene der borte for godt, og autolagringen skrev det til
+ * disk. Høyder endres på knapper, ikke av en omregning.
+ *
+ * Nå får beregningen en kopi. Punktene bak slutten er ikke med; i stedet
+ * slutter profilen på linja mellom det siste punktet foran og det første bak –
+ * stigningen som er tegnet. Mangler profilen et stykke i enden, forlenges den
+ * med den siste stigningen. Blir linja lengre igjen, er punktene med igjen.
+ */
+function vipTilLengde(vip, L) {
+  const V = (vip || []).filter(v => v && Number.isFinite(v.s) && Number.isFinite(v.z))
+    .map(v => Object.assign({}, v));
+  if (V.length < 2 || !(L > 0)) return V;
+  const inne = V.filter(v => v.s <= L + 1e-6);
+  const bak = V.find(v => v.s > L + 1e-6);
+  // linja gjennom a og b ved s – vannrett når de står på samme profil
+  const paa = (a, b, s) => (Math.abs(b.s - a.s) > 1e-9 ? a.z + (b.z - a.z) * (s - a.s) / (b.s - a.s) : a.z);
+  if (bak) {
+    if (!inne.length) {
+      // hele profilen ligger bak slutten: linja mellom de to første, fra start til slutt
+      return [{ s: 0, z: paa(V[0], V[1], 0), k: 0 }, { s: L, z: paa(V[0], V[1], L), k: 0 }];
+    }
+    const a = inne[inne.length - 1];
+    if (L - a.s > 1e-6) inne.push({ s: L, z: paa(a, bak, L), k: 0 });
+    return inne;
+  }
+  const siste = V[V.length - 1];
+  if (L - siste.s > 0.5) V.push({ s: L, z: paa(V[V.length - 2], siste, L), k: siste.k });
+  return V;
+}
+
 function naermesteIndeks(arr, v) {
   let lo = 0, hi = arr.length - 1;
   while (hi - lo > 1) {
@@ -565,6 +629,6 @@ function naermesteIndeks(arr, v) {
 if (typeof module !== 'undefined') {
   module.exports = {
     Vertikalprofil, foreslaProfil, rettProfil, rettVertikalgeometri,
-    lagTerrengoppslag, lesHoydetabell
+    lagTerrengoppslag, lesHoydetabell, vipTilLengde
   };
 }

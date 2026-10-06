@@ -647,6 +647,9 @@ function lagUtvidelsesprofil(linje, mal, stasjoner, ekstra, plasser) {
   });
 }
 
+/* Lengden (m) fallet bruker fra en overstyring og tilbake til malen. */
+const TVERRFALL_OVERGANG = 10;
+
 /**
  * Tverrfall i et gitt profilnummer.
  *
@@ -676,11 +679,17 @@ function tverrfallVed(mal, overstyringer, s, krumning) {
 
   const liste = (overstyringer || []).slice().sort((a, b) => a.s - b.s);
   if (!liste.length) return standard;
-  if (s <= liste[0].s) return { venstre: liste[0].venstre, hoyre: liste[0].hoyre };
-  if (s >= liste[liste.length - 1].s) {
-    const sist = liste[liste.length - 1];
-    return { venstre: sist.venstre, hoyre: sist.hoyre };
-  }
+  /* UTENFOR OVERSTYRINGENE GJELDER MALEN. Her ble den første og den siste
+     overstyringen ført ut til endene av vegen: én innskrevet kanthøyde på
+     profil 100 ga det fallet på hele vegen – i stikningen og i eksporten – og
+     slo av doseringen i hver kurve. En høyde målt i feltet gjelder der den er
+     målt. Mellom to overstyringer går fallet fra den ene til den andre;
+     utenfor dem går det tilbake til malen over `TVERRFALL_OVERGANG` meter. */
+  const mot = (o, u) => ({ venstre: standard.venstre + u * (o.venstre - standard.venstre),
+    hoyre: standard.hoyre + u * (o.hoyre - standard.hoyre) });
+  const forste = liste[0], siste = liste[liste.length - 1];
+  if (s <= forste.s) return mot(forste, Math.max(0, 1 - (forste.s - s) / TVERRFALL_OVERGANG));
+  if (s >= siste.s) return mot(siste, Math.max(0, 1 - (s - siste.s) / TVERRFALL_OVERGANG));
   for (let i = 0; i < liste.length - 1; i++) {
     if (s >= liste[i].s && s <= liste[i + 1].s) {
       const f = (s - liste[i].s) / (liste[i + 1].s - liste[i].s || 1);

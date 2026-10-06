@@ -193,7 +193,14 @@ function malFraVeiklasse(klasse, gjeldende) {
   if (!k || k.fri) return m;
 
   m.veiklasse = klasse;
-  m.vegbredde = k.vegbredde;
+  /* VEGBREDDEN ER ET MINSTEKRAV. Her ble den satt til klassens tall uansett:
+     en veg byggherren har bestilt 5,0 m bred, ble 4,0 m når man valgte K3 –
+     stille, og massene ble rundt 12 % for små. Vakta i appen som skulle hindre
+     det, kom etter at bredden alt var skrevet over. Har brukeren satt bredden
+     selv (`vegbreddeEgen`), og er den bredere enn klassen krever, blir den
+     stående; ellers er det klassens bredde som gjelder, som før. */
+  const egen = gjeldende && gjeldende.vegbreddeEgen && Number.isFinite(gjeldende.vegbredde);
+  m.vegbredde = egen && gjeldende.vegbredde > k.vegbredde ? gjeldende.vegbredde : k.vegbredde;
   m.tverrfall = k.tverrfall;
   m.grofteDybdePlanum = k.grofteDybdePlanum;
   m.grofteBunn = k.grofteBunn;

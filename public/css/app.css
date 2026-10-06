@@ -893,6 +893,9 @@ body {
 .limfelt:focus { border-color: var(--hm-raud); }
 .hoydetabell td:nth-child(3), .hoydetabell td:nth-child(4) { text-align: right; color: var(--blekk-svak); }
 .hoydetabell tr.laast td:nth-child(2) input { border-color: var(--hm-raud); color: var(--raud); font-weight: 700; }
+/* bak linjeslutt: står i profilen, brukes ikke før linja er lengre – tittelen sier det med ord */
+.hoydetabell tr.bakslutt td { font-style: italic; }
+.hoydetabell tr.bakslutt td:first-child::after { content: ' bak'; font-size: 10px; color: var(--blekk-svak); }
 .hoydetabell input[type=checkbox] { width: auto; }
 .hoydetabell .diff-skjaering { color: var(--data-skjaering); }
 .hoydetabell .diff-fylling { color: var(--data-fylling); }

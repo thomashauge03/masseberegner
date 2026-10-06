@@ -970,7 +970,7 @@ const Tegner3d = {
        bare mens den er det aktive anlegget. Meldingen må si nettopp det, ikke
        bare at noe mangler. */
     if (vip.length < 2) throw new Error('ingen høydeprofil – åpne anlegget én gang så det regnes');
-    const vp = new Vertikalprofil(vip);
+    const vp = new Vertikalprofil(vipTilLengde(vip, linje.lengde));
     const mal = a.mal || {};
     const hb = Math.max(0.5, (mal.vegbredde || 4) / 2);
     const fall = Number.isFinite(mal.tverrfall) ? mal.tverrfall : 0.05;
