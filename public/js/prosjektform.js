@@ -25,6 +25,10 @@ function _masser() {
   if (typeof StandardMal !== 'undefined') return { StandardMal };
   return require('./masser.js');
 }
+function _veiklasser() {
+  if (typeof Veiklasser !== 'undefined') return { Veiklasser };
+  return require('./veiklasser.js');
+}
 function _tomt() {
   if (typeof StandardTomtemal !== 'undefined') return { StandardTomtemal, nyTomt };
   return require('./tomt.js');
@@ -270,6 +274,14 @@ function moderniserMal(mal) {
   if (m.maksStigning && !m.stigningIKurve) {
     m.stigningIKurve = m.maksStigning.map(r => [r[0], r[1], r[1]]);
     delete m.maksStigning;
+  }
+  /* Unntaket for korte rettstrekk kom med etter at malen ble lagret. Det
+     hører til klassen, og en mal uten det får klassens – ikke standardmalens:
+     den er K5, og K5 sitt unntak gjelder returretningen. */
+  // bare en vegmal – en tomt eller et rør har ingen veiklasse og ingen vegbredde
+  if (m.kortStrekk === undefined && (m.veiklasse !== undefined || m.vegbredde !== undefined)) {
+    const k = m.veiklasse && _veiklasser().Veiklasser[m.veiklasse];
+    m.kortStrekk = k && k.kortStrekk ? Object.assign({}, k.kortStrekk) : null;
   }
   return m;
 }

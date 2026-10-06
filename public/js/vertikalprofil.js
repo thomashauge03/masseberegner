@@ -53,47 +53,19 @@ class Vertikalprofil {
        samme vegen – stasjonerer fra andre enden – blir høyden 4,995 m
        forskjellig på det samme punktet i terrenget. Det er ikke et
        avrundingsavvik, det er to ulike veger.
-       Nå skaleres begge naboene ned med SAMME faktor når de ikke får plass,
-       akkurat som `Linjeforing` gjør for horisontalgeometrien. Da er svaret
-       det samme uansett hvilken vei man teller. */
-    /* ALLE FAKTORENE REGNES FØRST OG BRUKES SAMTIDIG.
-       Skalerer man paret (i, i+1) og deretter (i+1, i+2), har det første paret
-       alt endret utgangspunktet for det andre – og da henger svaret fortsatt
-       på hvilken vei løkka går. Målt på et kupert profil på 600 m: 0,285 m
-       forskjell mellom vegen og speilvendingen, ned fra 0,680, men ikke null.
-       Med faktorene regnet av tilstanden ved rundens START, og lagt på
-       etterpå, er de to retningene nøyaktig like – målt over to hundre
-       tilfeldige profil. */
-    for (let runde = 0; runde < 40; runde++) {
-      const F = new Array(V.length).fill(1);
-      const krev = (i, tak) => {
-        if (!(L[i] > tak) || !(L[i] > 1e-12)) return;
-        F[i] = Math.min(F[i], tak / L[i]);
-      };
-      /* Endene er ensidige: den første kurven kan bare strekke seg bakover til
-         profilets start, den siste bare framover til slutten. */
-      if (V.length > 2) {
-        krev(1, 2 * (V[1].s - V[0].s) * 0.999);
-        const n = V.length - 2;
-        krev(n, 2 * (V[n + 1].s - V[n].s) * 0.999);
-      }
-      // to naboer som ikke får plass deler nedskaleringen likt
-      for (let i = 1; i < V.length - 2; i++) {
-        const strekk = (V[i + 1].s - V[i].s) * 0.999;
-        const sum = L[i] / 2 + L[i + 1] / 2;
-        if (sum > strekk && sum > 1e-12) {
-          const skala = strekk / sum;
-          F[i] = Math.min(F[i], skala);
-          F[i + 1] = Math.min(F[i + 1], skala);
-        }
-      }
-      let endret = false;
-      for (let i = 1; i < V.length - 1; i++) {
-        if (F[i] < 1 - 1e-12) { L[i] *= F[i]; endret = true; }
-      }
-      if (!endret) break;
-    }
-    for (let i = 1; i < V.length - 1; i++) if (!(L[i] > 0)) L[i] = 0;
+       Så ble begge naboene skalert ned med samme faktor, regnet samtidig – det
+       ga samme svar begge veier, men ødela en kurve som hadde fått plass: et
+       brekk på 5 % som trengte 15 m og hadde 40 m til rådighet, fikk ingenting
+       fordi naboen ba om for mye.
+       DEN MINSTE FÅR DET DEN TRENGER – samme deling som planlinja, se
+       plassdeling.js. Halve kurvelengden ligger på hver side av knekkpunktet,
+       og endene er ensidige: den første kurven kan strekke seg bakover til
+       profilets start, den siste framover til slutten. Svaret er det samme
+       uansett hvilken vei man teller. */
+    const plass = [];
+    for (let i = 0; i < V.length - 1; i++) plass.push(Math.max(0, (V[i + 1].s - V[i].s) * 0.999));
+    const halv = _delPlassV()(L.map(l => (l > 0 ? l / 2 : 0)), plass);
+    for (let i = 1; i < V.length - 1; i++) L[i] = halv[i] > 0 ? 2 * halv[i] : 0;
     for (let i = 1; i < V.length - 1; i++) {
       if (L[i] <= 1e-9) continue;
       const g1 = this.stigninger[i - 1], g2 = this.stigninger[i];
@@ -307,6 +279,48 @@ function lagTerrengoppslag(stasjoner, hoyder) {
 }
 
 /**
+ * Mellom to låste høyder som ligger lenger fra hverandre enn stigningskravet
+ * rekker over: hvert strekk imellom får like mye over kravet.
+ *
+ * Rettingen flytter det ene strekket helt ned til grensen og skyver bruddet
+ * videre, og et umulig krav ble liggende skjevt – fem strekk på 14,9 % og ett
+ * på 10,0, der 14,1 overalt var det minste mulige. Det var et fastpunkt: ti
+ * kall til endret ingenting, og annenhver vei ga 10 / 18,2 / 14,1. Er kravet
+ * umulig, er det kompromisset med minst brudd som skal stå, og det er dette.
+ */
+function fordelUmuligeKrav(vip, maksFor) {
+  const laste = [];
+  for (let i = 0; i < vip.length; i++) if (vip[i].laast && Number.isFinite(vip[i].z)) laste.push(i);
+  const stigningMot = (p, q) => (q.s - p.s > 1e-6 ? (q.z - p.z) / (q.s - p.s) : null);
+  for (let n = 0; n + 1 < laste.length; n++) {
+    const p = laste[n], q = laste[n + 1];
+    if (q - p < 2) continue;                        // ingen frie punkt imellom
+    if (vip.slice(p, q + 1).some(v => !Number.isFinite(v.z))) continue;
+    const dz = vip[q].z - vip[p].z, tegn = Math.sign(dz) || 1;
+    const lengde = vip[q].s - vip[p].s;
+    if (lengde < 1e-6) continue;
+    // det hvert strekk tåler; innvendig er naboen like bratt, så unntaket for korte strekk gjelder ikke
+    const tillatt = [];
+    let rekker = 0;
+    for (let i = p; i < q; i++) {
+      const dl = vip[i + 1].s - vip[i].s;
+      const gFor = i > p ? tegn : (i > 0 ? stigningMot(vip[i - 1], vip[i]) : null);
+      const gEtter = i + 1 < q ? tegn : (i + 2 < vip.length ? stigningMot(vip[i + 1], vip[i + 2]) : null);
+      const g = maksFor(vip[i].s, vip[i + 1].s, tegn * Math.abs(dz) / lengde, gFor, gEtter);
+      tillatt.push(g);
+      rekker += g * Math.max(0, dl);
+    }
+    if (Math.abs(dz) <= rekker + 1e-9) continue;     // kravet lar seg holde – rettingen har tatt det
+    const over = (Math.abs(dz) - rekker) / lengde;
+    let z = vip[p].z;
+    for (let i = p; i < q - 1; i++) {
+      z += tegn * (tillatt[i - p] + over) * (vip[i + 1].s - vip[i].s);
+      vip[i + 1].z = z;
+    }
+  }
+}
+
+/**
  * Retter en profil slik at den holder stigningskravet og ikke legger seg
  * lenger fra terrenget enn tillatt.
  *
@@ -380,8 +394,15 @@ function rettProfil(vip, opsjoner = {}) {
          naboene - og etter noen runder var hvert eneste knekkpunkt NaN. */
       if (!Number.isFinite(a.z) || !Number.isFinite(b.z)) continue;
       const dz = b.z - a.z;
-      // Kravet avhenger av fortegnet, sa det ma hentes pa nytt hver runde
-      const grense = maksFor(a.s, b.s, dz / dl);
+      /* Kravet avhenger av fortegnet, sa det ma hentes pa nytt hver runde. Og
+         av naboene: et kort, bratt rettstrekk er lovlig bare når det står
+         alene (normalens unntak for strekk inntil 60 m), så stigningen på
+         hver side følger med. */
+      const stigningMot = (p, q) => (q.s - p.s > 1e-6 && Number.isFinite(p.z) && Number.isFinite(q.z)
+        ? (q.z - p.z) / (q.s - p.s) : null);
+      const grense = maksFor(a.s, b.s, dz / dl,
+        i > 0 ? stigningMot(vip[i - 1], a) : null,
+        i + 2 < vip.length ? stigningMot(b, vip[i + 2]) : null);
       const brudd = Math.abs(dz / dl) - grense;
       if (brudd <= 1e-6) continue;
       verstBrudd = Math.max(verstBrudd, brudd);
@@ -392,6 +413,7 @@ function rettProfil(vip, opsjoner = {}) {
     }
     if (verstBrudd < 1e-5) break;
   }
+  fordelUmuligeKrav(vip, maksFor);
   /* HVA SOM IKKE GIKK, OG HVOR MYE SOM MANGLET.
      Uten dette kunne rettingen bare si «fant ingen bedre profil» – en setning
      som forteller at noe feilet, ikke hva. Står et knekkpunkt igjen over taket
@@ -553,7 +575,8 @@ function rettVertikalgeometri(vip, opsjoner = {}) {
     }
     if (!endret) break;
   }
-  return { satt, glattet, laste: lasteIVeien.size, senket };
+  // stedene, så den som kaller flere ganger kan telle hver låste høyde én gang
+  return { satt, glattet, laste: lasteIVeien.size, senket, lasteSteder: [...lasteIVeien].map(i => vip[i].s) };
 }
 
 /**
@@ -652,6 +675,11 @@ function vipTilLengde(vip, L) {
   const siste = V[V.length - 1];
   if (L - siste.s > 0.5) V.push({ s: L, z: paa(V[V.length - 2], siste, L), k: siste.k });
   return V;
+}
+
+// global i nettleseren, modul i node – se plassdeling.js
+function _delPlassV() {
+  return typeof delPlass === 'function' ? delPlass : require('./plassdeling.js').delPlass;
 }
 
 function naermesteIndeks(arr, v) {

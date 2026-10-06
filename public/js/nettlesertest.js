@@ -7975,7 +7975,7 @@ const Nettlesertest = {
        oppslag som ikke har noen grunn til a vite hva slags anlegg de star i. */
     this.sjekk('tomta har tomme lister, ikke undefined',
       Array.isArray(App.P.ip) && Array.isArray(App.P.vip));
-    this.sjekk('vegmalen er urørt', App.P.anlegg[0].mal.vegbredde === 4.5);
+    this.sjekk('vegmalen er urørt', App.P.anlegg[0].mal.vegbredde === StandardMal.vegbredde);
     this.sjekk('«Tegn tomt» kom fram',
       !document.getElementById('verktoyTomt').classList.contains('skjult'));
     this.sjekk('«Tegn senterlinje» ble borte',
@@ -8042,7 +8042,7 @@ const Nettlesertest = {
 
     // bytte tilbake til vegen skal ikke røre tomta
     App.byttAnlegg(App.P.anlegg[0].id);
-    this.sjekk('tilbake på vegen', !App.erTomt() && App.P.mal.vegbredde === 4.5);
+    this.sjekk('tilbake på vegen', !App.erTomt() && App.P.mal.vegbredde === StandardMal.vegbredde);
     this.sjekk('tomta ligger der fortsatt', App.P.anlegg[1].tomt.punkter.length === 4);
     this.sjekk('tomtelaget ble tømt på vegen', Kart.lag.tomt.getLatLngs()[0].length === 0);
 

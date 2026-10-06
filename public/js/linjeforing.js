@@ -85,29 +85,40 @@ class Linjeforing {
       const kryss = inn.x * ut.y - inn.y * ut.x;
       const prikk = inn.x * ut.x + inn.y * ut.y;
       const avbøy = Math.atan2(kryss, prikk);      // positiv = venstresving
-      if (P[i].r <= 0 || Math.abs(avbøy) < 1e-7 || Math.abs(Math.abs(avbøy) - Math.PI) < 1e-6) continue;
+      /* RETT TILBAKE ER IKKE NOE MAN KAN LEGGE EN KURVE I. Her ble punktet
+         hoppet over uten et ord, og linja gikk ut og rett tilbake: to profiler
+         hundre meter fra hverandre i profilnummer lå på samme sted i terrenget,
+         og massene der ble regnet to ganger. */
+      if (Math.abs(Math.abs(avbøy) - Math.PI) < 1e-6) {
+        this.advarsler.push({ ip: i, tekst: `Knekkpunkt ${i + 1} snur linja rett tilbake (180°). `
+          + 'Der går det ikke an å legge en kurve, og linja går fram og tilbake over det samme stedet.' });
+        continue;
+      }
+      if (P[i].r <= 0 || Math.abs(avbøy) < 1e-7) continue;
       tangent[i] = P[i].r * Math.tan(Math.abs(avbøy) / 2);
       data[i] = { inn, ut, avbøy };
     }
 
-    // 2) Skaler ned tangentene der to kurver ellers ville overlappe
-    for (let runde = 0; runde < 12; runde++) {
-      let endret = false;
-      for (let i = 0; i < nP - 1; i++) {
-        const L = avstand(P[i], P[i + 1]);
-        const sum = tangent[i] + tangent[i + 1];
-        if (sum > L * 0.999) {
-          const skala = (L * 0.999) / sum;
-          if (tangent[i] > 0) tangent[i] *= skala;
-          if (tangent[i + 1] > 0) tangent[i + 1] *= skala;
-          endret = true;
-          const nr = i + (tangent[i] > tangent[i + 1] ? 0 : 1);
-          if (!this.advarsler.some(a => a.ip === nr)) {
-            this.advarsler.push({ ip: nr, tekst: `Radien i knekkpunkt ${nr + 1} er for stor for strekket - kurven er kortet inn.` });
-          }
-        }
-      }
-      if (!endret) break;
+    /* 2) DEL PLASSEN PÅ HVERT STREKK – DEN MINSTE FÅR DET DEN TRENGER.
+       Her ble begge tangentene skalert ned med samme faktor når de ikke fikk
+       plass. En kurve brukeren hadde prosjektert riktig – R = 60 på et ben på
+       100 m – ble ødelagt fordi naboen ba om R = 200: begge fikk 38 %, og R = 60
+       ble 23. Det fantes en fordeling der den beholdt hele radien.
+       Nå tar knekkpunktene for seg i rekkefølge etter hvor mye de ber om, den
+       minste først – se plassdeling.js, som lengdeprofilen deler med. */
+    const onsket = tangent.slice();
+    const plass = [];
+    for (let i = 0; i < nP - 1; i++) plass.push(avstand(P[i], P[i + 1]) * 0.999);
+    const fatt = _delPlass()(onsket, plass);
+    for (let i = 1; i < nP - 1; i++) tangent[i] = fatt[i];
+    /* BEGGE SOM KORTES INN, VARSLES – og bare de som faktisk blir det. Her fikk
+       ett av to knekkpunkt advarselen, og en kurve som fikk plass med en
+       promille til overs ble meldt som innkortet. */
+    for (let i = 1; i < nP - 1; i++) {
+      if (!(onsket[i] > 0) || tangent[i] >= onsket[i] * 0.995) continue;
+      const rNy = tangent[i] / Math.tan(Math.abs(data[i].avbøy) / 2);
+      this.advarsler.push({ ip: i, tekst: `Radien i knekkpunkt ${i + 1} er for stor for strekket – `
+        + `kurven er kortet inn fra ${fmtR(P[i].r)} til ${fmtR(rNy)} m.` });
     }
 
     /* Nedskaleringen har ingen bunn. En radius pa 200 m klemt inn mellom to
@@ -117,7 +128,8 @@ class Linjeforing {
        hva som skjedde. */
     const MINSTE_KURVE = 2.0;
     for (let i = 1; i < nP - 1; i++) {
-      if (!data[i] || tangent[i] <= 1e-9) continue;
+      // også en kurve som ble klemt helt bort – den er en skarp knekk, og det skal sies
+      if (!data[i] || !(onsket[i] > 0)) continue;
       const r = tangent[i] / Math.tan(Math.abs(data[i].avbøy) / 2);
       if (r >= MINSTE_KURVE) continue;
       tangent[i] = 0;
@@ -189,6 +201,50 @@ class Linjeforing {
     }
     this.ipStasjon[nP - 1] = s;
     this.lengde = s;
+
+    /* HÅRNÅLEN. En kurve som snur nesten rundt, skjærer bort det meste av de
+       to strekkene den ligger mellom: 165° med R = 20 på ben på 100 m ga 38 m
+       linje av 200 tegnet, og den eneste meldingen var at radien var kortet
+       inn. Massene ble regnet på 38 m veg. Det skal stå hvor mye som er borte. */
+    for (const k of this.kurver) {
+      const i = k.ip;
+      const tegnet = avstand(P[i - 1], P[i]) + avstand(P[i], P[i + 1]);
+      const tapt = 2 * k.tangent - k.r * Math.abs(k.avbøy);
+      if (tegnet > 0 && tapt > 0.4 * tegnet) {
+        this.advarsler.push({ ip: i, tekst: `Knekkpunkt ${i + 1} snur linja `
+          + `${Math.round(Math.abs(k.avbøy) * 180 / Math.PI)}° – kurven skjærer bort `
+          + `${Math.round(tapt)} m av de ${Math.round(tegnet)} m som er tegnet mellom nabopunktene, `
+          + 'og vegen blir så mye kortere.' });
+      }
+    }
+  }
+
+  /**
+   * Den minste radien vegen har mellom profil a og b. Et skarpt hjørne teller
+   * som en kurve med `skarp` som radius – standard 0.
+   *
+   * `radiusVed` svarer Infinity i en skarp knekk: det er to rettstrekk som
+   * møtes. Kontrollene som spurte den, så rettstrekk, og ga full stigning og
+   * ingen breddeutvidelse akkurat der vegen svinger mest. Og et oppslag med
+   * jevne steg kan gå glipp av en kort kurve; her leses kurvelista.
+   */
+  minsteRadius(a, b, skarp = 0) {
+    let m = Infinity;
+    for (const k of this.kurver) {
+      if (k.sEC >= a - 1e-9 && k.sBC <= b + 1e-9 && k.r < m) m = k.r;
+    }
+    for (const h of this.hjorner()) {
+      if (h.s >= a - 1e-9 && h.s <= b + 1e-9 && skarp < m) m = skarp;
+    }
+    return m;
+  }
+
+  /** Skarpe hjørner som betyr noe – over én grads avbøyning – regnet én gang. */
+  hjorner() {
+    if (!this._hjorner) {
+      this._hjorner = this.skarpeHjorner().filter(h => Math.abs(h.avboy) * 180 / Math.PI >= 1 && Number.isFinite(h.s));
+    }
+    return this._hjorner;
   }
 
   /**
@@ -333,8 +389,15 @@ class Linjeforing {
   }
 }
 
+// global i nettleseren, modul i node – se plassdeling.js
+function _delPlass() {
+  return typeof delPlass === 'function' ? delPlass : require('./plassdeling.js').delPlass;
+}
+
 function sub(a, b) { return { x: a.x - b.x, y: a.y - b.y }; }
 function norm(v) { const l = Math.hypot(v.x, v.y) || 1; return { x: v.x / l, y: v.y / l }; }
 function avstand(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+// en radius i en melding: hele meter, med én desimal under ti
+function fmtR(r) { return (r < 10 ? r.toFixed(1) : r.toFixed(0)).replace('.', ','); }
 
 if (typeof module !== 'undefined') module.exports = { Linjeforing };

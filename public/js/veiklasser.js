@@ -36,7 +36,11 @@ const Veiklasser = {
     tverrfall: 0.05, grofteDybdePlanum: 0.20, grofteBunn: 0.30,
     utvidelseOvergang: 20,
     maksStigningLass: 0.08, maksStigningRetur: 0.08,
-    breddeIKurve: [], stigningIKurve: [[1e9, 0.08, 0.08]]
+    breddeIKurve: [], stigningIKurve: [[1e9, 0.08, 0.08]],
+    /* Normalen har ingen tabeller for K1, så reglene de andre bilveiklassene
+       har, er ikke her. Det skal stå, ikke se ut som om de er regnet med. */
+    ikkeMed: ['breddeutvidelse i kurver', 'dosering (ensidig tverrfall) i krappe kurver',
+      'ekstra bredde ved høy fylling', 'lengre stigning på korte rettstrekk']
   },
 
   k2: {
@@ -50,7 +54,10 @@ const Veiklasser = {
     grofteDybdePlanum: 0.20, grofteBunn: 0.30,
     utvidelseOvergang: 20, stigningsovergang: 20,
     maksStigningLass: 0.08, maksStigningRetur: 0.08,
-    kortStrekkTillegg: 0.02,
+    /* Normalen: «Over korte rette strekninger inntil 60 m lengde kan
+       stigningen i lassretningen økes» med to prosentpoeng. Her sto et tall
+       uten retning som ingen leste – se stigningskrav i masser.js. */
+    kortStrekk: { lengde: 60, lass: 0.02, retur: 0 },
     breddeIKurve: [[20, 24, 6.0, 7.0], [25, 29, 6.0, 6.5], [30, 39, 5.5, 6.0], [40, 49, 5.5, 5.5], [50, 59, 5.0, 5.5]],
     stigningIKurve: [[25, 0.04, 0.04], [30, 0.05, 0.05], [40, 0.06, 0.06], [50, 0.07, 0.07], [59, 0.07, 0.07], [1e9, 0.08, 0.08]],
     ekstraBredde: { fyllingshoyde: 2.0, tillegg: 0.5 }
@@ -67,7 +74,7 @@ const Veiklasser = {
     grofteDybdePlanum: 0.20, grofteBunn: 0.30,
     utvidelseOvergang: 20, stigningsovergang: 10,
     maksStigningLass: 0.10, maksStigningRetur: 0.12,
-    kortStrekkTillegg: 0.02,
+    kortStrekk: { lengde: 60, lass: 0.02, retur: 0 },
     breddeIKurve: [[10, 14, 7.0, 9.5], [15, 19, 6.5, 8.0], [20, 24, 6.0, 7.0], [25, 29, 5.5, 6.5], [30, 39, 5.5, 6.0], [40, 49, 5.0, 5.5], [50, 59, 5.0, 5.0]],
     stigningIKurve: [[14, 0.02, 0.05], [19, 0.04, 0.07], [29, 0.06, 0.08], [39, 0.08, 0.10], [49, 0.09, 0.11], [59, 0.09, 0.11], [1e9, 0.10, 0.12]],
     ekstraBredde: { fyllingshoyde: 2.0, tillegg: 0.5 }
@@ -83,8 +90,11 @@ const Veiklasser = {
     tverrfall: 0.05, ensidigMaks: 0.05, ensidigUnderRadius: 60,
     grofteDybdePlanum: 0.20, grofteBunn: 0.30,
     utvidelseOvergang: 20, stigningsovergang: 10,
-    maksStigningLass: 0.12, maksStigningRetur: 0.18,
-    kortStrekkTillegg: 0.02,
+    /* Her sto 18 % i returretningen, mens stigningstabellen – det som
+       håndheves – har 16 % på rettstrekk. Infoboksen sa 18 og rapporten meldte
+       brudd over 16. Det strengeste er valgt; bør sjekkes mot normalen, kap. 3.4. */
+    maksStigningLass: 0.12, maksStigningRetur: 0.16,
+    kortStrekk: { lengde: 60, lass: 0.02, retur: 0 },
     breddeIKurve: [[10, 14, 7.0, 9.5], [15, 19, 6.5, 8.0], [20, 24, 6.0, 7.0], [25, 29, 5.5, 6.5], [30, 39, 5.5, 6.0], [40, 49, 5.0, 5.5], [50, 59, 5.0, 5.0]],
     stigningIKurve: [[14, 0.04, 0.07], [19, 0.06, 0.09], [29, 0.08, 0.11], [39, 0.10, 0.13], [49, 0.11, 0.14], [59, 0.11, 0.16], [1e9, 0.12, 0.16]],
     // normalen: fylling over 2 m *eller* stigning over 12 %
@@ -103,7 +113,8 @@ const Veiklasser = {
     grofteDybdePlanum: 0.20, grofteBunn: 0.30,
     utvidelseOvergang: 15, stigningsovergang: 10,
     maksStigningLass: 0.18, maksStigningRetur: 0.20,
-    kortStrekkTillegg: 0.02,
+    // i K5 gjelder unntaket returretningen: 20 → 22 %
+    kortStrekk: { lengde: 60, lass: 0, retur: 0.02 },
     breddeIKurve: [[10, 14, 5.5, 6.0], [15, 19, 5.0, 5.5], [20, 29, 5.0, 5.0], [30, 39, 4.5, 5.0], [40, 49, 4.5, 4.5], [50, 59, 4.0, 4.5]],
     stigningIKurve: [[14, 0.10, 0.12], [19, 0.11, 0.14], [29, 0.12, 0.15], [39, 0.14, 0.17], [49, 0.15, 0.18], [59, 0.16, 0.20], [1e9, 0.18, 0.20]],
     ekstraBredde: { fyllingshoyde: 2.0, stigning: 0.14, tillegg: 0.5 }
@@ -121,7 +132,7 @@ const Veiklasser = {
     grofteDybdePlanum: 0.20, grofteBunn: 0.30,
     utvidelseOvergang: 20, stigningsovergang: 10,
     maksStigningLass: 0.08, maksStigningRetur: 0.12,
-    kortStrekkTillegg: 0.02,
+    kortStrekk: { lengde: 60, lass: 0.02, retur: 0 },
     breddeIKurve: [[20, 24, 6.0, 7.0], [25, 29, 6.0, 6.5], [30, 39, 6.0, 6.5], [40, 49, 5.5, 5.5], [50, 59, 5.0, 5.5]],
     stigningIKurve: [[24, 0.06, 0.08], [30, 0.07, 0.09], [39, 0.08, 0.10], [49, 0.08, 0.11], [59, 0.08, 0.11], [1e9, 0.08, 0.12]],
     ekstraBredde: { fyllingshoyde: 2.0, tillegg: 0.5 },
@@ -148,7 +159,9 @@ const Veiklasser = {
     ekstraBredde: { fyllingshoyde: 2.0, tillegg: 0.5 },
     merknad: 'Stigningstallene gjelder landbrukstraktor. For lastetraktorvei tillater '
       + 'normalen 20 % i lassretningen og høyere verdier i kurvene.',
-    utledet: ['kjorebane', 'skulder']
+    utledet: ['kjorebane', 'skulder'],
+    // normalen kap. 5.1: ensidig fall også i stigninger over 15 % – bare radiusvilkåret er regnet
+    ikkeMed: ['ensidig tverrfall (5–10 %) i stigninger over 15 % – bare i kurver under 20 m']
   },
 
   k8: {
@@ -224,6 +237,7 @@ function malFraVeiklasse(klasse, gjeldende) {
   m.ensidigUnderRadius = k.ensidigUnderRadius || 0;
   m.ensidigMaks = k.ensidigMaks || 0.05;
   m.ekstraBredde = k.ekstraBredde ? Object.assign({}, k.ekstraBredde) : null;
+  m.kortStrekk = k.kortStrekk ? Object.assign({}, k.kortStrekk) : null;
   return m;
 }
 

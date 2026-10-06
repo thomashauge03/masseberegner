@@ -258,9 +258,18 @@ class Terreng {
     const c = this._celle(i0, j0 + 1);
     const d = this._celle(i0 + 1, j0 + 1);
     if (!(isFinite(a) && isFinite(b) && isFinite(c) && isFinite(d))) {
-      // fall tilbake pa naermeste gyldige nabo
-      const kandidater = [a, b, c, d].filter(isFinite);
-      return kandidater.length ? kandidater.reduce((s, v) => s + v, 0) / kandidater.length : NaN;
+      /* Mangler et hjørne, brukes de andre med SINE vekter, delt på summen av
+         dem. Her ble de gyldige hjørnene snittet likt: et punkt helt inntil
+         ett hjørne fikk like mye av det motsatte, og høyden hoppet i det
+         øyeblikket et hjørne falt bort – nettopp langs kanten av et hull. */
+      const vekter = [(1 - dx) * (1 - dy), dx * (1 - dy), (1 - dx) * dy, dx * dy];
+      let sum = 0, vekt = 0, n = 0, rent = 0;
+      [a, b, c, d].forEach((v, k) => {
+        if (!isFinite(v)) return;
+        sum += v * vekter[k]; vekt += vekter[k]; rent += v; n++;
+      });
+      if (!n) return NaN;
+      return vekt > 1e-12 ? sum / vekt : rent / n;
     }
     return a * (1 - dx) * (1 - dy) + b * dx * (1 - dy) + c * (1 - dx) * dy + d * dx * dy;
   }

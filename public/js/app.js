@@ -2699,16 +2699,20 @@ const App = {
   },
 
   hentTerrengProfil() {
-    const steg = Math.max(0.5, Math.min(2, this.P.profilAvstand / 2));
+    this.terrengProfil = this.terrengLangs(this.linje);
+  },
+
+  /** Terrenget langs en linje – den tegnede, eller en optimaliseringen prøver. */
+  terrengLangs(linje, steg = Math.max(0.5, Math.min(2, this.P.profilAvstand / 2))) {
     const terr = this.prosjektterreng();
     const s = [], z = [];
-    for (let d = 0; d <= this.linje.lengde + 1e-9; d += steg) {
-      const dd = Math.min(d, this.linje.lengde);
-      const p = this.linje.punktVed(dd);
+    for (let d = 0; d <= linje.lengde + 1e-9; d += steg) {
+      const dd = Math.min(d, linje.lengde);
+      const p = linje.punktVed(dd);
       s.push(dd); z.push(terr.z(p.x, p.y));
-      if (dd >= this.linje.lengde) break;
+      if (dd >= linje.lengde) break;
     }
-    this.terrengProfil = { s, z };
+    return { s, z };
   },
 
   /**
@@ -2770,7 +2774,7 @@ const App = {
     const forslag = foreslaProfil(this.terrengProfil.s, this.terrengProfil.z, {
       vipAvstand, maksStigning: maksBrukt, k: isFinite(k) ? k : 1,
       // krappe kurver har strengere stigningskrav
-      maksStigningFor: (sA, sB, g) => this.tillattStigning(sA, sB, g),
+      maksStigningFor: (sA, sB, g, gFor, gEtter) => this.tillattStigning(sA, sB, g, gFor, gEtter),
       // hold profilen innenfor det som lar seg bygge
       maksOverTerreng: this.P.mal.maksFyllingshoyde > 0 ? this.P.mal.maksFyllingshoyde : null,
       maksUnderTerreng: this.P.mal.maksSkjaeringsdybde > 0 ? this.P.mal.maksSkjaeringsdybde : null,
@@ -2985,10 +2989,10 @@ const App = {
    * oversett. Fortegnet pa stigningen avgjør om det er lassretningen eller
    * returretningen som gjelder.
    */
-  tillattStigning(sA, sB, stigning) {
+  tillattStigning(sA, sB, stigning, stigningFor, stigningEtter) {
     const mal = this.P.mal;
     if (!this.linje) return 1;
-    let minste = Infinity;
+    let minste = Infinity, rett = true;
     /* PUNKTENE LIGGER TETTERE ENN UTFLATINGEN. Her var det ni punkt uansett
        hvor langt strekket var: på 400 m ett hvert 50. – og en kurve med sin
        utflating på 30–40 m kunne ligge imellom uten å bli sett. Rettingen
@@ -2999,10 +3003,24 @@ const App = {
     const steg = Math.max(1, Math.min(Math.abs(sB - sA) / 8, utflating > 0 ? utflating : 5));
     for (let s = Math.min(sA, sB); s <= Math.max(sA, sB) + 1e-9; s += steg) {
       // effektiv radius tar med utflatingen foran og etter kurven
-      const g = maksStigningFraRadius(mal, effektivRadius(this.linje, mal, s), stigning, mal.lassretning);
+      const r = effektivRadius(this.linje, mal, s);
+      if (isFinite(r)) rett = false;
+      const g = maksStigningFraRadius(mal, r, stigning, mal.lassretning);
       if (g < minste) minste = g;
     }
-    return isFinite(minste) ? minste : 1;
+    if (!isFinite(minste)) return 1;
+    /* NORMALENS UNNTAK FOR KORTE RETTSTREKK – det samme som kontrollen
+       bruker (stigningskrav i masser.js). Et strekk på inntil 60 m, helt på
+       rettstrekk, kan gå brattere – men bare når det står alene: er naboen
+       også over kravet, er det bratte stykket lengre enn strekket. */
+    const ks = mal.kortStrekk;
+    const tillegg = typeof kortStrekkTillegg === 'function' ? kortStrekkTillegg(mal, stigning) : 0;
+    if (tillegg > 0 && rett && Math.abs(sB - sA) <= ((ks && ks.lengde) || 60) + 1e-6) {
+      const innenfor = (g, s) => g == null || Math.abs(g) <= maksStigningFraRadius(mal,
+        effektivRadius(this.linje, mal, s), g, mal.lassretning) + 1e-6;
+      if (innenfor(stigningFor, Math.min(sA, sB)) && innenfor(stigningEtter, Math.max(sA, sB))) minste += tillegg;
+    }
+    return minste;
   },
 
   /**
@@ -3158,6 +3176,8 @@ const App = {
   beregnRaskt(vipListe, linje) {
     const vp = new Vertikalprofil(vipTilLengde(vipListe, (linje || this.linje).lengde));
     return beregnMasser({
+      // et profil i hvert knekkpunkt – der knekker vegen, og der står gjerne den høyeste fyllingen
+      ekstraStasjoner: vp.vip.map(v => v.s),
       linje: linje || this.linje, profil: vp, terreng: this.prosjektterreng(),
       mal: this.P.mal, fjell: this.fjellmodell, faktorer: this.P.faktorer,
       tverrfallOverstyring: this.P.tverrfall,
@@ -4006,7 +4026,8 @@ const App = {
 
     this.framdrift(true, modus === 'inngrep' ? 'Legger veien tettest mulig på terrenget…'
       : modus === 'sprengning' ? 'Leter etter en veg som slipper sprengning…' : 'Retter profilen…', 0.15);
-    let laasteIVeien = 0;
+    // de låste høydene vertikalrettingen ikke kom forbi – hver én gang, over alle rundene
+    const laasteIVeien = new Set();
     try {
       await pause();
       const mal = this.P.mal;
@@ -4091,7 +4112,7 @@ const App = {
         /* Målt snitt om det finnes, terrenghøyde om det ikke gjør det. */
         const maalt = grenserFraSnitt(sisteGrove || this.resultat, arbeid);
         rettProfil(arbeid, Object.assign({
-          maksStigningFor: (sA, sB, g) => this.tillattStigning(sA, sB, g),
+          maksStigningFor: (sA, sB, g, gFor, gEtter) => this.tillattStigning(sA, sB, g, gFor, gEtter),
           maksOverTerreng: mal.maksFyllingshoyde > 0 ? mal.maksFyllingshoyde : null,
           maksUnderTerreng: mal.maksSkjaeringsdybde > 0 ? mal.maksSkjaeringsdybde : null,
           terrengVed
@@ -4105,7 +4126,7 @@ const App = {
           minVertikalLavbrekk: mal.minVertikalLavbrekk,
           minVertikalHoybrekk: mal.minVertikalHoybrekk
         });
-        laasteIVeien = Math.max(laasteIVeien, v.laste);
+        for (const s of (v.lasteSteder || [])) laasteIVeien.add(s);
       };
 
       /* De to rettingene drar i hver sin retning: a slake ut et vertikalbrudd
@@ -4344,6 +4365,10 @@ const App = {
     this._planretting = null;
     if (planord) deler.push(planord);
     if (bruddFor.totalt > igjen && igjen > 0) deler.push(`rettet ${bruddFor.totalt - igjen} brudd`);
+    /* Ble det FLERE, skal det stå. Her sto bare «N brudd står igjen», og det
+       ble lest som om de var der fra før – målt gikk 11 av 30 trykk fra
+       færre til flere brudd uten at noe sa det. */
+    else if (igjen > bruddFor.totalt) deler.push(`${igjen - bruddFor.totalt} nye brudd – det var ${bruddFor.totalt} før`);
     /* Rettingen kan sette ned en K brukeren har satt, for at naboen skal få
        plass til kurven sin. Det flytter ingen høyde, men det er en endring av
        noe brukeren valgte – og den ble ikke nevnt. */
@@ -4376,7 +4401,7 @@ const App = {
         .filter(([t]) => this.BRUDDTYPER[t] === 'profil')
         .sort((a, b) => b[1] - a[1]).map(([t, n]) => `${n} ${t}`).join(', ');
       deler.push(`${bruddEtter.profil} brudd står igjen (${verste})`
-        + (laasteIVeien ? ` – ${laasteIVeien} av dem sitter fast i låste høyder` : ''));
+        + (laasteIVeien.size ? ` – ${laasteIVeien.size} av dem sitter fast i låste høyder` : ''));
 
       /* Star det stigningsbrudd igjen, er det ett av tre som binder: laste
          høyder, kravet i en kurve, eller terrenget selv. Uten a si hvilket
@@ -5238,6 +5263,14 @@ const App = {
        linjen seg under en centimeter. Alt som virkelig flytter den – å fjerne
        et knekkpunkt – ligger i «Gjør lovlig» og spør fortsatt først. */
     this.sikreLovligPlan();
+    /* Søket regner på et grovt rutenett. Det som kommer ut, kontrolleres på
+       rapportens profiler før det godtas – se slutten. «Rett opp» har sin
+       egen portvakt og kaller hit stille. */
+    const forSok = stille ? null : {
+      brudd: this.tellBrudd(),
+      vip: this.P.vip.map(v => Object.assign({}, v)),
+      ip: this.P.ip.map(p => Object.assign({}, p))
+    };
 
     const V = this.P.vip;
     const maksTillatt = this.P.mal.stigningIKurve.reduce((a, r) => Math.max(a, r[1], r[2]), 0);
@@ -5245,6 +5278,8 @@ const App = {
     const mal = this.P.mal;
     const inngrep = modus === 'inngrep';
     const sprengfri = modus === 'sprengning';
+    // terrenget langs hver linje sidesøket prøver – én avlesning per kandidat
+    const terrengKandidat = new WeakMap();
     const kostnad = (liste, linje) => {
       const r = this.beregnRaskt(liste, linje);
       const s = r.sum, b = r.balanse;
@@ -5305,9 +5340,15 @@ const App = {
          lengdeprofilen - jo mindre, jo tettere ligger veien pa terrenget.
          Volumleddene over drar i samme retning, men de kan gi like svar for
          en veg som ligger rolig oppa bakken og en som svinger over og under
-         den. Dette leddet skiller dem, og det er den rolige man vil ha. */
-      if (this.terrengProfil) {
-        const tp = this.terrengProfil;
+         den. Dette leddet skiller dem, og det er den rolige man vil ha.
+         TERRENGET LANGS KANDIDATEN. Her ble det lest langs linja slik den lå,
+         også når sidesøket prøvde en linje flere meter unna – leddet sto da
+         stille, og flyttingen ble avgjort uten det. Terrenget langs en ny
+         linje leses én gang per kandidat, med fem meters steg. */
+      const tp = linje && linje !== this.linje
+        ? (terrengKandidat.get(linje) || terrengKandidat.set(linje, this.terrengLangs(linje, 5)).get(linje))
+        : this.terrengProfil;
+      if (tp) {
         // hvert femte punkt holder til a male et areal
         const hopp = Math.max(1, Math.round(5 / Math.max(0.5, tp.s[1] - tp.s[0])));
         let avvik = 0;
@@ -5344,17 +5385,27 @@ const App = {
          Løsningen er ikke a regne finere - det ville tredoblet arbeidet - men
          a male straffen per meter veg i stedet for per profil. Da veier et
          brudd like tungt uansett hvor tett profilene star, og
-         volumleddene over er allerede uavhengige av oppløsningen. */
-      const perMeter = r.stasjoner.length > 1 ? (r.stasjoner[1] - r.stasjoner[0]) : 5;
-      for (const pr of r.profiler) {
-        const g = vpKost.stigning(pr.s);
-        /* Kravet males mot den effektive radien, slik det gjøres overalt
-           ellers: normalen sier at stigningen skal flates ut ogsa pa
-           innkjøringen til en knapp kurve. Med `pr.radius` siktet
-           optimaliseringen mot en slakkere regel enn den rapporten handhever,
-           og kunne lande pa en løsning som straks ble meldt som brudd. */
-        const kravRadius = effektivRadius(this.linje, mal, pr.s);
-        const tillatt = maksStigningFraRadius(mal, kravRadius, g, mal.lassretning);
+         volumleddene over er allerede uavhengige av oppløsningen.
+         HVERT PROFIL VEIER DET STYKKET DET STÅR FOR – halvveis til naboen på
+         hver side. Rutenettet er ikke jevnt lenger: det har et profil i hvert
+         knekkpunkt også, og da var avstanden mellom de to første et tilfeldig
+         tall. */
+      const st = r.profiler.map(p => p.s);
+      const vekt = st.map((s, i) => ((i + 1 < st.length ? st[i + 1] : s) - (i > 0 ? st[i - 1] : s)) / 2);
+      /* Kravet males mot den effektive radien, slik det gjøres overalt
+         ellers: normalen sier at stigningen skal flates ut ogsa pa
+         innkjøringen til en knapp kurve. Med `pr.radius` siktet
+         optimaliseringen mot en slakkere regel enn den rapporten handhever,
+         og kunne lande pa en løsning som straks ble meldt som brudd.
+         Det er samme regel som kontrollen – også unntaket for korte
+         rettstrekk – og det er KANDIDATENS linje: med `this.linje` målte
+         sidesøket kravet langs linja slik den lå før flyttingen. */
+      const krav = stigningskrav(linje || this.linje, mal, vpKost, r.profiler.map(p => p.s));
+      for (let ip = 0; ip < r.profiler.length; ip++) {
+        const pr = r.profiler[ip];
+        const perMeter = vekt[ip];
+        const g = krav[ip].stigning;
+        const tillatt = krav[ip].maks;
         if (Math.abs(g) > tillatt) k += (Math.abs(g) - tillatt) * 80000 * perMeter;
 
         if (mal.maksFyllingshoyde > 0 && pr.maksFylling > mal.maksFyllingshoyde) {
@@ -5364,9 +5415,8 @@ const App = {
           k += (pr.maksSkjaering - mal.maksSkjaeringsdybde) * 600 * perMeter;
         }
         if (mal.maksUtslag > 0) {
-          const hbV2 = pr.halvbreddeVenstre != null ? pr.halvbreddeVenstre : pr.halvbredde;
-          const hbH2 = pr.halvbreddeHoyre != null ? pr.halvbreddeHoyre : pr.halvbredde;
-          const utslag = Math.max(-pr.fotVenstre - hbV2, pr.fotHoyre - hbH2);
+          // til den hele foten – se utslagFor
+          const utslag = utslagFor(pr);
           if (utslag > mal.maksUtslag) k += (utslag - mal.maksUtslag) * 400 * perMeter;
         }
         if (pr.advarsel) k += 10000 * perMeter;   // skraningen fant ikke terrenget
@@ -5466,6 +5516,32 @@ const App = {
       Kart.tegn();
     }
     this.beregn();
+    /* KONTROLL PÅ RAPPORTENS PROFILER. Søket så femten meter mellom
+       profilene, og en fylling over grensen midt imellom kostet ingenting – i
+       22 av 25 prøvde prosjekt lå et slikt brudd helt mellom søkets profiler.
+       Gir resultatet flere brudd i rapporten enn det vi startet med, er det
+       ikke bedre, og profilen man hadde blir stående. */
+    const etterSok = forSok ? this.tellBrudd() : null;
+    if (forSok && forSok.brudd && etterSok && etterSok.profil > forSok.brudd.profil) {
+      const nye = etterSok.profil - forSok.brudd.profil;
+      this.P.vip = forSok.vip;
+      if (flyttet) {
+        this.P.ip = forSok.ip;
+        this.flyttingsliste = [];
+        this._ipForFlytting = null;
+        this._terrengnokkel = '';
+        this.byggLinje();
+        await this.lastTerreng();
+        this.hentTerrengProfil();
+        Kart.tegn();
+      }
+      this.vprofil = new Vertikalprofil(this.vipForLinja());
+      this.beregn();
+      this.slippMerke();
+      this.status(`Optimaliseringen ga ${nye} brudd mer i rapporten enn du hadde – `
+        + 'profilen du hadde er beholdt');
+      return;
+    }
     if (!stille && (flyttet || this.planmerknad())) {
       this.status(this.forran(flyttet
         ? `Optimalisert – ${flyttet} knekkpunkt flyttet sidelengs`
@@ -6571,9 +6647,16 @@ const App = {
     const boks = document.getElementById('veiklasseinfo');
     if (!boks) return;
     const k = Veiklasser[this.P.mal.veiklasse] || Veiklasser.egen;
+    /* HVA SOM IKKE ER REGNET MED, STÅR HER. K1 har ingen kurveutvidelse og
+       ingen dosering, K7 mangler stigningsvilkåret for ensidig fall, og over
+       135° dreining leses bredden av en figur i normalen som ikke er lagt inn.
+       Uten et ord om det så det ut som om reglene var med. */
+    const ikkeMed = (k.ikkeMed || []).slice();
+    if ((k.breddeIKurve || []).length) ikkeMed.push('breddekravet i kurver som dreier mer enn 135° – 135°-verdien brukes');
     boks.innerHTML = `<p>${k.beskrivelse}</p>`
       + (k.kilde ? `<p class="kilde">${k.kilde}</p>` : '')
       + (k.usikker ? `<p class="merke-varsel">Kontroller kravene mot gjeldende vegnormal.</p>` : '')
+      + (ikkeMed.length ? `<p class="kilde">Ikke regnet med: ${ikkeMed.join('; ')}.</p>` : '')
       + (k.fri ? '' : `<div class="klassetall">
            <span>Min. bredde <b>${k.vegbredde} m</b></span>
            <span>Min. radius <b>${k.minRadius} m</b></span>

@@ -522,7 +522,11 @@ const Tverrprofil = {
     const app = this.app;
     if (app && app.vprofil && app.linje) {
       const g = app.vprofil.stigning(pr.s);
-      const tillatt = app.tillattStigning ? app.tillattStigning(pr.s, pr.s, g) : null;
+      /* Kravet kontrollen brukte i dette profilet – med unntaket for korte
+         rettstrekk, som bare kan avgjøres langs hele strekket. */
+      const iRes = ((app.resultat && app.resultat.profiler) || []).find(p => Math.abs(p.s - pr.s) < 1e-6);
+      const tillatt = iRes && Number.isFinite(iRes.maksStigning) ? iRes.maksStigning
+        : app.tillattStigning ? app.tillattStigning(pr.s, pr.s, g, g, g) : null;
       const over = tillatt != null && Math.abs(g) > tillatt + 1e-4;
       rader.push(['Stigning langs vegen',
         `${(g * 100).toFixed(1)} %` + (tillatt != null ? `  (maks ${(tillatt * 100).toFixed(0)} %)` : ''),

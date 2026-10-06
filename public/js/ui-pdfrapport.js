@@ -588,7 +588,7 @@ const Pdfrapport = {
       ['Grøftedybde under planum / grøftebunn', `${t(m.grofteDybdePlanum, 2)} m / ${t(m.grofteBunn, 2)} m`],
       ['Skjæring løsmasse / fjell / fylling',
         `1:${t(m.skjaeringLosmasse, 1)} · 1:${t(m.skjaeringFjell, 1)} · 1:${t(m.fylling, 1)}`],
-      ['Profilavstand', t(res.stasjoner[1] - res.stasjoner[0], 1) + ' m'],
+      ['Profilavstand', t(Rapport.profilAvstand(res), 1) + ' m'],
       ['Standard dybde til fjell', t(app.P.fjell.standarddybde, 2) + ' m'],
       ['Observasjoner av fjelldybde', app.P.fjell.punkter.length + ' stk'],
       ['Lengdekorreksjon UTM til bakke',
@@ -682,7 +682,7 @@ const Pdfrapport = {
     overskrift('Stikningsdata – senterlinje');
     brodtekst(`EUREF89 UTM${app.sone}. VK og HK er venstre og høyre vegkant. Z er ferdig vegnivå. `
       + `Tabellen har hver ${t(stikning.hver, stikning.hver % 1 ? 1 : 0)} meter; hele oppsettet med hver `
-      + `${t(res.stasjoner[1] - res.stasjoner[0], 1)} meter kan hentes som CSV under fanen «Eksport».`);
+      + `${t(Rapport.profilAvstand(res), 1)} meter kan hentes som CSV under fanen «Eksport».`);
     tilstand.y += 2;
     tabell(
       [{ tekst: 'Profil', bredde: 8, venstre: true }, { tekst: 'Nord', bredde: 14 }, { tekst: 'Øst', bredde: 13 },

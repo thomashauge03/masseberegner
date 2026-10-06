@@ -82,7 +82,7 @@ const Rapport = {
       <div class="sumkort">
         <h4>Nøkkeltall</h4>
         <div class="sumrad"><span>Veglengde</span><span class="verdi">${t(res.lengde, 1)} m</span></div>
-        <div class="sumrad"><span>Profiler</span><span class="verdi">${res.profiler.length} <small>hver ${(dS => t(dS, dS % 1 ? 1 : 0))(res.profilAvstand || (res.stasjoner[1] - res.stasjoner[0]))} m</small></span></div>
+        <div class="sumrad"><span>Profiler</span><span class="verdi">${res.profiler.length} <small>hver ${(dS => t(dS, dS % 1 ? 1 : 0))(Rapport.profilAvstand(res))} m</small></span></div>
         <div class="sumrad"><span>Største skjæringsdybde</span><span class="verdi">${t(maksSkjaering, 1)} m</span></div>
         <div class="sumrad"><span>Største fyllingshøyde</span><span class="verdi">${t(maksFylling, 1)} m</span></div>
       </div>
@@ -568,8 +568,25 @@ ${this.sprengningsrader(res)}
    *
    * @returns {{bolk:number, rader:Array}}
    */
+  /**
+   * Profilavstanden beregningen brukte. IKKE avstanden mellom de to første
+   * profilene: en snuplass legger kantene sine inn som egne profiler, og med
+   * en plass ved profil 12 ble «avstanden» 2 m – stikningstabellen tok da hver
+   * trettiende meter og sa «hver 6 meter», og med plassen ved profil 0 sto det
+   * «Profilavstand 0,0 m».
+   */
+  profilAvstand(res) {
+    if (res && Number.isFinite(res.profilAvstand) && res.profilAvstand > 0) return res.profilAvstand;
+    // eldre resultat uten tallet: den vanligste avstanden, ikke den første
+    const st = (res && res.stasjoner) || [];
+    const d = [];
+    for (let i = 1; i < st.length; i++) d.push(st[i] - st[i - 1]);
+    d.sort((a, b) => a - b);
+    return d.length ? d[d.length >> 1] : 0;
+  },
+
   bolker(res, onsket = 20) {
-    const dS = res.stasjoner && res.stasjoner.length > 1 ? res.stasjoner[1] - res.stasjoner[0] : onsket;
+    const dS = this.profilAvstand(res) || onsket;
     const bolk = dS > 0 ? Math.max(dS, dS * Math.ceil(onsket / dS - 1e-9)) : onsket;
     const rader = [];
     let na = null, nokkel = null;
@@ -605,7 +622,7 @@ ${this.sprengningsrader(res)}
     const app = this.app;
     const rader = [];
     const mal = res.mal;
-    const dS = res.stasjoner && res.stasjoner.length > 1 ? res.stasjoner[1] - res.stasjoner[0] : steg;
+    const dS = this.profilAvstand(res) || steg;
     const hver = steg > 0 && dS > 0 ? Math.max(1, Math.round(steg / dS)) * dS : 0;
     const sist = res.profiler.length ? res.profiler[res.profiler.length - 1].s : 0;
     rader.hver = hver || dS;
@@ -705,7 +722,7 @@ ${b.slitelagKjopes > 0.5 ? `<tr><td>Slitelag – kjøpes inn i tillegg</td><td>$
 <tr><td>Skjæring i løsmasse</td><td>1:${t(m.skjaeringLosmasse, 1)}</td></tr>
 <tr><td>Skjæring i fjell</td><td>1:${t(m.skjaeringFjell, 1)}</td></tr>
 <tr><td>Fyllingsskråning</td><td>1:${t(m.fylling, 1)}</td></tr>
-<tr><td>Profilavstand</td><td>${t(res.stasjoner[1] - res.stasjoner[0], 1)} m</td></tr>
+<tr><td>Profilavstand</td><td>${t(this.profilAvstand(res), 1)} m</td></tr>
 <tr><td>Standard dybde til fjell</td><td>${t(app.P.fjell.standarddybde, 2)} m</td></tr>
 <tr><td>Observasjoner av fjelldybde</td><td>${app.P.fjell.punkter.length} stk</td></tr>
 <tr><td>Lengdekorreksjon UTM → bakke</td><td>${res.bakkefaktor === 1 ? 'ikke brukt' : '× ' + t(res.bakkefaktor, 6)}</td></tr>
@@ -739,7 +756,7 @@ ${tegninger.tverrsnitt.map(x => `<figure>
 <h2>Stikningsdata – senterlinje</h2>
 <p class="liten">EUREF89 UTM${app.sone}. VK og HK er venstre og høyre vegkant.
 Z er ferdig vegnivå. Tabellen har hver ${t(stikning.hver, stikning.hver % 1 ? 1 : 0)} meter; hele oppsettet med hver
-${t(res.stasjoner[1] - res.stasjoner[0], 1)} meter kan hentes som CSV under fanen «Eksport».</p>
+${t(this.profilAvstand(res), 1)} meter kan hentes som CSV under fanen «Eksport».</p>
 <table class="stikning">
 <thead><tr><th>Profil</th><th>Nord</th><th>Øst</th><th>Z veg</th><th>Z terreng</th>
 <th>VK nord</th><th>VK øst</th><th>VK Z</th><th>HK nord</th><th>HK øst</th><th>HK Z</th></tr></thead>
