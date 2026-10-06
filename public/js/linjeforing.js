@@ -254,16 +254,22 @@ class Linjeforing {
    * breddeutvidelsen til en hårnål: med førti slike punkt ble det 195
    * stigningsbrudd og tre fjerdedeler mer skjæring.
    *
-   * PLASSEN ER DET NABOEN LAR LIGGE. På hvert ben har hjørnet det kurven i
-   * andre enden ikke bruker – halve benet når det er et hjørne eller en ende
-   * der. Her fikk hjørnet alltid halve det korteste benet, også ved siden av
-   * en kurve som tok nesten hele: 20 m av et ben på 40 der R = 300 brukte
-   * 39,96, og hjørnet ble regnet slakere enn det er plass til.
+   * PLASSEN ER DET EN KURVE DER VILLE FÅTT. Legges det inn en kurve i hjørnet,
+   * deler den hvert ben med naboen slik plassdelingen gjør: naboen beholder
+   * det den har når det er under halve benet, ellers får hver halvparten.
+   * Hjørnet har derfor det største av halve benet og det naboen lar ligge.
+   * Først sto «det naboen lar ligge» alene – men en kurve i hjørnet ville tatt
+   * halve benet fra naboen. Et knekk på 2° 40 m etter en R = 300 ble regnet
+   * som R = 29 i stedet for 1146, og merknaden ba om en kurve plassdelingen
+   * ville gitt R = 1145.
    */
   hjorner() {
     if (!this._hjorner) {
       const P = this.ip, T = this._tangent || [];
-      const ledig = (i, j) => (T[j] > 0 ? avstand(P[i], P[j]) - T[j] : avstand(P[i], P[j]) / 2);
+      const ledig = (i, j) => {
+        const ben = avstand(P[i], P[j]);
+        return T[j] > 0 ? Math.max(ben / 2, ben - T[j]) : ben / 2;
+      };
       this._hjorner = this.skarpeHjorner()
         .filter(h => Math.abs(h.avboy) * 180 / Math.PI >= 1 && Number.isFinite(h.s))
         .map(h => {

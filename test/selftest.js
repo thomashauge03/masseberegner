@@ -1756,6 +1756,9 @@ console.log('\n4i. Linjeføring som ikke lar seg tegne slik den står');
       urettferdig === 0, `${urettferdig} tilfeller`);
     paastand('  den som får det den ba om, får det nøyaktig', unoyaktig === 0, `${unoyaktig} tilfeller`);
     sjekk('et uendelig langt strekk er ikke fullt', delPlass([0, 30, 10, 0], [Infinity, 25, 100])[1], 15, 1e-12);
+    // et uendelig ønske får det strekkene har – rundene stopper ikke fordi ønsket er uendelig
+    paastand('et uendelig ønske får det strekkene har', JSON.stringify(delPlass([5, Infinity, 0], [100, 100])) === '[5,95,0]',
+      JSON.stringify(delPlass([5, Infinity, 0], [100, 100])));
     {
       // 2 000 knekkpunkt som alle konkurrerer: likedelingen er ikke kvadratisk der strekkene har plass
       const n = 2000, o = [], p = [];
@@ -1833,10 +1836,20 @@ console.log('\n4i. Linjeføring som ikke lar seg tegne slik den står');
     // det korteste benet bestemmer: 100 og 40 m gir tangent 20, R = 20 i 90°
     const skjev = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 100, y: 0, r: 0 }, { x: 100, y: 40, r: 0 }]);
     sjekk('med ben på 100 og 40 m er det det korte som bestemmer', skjev.hjorner()[0].rEkv, 20, 1e-9);
-    /* Og en kurve i andre enden av benet tar sin del først: R = 30 i 90° bruker
-       30 av de 40 m, og hjørnet har 10 igjen. Her fikk det 20. */
+    /* Ved siden av en kurve har hjørnet det en kurve der ville fått: naboen
+       beholder det den har når det er under halve benet, ellers deles benet.
+       R = 30 i 90° bruker 30 av de 40 m – hjørnet får likevel halve, 20. */
     const nabo = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 100, y: 0, r: 0 }, { x: 100, y: 40, r: 30 }, { x: 200, y: 40, r: 0 }]);
-    sjekk('ved siden av en kurve har hjørnet det kurven lar ligge', nabo.hjorner()[0].rEkv, 10, 1e-9);
+    sjekk('ved siden av en kurve som tar mer enn halve benet: halve benet', nabo.hjorner()[0].rEkv, 20, 1e-9);
+    const liten = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 100, y: 0, r: 0 }, { x: 100, y: 40, r: 10 }, { x: 200, y: 40, r: 0 }]);
+    sjekk('ved siden av en som tar mindre: det den lar ligge', liten.hjorner()[0].rEkv, 30, 1e-9);
+    // et knekk på 2° 40 m etter en R = 300 i 15°: en kurve der ville fått R ≈ 1146 – ikke 29
+    {
+      const v = g => g * Math.PI / 180, P2 = { x: 100 + 40 * Math.cos(v(15)), y: 40 * Math.sin(v(15)) };
+      const l2 = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 100, y: 0, r: 300 }, Object.assign({ r: 0 }, P2),
+        { x: P2.x + 100 * Math.cos(v(17)), y: P2.y + 100 * Math.sin(v(17)), r: 0 }]);
+      sjekk('et knekk på 2° ved siden av en kurve som tar nesten hele benet: R ≈ 1146', l2.hjorner()[0].rEkv, 20 / Math.tan(v(1)), 1e-6);
+    }
     // et hjørne akkurat i kanten av vinduet er med – i begge kanter
     const h0 = l.hjorner()[0];
     paastand('minsteRadius tar med et hjørne som står akkurat i starten eller slutten av vinduet',
@@ -2132,6 +2145,12 @@ console.log('\n4f. Eksportformatene');
     const bak = stasjoner([{ s: 0, z: 100, k: 0 }, { s: 150, z: 101, k: 0 }, { s: 250, z: 103, k: 0 }]);
     paastand('bare et punkt bak slutten: et nytt på slutten, på linja mot det',
       JSON.stringify(bak) === '[[0,100],[150,101],[200,102]]', JSON.stringify(bak));
+    // flere punkt på og innenfor slingringen bak slutten: fortsatt én stasjon
+    for (const s of [[200, 200.004], [200.001, 200.004]]) {
+      const v = stasjoner([{ s: 0, z: 100, k: 0 }, { s: 100, z: 101, k: 0 }, { s: s[0], z: 102, k: 0 }, { s: s[1], z: 102, k: 0 }, { s: 210, z: 103, k: 0 }]);
+      paastand(`punkt på ${s.join(' og ')} og ett bak: slutten står én gang`, JSON.stringify(v.map(p => p[0])) === '[0,100,200]',
+        JSON.stringify(v));
+    }
   }
 
   const sos = Eksport.sosi(app, res);

@@ -23,11 +23,11 @@ Nettlesertesten kjøres ved å åpne programmet med `?test=1`, eller fra konsoll
 med `Nettlesertest.kjor()`. Utviklingstjeneren startes med `node server.js`
 (port 5178). Programmet ligger også på https://masseberegner.vercel.app.
 
-Ved siste lagring: **818 prøver i selvtesten, 194 i rørprøven
+Ved siste lagring: **823 prøver i selvtesten, 194 i rørprøven
 (`test/rorprove.js`), 133 i grøfteprøven (`test/groftprove.js`), 100 i
 planprøven (`test/rorplanprove.js`), 62 i eksportprøven
 (`test/roreksportprove.js`), 77 i avviksprøven (`test/roravvikprove.js`), 53 i
-anleggsprøven og 258 i tomteprøven, alle grønne; 1369 av 1369 i nettlesertesten.** «Klikk i modellen flytter snittet
+anleggsprøven og 258 i tomteprøven, alle grønne; 1370 av 1370 i nettlesertesten.** «Klikk i modellen flytter snittet
 dit» i `veg3d` kan feile når vinduet emuleres 1440 × 900 i en mindre rute –
 klikket lander én rad ved siden av; det gjør den likt på `main`. «og merknaden
 sier det som gjelder nå» i `flereAnlegg` feilet én gang i hele runden og aldri
@@ -111,8 +111,9 @@ grenen `veg-restfunn`, hver gjennomgått av en egen granskning og rettet etterp�
   overgang. Før gjaldt den hele vegen.
 - Nye prosjekt får klasse 5 sine tall: 4,0 m veg og 3,5 m slitelag. Lagrede
   prosjekter beholder sin bredde.
-- Et skarpt hjørne ved siden av en kurve får radien som er igjen når kurven
-  har tatt sitt. Den kan bli mindre enn før.
+- Et skarpt hjørne ved siden av en kurve får det en kurve der ville fått: det
+  naboen lar ligge, når det er mer enn halve benet. Den blir aldri mindre enn
+  før.
 - Et kort bratt strekk inne i et langt bratt stykke får ikke lenger tillegget
   for korte rettstrekk.
 

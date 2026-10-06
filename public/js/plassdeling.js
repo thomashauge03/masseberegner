@@ -47,10 +47,10 @@ function delPlass(onsket, plass) {
     for (let i = a; i <= b; i++) aktiv[i] = vil(i) > 0 ? 1 : 0;
     // hver runde stopper minst ett punkt, så det er aldri flere runder enn punkt
     for (let runde = 0; runde <= b - a + 1; runde++) {
-      let d = Infinity;
+      let d = Infinity, med = false;
       // hvor mye alle som ennå er med, kan få til – før noen er mette eller et strekk er fullt
-      for (let i = a; i <= b; i++) if (aktiv[i]) d = Math.min(d, onsket[i] - fatt[i]);
-      if (d === Infinity) return;                 // ingen er med lenger
+      for (let i = a; i <= b; i++) if (aktiv[i]) { med = true; d = Math.min(d, onsket[i] - fatt[i]); }
+      if (!med) return;                           // ingen er med lenger – et uendelig ønske er med
       for (let k = a; k < b; k++) {
         const m = (aktiv[k] ? 1 : 0) + (aktiv[k + 1] ? 1 : 0);
         if (m) d = Math.min(d, (P(k) - fatt[k] - fatt[k + 1]) / m);
