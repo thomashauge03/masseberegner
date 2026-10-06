@@ -173,7 +173,7 @@ const Nettlesertest = {
       'groftBeregning', 'groftFane', 'groftKoder', 'groftVerktoy', 'groftKnutepunkt', 'groftProfil', 'groft3d',
       'groftRapport',
       'planBeregning', 'planNyttAnlegg', 'planTegnTrase', 'planRediger', 'planFane', 'planProfil', 'planRapport',
-      'planForklaring', 'planEksport',
+      'planForklaring', 'planEksport', 'planEksportSoner',
       'lovlighet', 'framdrift', 'gamleFilerOgUtskifting', 'opprydding'];
     for (const navn of proever) {
       try {
@@ -9581,6 +9581,20 @@ const Nettlesertest = {
         try { geo = JSON.parse(inn('.geojson')); } catch (e) { geo = null; }
         this.sjekk('GeoJSON med rørene og kummen', !!geo && geo.features.filter(f => f.properties.type === 'ror').length === 2
           && geo.features.some(f => f.properties.type === 'kum'));
+        /* Et rør uten dimensjon har ingen høyder og kommer ikke med. Fila og
+           svaret under knappene skal si det – ikke se komplette ut. */
+        App.P.ror.koder = Ror.koderFra([{ kode: 'DRENS' }], App.P.ror.koder);
+        App.P.ror.plan.ror.push({ id: 'r9', trase: 't1', kode: 'DRENS', side: 1.5, regel: null, motsatt: false });
+        clearTimeout(App._tidsavbrudd);
+        await App.beregnRor();
+        filer.length = 0;
+        document.getElementById('knappEksportLandxml').click();
+        const svar1 = document.getElementById('eksportsvar').textContent;
+        this.sjekk('et rør uten dimensjon står som «ikke med» i fila og i svaret', /<!-- Ikke med: DRENS/.test(inn('.xml'))
+          && /Ikke med: DRENS/.test(svar1), svar1);
+        App.P.ror.plan.ror.pop();
+        clearTimeout(App._tidsavbrudd);
+        await App.beregnRor();
         // samlefila: et innmålt anlegg ved siden av det tegnede
         filer.length = 0;
         await RorUI.importerTekst(this._rorXml(), 'asbuilts_Prove.xml', {}, { sone: 32, maal: 'nytt' });
@@ -9591,6 +9605,61 @@ const Nettlesertest = {
         const xml = filer.length ? filer[0].innhold : '';
         this.sjekk('samlefila har begge røranleggene', filer.length === 1 && xml.includes('Planlagte rør – 1 SP 160PE – bunn innvendig')
           && (xml.match(/<PlanFeature /g) || []).length > 6 && xml.includes('Planlagte rør – k1 bunnløp') && !/Ikke med/.test(svar), svar);
+        // DXF og SOSI: rørlagene får anleggsbokstaven, og ingen lagnavn er lengre enn R12 tåler
+        filer.length = 0;
+        App.settEksportomfang('alle');
+        try { await Rapport.eksporterAlle('dxf'); await Rapport.eksporterAlle('sosi'); } finally { App.settEksportomfang('dette'); }
+        const dxf = inn('.dxf'), lag = [...dxf.matchAll(/\r\n8\r\n([^\r\n]+)/g)].map(m => m[1]);
+        this.sjekk('DXF-samlefila: rørlagene med anleggsbokstav, ingen over 31 tegn', lag.some(l => /^[A-Z]_SP_160PE_BUNN$/.test(l))
+          && lag.every(l => l.length <= 31), lag.filter(l => l.length > 31).join(', ') || [...new Set(lag)].slice(0, 6).join(', '));
+        this.sjekk('SOSI-samlefila har rørledningene fra begge', /\.\.ANLEGG "Planlagte rør"/.test(inn('.sos'))
+          && (inn('.sos').match(/^\.\.OBJTYPE Rørledning$/gm) || []).length > 4);
+      });
+    } finally {
+      Rapport.lastNed = gammelNed;
+      await this._rorTilbake(foer);
+    }
+  },
+
+  /**
+   * Samlefila har ett koordinatsystem. To røranlegg på hver side av en
+   * sonegrense (12° Ø) regnes i hver sin sone; det ene blir stående utenfor,
+   * og det sies. Et tomt anlegg hoppes over uten å vente på et resultat.
+   */
+  async planEksportSoner() {
+    const foer = JSON.stringify(App.P);
+    const gammelNed = Rapport.lastNed;
+    const filer = [];
+    Rapport.lastNed = (navn, innhold) => { filer.push({ navn, innhold }); };
+    try {
+      await this._medFlattTerreng(21.5, async () => {
+        App.P = App.nyttProsjekt();
+        const lag = (lon, navn) => {
+          const a = App.nyttAnlegg('rorplan', navn);
+          a.ror.sone = Geo.sone(lon);
+          if (lon) {
+            a.ror.plan.traseer.push({ id: 't1', punkter: [{ id: 'p1', lat: 63.0, lon }, { id: 'p2', lat: 63.0004, lon }] });
+            a.ror.koder = Ror.koderFra([{ kode: 'SP 160PE' }], {});
+            a.ror.plan.ror.push({ id: 'r1', trase: 't1', kode: 'SP 160PE', side: 0, regel: null, motsatt: false });
+          }
+          return a;
+        };
+        const vest = lag(11.99, 'Vest'), ost = lag(12.01, 'Øst'), tom = lag(0, 'Tom');
+        App.P.anlegg = [vest, ost, tom]; App.P.aktivt = vest.id; delete App.P.ubestemt;
+        App.visAnleggsvelger(); App.visAnleggsvalg(); App.malTilSkjema(); App.tegnAlt();
+        clearTimeout(App._tidsavbrudd);
+        await App.beregnRor();
+        this.sjekk('det vestre anlegget regnes i sone 32', App.sone === 32, String(App.sone));
+        App.settEksportomfang('alle');
+        const t0 = Date.now();
+        try { await Rapport.eksporterAlle('kof'); } finally { App.settEksportomfang('dette'); }
+        const svar = document.getElementById('eksportsvar').textContent;
+        this.sjekk('anlegget i sone 33 står utenfor fila, og det sies', filer.length === 1
+          && /Øst \(annen UTM-sone \(33\) enn fila \(32\)\)/.test(svar), svar);
+        this.sjekk('fila har det vestre anlegget under sone 32', filer.length === 1 && /EUREF89 UTM32 /.test(filer[0].innhold)
+          && /RORTOPP/.test(filer[0].innhold));
+        this.sjekk('det tomme anlegget hoppes over uten å vente', /Tom \(ingenting tegnet ennå\)/.test(svar)
+          && Date.now() - t0 < 15000, (Date.now() - t0) + ' ms');
       });
     } finally {
       Rapport.lastNed = gammelNed;

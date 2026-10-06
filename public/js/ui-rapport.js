@@ -1206,6 +1206,7 @@ ${profiler || '<p class="liten">Ingen rør over 20 m.</p>'}`);
    * samme boks rett under knappene.
    */
   eksportsvar(tekst, feil) {
+    this._sistSvar = tekst;
     const boks = document.getElementById('eksportsvar');
     if (boks) {
       boks.innerHTML = `<div class="${feil ? 'merke-varsel' : ''}">${feil ? '⚠ ' : ''}${escapeHtml(tekst)}</div>`;
@@ -1222,6 +1223,12 @@ ${profiler || '<p class="liten">Ingen rør over 20 m.</p>'}`);
        SOSI-fil kom ut av rørresultatet. Nå har rørene sin egen vei (RorEksport). */
     try {
       lag(kan.form);
+      /* Fila sier selv hva som ikke kom med; svaret under knappene skal si
+         det samme – et «Eksporterte …» uten forbehold ser komplett ut. */
+      if (kan.form === 'ror') {
+        const mangler = RorEksport.mangler(this.app, this.app.resultat);
+        if (mangler.length) this.eksportsvar((this._sistSvar || navn) + ' · ' + mangler.join(' · '), true);
+      }
       return true;
     } catch (e) {
       console.error('Eksport «' + navn + '» feilet', e);
@@ -1306,64 +1313,12 @@ ${profiler || '<p class="liten">Ingen rør over 20 m.</p>'}`);
   },
 
   /**
-   * Stikningsradene for rør – de samme punktene som KOF-fila, én rad med alle
-   * tre høydene, og en rad per kum. Uten filhode, så de kan stables i en samlefil.
+   * Stikningsradene og grøftemassene for rør. Selve radene bygges i
+   * RorEksport, der de kan prøves uten nettleser; her får de bare rapportens
+   * tallformat (komma som desimaltegn) og navnene på dybdeklassene.
    */
-  stikningRaderRor(app, res) {
-    const d = RorEksport.punkter(app, res), rader = [];
-    const kode = k => String(k).replace(/[;\r\n]+/g, ',');
-    for (const p of d) {
-      const b = Math.max(3, String(p.stikk.length).length);
-      p.stikk.forEach((q, j) => rader.push([p.nr, kode(p.kode), `${p.nr}-${String(j + 1).padStart(b, '0')}`, q.type,
-        this.n(q.s, 2), this.n(q.y, 3), this.n(q.x, 3), this.n(q.bunn, 3), this.n(q.topp, 3), this.n(q.gravebunn, 3),
-        this.n(q.terreng, 3), this.n(q.terreng - q.topp, 2)].join(';')));
-    }
-    for (const km of res.kummer || []) {
-      const p = d.find(x => x.linje.id === km.ror);
-      rader.push([p ? p.nr : '', p ? kode(p.kode) : '', 'K' + RorEksport.kumNr(km.id), 'kum', '',
-        this.n(km.y, 3), this.n(km.x, 3), this.n(km.bunnlop, 3), '', '', this.n(km.terreng, 3), ''].join(';'));
-    }
-    return {
-      merknad: 'Tre høyder per punkt: bunn innvendig (bunnløp), topp rør og gravebunn. Stasjonen er langs røret '
-        + 'i planet, og overdekningen er terreng minus topp rør. Kummene: bunnløp og terreng i senter.',
-      foran: d.filter(p => !(p.D > 0)).map(p => `# ${p.nr} ${kode(p.kode)}: uten dimensjon – bare topp rør`),
-      overskrift: 'Ror;Kode;Punkt;Type;Stasjon;Nord;Ost;Bunn_innvendig;Topp_ror;Gravebunn;Terreng;Overdekning',
-      rader,
-      svar: rader.length + ' stikningspunkt for ' + d.length + ' rør'
-    };
-  },
-
-  /**
-   * Grøftemassene for rør – de samme tallene som Rør-fanen: per kode, summen,
-   * dybdeklassene og massebalansen.
-   */
-  masseRaderRor(app, res) {
-    const g = res.groft;
-    if (!g || !g.perKode || !g.perKode.size) throw new Error('Grøfta er ikke regnet – ingen av rørene har dimensjon');
-    const t = v => this.n(v, 1), rader = [];
-    const rad = (navn, k) => rader.push([String(navn).replace(/[;\r\n]+/g, ','), this.n(k.lengde, 1), t(k.gravingLos),
-      t(k.sprengning), t(k.fundament), t(k.omfylling), t(k.gjenfylling), t(k.kumvolum || 0)].join(';'));
-    for (const [kode, k] of g.perKode) rad(kode, k);
-    rad('Sum', g.sum);
-    rader.push('');
-    rader.push('Dybde;Grøft_m');
-    for (const kl of g.dybdeklasser) rader.push([GroftUI.klasseNavn(kl), this.n(kl.lengde, 1)].join(';'));
-    rader.push('');
-    rader.push('Massebalanse;Volum_m3');
-    const b = g.balanse;
-    for (const [navn, v] of [['Gjenfylling fra gravemassene', b.gjenfyllingFraGraving],
-      ['Løsmasse til overs (fast mål)', b.overskuddLos], ['Sprengt fjell (løst mål)', b.sprengtLos],
-      ['Kjøpes: fundament', b.kjopFundament], ['Kjøpes: omfylling', b.kjopOmfylling],
-      ['Kjøpes: gjenfylling', b.kjopGjenfylling]]) rader.push([navn, t(v)].join(';'));
-    return {
-      merknad: 'Teoretisk grøfteprofil mot Kartverkets terreng slik det var før graving; lengder og volum er på '
-        + 'bakken. Felles grøft står på det dypeste røret.',
-      foran: [],
-      overskrift: 'Kode;Grøft_m;Graving_m3;Sprengning_m3;Fundament_m3;Omfylling_m3;Gjenfylling_m3;Kummer_m3',
-      rader,
-      svar: 'grøftemasser for ' + g.perKode.size + ' koder'
-    };
-  },
+  stikningRaderRor(app, res) { return RorEksport.stikningRader(app, res, (v, d) => this.n(v, d)); },
+  masseRaderRor(app, res) { return RorEksport.masseRader(app, res, (v, d) => this.n(v, d), k => GroftUI.klasseNavn(k)); },
 
   /** Stikningsradene for en tomt – uten filhode, så de kan stables i en samlefil. */
   stikningRaderTomt(app, res) {
@@ -1452,7 +1407,7 @@ ${profiler || '<p class="liten">Ingen rør over 20 m.</p>'}`);
       if (form === 'tomt') return this.eksportMasserTomt(app, res);
       const ror = form === 'ror';
       const d = ror ? this.masseRaderRor(app, res) : this.masseRaderVeg(app, res);
-      const rader = this.csvHode(app, d.merknad).concat([d.overskrift], d.rader);
+      const rader = this.csvHode(app, d.merknad).concat(d.foran || [], [d.overskrift], d.rader);
       this.lastNed(this.filnavn(ror ? '_groftemasser.csv' : '_masser.csv'), rader.join('\r\n'));
       this.eksportsvar('Skrev ' + d.svar);
     });
@@ -1750,7 +1705,7 @@ ${profiler || '<p class="liten">Ingen rør over 20 m.</p>'}`);
    * utgangen av alle: filen ser komplett ut, og at tomta mangler oppdages på
    * plassen.
    */
-  async gjennomAlleAnlegg(hent) {
+  async gjennomAlleAnlegg(hent, valg = {}) {
     const app = this.app;
     const P = app.P;
     const foer = P.aktivt;
@@ -1763,7 +1718,13 @@ ${profiler || '<p class="liten">Ingen rør over 20 m.</p>'}`);
       for (let i = 0; i < anlegg.length; i++) {
         const a = anlegg[i];
         /* Rørene er med i alt: rapporten, PDF-en og – fra etappe 3b – hver
-           eksport. Her sto en sperre for rør i eksportene (`valg.medRor`). */
+           eksport. Her sto en sperre for rør i eksportene (`valg.medRor`).
+           MEN DET SOM IKKE KAN GI NOE, HOPPES OVER FØR BYTTET. Et tomt anlegg
+           – et nytt «Planlagte rør» uten en eneste trase – får aldri et
+           resultat, og runden ventet 45 s på det; et rutenett finnes bare for
+           en tomt, og hvert røranlegg ble regnet ut bare for å bli avvist. */
+        if (!app._harGeometri(a)) { hoppet.push({ anlegg: a, grunn: 'ingenting tegnet ennå' }); continue; }
+        if (valg.bare && !valg.bare(a)) { hoppet.push({ anlegg: a, grunn: valg.grunn || 'ikke med i denne eksporten' }); continue; }
         this.eksportsvar(`Henter ${i + 1} av ${anlegg.length}: ${a.navn || a.type} …`);
         try {
           if (P.aktivt !== a.id) app.byttAnlegg(a.id);
@@ -1910,8 +1871,12 @@ ${tatt.map(x => x.bit.html).join('\n')}`;
     this._samlerNa = true;
     try {
       const navn = { stikning: 'Stikningsdata', masser: 'Masseoppsett', rutenett: 'Rutenett' }[hva];
+      // én sone per fil – se eksporterAlle
+      let filsone = app.sone || null;
       const { tatt, hoppet } = await this.gjennomAlleAnlegg((a2, res, anl) => {
         const tomt = a2.erTomt(), ror = a2.erRor();
+        if (!filsone) filsone = a2.sone;
+        if (a2.sone !== filsone) throw new Error(`annen UTM-sone (${a2.sone}) enn fila (${filsone})`);
         if (hva === 'rutenett' && !tomt) throw new Error('rutenettet finnes bare for en tomt');
         const d = hva === 'rutenett' ? this.rutenettRader(a2, res)
           : hva === 'stikning'
@@ -1919,13 +1884,13 @@ ${tatt.map(x => x.bit.html).join('\n')}`;
             : (tomt ? this.masseRaderTomt(a2, res) : ror ? this.masseRaderRor(a2, res) : this.masseRaderVeg(a2, res));
         if (!d.rader.length) return null;
         return Object.assign({ anleggsnavn: anl.navn || anl.type, anleggstype: anl.type }, d);
-      });
+      }, hva === 'rutenett' ? { bare: a => a.type === 'tomt', grunn: 'rutenettet finnes bare for en tomt' } : {});
       if (!tatt.length) {
         this.eksportsvar(navn + ': ingen av anleggene kunne skrives – '
           + hoppet.map(h => (h.anlegg.navn || h.anlegg.type) + ': ' + h.grunn).join('; '), true);
         return;
       }
-      const rader = this.csvHode(app, 'Ett avsnitt per anlegg. Hvert avsnitt har sin '
+      const rader = this.csvHode({ P: app.P, sone: filsone }, 'Ett avsnitt per anlegg. Hvert avsnitt har sin '
         + 'egen overskriftsrad, fordi en veg og en tomt ikke har de samme kolonnene.');
       for (const t of tatt) {
         const b = t.bit;
@@ -1985,10 +1950,21 @@ ${tatt.map(x => x.bit.html).join('\n')}`;
       const sosiOmr = { minN: Infinity, maksN: -Infinity, minO: Infinity, maksO: -Infinity };
       let sosiNiva = 2;
 
+      /* ÉN SONE PER FIL. Hodet sier ett koordinatsystem, så hvert anlegg må stå
+         i det. Med bare rør i prosjektet følger regnesonen det aktive anlegget,
+         og to røranlegg på hver side av en sonegrense ville ellers havnet under
+         samme hode – det ene 300 km feil. Sonen er den man står i når man
+         trykker; et anlegg i en annen blir stående utenfor, og svaret sier det. */
+      let filsone = app.sone || null;
+      // det rørene ikke fikk med seg (uten høyder, uten grøft) – står i fila og i svaret
+      const notater = [];
       const { tatt, hoppet } = await this.gjennomAlleAnlegg((a2, res, anl, i) => {
         const tomt = a2.erTomt(), ror = a2.erRor();
         const merke = this.anleggskode(i);
         const anleggsnavn = anl.navn || (tomt ? 'Tomt' : ror ? 'Rør' : 'Veg');
+        if (!filsone) filsone = a2.sone;
+        if (a2.sone !== filsone) throw new Error(`annen UTM-sone (${a2.sone}) enn fila (${filsone})`);
+        if (ror) for (const m of RorEksport.mangler(a2, res)) notater.push(anleggsnavn + ': ' + m);
         if (format === 'kof') {
           const pre = merke;
           if (ror) {
@@ -2025,9 +2001,12 @@ ${tatt.map(x => x.bit.html).join('\n')}`;
           return d;
         }
         if (format === 'dxf') {
+          /* Rørene får anleggsbokstaven foran lagene, ikke navnet: R12 tåler 31
+             tegn, og «PLANLAGTE_ROER_» + «SP_160PE_GRAVEBUNN» er 33. Kappet ville
+             _BUNN, _TOPP og _GRAVEBUNN blitt like. */
+          if (ror) return RorEksport.dxfKropp(a2, res, merke + '_');
           const pre = Eksport.dxfLagpre(anleggsnavn);
-          return tomt ? Eksport.dxfKroppTomt(a2, res, pre)
-            : ror ? RorEksport.dxfKropp(a2, res, pre) : Eksport.dxfKroppVeg(a2, res, pre);
+          return tomt ? Eksport.dxfKroppTomt(a2, res, pre) : Eksport.dxfKroppVeg(a2, res, pre);
         }
         // geojson
         const g = tomt ? this.geojsonTomt(a2, res) : ror ? RorEksport.geojson(a2, res) : this.geojsonVeg(a2, res);
@@ -2044,13 +2023,16 @@ ${tatt.map(x => x.bit.html).join('\n')}`;
       }
 
       let innhold;
+      // hodet skrives i fila sin sone – den alle anleggene i den står i
+      const hode = { P: app.P, sone: filsone };
       if (format === 'kof') {
         const merk = [];
         for (const t of tatt) {
           merk.push(t.bit.merke + ' = ' + t.bit.anleggsnavn);
           for (const m of t.bit.merknader) merk.push(t.bit.merke + ': ' + m);
         }
-        const rader = Eksport.kofHode(app, merk);
+        for (const m of notater) merk.push(m);
+        const rader = Eksport.kofHode(hode, merk);
         for (const t of tatt) for (const r of t.bit.rader) rader.push(r);
         innhold = rader.join('\r\n') + '\r\n';
       } else if (format === 'landxml') {
@@ -2069,18 +2051,18 @@ ${tatt.map(x => x.bit.html).join('\n')}`;
           kropp.push(`  <PlanFeatures name="Massekalk">\n${lin.join('\n')}\n  </PlanFeatures>`);
         }
         if (pkt.length) kropp.push(`  <CgPoints name="Kummer">\n${pkt.join('\n')}\n  </CgPoints>`);
-        innhold = Eksport.landxmlDokument(app, kropp.join('\n'));
+        innhold = Eksport.landxmlDokument(hode, RorEksport.xmlKommentarer(notater) + kropp.join('\n'));
       } else if (format === 'sosi') {
-        const rader = Eksport.sosiHode(app, sosiOmr, sosiNiva);
+        const rader = Eksport.sosiHode(hode, sosiOmr, sosiNiva).concat(RorEksport.sosiKommentarer(notater));
         for (const t of tatt) for (const r of t.bit.rader) rader.push(r);
         rader.push('.SLUTT');
         innhold = rader.join('\r\n') + '\r\n';
       } else if (format === 'dxf') {
-        innhold = Eksport.dxfDokument(tatt.flatMap(t => t.bit));
+        innhold = Eksport.dxfDokument(RorEksport.dxfKommentarer(notater).concat(tatt.flatMap(t => t.bit)));
       } else {
         innhold = JSON.stringify({
           type: 'FeatureCollection',
-          properties: { prosjekt: app.P.navn, anlegg: tatt.length },
+          properties: Object.assign({ prosjekt: app.P.navn, anlegg: tatt.length }, notater.length ? { merknader: notater } : {}),
           features: tatt.flatMap(t => t.bit)
         }, null, 1);
       }
@@ -2088,6 +2070,7 @@ ${tatt.map(x => x.bit.html).join('\n')}`;
       const fil = this.filnavn('_alle' + endelse);
       this.lastNed(fil, innhold, mime);
       this.samlesvar(navn, fil, Math.round(innhold.length / 1024), tatt, hoppet);
+      if (notater.length) this.eksportsvar(this._sistSvar + ' · ' + notater.join(' · '), true);
     } catch (e) {
       console.error('Samleeksport «' + format + '» feilet', e);
       this.eksportsvar('Samleeksporten feilet: ' + e.message, true);

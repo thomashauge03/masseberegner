@@ -24,10 +24,11 @@ med `Nettlesertest.kjor()`. Utviklingstjeneren startes med `node server.js`
 
 Ved siste lagring: **609 prøver i selvtesten, 194 i rørprøven
 (`test/rorprove.js`), 133 i grøfteprøven (`test/groftprove.js`), 97 i
-planprøven (`test/rorplanprove.js`), 53 i anleggsprøven og 258 i tomteprøven,
-alle grønne; 1215 av 1216 i nettlesertesten.** Den ene, «klikk i modellen
-flytter snittet dit» i `veg3d`, feiler likt på `main` når vinduet emuleres
-1440 × 900 i en mindre rute – klikket lander én rad ved siden av. 3D-prøvene
+planprøven (`test/rorplanprove.js`), 62 i eksportprøven
+(`test/roreksportprove.js`), 53 i anleggsprøven og 258 i tomteprøven, alle
+grønne; 1237 av 1237 i nettlesertesten.** «Klikk i modellen flytter snittet
+dit» i `veg3d` kan feile når vinduet emuleres 1440 × 900 i en mindre rute –
+klikket lander én rad ved siden av; det gjør den likt på `main`. 3D-prøvene
 må ha fanen framme; i en bakgrunnsfane tegnes ingen rammer. Nettlesertesten
 må kjøres i et vindu som er minst 1000 px bredt – under det legger
 sidepanelet seg oppå, og tre panelprøver blir røde uten at noe er galt. Massene på demoen er uendret gjennom hele runden: 1 548 m³ skjæring,
@@ -54,6 +55,17 @@ og CSV, med bunn innvendig, topp rør og gravebunn som egne lag (brukerens valg)
 Ny ren modul `public/js/roreksport.js`; Eksport-fanen vises for rør, og
 samlefilene tar rørene med. Stikningspunktene er knekkpunktene, hver 10. meter
 og enden; kummene har bunnløp og lokk.
+
+En kodegjennomgang av grenen fant ingen kritiske feil, to alvorlige og seks
+mindre, alle rettet med prøver. De alvorlige: det som ikke kom med (rør uten
+dimensjon, rør uten terreng, grøft som ikke er regnet) sto ingen steder – nå
+står det i hver fil og i svaret under knappene, og grøftemassene skrives ikke
+som nuller; og samlefila kunne få to røranlegg på hver side av en sonegrense
+under ett hode – nå har fila én sone, og et anlegg i en annen står utenfor med
+grunnen. De mindre: DXF-lagene i samlefila får anleggsbokstaven (navnet ble for
+langt for R12), knekkpunkt stikkes med sin egen høyde, tekst som kunne bli en
+formel i et regneark nøytraliseres, anlegg uten noe tegnet hoppes over uten å
+vente 45 s, og rutenettet tar bare tomtene.
 
 ### Rør, etappe 3a – planlagte rør, flettet inn i `main`
 

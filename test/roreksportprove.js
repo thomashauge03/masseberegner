@@ -170,6 +170,73 @@ console.log('\n6. GeoJSON');
     && linjer[0].properties.regel === 'selvfall' && pkt[0].properties.id === 'k1');
 }
 
+console.log('\n6b. Det som ikke kommer med, sies det fra om');
+{
+  /* Et tegnet rør uten dimensjon får ingen høyder (bunn ↔ topp trenger D), og
+     ligger i `utenHoyde`, ikke i linjene. Her falt det stille ut: fila så
+     komplett ut, og hodet nevnte bare de andre rørene. */
+  const plan2 = JSON.parse(JSON.stringify(plan));
+  plan2.ror.push({ id: 'r3', trase: 't1', kode: 'DRENS', side: 1, regel: null, motsatt: false });
+  const koder2 = Ror.koderFra([{ kode: 'SP 160PE' }, { kode: 'VL 110PE' }, { kode: 'DRENS' }], {});
+  const b2 = RorPlan.bygg({ plan: plan2, koder: koder2, mal: RorPlan.nyPlanmal(), terrengZ: T,
+    tilSone: (lat, lon) => ({ o: lon, n: lat }), tilXY: p => ({ x: p.o, y: p.n }) });
+  const r2 = Object.assign({}, res, { bygg: b2, linjer: b2.linjer });
+  const a2 = { P: { navn: 'Prøve', ror: { koder: koder2, plan: plan2 } }, sone: 32 };
+  const mangler = RorEksport.mangler(a2, r2);
+  paastand('røret uten dimensjon står i lista over det som mangler', mangler.some(m => /^Ikke med: DRENS: uten dimensjon/.test(m)),
+    JSON.stringify(mangler));
+  paastand('KOF-hodet sier det', /MERK: Ikke med: DRENS: uten dimensjon/.test(RorEksport.kof(a2, r2)));
+  paastand('LandXML, SOSI og DXF sier det i en kommentar', /<!-- Ikke med: DRENS/.test(RorEksport.landxml(a2, r2))
+    && /^! Ikke med: DRENS/m.test(RorEksport.sosi(a2, r2)) && /\r\n999\r\nIkke med: DRENS/.test(RorEksport.dxf(a2, r2)));
+  paastand('stikningslista sier det', RorEksport.stikningRader(a2, r2, (v, d) => v.toFixed(d)).foran.some(f => /DRENS/.test(f)));
+  paastand('og et komplett anlegg har ingenting å melde', RorEksport.mangler(app, res).length === 0, JSON.stringify(RorEksport.mangler(app, res)));
+  // et innmålt anlegg der terrenget mangler: gravebunnen er borte, og massene kan ikke regnes
+  const innm = { id: 'a', kode: 'SP 160PE', xy: [0, 20, 40].map(x => ({ x: X0 + x, y: Y0 })), punkter: [8, 8, 8].map((z, i) => ({ id: 'a' + i, z })) };
+  const g3 = Groft.beregn({ linjer: [innm], koder, terrengZ: () => NaN });
+  const r3 = { linjer: [innm], groft: g3, profiler: new Map([['a', Ror.profil(innm, () => NaN, 160)]]), kummer: [], sone: 32 };
+  paastand('uten terreng: ingen gravebunn, og det sies', RorEksport.mangler(app, r3).some(m => /1 SP 160PE: ingen gravebunn/.test(m)));
+  let melding = null;
+  try { RorEksport.masseRader(app, r3, (v, d) => v.toFixed(d)); } catch (e) { melding = e.message; }
+  paastand('og massene skrives ikke som nuller', /Ingen grøft er regnet/.test(String(melding)), String(melding));
+}
+
+console.log('\n6c. Stikk i to punkt på samme sted, og CSV-ene');
+{
+  /* Et innmålt fall: to punkt på samme sted, topp 7,8 og 6,5. Begge skal
+     stikkes – her ble de slått sammen, og den nederste høyden forsvant. */
+  const fall = { id: 'f', kode: 'SP 160PE', xy: [0, 20, 20, 40].map(x => ({ x: X0 + x, y: Y0 })),
+    punkter: [8, 7.8, 6.5, 6.3].map((z, i) => ({ id: 'f' + i, z })) };
+  const [p] = RorEksport.punkter(app, { linjer: [fall], kummer: [], sone: 32 });
+  const ved20 = p.stikk.filter(q => Math.abs(q.s - 20) < 0.01).map(q => q.topp);
+  paastand('begge høydene i fallet stikkes', ved20.length === 2 && ved20[0] === 7.8 && ved20[1] === 6.5, JSON.stringify(ved20));
+  const tall = (v, d) => (Number.isFinite(v) ? v.toFixed(d).replace('.', ',') : '');
+  const st = RorEksport.stikningRader(app, res, tall);
+  paastand('stikningslista: én rad per stikk, og en per kum', st.rader.length === sp.stikk.length + vl.stikk.length + 1, String(st.rader.length));
+  paastand('med bunn, topp og gravebunn i hver rad', st.rader[0] === ['1', 'SP 160PE', '1-001', 'start', '0,00', '6500000,000', '500000,000',
+    tall(8 - SP.D + SP.g, 3), '8,000', tall(sp.stikk[0].gravebunn, 3), '10,000', '2,00'].join(';'), st.rader[0]);
+  const ms = RorEksport.masseRader(app, res, tall);
+  paastand('massene per kode, summen, dybden og balansen', ms.rader.some(r => r.startsWith('SP 160PE;'))
+    && ms.rader.some(r => r.startsWith('Sum;')) && ms.rader.includes('Dybde;Grøft_m') && ms.rader.includes('Massebalanse;Volum_m3'));
+  paastand('koder som kunne blitt formler i et regneark, nøytraliseres', RorEksport.csvTekst('=SUM(A1)') === "'=SUM(A1)"
+    && RorEksport.csvTekst('-12;"x"') === "'-12,'x'" && RorEksport.csvTekst('SP 160PE') === 'SP 160PE');
+}
+
+console.log('\n6d. Tegn som må pakkes inn, og gravebunn i flere biter');
+{
+  const kode = 'SP <160> "PE" & \'x\'';
+  const koder3 = Ror.koderFra([{ kode }], {});
+  const l = { id: 'e', kode, xy: [0, 20, 40, 60, 80].map(x => ({ x: X0 + x, y: Y0 - 200 })), punkter: [8, 8, 12, 8, 8].map((z, i) => ({ id: 'e' + i, z })) };
+  koder3[kode].dim = 160;
+  const r4 = { linjer: [l], groft: Groft.beregn({ linjer: [l], koder: koder3, terrengZ: T }), profiler: new Map(), kummer: [], sone: 32 };
+  const a4 = { P: { navn: 'A & B <«rør»>', ror: { koder: koder3 } }, sone: 32 };
+  const xml = RorEksport.landxml(a4, r4);
+  paastand('LandXML pakker inn & < > " \'', xml.includes('SP &lt;160&gt; &quot;PE&quot; &amp; &apos;x&apos;')
+    && xml.includes('name="A &amp; B &lt;«rør»&gt;"') && !/<PlanFeature name="[^"]*"[^ >]/.test(xml));
+  paastand('gravebunnen i to biter blir to navngitte linjer', xml.includes('– gravebunn 1"') && xml.includes('– gravebunn 2"'));
+  const sos = RorEksport.sosi(a4, r4);
+  paastand('SOSI dobler anførselstegnene', sos.includes('..NAVN "SP <160> ""PE"" & \'x\'"'));
+}
+
 console.log('\n7. Ingen rør');
 {
   const tom = { linjer: [], kummer: [], sone: 32 };

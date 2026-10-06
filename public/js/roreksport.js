@@ -20,12 +20,8 @@ const RorEksport = (() => {
   const _rp = () => (typeof RorPlan !== 'undefined' ? RorPlan : require('./rorplan.js'));
   const _geo = () => (typeof Geo !== 'undefined' ? Geo : require('./geo.js'));
 
-  /** Avstanden i planet fra starten av linja til hvert punkt. */
-  function stasjonering(xy) {
-    const s = [0];
-    for (let i = 1; i < xy.length; i++) s.push(s[i - 1] + Math.hypot(xy[i].x - xy[i - 1].x, xy[i].y - xy[i - 1].y));
-    return s;
-  }
+  /** Avstanden i planet fra starten av linja til hvert punkt – samme som planen bruker. */
+  const stasjonering = xy => _rp().stasjonering(xy);
 
   /**
    * Verdien ved stasjon s – lineært mellom naboene. NaN utenfor lista, og NaN
@@ -81,31 +77,137 @@ const RorEksport = (() => {
       const pr = res.profiler && res.profiler.get(l.id);
       const tS = pr ? pr.prover.map(q => q.s) : [], tZ = pr ? pr.prover.map(q => q.terreng) : [];
       const gS = gp.map(q => q.s), gZ = gp.map(q => q.gravebunn);
+      /* KNEKKPUNKTENE STIKKES MED SINE EGNE HØYDER. To målte punkt på samme
+         sted – et innmålt fall, topp og bunn av et sprang – er to stikk; her
+         ble de slått sammen etter stasjonen, og den ene høyden forsvant. Bare
+         helt like punkt (samme sted og høyde) blir ett. */
       const st = [];
-      const legg = (v, type) => {
-        const f = st.find(x => Math.abs(x.s - v) < 0.05);
-        if (!f) st.push({ s: v, type });
-        else if (PRI[type] > PRI[f.type]) f.type = type;
-      };
       const n = l.punkter.length;
-      l.punkter.forEach((p, j) => { if (!p.mellom) legg(s[j], j === 0 ? 'start' : j === n - 1 ? 'slutt' : 'knekk'); });
-      for (let v = STIKK; v < L - 0.05; v += STIKK) legg(v, 'stikk');
+      l.punkter.forEach((p, j) => {
+        if (p.mellom) return;
+        const like = st.find(x => x.j != null && Math.abs(x.s - s[j]) < 0.005 && Math.abs(zs[x.j] - zs[j]) < 0.005);
+        if (!like) st.push({ s: s[j], j, type: j === 0 ? 'start' : j === n - 1 ? 'slutt' : 'knekk' });
+      });
+      for (let v = STIKK; v < L - 0.05; v += STIKK) {
+        if (!st.some(x => Math.abs(x.s - v) < 0.05)) st.push({ s: v, type: 'stikk' });
+      }
       for (const km of res.kummer || []) {
         if (km.ror !== l.id) continue;
         let jb = 0;
         l.xy.forEach((q, j) => {
           if (Math.hypot(q.x - km.x, q.y - km.y) < Math.hypot(l.xy[jb].x - km.x, l.xy[jb].y - km.y)) jb = j;
         });
-        if (Math.hypot(l.xy[jb].x - km.x, l.xy[jb].y - km.y) < 0.05) legg(s[jb], 'kum');
+        if (Math.hypot(l.xy[jb].x - km.x, l.xy[jb].y - km.y) >= 0.05) continue;
+        for (const x of st) if (x.j != null && Math.abs(x.s - s[jb]) < 0.005 && PRI.kum > PRI[x.type]) x.type = 'kum';
       }
-      st.sort((a, b) => a.s - b.s);
+      st.sort((a, b) => a.s - b.s || (a.j == null ? 1 : b.j == null ? -1 : a.j - b.j));
       const stikk = st.map(q => {
-        const tp = ved(s, zs, q.s);
-        return { s: q.s, type: q.type, x: ved(s, xs, q.s), y: ved(s, ys, q.s), topp: tp,
-          bunn: D > 0 ? tp - D + g : NaN, gravebunn: ved(gS, gZ, q.s), terreng: ved(tS, tZ, q.s) };
+        const tp = q.j != null ? zs[q.j] : ved(s, zs, q.s);
+        return { s: q.s, type: q.type, x: q.j != null ? xs[q.j] : ved(s, xs, q.s), y: q.j != null ? ys[q.j] : ved(s, ys, q.s),
+          topp: tp, bunn: D > 0 ? tp - D + g : NaN, gravebunn: ved(gS, gZ, q.s), terreng: ved(tS, tZ, q.s) };
       });
       return { linje: l, nr: i + 1, kode: l.kode, k, D, gods: g, lengde: L, linjer: { topp, bunn, gravebunn }, stikk };
     });
+  }
+
+  /**
+   * DET SOM IKKE KOMMER MED, SKAL FILA SI. Et tegnet rør uten dimensjon eller
+   * uten terreng har ingen høyder og står ikke i linjene; et rør uten grøft har
+   * ingen gravebunn. Her falt de stille ut, og fila så komplett ut – den verste
+   * utgangen av alle, for at noe mangler oppdages på plassen.
+   */
+  function mangler(app, res, d = punkter(app, res)) {
+    const ut = [], sett = new Set();
+    for (const u of (res.bygg && res.bygg.utenHoyde) || []) {
+      const t = `Ikke med: ${u.kode}: ${u.grunn === 'dimensjon' ? 'uten dimensjon' : 'terrenget mangler'} – ingen høyder`;
+      if (!sett.has(t)) { sett.add(t); ut.push(t); }
+    }
+    for (const p of d) {
+      if (p.D > 0 && !p.linjer.gravebunn.length) ut.push(`${p.nr} ${p.kode}: ingen gravebunn – grøfta er ikke regnet`);
+    }
+    if (res.groft && res.groft.manglerTerreng > 0.5) {
+      ut.push(`Terrengdata mangler for ${Math.round(res.groft.manglerTerreng)} m² av grøfta – gravebunnen er brutt der`);
+    }
+    return ut;
+  }
+
+  /**
+   * Tekst i en CSV-celle: ingen skilletegn eller linjeskift, ingen anførselstegn
+   * – og ingenting som et regneark leser som en formel. Kodene kommer fra filer
+   * andre har laget; «=SUM(…)» i en kodekolonne er en formel i Excel.
+   */
+  function csvTekst(s) {
+    const t = String(s).replace(/[;\r\n]+/g, ',').replace(/"/g, "'");
+    return /^[=+\-@]/.test(t) ? "'" + t : t;
+  }
+
+  const klasseNavn = k => {
+    const t = v => String(v).replace('.', ',');
+    return Number.isFinite(k.til) ? `${t(k.fra)}–${t(k.til)} m` : `over ${t(k.fra)} m`;
+  };
+
+  /**
+   * Stikningslista: de samme punktene som KOF-fila, én rad med alle tre
+   * høydene, og en rad per kum. `tall(v, desimaler)` formaterer – rapporten
+   * gir komma som desimaltegn.
+   */
+  function stikningRader(app, res, tall) {
+    const d = punkter(app, res), rader = [];
+    for (const p of d) {
+      const b = Math.max(3, String(p.stikk.length).length);
+      p.stikk.forEach((q, j) => rader.push([p.nr, csvTekst(p.kode), `${p.nr}-${String(j + 1).padStart(b, '0')}`, q.type,
+        tall(q.s, 2), tall(q.y, 3), tall(q.x, 3), tall(q.bunn, 3), tall(q.topp, 3), tall(q.gravebunn, 3),
+        tall(q.terreng, 3), tall(q.terreng - q.topp, 2)].join(';')));
+    }
+    for (const km of res.kummer || []) {
+      const p = d.find(x => x.linje.id === km.ror);
+      rader.push([p ? p.nr : '', p ? csvTekst(p.kode) : '', 'K' + kumNr(km.id), 'kum', '',
+        tall(km.y, 3), tall(km.x, 3), tall(km.bunnlop, 3), '', '', tall(km.terreng, 3), ''].join(';'));
+    }
+    return {
+      merknad: 'Tre høyder per punkt: bunn innvendig (bunnløp), topp rør og gravebunn. Stasjonen er langs røret '
+        + 'i planet, og overdekningen er terreng minus topp rør. Kummene: bunnløp og terreng i senter.',
+      foran: d.filter(p => !(p.D > 0)).map(p => `# ${p.nr} ${csvTekst(p.kode)}: uten dimensjon – bare topp rør`)
+        .concat(mangler(app, res, d).map(m => '# ' + csvTekst(m))),
+      overskrift: 'Ror;Kode;Punkt;Type;Stasjon;Nord;Ost;Bunn_innvendig;Topp_ror;Gravebunn;Terreng;Overdekning',
+      rader,
+      svar: rader.length + ' stikningspunkt for ' + d.length + ' rør'
+    };
+  }
+
+  /**
+   * Grøftemassene: per kode, summen, dybdeklassene og massebalansen – de samme
+   * tallene som Rør-fanen. Er ingen grøft regnet (terrenget mangler, ingen
+   * dimensjon), skrives ingenting: en fil med nuller ser ut som et svar.
+   */
+  function masseRader(app, res, tall, klasse = klasseNavn) {
+    const g = res.groft;
+    if (!g || !g.perKode || !g.perKode.size || !(g.sum && g.sum.lengde > 0)) {
+      throw new Error('Ingen grøft er regnet – terrenget mangler, eller ingen av rørene har dimensjon');
+    }
+    const t = v => tall(v, 1), rader = [];
+    const rad = (navn, k) => rader.push([csvTekst(navn), tall(k.lengde, 1), t(k.gravingLos), t(k.sprengning),
+      t(k.fundament), t(k.omfylling), t(k.gjenfylling), t(k.kumvolum || 0)].join(';'));
+    for (const [kode, k] of g.perKode) rad(kode, k);
+    rad('Sum', g.sum);
+    rader.push('');
+    rader.push('Dybde;Grøft_m');
+    for (const kl of g.dybdeklasser) rader.push([klasse(kl), tall(kl.lengde, 1)].join(';'));
+    rader.push('');
+    rader.push('Massebalanse;Volum_m3');
+    const b = g.balanse;
+    for (const [navn, v] of [['Gjenfylling fra gravemassene', b.gjenfyllingFraGraving],
+      ['Løsmasse til overs (fast mål)', b.overskuddLos], ['Sprengt fjell (løst mål)', b.sprengtLos],
+      ['Kjøpes: fundament', b.kjopFundament], ['Kjøpes: omfylling', b.kjopOmfylling],
+      ['Kjøpes: gjenfylling', b.kjopGjenfylling]]) rader.push([navn, t(v)].join(';'));
+    return {
+      merknad: 'Teoretisk grøfteprofil mot Kartverkets terreng slik det var før graving; lengder og volum er på '
+        + 'bakken. Felles grøft står på det dypeste røret.',
+      foran: mangler(app, res).map(m => '# ' + csvTekst(m)),
+      overskrift: 'Kode;Grøft_m;Graving_m3;Sprengning_m3;Fundament_m3;Omfylling_m3;Gjenfylling_m3;Kummer_m3',
+      rader,
+      svar: 'grøftemasser for ' + g.perKode.size + ' koder'
+    };
   }
 
   /** «1 = SP 160PE (selvfall, Ø160)» – det rørnumrene i en KOF-fil betyr. Ø, ikke ⌀: instrumentene kjenner ikke ⌀. */
@@ -143,7 +245,7 @@ const RorEksport = (() => {
   function kof(app, res) {
     const E = _eks(), d = punkter(app, res);
     if (!d.length) throw new Error('Ingen rør å skrive');
-    const rader = E.kofHode(app, kofMerknader(d));
+    const rader = E.kofHode(app, kofMerknader(d).concat(mangler(app, res, d)));
     for (const r of kofKropp(app, res, E.kofNavner(), d)) rader.push(r);
     return rader.join('\r\n') + '\r\n';
   }
@@ -182,10 +284,14 @@ const RorEksport = (() => {
     }
     return { linjer, punkter: punkt };
   }
+  /** En XML-kommentar per merknad – `--` er ikke lov inne i en kommentar. */
+  const xmlKommentarer = merk => merk.map(m => `  <!-- ${String(m).replace(/-{2,}/g, '–').replace(/-$/, '–')} -->\n`).join('');
+
   function landxml(app, res) {
     const E = _eks(), d = landxmlDeler(app, res);
     if (!d.linjer.length) throw new Error('Ingen rør å skrive');
-    return E.landxmlDokument(app, `  <PlanFeatures name="${E.xml(app.P.navn)}">\n${d.linjer.join('\n')}\n  </PlanFeatures>`
+    return E.landxmlDokument(app, xmlKommentarer(mangler(app, res))
+      + `  <PlanFeatures name="${E.xml(app.P.navn)}">\n${d.linjer.join('\n')}\n  </PlanFeatures>`
       + (d.punkter.length ? `\n  <CgPoints name="Kummer">\n${d.punkter.join('\n')}\n  </CgPoints>` : ''));
   }
 
@@ -225,9 +331,12 @@ const RorEksport = (() => {
     if (!Number.isFinite(minN)) throw new Error('Ingen rør å skrive');
     return { rader, omr: { minN, maksN, minO, maksO }, niva: 2, nesteId: id };
   }
+  /** SOSI-kommentarer: «!» til linjeslutt. */
+  const sosiKommentarer = merk => merk.map(m => '! ' + String(m).replace(/[\r\n]+/g, ' '));
+
   function sosi(app, res) {
     const E = _eks(), d = sosiDeler(app, res, 1);
-    const rader = E.sosiHode(app, d.omr, d.niva).concat(d.rader);
+    const rader = E.sosiHode(app, d.omr, d.niva).concat(sosiKommentarer(mangler(app, res)), d.rader);
     rader.push('.SLUTT');
     return rader.join('\r\n') + '\r\n';
   }
@@ -262,10 +371,13 @@ const RorEksport = (() => {
     }
     return ut;
   }
+  /** DXF-kommentarer: gruppekode 999, som alle lesere hopper over. */
+  const dxfKommentarer = merk => merk.flatMap(m => ['999', String(m).replace(/[\r\n]+/g, ' ')]);
+
   function dxf(app, res) {
     const d = punkter(app, res);
     if (!d.length) throw new Error('Ingen rør å skrive');
-    return _eks().dxfDokument(dxfKropp(app, res, '', d));
+    return _eks().dxfDokument(dxfKommentarer(mangler(app, res, d)).concat(dxfKropp(app, res, '', d)));
   }
 
   /** GeoJSON til kartverktøy: rørene som linjer med egenskapene, kummene som punkt. */
@@ -292,8 +404,9 @@ const RorEksport = (() => {
     return { type: 'FeatureCollection', features: f };
   }
 
-  return { STIKK, stasjonering, ved, kumNr, punkter, kofMerknader, kofKropp, kof, landxmlDeler, landxml,
-    sosiDeler, sosi, dxfKropp, dxf, geojson };
+  return { STIKK, stasjonering, ved, kumNr, punkter, mangler, csvTekst, stikningRader, masseRader,
+    kofMerknader, kofKropp, kof, landxmlDeler, landxml, xmlKommentarer, sosiDeler, sosi, sosiKommentarer,
+    dxfKropp, dxf, dxfKommentarer, geojson };
 })();
 
 if (typeof module !== 'undefined') module.exports = RorEksport;
