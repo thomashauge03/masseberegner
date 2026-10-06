@@ -181,7 +181,7 @@ const Pdfrapport = {
     P.tekst(this.MARG, 34, this._sperret('MASSEBEREGNING'),
       { storrelse: 6.4, fet: true, farge: this.ROD });
     // navnet kortes av – et langt navn gikk over margen (L22)
-    P.tekst(this.MARG, 54, this._kort(P, String(app.P.navn), (innmarg - this.MARG) * 0.9, this.T1),
+    P.tekst(this.MARG, 54, this._kort(P, String(app.P.navn), innmarg - this.MARG, this.T1, true),
       { storrelse: this.T1, fet: true, farge: this.SVART });
     P.rektangel(this.MARG, 64, innmarg - this.MARG, 2.5, { fyll: this.ROD });
     let y = 96;
@@ -232,6 +232,11 @@ const Pdfrapport = {
     if (sum.manglerTotalt > 1) {
       P.tekst(this.MARG, y, 'Må kjøres inn: ' + t(sum.manglerTotalt) + ' m³',
         { storrelse: this.T4, fet: true, farge: this.ROD });
+      y += 12;
+    }
+    if (sum.slitelagKjopes > 0.5) {
+      P.tekst(this.MARG, y, 'Slitelag kjøpes inn i tillegg: ' + t(sum.slitelagKjopes) + ' m³',
+        { storrelse: this.T4, farge: this.SVART });
       y += 12;
     }
     P.tekst(this.MARG, y, 'Til deponi: ' + t(sum.tilDeponi) + ' m³',
@@ -296,8 +301,9 @@ const Pdfrapport = {
          som prosjektnavnet. Men det ordet er likt i hver rapport programmet har
          laget; prosjektnavnet er det eneste som skiller denne fra alle andre. */
       /* Prosjektnavnet kortes av før datoen: et navn på rundt femti tegn skrev
-         over den (L22). Fet skrift er bredere enn den `_kort` måler, derav marginen. */
-      const navn = this._kort(P, String(app.P.navn), (innmarg - xTekst - 90) * 0.92, this.T2);
+         over den (L22). Det måles i fet skrift, som det skrives i – en margin
+         for den ble for liten (fet er opptil 1,14 ganger bredere). */
+      const navn = this._kort(P, String(app.P.navn), innmarg - xTekst - 90, this.T2, true);
       if (tilstand.sidetall === 1) {
         P.tekst(xTekst, 22, this._sperret('MASSEBEREGNING'),
           { storrelse: 6.4, fet: true, farge: this.ROD });
@@ -525,7 +531,9 @@ const Pdfrapport = {
         ['Fylling', t(s.fylling), 'm³'],
         ['Sprengning', t(s.skjaeringFjell), 'p.f.m³'],
         [mangler ? 'Må kjøres inn' : 'Overskudd',
-          t(mangler ? b.manglerTotalt : b.overskuddFjell), 'm³', mangler]
+          t(mangler ? b.manglerTotalt : b.overskuddFjell), 'm³', mangler],
+        // slitelaget kjøpes uansett – det sto ikke i båndet, bare i tabellen lenger ned
+        ...(b.slitelagKjopes > 0.5 ? [['Slitelag kjøpes', t(b.slitelagKjopes), 'm³']] : [])
       ]);
     }
 
@@ -666,7 +674,7 @@ const Pdfrapport = {
       { tekst: 'Skjær. sum', bredde: 12 }, { tekst: 'Fylling', bredde: 11 },
       { tekst: 'Bærelag', bredde: 11 }, { tekst: 'Slitelag', bredde: 11 }],
       bolker.map(r => ({
-        celler: [`${t(r.fra)}–${t(r.til)}`, t(r.rensk), t(r.los), t(r.fjell),
+        celler: [`${Rapport.stasjon(r.fra)}–${Rapport.stasjon(r.til)}`, t(r.rensk), t(r.los), t(r.fjell),
           t(r.skjaering), t(r.fylling), t(r.baerelag), t(r.slitelag)]
       })).concat([{
         sum: true,
@@ -679,7 +687,8 @@ const Pdfrapport = {
     const steg = res.lengdeKart > 600 ? 10 : 5;
     const stikning = Rapport.stikningstabell(res, steg);
     const n3 = v => Rapport.n(v, 3);      // desimalkomma, uten tusenskille – som i resten av dokumentet
-    overskrift('Stikningsdata – senterlinje');
+    // tre linjer forklaring og tabellhodet står mellom overskriften og første rad – det må få plass sammen
+    overskrift('Stikningsdata – senterlinje', 80);
     brodtekst(`EUREF89 UTM${app.sone}. VK og HK er venstre og høyre vegkant. Z er ferdig vegnivå. `
       + `Tabellen har hver ${t(stikning.hver, stikning.hver % 1 ? 1 : 0)} meter; hele oppsettet med hver `
       + `${t(Rapport.profilAvstand(res), 1)} meter kan hentes som CSV under fanen «Eksport».`);
@@ -690,7 +699,7 @@ const Pdfrapport = {
       { tekst: 'VK nord', bredde: 14 }, { tekst: 'VK øst', bredde: 13 }, { tekst: 'VK Z', bredde: 10 },
       { tekst: 'HK nord', bredde: 14 }, { tekst: 'HK øst', bredde: 13 }, { tekst: 'HK Z', bredde: 10 }],
       stikning.map(r => ({
-        celler: [t(r.s), n3(r.n), n3(r.o), n3(r.z),
+        celler: [Rapport.stasjon(r.s), n3(r.n), n3(r.o), n3(r.z),
           isFinite(r.terreng) ? n3(r.terreng) : '–',
           n3(r.vkN), n3(r.vkO), n3(r.vkZ),
           n3(r.hkN), n3(r.hkO), n3(r.hkZ)]
@@ -1205,10 +1214,10 @@ const Pdfrapport = {
   },
 
   /** Kutter en tekst som ikke far plass, med tre prikker bak. */
-  _kort(P, tekst, bredde, storrelse) {
+  _kort(P, tekst, bredde, storrelse, fet = false) {
     let ut = String(tekst);
-    if (P.bredteAv(ut, storrelse) <= bredde) return ut;
-    while (ut.length > 4 && P.bredteAv(ut + '…', storrelse) > bredde) ut = ut.slice(0, -1);
+    if (P.bredteAv(ut, storrelse, fet) <= bredde) return ut;
+    while (ut.length > 4 && P.bredteAv(ut + '…', storrelse, fet) > bredde) ut = ut.slice(0, -1);
     return ut + '…';
   }
 };

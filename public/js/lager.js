@@ -242,6 +242,9 @@ const Lager = {
       try { data = await this.hent(p.navn); } catch (e) { data = null; }
       if (data) alle.push(data); else mangler.push(p.navn);
     }
+    /* Lot ingen seg hente, lages det ingen fil: en sikkerhetskopi uten et
+       eneste prosjekt i, lastet ned som om alt gikk bra, er verre enn ingen. */
+    if (!alle.length && liste.length) return { antall: 0, mangler };
     this.lastNed(
       'massekalk-alle-prosjekt-' + new Date().toISOString().slice(0, 10) + '.json',
       JSON.stringify({ massekalk: 1, eksportert: new Date().toISOString(), prosjekter: alle }, null, 1)
@@ -258,6 +261,11 @@ const Lager = {
     const data = JSON.parse(tekst);
     const prosjekter = Array.isArray(data.prosjekter) ? data.prosjekter : [data];
     const lagt = [];
+    /* ETT PROSJEKT SOM IKKE LOT SEG LAGRE, STOPPER IKKE RESTEN. Her kastet
+       første feil hele importen midt i fila – de foran var alt lagt inn, men
+       meldingen sa bare «klarte ikke lese», og lista ble ikke oppdatert. Nå
+       står feilene på svaret (`lagt.feil`). */
+    lagt.feil = [];
     for (const p of prosjekter) {
       /* Et prosjekt kan ha to former: den nye med `anlegg`, og den gamle med
          `ip` rett pa toppniva. Her sto det bare kravet om `ip`, og da ble hver
@@ -267,12 +275,16 @@ const Lager = {
       if (!gyldig) continue;
       // løpenummeret bygges på det trimmede navnet – « Vegen » ble «Vegen  (2)» med doble mellomrom
       const grunn = String(p.navn || '').trim() || 'Uten navn';
-      let navn = grunn;
-      let n = 2;
-      while (await this.hent(navn)) navn = `${grunn} (${n++})`;
-      p.navn = navn;
-      await this.lagre(navn, p);
-      lagt.push(navn);
+      try {
+        let navn = grunn;
+        let n = 2;
+        while (await this.hent(navn)) navn = `${grunn} (${n++})`;
+        p.navn = navn;
+        await this.lagre(navn, p);
+        lagt.push(navn);
+      } catch (e) {
+        lagt.feil.push(`${grunn}: ${e.message}`);
+      }
     }
     return lagt;
   }

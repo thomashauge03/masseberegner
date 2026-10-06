@@ -105,10 +105,15 @@ const PdfUI = {
     return { x: p.x * this.vis.skala + this.vis.dx, y: this.vis.dy - p.y * this.vis.skala };
   },
   fraSkjerm(e) {
-    const r = document.getElementById('pdflerret').getBoundingClientRect();
+    const l = document.getElementById('pdflerret');
+    const r = l.getBoundingClientRect();
+    /* Tegneflaten begynner innenfor rammen. Her ble hjørnet av rammen brukt,
+       og hvert klikk havnet én piksel til høyre og ned for der brukeren pekte –
+       sju centimeter på hver høyde fra et A1-ark i 1:1000/1:100, låst inn. */
+    const x0 = r.left + (l.clientLeft || 0), y0 = r.top + (l.clientTop || 0);
     return {
-      x: (e.clientX - r.left - this.vis.dx) / this.vis.skala,
-      y: (this.vis.dy - (e.clientY - r.top)) / this.vis.skala
+      x: (e.clientX - x0 - this.vis.dx) / this.vis.skala,
+      y: (this.vis.dy - (e.clientY - y0)) / this.vis.skala
     };
   },
 

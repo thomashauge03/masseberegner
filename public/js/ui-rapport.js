@@ -133,7 +133,7 @@ ${this.sprengningsrader(res)}
         <div class="strek"></div>
         ${b.manglerTotalt > 1
         ? `<div class="sumrad stor"><span>Må kjøres inn</span><span class="verdi merke-varsel">${t(b.manglerTotalt)} m³</span></div>`
-        : `<div class="sumrad stor"><span>Overskudd av sprengstein</span><span class="verdi merke-fylling">${t(b.overskuddFjell)} m³</span></div>`}
+        : `<div class="sumrad stor"><span>Overskudd av sprengstein <small>(fyllingsvolum)</small></span><span class="verdi merke-fylling">${t(b.overskuddFjell)} m³</span></div>`}
         ${b.slitelagKjopes > 0.5 ? `<div class="sumrad" title="Knust grus lages ikke av skjæringen – slitelaget kjøpes og kjøres inn uansett."><span>Slitelag – kjøpes inn i tillegg</span><span class="verdi">${t(b.slitelagKjopes)} m³</span></div>` : ''}
         <div class="sumrad"><span>Til deponi (rensk + ubrukbar løsmasse)</span><span class="verdi">${t(b.tilDeponi)} m³</span></div>
         ${b.overskuddLos > 1
@@ -737,7 +737,7 @@ p.f. = prosjektert fast volum, p.a. = prosjektert anbrakt volum.</p>
 <table>
 <thead><tr><th>Fra–til</th><th>Rensk</th><th>Skjæring løsm.</th><th>Skjæring fjell</th><th>Skjæring sum</th><th>Fylling</th><th>Bærelag</th><th>Slitelag</th></tr></thead>
 <tbody>
-${rader.map(r => `<tr><td>${t(r.fra)}–${t(r.til)}</td><td>${t(r.rensk)}</td><td>${t(r.los)}</td><td>${t(r.fjell)}</td><td>${t(r.skjaering)}</td><td>${t(r.fylling)}</td><td>${t(r.baerelag)}</td><td>${t(r.slitelag)}</td></tr>`).join('')}
+${rader.map(r => `<tr><td>${this.stasjon(r.fra)}–${this.stasjon(r.til)}</td><td>${t(r.rensk)}</td><td>${t(r.los)}</td><td>${t(r.fjell)}</td><td>${t(r.skjaering)}</td><td>${t(r.fylling)}</td><td>${t(r.baerelag)}</td><td>${t(r.slitelag)}</td></tr>`).join('')}
 <tr class="sum"><td>Sum</td><td>${t(s.rensk)}</td><td>${t(s.skjaeringLosmasse)}</td><td>${t(s.skjaeringFjell)}</td><td>${t(s.skjaering)}</td><td>${t(s.fylling)}</td><td>${t(s.baerelag)}</td><td>${t(s.slitelag)}</td></tr>
 </tbody></table>
 
@@ -761,7 +761,7 @@ ${t(this.profilAvstand(res), 1)} meter kan hentes som CSV under fanen «Eksport�
 <thead><tr><th>Profil</th><th>Nord</th><th>Øst</th><th>Z veg</th><th>Z terreng</th>
 <th>VK nord</th><th>VK øst</th><th>VK Z</th><th>HK nord</th><th>HK øst</th><th>HK Z</th></tr></thead>
 <tbody>
-${stikning.map(r => `<tr><td>${t(r.s)}</td>
+${stikning.map(r => `<tr><td>${this.stasjon(r.s)}</td>
 <td>${n(r.n, 3)}</td><td>${n(r.o, 3)}</td><td>${n(r.z, 3)}</td>
 <td>${isFinite(r.terreng) ? n(r.terreng, 3) : '–'}</td>
 <td>${n(r.vkN, 3)}</td><td>${n(r.vkO, 3)}</td><td>${n(r.vkZ, 3)}</td>
@@ -1344,6 +1344,15 @@ ${profiler || '<p class="liten">Ingen rør over 20 m.</p>'}`);
     return Number.isFinite(v) ? v.toFixed(des).replace('.', ',') : '';
   },
 
+  /**
+   * Et profilnummer i en tabell: uten tusenskille, og med desimalene det har.
+   * Med `tall()` ble 7,5 til «8» og 22,5 til «23» i stikningstabellen, og
+   * 1200 sto som «1 200» der merknadene sa «1200».
+   */
+  stasjon(s) {
+    return Number.isFinite(s) ? String(+s.toFixed(2)).replace('.', ',') : '';
+  },
+
   /** To linjer som sier hva filen inneholder, hvilket system og hvilken høyde. */
   csvHode(app, ekstra) {
     const na = new Date().toLocaleString('nb-NO', { dateStyle: 'short', timeStyle: 'short' });
@@ -1906,7 +1915,7 @@ ${utelatt}
 </tbody></table>
 <div class="liten">${sum.manglerTotalt > 1
     ? `<span class="raud">Må kjøres inn: ${t(sum.manglerTotalt)} m³</span> · `
-    : ''}Til deponi: ${t(sum.tilDeponi)} m³${sum.gamle
+    : ''}${sum.slitelagKjopes > 0.5 ? `Slitelag kjøpes inn i tillegg: ${t(sum.slitelagKjopes)} m³ · ` : ''}Til deponi: ${t(sum.tilDeponi)} m³${sum.gamle
     ? ` · ${sum.gamle} anlegg er regnet under andre forutsetninger og teller ikke med i summen`
     : ''}</div>
 ${tatt.map(x => x.bit.html).join('\n')}`;

@@ -1889,6 +1889,25 @@ console.log('\n4w. Rapportens bolker og stikningstabell, og merknadene');
   sjekk('stikningen har hver andre profil: hver 6. meter', st.hver, 6, 1e-9);
   paastand('og alle de profilene, pluss enden', st.length === 18 && st[1].s === 6 && st[st.length - 1].s === 100,
     `${st.length}: ${st.slice(0, 4).map(r => r.s).join(',')} … ${st[st.length - 1].s}`);
+  /* EN SNUPLASS LEGGER INN KANTENE SINE SOM PROFILER. Avstanden mellom de to
+     første profilene var da 2 m (plassen ved 12) eller 0 (ved 0): tabellen
+     tok hver 30. meter og sa «hver 6 meter», eller to rader og «0,0 m». */
+  for (const midt of [12, 0]) {
+    const rp = M.beregnMasser({
+      linje: new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 300, y: 0, r: 0 }]),
+      profil: new Vertikalprofil([{ s: 0, z: 100, k: 0 }, { s: 300, z: 100, k: 0 }]),
+      terreng: { z: (x) => 101 + x / 50 }, mal: {}, fjell: new M.Fjellmodell({ standarddybde: 5 }),
+      profilAvstand: 5, bakkefaktor: 1, plasser: [{ s: midt, lengde: 20, bredde: 4, innkjoring: 0 }]
+    });
+    Rapport.app = { linje: new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 300, y: 0, r: 0 }]),
+      fallVed: () => ({ venstre: 0.05, hoyre: 0.05 }) };
+    const sp = Rapport.stikningstabell(rp, 5);
+    sjekk(`snuplass ved ${midt}: profilavstanden er den brukte`, Rapport.profilAvstand(rp), 5, 1e-9);
+    paastand(`  og stikningen har hver 5. meter – 61 rader`, sp.hver === 5 && sp.length === 61, `${sp.hver} / ${sp.length}`);
+  }
+  // profilnummeret i tabellene: 7,5 er 7,5 og 1200 er 1200
+  paastand('profilnummer skrives med desimalene sine, uten tusenskille',
+    Rapport.stasjon(7.5) === '7,5' && Rapport.stasjon(1200) === '1200' && Rapport.stasjon(22.5) === '22,5');
   // slitelaget står som egen post – det kjøpes uansett
   sjekk('slitelaget kjøpes – egen post i massebalansen', r15.balanse.slitelagKjopes, r15.sum.slitelag, 1e-9);
   paastand('og er ikke lagt inn i det egne masser mangler', Math.abs(r15.balanse.manglerTotalt
@@ -2101,6 +2120,27 @@ console.log('\n4f. Eksportformatene');
     const lav = Math.min(...foter) - 0.05, hoy = Math.max(...foter) + 0.05;
     return z.every(v => v >= lav && v <= hoy);
   })());
+
+  /* Profilnummeret står på vegen, ikke på kote 0 – og en fot uten høyde (et
+     hull i terrenget) får høyden mellom naboene, ikke null. Ingen av de to ble
+     prøvd: å sette dem tilbake gikk gjennom hele selvtesten. */
+  {
+    const par = dxfPar(Eksport.dxf(app, res));
+    const tekster = [];
+    for (let i = 0; i < par.length; i++) {
+      if (par[i][0] !== '0' || par[i][1] !== 'TEXT') continue;
+      const blokk = [];
+      for (let j = i + 1; j < par.length && par[j][0] !== '0'; j++) blokk.push(par[j]);
+      if (!blokk.some(p => p[0] === '8' && /PROFILNUMMER/.test(p[1]))) continue;
+      tekster.push({ s: Number(blokk.find(p => p[0] === '1')[1]), z: Number(blokk.find(p => p[0] === '30')[1]) });
+    }
+    paastand('profilnummeret i DXF står på vegens kote', tekster.length > 0
+      && tekster.every(t => Math.abs(t.z - vp.hoyde(t.s)) < 1e-3), JSON.stringify(tekster.slice(0, 3)));
+    const hull = Object.assign({}, res, { profiler: res.profiler.map((p, i) => (i === 3 ? Object.assign({}, p, { zFotVenstre: NaN }) : p)) });
+    const zHull = (fotBlokk(Eksport.dxf(app, hull)) || []).filter(p => p[0] === '30').map(p => Number(p[1]));
+    paastand('en fot uten høyde i DXF ligger mellom naboene, ikke på null', zHull.length > 4 && Math.min(...zHull) > 1,
+      String(Math.min(...zHull)));
+  }
 
   const dxf = Eksport.dxf(app, res);
   paastand('DXF har senterlinje, vegkant og fotavtrykk',
@@ -3663,6 +3703,27 @@ console.log('\n6c. Avlesning av PDF');
   const frem = [{ x: 0, y: 0 }, { x: 100, y: 10 }, { x: 200, y: 5 }, { x: 150, y: 40 }, { x: 300, y: 45 }];
   const rFrem = Pdf.tilHoyder(frem, [{ pdfX: 0, pdfY: 0, s: 0, z: 100 }, { pdfX: 200, pdfY: 40, s: 400, z: 140 }], 50);
   paastand('en bane som går fram og tilbake, gir ingen høyder – og sier hvorfor', !!rFrem && rFrem.punkt.length === 0 && !!rFrem.feil);
+  // et tilbakesteg på en hundredels punkt er avrunding, ikke en linje som snur
+  const nesten = [{ x: 0, y: 0 }, { x: 100, y: 10 }, { x: 99.99, y: 11 }, { x: 200, y: 5 }];
+  const rNesten = Pdf.tilHoyder(nesten, [{ pdfX: 0, pdfY: 0, s: 0, z: 100 }, { pdfX: 200, pdfY: 40, s: 400, z: 140 }], 50);
+  paastand('et tilbakesteg på 0,01 punkt avviser ikke linja', !!rNesten && rNesten.punkt.length > 0 && !rNesten.feil);
+
+  /* EN FYLT FLATE ER IKKE EN PROFILLINJE. «m … l f» lukker ikke banen med
+     punktene, og flaten under veglinja (førti steg fram, ett tilbake) gikk for
+     å være en linje – og ble valgt foran den. */
+  {
+    let veg = '0 0 m';
+    for (let i = 1; i <= 40; i++) veg += ` ${i * 10} ${Math.sin(i / 5) * 10} l`;
+    const baner = Pdf.tolkBaner(`${veg} S ${veg} 0 -50 l f`);
+    const k = Pdf.kandidater(baner);
+    paastand('den fylte flaten under veglinja er ikke en kandidat – veglinja er det',
+      baner.length === 2 && baner[1].fylt === true && k.length === 1 && k[0].bane === baner[0],
+      JSON.stringify(baner.map(b => [b.length, !!b.fylt, !!b.lukket])));
+    const klipp = Pdf.tolkBaner(`${veg} W n`);
+    paastand('en klippegrense (W n) tegnes ikke', klipp.length === 0);
+    const medH = Pdf.tolkBaner(`${veg} h S`);
+    paastand('h lukker banen', medH.length === 1 && medH[0].lukket === true);
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -3728,6 +3789,44 @@ console.log('\n6c. Avlesning av PDF');
     paastand('et skjemaobjekt tegnes der det brukes, flyttet med sin matrise', skjema.length === 1
       && Math.abs(skjema[0].minX - 10) < 1e-9 && Math.abs(skjema[0].maksX - 210) < 1e-9,
     JSON.stringify(skjema.map(t => [t.minX, t.maksX])));
+
+    /* SKJEMANAVNET HØRER TIL SIDEN. /Fm0 på side 1 og /Fm0 på side 2 er to
+       objekter; navnene ble samlet fra hele fila, og begge sidene ble side 2. */
+    const lang = '0 0 m 100 10 l 300 0 l S';
+    const toSider = await Pdf.lesFil(fil(lagPdf([
+      { nr: 3, ordbok: '<< /Type /Page /Resources << /XObject << /Fm0 10 0 R >> >> /Contents 11 0 R >>' },
+      { nr: 4, ordbok: '<< /Type /Page /Resources << /XObject << /Fm0 20 0 R >> >> /Contents 21 0 R >>' },
+      { nr: 10, ordbok: '/Type /XObject /Subtype /Form /Length LEN', data: tegning },
+      { nr: 11, ordbok: '/Length LEN', data: 'q /Fm0 Do Q' },
+      { nr: 20, ordbok: '/Type /XObject /Subtype /Form /Length LEN', data: lang },
+      { nr: 21, ordbok: '/Length LEN', data: 'q /Fm0 Do Q' }])));
+    const bredder = toSider.map(t => t.maksX).sort((a, b) => a - b);
+    paastand('samme skjemanavn på to sider: hver side sitt', toSider.length === 2
+      && Math.abs(bredder[0] - 200) < 1e-9 && Math.abs(bredder[1] - 300) < 1e-9, JSON.stringify(bredder));
+    // /XObject som henvisning – siden tegnet bare «/Fm0 Do», og ga ingen streker
+    const henvistXo = await Pdf.lesFil(fil(lagPdf([
+      { nr: 3, ordbok: '<< /Type /Page /Resources << /XObject 15 0 R >> /Contents 11 0 R >>' },
+      { nr: 15, ordbok: '<< /Fm0 10 0 R >>' },
+      { nr: 10, ordbok: '/Type /XObject /Subtype /Form /Matrix [1 0 0 1 10 0] /Length LEN', data: tegning },
+      { nr: 11, ordbok: '/Length LEN', data: 'q /Fm0 Do Q' }])));
+    paastand('/XObject som henvisning slås opp', henvistXo.length === 1 && Math.abs(henvistXo[0].minX - 10) < 1e-9,
+      JSON.stringify(henvistXo.map(t => [t.minX, t.maksX])));
+    // ressursene arvet fra /Pages over siden
+    const arvet = await Pdf.lesFil(fil(lagPdf([
+      { nr: 2, ordbok: '<< /Type /Pages /Resources << /XObject << /Fm0 10 0 R >> >> /Kids [3 0 R] /Count 1 >>' },
+      { nr: 3, ordbok: '<< /Type /Page /Parent 2 0 R /Contents 11 0 R >>' },
+      { nr: 10, ordbok: '/Type /XObject /Subtype /Form /Matrix [1 0 0 1 10 0] /Length LEN', data: tegning },
+      { nr: 11, ordbok: '/Length LEN', data: 'q /Fm0 Do Q' }])));
+    paastand('ressursene arves fra sidetreet', arvet.length === 1 && Math.abs(arvet[0].minX - 10) < 1e-9,
+      JSON.stringify(arvet.map(t => [t.minX, t.maksX])));
+    // /Contents som peker på en tabell som er et eget objekt
+    const tabell = await Pdf.lesFil(fil(lagPdf([
+      { nr: 3, ordbok: '<< /Type /Page /Contents 30 0 R >>' },
+      { nr: 30, ordbok: '[8 0 R 9 0 R]' },
+      { nr: 8, ordbok: '/Length LEN', data: '2 0 0 2 0 0 cm' },
+      { nr: 9, ordbok: '/Length LEN', data: tegning }])));
+    paastand('/Contents som peker på en tabell: én tegning, med målestokken', tabell.length === 1
+      && Math.abs(tabell[0].maksX - 400) < 1e-9, JSON.stringify(tabell.map(t => [t.baner.length, t.maksX])));
   }
 
   console.log('\n7. Pakking av terrengfliser');
@@ -4061,6 +4160,16 @@ console.log('\n6h. Reglene og beregningen (veg, pulje 5)');
     const r = kjor(new Vertikalprofil([{ s: 0, z: 100, k: 10 }, { s: 50, z: 102.5, k: 10 }, { s: 100, z: 100, k: 10 }]),
       { minVertikalHoybrekk: 1000, minVertikalLavbrekk: 1000 });
     sjekk('kurven fikk 99,9 m av 100: ingen «øk K til 10» der K er 10', r.brudd.filter(m => m.type === 'vertikalkurve').length, 0, 0);
+  }
+
+  // L30 (pulje 3): merknader om hele linja står ikke på profil 0
+  {
+    const r = kjor(flat, { beregningsbredde: 1 }, { terreng: { z: (x, y) => 100 + 0.3 * y } });
+    const avk = r.merknader.find(m => m.type === 'avkortet');
+    paastand('«avkortet» gjelder hele linja – ingen profil 0', !!avk && Number.isNaN(avk.s));
+    const dobbel = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 0, y: 0, r: 0 }, { x: 300, y: 0, r: 0 }]);
+    const lin = kjor(flat, {}, { linje: dobbel }).merknader.find(m => m.type === 'linje');
+    paastand('et sammenslått knekkpunkt står ikke på profil 0', !!lin && Number.isNaN(lin.s));
   }
 
   // M17: to høyder én centimeter fra hverandre gir en merknad

@@ -28,7 +28,7 @@ const App = {
      Tidligere angret knappen ved a fjerne siste knekkpunkt. Det er ikke a
      angre: hadde du nettopp flyttet et punkt eller endret en radius, slettet
      «Angre» et helt annet punkt i stedet for a ta tilbake det du gjorde. */
-  historikk: { bakover: [], framover: [], grense: 60, _sist: '' },
+  historikk: { bakover: [], framover: [], grense: 60 },
 
   /**
    * Tar vare pa tilstanden slik den er akkurat na, før den endres.
@@ -55,7 +55,6 @@ const App = {
        steg tilbake, forbi det man nettopp hadde angret til. */
     const topp = this.historikk.bakover[this.historikk.bakover.length - 1];
     if (topp && topp.tekst === tekst) return;       // ingenting har endret seg siden forrige merke
-    this.historikk._sist = tekst;
     this.historikk.bakover.push({ tekst, hva: hva || 'endring' });
     if (this.historikk.bakover.length > this.historikk.grense) this.historikk.bakover.shift();
     this.historikk.framover.length = 0;             // ny gren - det som la foran gjelder ikke lenger
@@ -78,17 +77,24 @@ const App = {
   tomHistorikk() {
     this.historikk.bakover.length = 0;
     this.historikk.framover.length = 0;
-    this.historikk._sist = this.P ? JSON.stringify(this.P) : '';
     this.visAngreknapper();
   },
 
   async _tilbakeTil(steg, fra, til) {
     if (!fra.length) return false;
     const na = JSON.stringify(this.P);
+    /* EN ANGREPOST SOM IKKE ENDRER NOE, HOPPES OVER. En knapp som merket og så
+       ga seg, la igjen en post der tilstanden var den samme som nå – og Angre
+       gjorde tilsynelatende ingenting. */
+    while (fra.length > 1 && fra[fra.length - 1].tekst === na) fra.pop();
     const forrige = fra.pop();
     til.push({ tekst: na, hva: forrige.hva });
+    /* NAVNET ANGRES IKKE. Det endres ikke med et merke, og slettet man det åpne
+       prosjektet, bar angrepostene det gamle navnet: to sekunder etter Ctrl+Z
+       skrev autolagringen prosjektet man nettopp hadde slettet, tilbake. */
+    const navn = this.P.navn;
     this.P = JSON.parse(forrige.tekst);
-    this.historikk._sist = forrige.tekst;
+    this.P.navn = navn;
     this.visAnleggsvelger();          // angre kan ha byttet hvilket anlegg som er oppe
     /* og om prosjektet er bestemt: angres en rørimport i et nytt prosjekt, er
        det ubestemt igjen, og uten førstevalget sto man uten vei videre */
@@ -2240,7 +2246,7 @@ const App = {
     const naa = this.forutsetningsnokkel();
     const med = bare ? new Set(bare) : null;
     const ut = { skjaering: 0, fylling: 0, skjaeringFjell: 0,
-      manglerTotalt: 0, tilDeponi: 0, balanse: 0, antall: 0, uregnet: 0, gamle: 0,
+      manglerTotalt: 0, slitelagKjopes: 0, tilDeponi: 0, balanse: 0, antall: 0, uregnet: 0, gamle: 0,
       /* DELT MARK: det de som bygges FØR har gravd bort, og som dette anlegget
          derfor slipper. Massen er verken borte eller talt to ganger – den
          ligger på det anlegget som tar den først. Uten linja er fradraget
@@ -2291,6 +2297,8 @@ const App = {
       ut.fylling += s.fylling || 0;
       ut.skjaeringFjell += s.skjaeringFjell || 0;
       ut.manglerTotalt += b.manglerTotalt || 0;
+      // knust grus lages ikke av skjæringen – den kjøpes, og står for seg (se masser.js)
+      ut.slitelagKjopes += b.slitelagKjopes || 0;
       ut.tilDeponi += b.tilDeponi || 0;
       /* `balanse` er den FAKTORVEKTEDE differansen, og den er det samme tallet
          for veg og tomt. `skjaering - fylling` er det ikke: to kubikk fjell
@@ -3984,19 +3992,21 @@ const App = {
       const brudd = this.tellBrudd();
       if (!brudd || brudd.profil === 0) {
         this.status('Alle høyder er låst, og det er ingen brudd å rette.');
+        this.slippMerke();          // planryddingen kan ha endret noe; ellers ingen tom angrepost
         return;
       }
       const rammet = this.hoyderVedBrudd();
       if (!rammet.length) {
         this.status(`Alle høyder er låst. ${brudd.profil} brudd står igjen – `
           + 'lås opp noen høyder for at profilen skal kunne rettes.');
+        this.slippMerke();
         return;
       }
       const ja = await this.bekreft(
         `Alle høyder er låst, så det er ingenting å flytte. Vil du at ${rammet.length} `
         + `høyde${rammet.length === 1 ? '' : 'r'} ved bruddene låses opp, så de kan rettes? `
         + 'De andre blir stående.', 'Lås opp og rett');
-      if (!ja) { this.status('Rettingen ble avbrutt – høydene står som de var'); return; }
+      if (!ja) { this.status('Rettingen ble avbrutt – høydene står som de var'); this.slippMerke(); return; }
       this.merk('lås opp høyder ved brudd');
       for (const v of rammet) v.laast = false;
       this.visHoydetabell();
@@ -6767,11 +6777,14 @@ const App = {
 
   nullstillPunkthoyder() {
     const s = this.tverrStasjon;
-    this.merk('punkthøydene tilbake til malen');
     const i = this.P.tverrfall.findIndex(t => Math.abs(t.s - s) < 1e-6);
-    if (i >= 0) this.P.tverrfall.splice(i, 1);
     const j = this.P.vip.findIndex(v => Math.abs(v.s - s) < 1e-6);
-    if (j >= 0 && this.P.vip.length > 2) this.P.vip.splice(j, 1);
+    const fjernHoyde = j >= 0 && this.P.vip.length > 2;
+    // ingenting å sette tilbake – og ingen tom angrepost
+    if (i < 0 && !fjernHoyde) { this.status('Punkthøydene her følger alt malen'); return; }
+    this.merk('punkthøydene tilbake til malen');
+    if (i >= 0) this.P.tverrfall.splice(i, 1);
+    if (fjernHoyde) this.P.vip.splice(j, 1);
     this.profilEndret(false);
     this.beregn();
   },
@@ -6827,17 +6840,21 @@ const App = {
       const [fS, fZ] = tr.querySelectorAll('input[type=number]');
       const laas = tr.querySelector('input[type=checkbox]');
       /* Hver endring i tabellen kan angres – her kunne ingen av dem det. */
+      /* Et felt som ikke er et tall, endrer ingenting – og legger ingen
+         angrepost; feltet får tallet tilbake. */
       fS.onchange = () => {
         const ny = parseFloat(fS.value);
+        if (!isFinite(ny)) { this.visHoydetabell(); return; }
         this.merk('flyttet en høyde');
-        if (isFinite(ny)) { v.s = Math.max(0, Math.min(this.linje ? this.linje.lengde : ny, ny)); }
+        v.s = Math.max(0, Math.min(this.linje ? this.linje.lengde : ny, ny));
         this.P.vip.sort((a, b) => a.s - b.s);
         this.profilEndret(false); this.visHoydetabell();
       };
       fZ.onchange = () => {
         const ny = parseFloat(fZ.value);
+        if (!isFinite(ny)) { this.visHoydetabell(); return; }
         this.merk('endret en høyde');
-        if (isFinite(ny)) { v.z = ny; v.laast = true; v.k = 0; }
+        v.z = ny; v.laast = true; v.k = 0;
         this.profilEndret(false); this.visHoydetabell();
       };
       laas.onchange = () => {
@@ -6951,16 +6968,19 @@ const App = {
     const rader = lesHoydetabell(felt.value);
     if (!rader.length) { alert('Fant ingen profilnummer og høyder i teksten.'); return; }
     const L = this.linje ? this.linje.lengde : Infinity;
-    const utenfor = rader.filter(r => r.s > L + 0.5).length;
-    const beholdt = rader.filter(r => r.s <= L + 0.5);
+    /* HØYDENE BRUKEREN LIMER INN, LEGGES INN SOM DE ER. Her ble de bak
+       linjeslutt kastet og de rett bak flyttet inn på slutten – og lå alle
+       bak, ble hele tabellen tømt. En høyde bak slutten står i tabellen som
+       «bak», og er med når linja blir lengre (se vipTilLengde). */
+    const bak = rader.filter(r => r.s > L + VIP_SLUTTMARGIN).length;
     this.merk('limte inn høyder');
     // Innlimte høyder er punkt veien skal gjennom, sa de far ingen vertikalkurve
-    this.P.vip = beholdt.map(r => ({ s: +Math.min(r.s, L).toFixed(2), z: r.z, k: 0, laast: true }));
+    this.P.vip = rader.map(r => ({ s: +r.s.toFixed(2), z: r.z, k: 0, laast: true }));
     this.beregn();
     this.visHoydetabell();
     felt.value = '';
-    this.status(`La inn ${beholdt.length} låste høyder`
-      + (utenfor ? ` (${utenfor} lå utenfor veglengden på ${L.toFixed(0)} m og ble hoppet over)` : ''));
+    this.status(`La inn ${rader.length} låste høyder`
+      + (bak ? ` – ${bak} ligger bak linjeslutt på ${L.toFixed(0)} m og brukes ikke før linja er lengre` : ''));
   },
 
   visLinjetabell() {
@@ -6989,9 +7009,13 @@ const App = {
                       <td><button title="Slett">×</button></td>`;
       /* merk() manglet på begge: en radius man skrev feil, eller et knekkpunkt
          man slettet ved et uhell, kunne ikke angres. */
+      /* Et tomt eller ugyldig felt er ikke radius 0 – det gjorde svingen til et
+         skarpt hjørne. Radien som sto, blir stående. 0 skrevet inn er 0. */
       tr.querySelector('input').onchange = e => {
+        const ny = parseFloat(e.target.value);
+        if (!Number.isFinite(ny) || ny < 0) { e.target.value = pt.r || 0; return; }
         this.merk('endret radius');
-        pt.r = parseFloat(e.target.value) || 0;
+        pt.r = ny;
         this.linjeEndret();
       };
       /* SLÅTT OPP PÅ PUNKTET, IKKE RADNUMMERET. Tabellen tegnes om først når
@@ -7197,7 +7221,13 @@ const App = {
       Eksporter en fil for å ta med prosjektet til en annen maskin eller ta sikkerhetskopi.</p>`;
 
     innhold.querySelectorAll('[data-navn]').forEach(el => { el.onclick = () => this.apne(el.dataset.navn); });
-    innhold.querySelectorAll('[data-eksport]').forEach(el => { el.onclick = () => Lager.eksporter(el.dataset.eksport); });
+    // hentingen kan feile (se Lager.hent) – da sies det, ikke bare ingenting
+    innhold.querySelectorAll('[data-eksport]').forEach(el => {
+      el.onclick = async () => {
+        try { await Lager.eksporter(el.dataset.eksport); }
+        catch (e) { this.status(`Klarte ikke hente «${el.dataset.eksport}» – det er ikke eksportert: ${e.message}`); }
+      };
+    });
     innhold.querySelectorAll('[data-slett]').forEach(el => {
       el.onclick = async () => {
         const navn = el.dataset.slett;
@@ -7225,16 +7255,27 @@ const App = {
     innhold.querySelector('#dlgImport').onclick = () => fil.click();
     innhold.querySelector('#dlgEksportAlle').onclick = async () => {
       const { antall, mangler } = await Lager.eksporterAlle();
+      if (!antall && mangler.length) {
+        this.status(`Ingen av de ${mangler.length} prosjektene lot seg hente – det er ikke laget noen fil`);
+        return;
+      }
       this.status(`Eksporterte ${antall} prosjekt`
         + (mangler.length ? ` – ${mangler.length} lot seg ikke hente og er ikke med: ${mangler.join(', ')}` : ''));
     };
     fil.onchange = async () => {
-      const lagt = [];
+      const lagt = [], feil = [];
       for (const f of fil.files) {
-        try { lagt.push(...await Lager.importer(f)); }
-        catch (e) { alert('Klarte ikke lese ' + f.name + ': ' + e.message); }
+        try {
+          const svar = await Lager.importer(f);
+          lagt.push(...svar);
+          for (const m of (svar.feil || [])) feil.push(`${f.name} – ${m}`);
+        } catch (e) { feil.push(`${f.name}: ${e.message}`); }
       }
-      if (lagt.length) { this.status(`Importerte ${lagt.join(', ')}`); await this.apneDialog(); }
+      // det som ble lagt inn, står i lista – også når noe annet feilet
+      if (lagt.length) await this.apneDialog();
+      if (feil.length) {
+        alert((lagt.length ? `Importerte ${lagt.join(', ')}.\n\n` : '') + 'Dette ble ikke lagt inn:\n' + feil.join('\n'));
+      } else if (lagt.length) this.status(`Importerte ${lagt.join(', ')}`);
     };
     document.getElementById('dialog').classList.remove('skjult');
   },

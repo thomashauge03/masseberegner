@@ -33,8 +33,8 @@ const Lengdeprofil = {
           return;
         }
         if (i >= 0) {
-          // en draging er én angrepost, tatt før høyden flytter seg
-          this.app.merk('dro en høyde i lengdeprofilen');
+          // en draging er én angrepost, tatt før høyden flytter seg – se dra()
+          this._merket = false;
           this.dragIndeks = i;
           l.setPointerCapture(e.pointerId);
           e.preventDefault();
@@ -44,8 +44,7 @@ const Lengdeprofil = {
       });
       l.addEventListener('pointermove', e => {
         if (e.pointerType === 'mouse' || this.dragIndeks < 0) return;
-        this.app.P.vip[this.dragIndeks].z = this.fraSkjerm(e).z;
-        this.app.profilEndret(true);
+        this.dra(this.fraSkjerm(e).z);
         e.preventDefault();
       });
       const slipp = e => {
@@ -65,17 +64,13 @@ const Lengdeprofil = {
         this.app.status(`Profil ${this.app.P.vip[i].s.toFixed(0)} er låst – lås den opp under «Høyder» for å flytte den`);
         return;
       }
-      // en draging er én angrepost, tatt før høyden flytter seg – her kunne den ikke angres
-      if (i >= 0) { this.app.merk('dro en høyde i lengdeprofilen'); this.dragIndeks = i; return; }
+      // en draging er én angrepost, tatt før høyden flytter seg – se dra()
+      if (i >= 0) { this._merket = false; this.dragIndeks = i; return; }
       this.app.settTverrStasjon(s);
       void z;
     });
     window.addEventListener('mousemove', e => {
-      if (this.dragIndeks >= 0) {
-        const { z } = this.fraSkjerm(e);
-        this.app.P.vip[this.dragIndeks].z = z;
-        this.app.profilEndret(true);
-      }
+      if (this.dragIndeks >= 0) this.dra(this.fraSkjerm(e).z);
     });
     window.addEventListener('mouseup', () => {
       if (this.dragIndeks >= 0) { this.dragIndeks = -1; this.app.profilEndret(false); }
@@ -94,6 +89,11 @@ const Lengdeprofil = {
       const i = this.finnVip(e);
       const V = this.app.P.vip;
       if (i > 0 && i < V.length - 1) {
+        // en låst høyde dras ikke, og fjernes heller ikke med et dobbeltklikk
+        if (V[i].laast) {
+          this.app.status(`Profil ${V[i].s.toFixed(0)} er låst – lås den opp under «Høyder» for å fjerne den`);
+          return;
+        }
         this.app.merk('fjernet en høyde i lengdeprofilen');
         V.splice(i, 1);
         this.app.profilEndret(false);
@@ -105,6 +105,17 @@ const Lengdeprofil = {
     });
     new ResizeObserver(() => tegnSnart(this)).observe(l);
     return this;
+  },
+
+  /**
+   * Flytter høyden som dras. MERKET TAS VED FØRSTE BEVEGELSE, ikke når
+   * knappen trykkes: et klikk uten å dra – eller det første klikket i et
+   * dobbeltklikk – la en angrepost som ikke angret noe, og tømte «Gjør om».
+   */
+  dra(z) {
+    if (!this._merket) { this.app.merk('dro en høyde i lengdeprofilen'); this._merket = true; }
+    this.app.P.vip[this.dragIndeks].z = z;
+    this.app.profilEndret(true);
   },
 
   omrade() {

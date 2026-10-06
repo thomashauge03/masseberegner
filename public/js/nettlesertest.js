@@ -142,6 +142,14 @@ const Nettlesertest = {
     Tegner3d._fullTimer = null;
     const foerProsjekt = App.P ? JSON.stringify(App.P) : null;
     const foerNavn = App.P ? App.P.navn : null;
+    /* Lagringstilstanden og angrelista er også brukerens. Prøvene lot
+       `_aapnetSom` stå tom og `_lagretSom` som '' – da nektet autolagringen
+       det ekte prosjektet etterpå («finnes fra før») – og «Gjør om» hentet en
+       prøveveg. */
+    const foerLagring = {
+      aapnetSom: App._aapnetSom, lagretSom: App._lagretSom,
+      bakover: App.historikk.bakover.slice(), framover: App.historikk.framover.slice()
+    };
 
     /* HVER PRØVE STÅR FOR SEG, OG INGEN FÅR LOV TIL Å BLI HENGENDE.
        To ting sto galt her før:
@@ -174,7 +182,7 @@ const Nettlesertest = {
       'groftRapport',
       'planBeregning', 'planNyttAnlegg', 'planTegnTrase', 'planRediger', 'planFane', 'planProfil', 'planRapport',
       'planForklaring', 'planEksport', 'planEksportSoner', 'planAvvik', 'planTerrengAndre',
-      'vegProfilLengde', 'vegLinjeslutt', 'vegStigningIKurve', 'vegKnapper', 'vegSluttretting', 'lagringOgAngre',
+      'vegProfilLengde', 'vegLinjeslutt', 'vegStigningIKurve', 'vegKnapper', 'vegSluttretting', 'lagringOgAngre', 'angreposter',
       'lovlighet', 'framdrift', 'gamleFilerOgUtskifting', 'opprydding'];
     for (const navn of proever) {
       try {
@@ -211,7 +219,7 @@ const Nettlesertest = {
         } catch (e) { /* lageret sier fra selv */ }
         App._lagretSom = foerProsjekt;
         try { await App.oppdater(); } catch (e) { /* tegningen kommer uansett */ }
-      }
+      } else App._lagretSom = foerLagring.lagretSom;
       /* Arbeidsbildet ma følge prosjektet tilbake. Uten dette sto skjermen
          igjen i tomtemodus etter at et veganlegg var lagt tilbake: lengde-
          profilen var skjult og kartet klemt sammen, og det sa ut som om
@@ -224,6 +232,10 @@ const Nettlesertest = {
       this.sjekk('prosjektet står igjen slik det var før testen',
         JSON.stringify(App.P) === foerProsjekt);
     }
+    App._aapnetSom = foerLagring.aapnetSom;
+    App.historikk.bakover = foerLagring.bakover;
+    App.historikk.framover = foerLagring.framover;
+    App.visAngreknapper();
     App.autolagringPause--;
 
     /* Til slutt: arbeidsbildet skal vere heilt. Ein test som legg att appen i
@@ -730,7 +742,6 @@ const Nettlesertest = {
     app.P.ip.length = forTegn;
     app.historikk.bakover.length = merkeForTegn;
     app.historikk.framover.length = 0;
-    app.historikk._sist = JSON.stringify(app.P);
     app.linjeEndret();
     await this.vent(250);
     this.sjekk('tegneprøven ryddet opp etter seg', app.P.ip.length === forTegn,
@@ -10169,6 +10180,26 @@ const Nettlesertest = {
         try { svar = await Lager.eksporterAlle(); } finally { Lager.hent = ekteHent; Lager.lastNed = gammelNed; }
         this.sjekk('«Eksporter alle» legger ikke null i fila, og sier hvilket som mangler', !!fil
           && !JSON.parse(fil).prosjekter.includes(null) && svar.mangler.includes(navn), JSON.stringify(svar && svar.mangler));
+        // lot ingen seg hente, lages det ingen fil
+        fil = null;
+        Lager.lastNed = (n, innhold) => { fil = innhold; };
+        Lager.hent = async () => { throw new Error('prøvefeil'); };
+        try { svar = await Lager.eksporterAlle(); } finally { Lager.hent = ekteHent; Lager.lastNed = gammelNed; }
+        this.sjekk('«Eksporter alle» uten ett eneste prosjekt å hente, laster ikke ned en tom fil',
+          fil === null && svar.antall === 0 && svar.mangler.length > 0);
+        // ett prosjekt som ikke lar seg lagre, stopper ikke resten av importen
+        const ekteLagre = Lager.lagre.bind(Lager);
+        Lager.lagre = async (n, d) => { if (/dårlig/.test(n)) throw new Error('prøvefeil'); return ekteLagre(n, d); };
+        let delvis;
+        try {
+          delvis = await Lager.importer(new File([JSON.stringify({ prosjekter: [
+            { navn: 'Massekalk prøve dårlig', anlegg: [{ type: 'veg', ip: [] }] },
+            { navn: 'Massekalk prøve god', anlegg: [{ type: 'veg', ip: [] }] }] })], 'to.json'));
+        } finally { Lager.lagre = ekteLagre; }
+        this.sjekk('importen fortsetter etter et prosjekt som feilet, og sier hvilket',
+          delvis.length === 1 && delvis[0] === 'Massekalk prøve god' && delvis.feil.length === 1 && /dårlig/.test(delvis.feil[0]),
+          JSON.stringify({ lagt: delvis, feil: delvis.feil }));
+        await Lager.slett('Massekalk prøve god');
         // løpenummeret bygges på det trimmede navnet
         const lagt = await Lager.importer(new File([JSON.stringify({ navn: '  ' + navn + '  ', anlegg: [{ type: 'veg', ip: [] }] })],
           'prove.json'));
@@ -10232,6 +10263,86 @@ const Nettlesertest = {
       App.bekreft = gammelBekreft; Lager._kjør = gammelKjor; Lager.lastNed = gammelNed;
       try { await Lager.slett(navn); } catch (e) { /* var ikke der */ }
       localStorage.removeItem(Lager.NOKKEL + reserve);
+    }
+  },
+
+  /**
+   * Angrelista: hver handling sin post, med riktig navn – og ingen tomme. Her
+   * la et klikk uten å dra i lengdeprofilen en post som ikke angret noe og
+   * tømte «Gjør om»; et ugyldig tall i høydetabellen gjorde det samme; og et
+   * angre etter at det åpne prosjektet var slettet, tok det gamle navnet
+   * tilbake, så autolagringen skrev det slettede prosjektet inn igjen.
+   */
+  async angreposter() {
+    const gammelBekreft = App.bekreft;
+    try {
+      await this._medVeg(async ll => {
+        App.P.ip = [ll(0, 0), ll(100, 0), ll(200, 0)];
+        App.P.vip = [{ s: 0, z: 101, k: 1 }, { s: 100, z: 104, k: 1 }, { s: 200, z: 103, k: 1 }];
+        clearTimeout(App._tidsavbrudd);
+        await App.oppdater();
+        const B = App.historikk.bakover, F = App.historikk.framover;
+        const sist = () => (B.length ? B[B.length - 1].hva : '');
+
+        // et malfelt: én post med navn, og angre flytter den til «gjør om»
+        const n0 = B.length;
+        const felt = document.getElementById('m_slitelagTykkelse');
+        felt.value = String(App.P.mal.slitelagTykkelse + 0.05); felt.dispatchEvent(new Event('change'));
+        this.sjekk('et malfelt gir én post, med navn', B.length === n0 + 1 && sist() === 'endret malen', sist());
+        await App.angre();
+        this.sjekk('angre tar den posten og legger den i «gjør om»', B.length === n0 && F.length && F[F.length - 1].hva === 'endret malen');
+
+        // et klikk uten å dra legger ingen post – og «gjør om» står
+        const l = document.getElementById('lengdeprofil');
+        const p = Lengdeprofil.tilSkjerm(100, App.P.vip[1].z);
+        const r = l.getBoundingClientRect();
+        const ved = { clientX: r.left + p.x, clientY: r.top + p.y, bubbles: true };
+        const nKlikk = B.length, fKlikk = F.length;
+        l.dispatchEvent(new MouseEvent('mousedown', ved));
+        window.dispatchEvent(new MouseEvent('mouseup', ved));
+        this.sjekk('et klikk på en høyde uten å dra legger ingen angrepost', B.length === nKlikk && F.length === fKlikk,
+          `${B.length - nKlikk} nye, gjør om ${F.length}/${fKlikk}`);
+        // et dobbeltklikk på en låst høyde fjerner den ikke
+        App.P.vip[1].laast = true; App.P.vip[1].k = 0;
+        l.dispatchEvent(new MouseEvent('dblclick', ved));
+        this.sjekk('et dobbeltklikk fjerner ikke en låst høyde', App.P.vip.length === 3 && App.P.vip[1].laast === true);
+        App.P.vip[1].laast = false; App.P.vip[1].k = 1;
+
+        // et ugyldig tall i høydetabellen endrer ingenting og legger ingen post
+        App.visHoydetabell();
+        const nTab = B.length;
+        const hz = document.querySelectorAll('#hoydeTabell tbody tr')[1].querySelectorAll('input[type=number]')[1];
+        hz.value = ''; hz.dispatchEvent(new Event('change'));
+        this.sjekk('et tomt høydefelt legger ingen angrepost', B.length === nTab && App.P.vip[1].z === 104);
+
+        // «Tøm tabellen», innliming og veiklasse er hver sin post, med navn
+        App.bekreft = async () => true;
+        document.getElementById('h_tomTabell').click();
+        for (let i = 0; i < 50 && sist() !== 'tømte høydetabellen'; i++) await this.vent(20);
+        this.sjekk('«Tøm tabellen» kan angres', sist() === 'tømte høydetabellen', sist());
+        await App.angre();
+        this.sjekk('  og angret står høydene der igjen', App.P.vip.length === 3 && App.P.vip[1].z === 104);
+        const L = App.linje.lengde;
+        document.getElementById('h_lim').value = `0 100\n100 105\n${(L + 40).toFixed(0)} 106`;
+        App.limInnHoyder();
+        this.sjekk('innliming kan angres – og en høyde bak slutten blir med, som «bak»', sist() === 'limte inn høyder'
+          && App.P.vip.length === 3 && App.P.vip[2].s > L, JSON.stringify(App.P.vip.map(v => v.s)));
+        await App.angre();
+        App.velgVeiklasse('k3');
+        this.sjekk('veiklassen er en post', sist() === 'veiklasse', sist());
+        await App.angre();
+
+        // det åpne prosjektet slettes, så angres noe: navnet kommer ikke tilbake
+        const navn = App.P.navn;
+        App.merk('prøve før sletting');
+        App.P.ip[1].r = 30;
+        App.P.navn = 'Nytt prosjekt';           // det slettingen gjør med det åpne prosjektet
+        await App.angre();
+        this.sjekk('et angre etter sletting tar ikke det gamle navnet tilbake', App.P.navn === 'Nytt prosjekt', App.P.navn);
+        App.P.navn = navn;
+      });
+    } finally {
+      App.bekreft = gammelBekreft;
     }
   },
 
