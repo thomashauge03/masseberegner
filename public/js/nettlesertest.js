@@ -109,6 +109,17 @@ const Nettlesertest = {
     const paaAvvist = e => feilILoggen.push('ufanget avvisning: '
       + String((e && e.reason && e.reason.message) || (e && e.reason) || e));
     window.addEventListener('unhandledrejection', paaAvvist);
+    /* OG console.error. Programmet fanger sine egne feil og skriver dem dit –
+       en eksport som feilet, en rapport som ikke ble laget – og ingen av dem
+       er en onerror. En prøve som venter en slik feil, sier det med
+       `forventFeil`; alle andre er feil. */
+    this._forventet = [];
+    const gammelConsoleFeil = console.error;
+    console.error = (...deler) => {
+      const tekst = deler.map(d => (d && d.message) ? d.message : String(d)).join(' ');
+      if (!this._forventet.some(r => r.test(tekst))) feilILoggen.push('console.error: ' + tekst);
+      gammelConsoleFeil.apply(console, deler);
+    };
 
     /* Testen laner prosjektet som star apent, legger inn punkt og fjerner dem
        igjen. Med autolagring pa ble de mellomtilstandene skrevet inn i
@@ -196,6 +207,7 @@ const Nettlesertest = {
 
     window.onerror = gammelFeil;
     window.removeEventListener('unhandledrejection', paaAvvist);
+    console.error = gammelConsoleFeil;
     /* Automatikken legges tilbake slik den sto, og en tidtaker en prøve
        rakk å sette skal ikke overleve prøvegjennomgangen. */
     clearTimeout(Tegner3d._fullTimer);
@@ -278,16 +290,26 @@ const Nettlesertest = {
       Object.prototype.hasOwnProperty.call(this.rapporterProve(), 'hopp'));
   },
 
+  /** En feil prøven selv fremkaller, og som ikke skal telle som en feil i konsollen. */
+  forventFeil(mønster) { (this._forventet || (this._forventet = [])).push(mønster); },
+
   /** Bare formen på rapporten – uten å tegne noe på skjermen. */
   rapporterProve() {
     return { ok: this.ok, feil: this.feil, hopp: this.hopp, tid: 0, feilende: [], hoppa: [] };
   },
 
   async modulene() {
+    /* En modul som mangler, skal gi en rød linje – ikke kaste. `eval(n)` på et
+       navn som ikke finnes, er en ReferenceError, og da stoppet prøven ved
+       den første som manglet, uten å si hvilken. */
+    const finnes = n => {
+      if (typeof window[n] !== 'undefined') return true;
+      try { return typeof eval(n) !== 'undefined'; } catch (e) { return false; }
+    };
     for (const n of ['Geo', 'Linjeforing', 'Vertikalprofil', 'Terreng', 'Fjellmodell',
       'beregnMasser', 'Veiklasser', 'Lager', 'Farger', 'PdfImport', 'Kart', 'Lengdeprofil',
-      'Tverrprofil', 'Rapport', 'App']) {
-      this.sjekk('modulen ' + n + ' er lastet', typeof window[n] !== 'undefined' || typeof eval(n) !== 'undefined');
+      'Tverrprofil', 'Rapport', 'App', 'delPlass', 'stigningskrav']) {
+      this.sjekk('modulen ' + n + ' er lastet', finnes(n));
     }
     this.sjekk('nettleseren kan pakke ut PDF', typeof DecompressionStream !== 'undefined');
     this.sjekk('fargene kommer fra stilarket', /^#|rgb/.test(Farger.skjaering));
@@ -500,8 +522,14 @@ const Nettlesertest = {
     this.sjekk('begge modusene gir gyldige tall og færre brudd',
       isFinite(inngrep.fjell) && isFinite(billigst.fjell) && inngrep.brudd <= for_.brudd);
 
+
+    /* «Optimaliser» skal ikke gjøre det verre. Her sto bare at den kjørte
+       uten å kaste – den kunne levert hva som helst. */
+    const forOpt = { brudd: brudd(), laste: JSON.stringify(App.P.vip.filter(v => v.laast)) };
     await App.optimaliser();
-    this.sjekk('«Optimaliser» kjører uten feil', !!App.resultat);
+    this.sjekk('«Optimaliser» gir ikke flere brudd enn før, og rører ikke de låste',
+      !!App.resultat && brudd() <= forOpt.brudd && JSON.stringify(App.P.vip.filter(v => v.laast)) === forOpt.laste,
+      `${forOpt.brudd} → ${brudd()}`);
   },
 
   /* ---------------- 5. høyder ---------------- */
@@ -8783,6 +8811,7 @@ const Nettlesertest = {
           === '.KOF,.xml,.sos,.dxf,_stikning.csv,_groftemasser.csv,.geojson', kastet || endelser.join(','));
         this.sjekk('og innholdet er rør, ikke en veg', filer.length === 7 && /RORTOPP/.test(filer[0].innhold)
           && !/SENTER/.test(filer[0].innhold) && /<PlanFeature /.test(filer[1].innhold) && !/<Alignment /.test(filer[1].innhold));
+        this.forventFeil(/Rutenettet finnes bare for en tomt/);
         Rapport.eksportRutenett();
         const linje = document.getElementById('statuslinje').textContent;
         this.sjekk('rutenettet er bare for tomt, og sier det', /bare for en tomt/.test(linje), linje);
@@ -9207,13 +9236,14 @@ const Nettlesertest = {
           && /180 PE/.test(m.tekst)), App.resultat.merknader.map(m => m.tekst).join(' | '));
         // «Lås» på påkoblingen uten å endre noe: koblingen står, og møtet med 90PE er ikke et kryss
         RorPlanUI.punktfelt(plan.ror[0].id, plan.traseer[0].punkter[0].id);
+        const posterFoerLaas = App.historikk.bakover.length;
         document.getElementById('ppLaas').click();
+        this.sjekk('å låse på nytt uten å endre noe legger ingen angrepost', App.historikk.bakover.length === posterFoerLaas);
         clearTimeout(App._tidsavbrudd);
         await App.beregnRor();
         this.sjekk('å låse påkoblingen på nytt gir ikke «treffer» der den er koblet på',
           !!App.P.ror.plan.laast[0].kilde && !App.resultat.merknader.some(m => m.type === 'kryss' && /90PE treffer 90PE/.test(m.tekst)),
           App.resultat.merknader.map(m => m.tekst).join(' | '));
-        await App.angre();
         await App.angre();
         this.sjekk('angre tar hele traseen bort', App.P.ror.plan.traseer.length === 0);
         /* En ende på vannledningen 90PE, men bare et spillvannsrør i traseen:

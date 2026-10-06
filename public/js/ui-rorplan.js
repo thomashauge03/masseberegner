@@ -753,6 +753,8 @@ const RorPlanUI = {
     const app = this.app;
     app.merk('låste høyde');
     this._settLaast(rorId, punkt, bunn);
+    // låst på nytt til det samme: ingen tom angrepost (se App.slippMerke)
+    app.slippMerke();
     app.tegnAlt();
     app.planlegg(30);
     app.status(`Bunn innvendig låst på ${Rapport.tall(bunn, 2)}`);

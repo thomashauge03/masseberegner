@@ -34,9 +34,11 @@ function sjekk(navn, faktisk, ventet, toleranse) {
   if (avvik <= toleranse) { ok++; console.log(`  ok   ${navn}  (${fmt(faktisk)} ≈ ${fmt(ventet)})`); }
   else { feil++; console.log(`  FEIL ${navn}  fikk ${fmt(faktisk)}, ventet ${fmt(ventet)} (avvik ${fmt(avvik)}, grense ${toleranse})`); }
 }
-function paastand(navn, sant) {
+/* Detaljen skrives når påstanden feiler. Her ble det tredje argumentet
+   kastet – 41 av 93 påstander hadde en forklaring ingen fikk se. */
+function paastand(navn, sant, detalj) {
   if (sant) { ok++; console.log(`  ok   ${navn}`); }
-  else { feil++; console.log(`  FEIL ${navn}`); }
+  else { feil++; console.log(`  FEIL ${navn}` + (detalj !== undefined ? `  — ${detalj}` : '')); }
 }
 const fmt = v => (Math.abs(v) >= 1000 ? v.toFixed(1) : v.toPrecision(7));
 
@@ -3905,51 +3907,11 @@ console.log('\n6c. Avlesning av PDF');
     sjekk('float32-varianten er eksakt', maks2, 0, 1e-9);
   }
 
-  console.log('\n8. Terrengmodell mot Kartverket sitt punkt-API');
-  try {
-    const sone = 33, sr = 25833;
-    const tx = 171, ty = 25344;                       // 43776–44032 øst, 6488064–6488320 nord
-    const rist = H.pakkOpp(await H.hentFlis(sr, tx, ty, 1)).data;
-    const P = 256;
-    const originX = tx * 256, originY = (ty + 1) * 256;
-
-    const punkter = [];
-    const indekser = [];
-    for (let n = 0; n < 30; n++) {
-      const i = 10 + (n * 8) % 236, j = 10 + (n * 17) % 236;
-      punkter.push([originX + (i + 0.5), originY - (j + 0.5)]);
-      indekser.push(j * P + i);
-    }
-    const svar = await fetch(`https://ws.geonorge.no/hoydedata/v1/punkt?koordsys=${sr}&punkter=${encodeURIComponent(JSON.stringify(punkter))}`);
-    const data = await svar.json();
-    let maks = 0, sum = 0, m = 0;
-    data.punkter.forEach((p, n) => {
-      if (p.z == null) return;
-      const v = rist[indekser[n]];
-      if (!isFinite(v)) return;
-      const d = Math.abs(v - p.z);
-      maks = Math.max(maks, d); sum += d; m++;
-    });
-    console.log(`  ${m} kontrollpunkt, snitt ${(sum / m).toFixed(4)} m, største ${maks.toFixed(4)} m`);
-    paastand('terrenghøydene stemmer med Kartverket (< 1 cm)', m > 20 && maks < 0.01);
-
-    /* Utenfor dekningen svarer høydetjenesten 0,00 for hver eneste piksel -
-       ikke en nodata-verdi, ikke en feilmelding. Uten at det fanges opp blir
-       et hull i terrengmodellen lest som havflaten, og en veg pa kote 260 far
-       en skjæring pa 260 meter uten en eneste merknad. */
-    const utenfor = [['Nordsjøen', 58.0, 3.0], ['Sverige', 59.8, 13.5]];
-    for (const [navn, lat, lon] of utenfor) {
-      const s2 = Geo.sone(lon);
-      const p2 = Geo.tilUtm(lat, lon, s2);
-      const flis = H.pakkOpp(await H.hentFlis(Geo.epsg(s2), Math.floor(p2.x / 256), Math.floor(p2.y / 256), 1)).data;
-      const gyldige = [...flis].filter(v => !Number.isNaN(v)).length;
-      paastand(`${navn}: uten dekning gir manglende data, ikke kote 0`, gyldige === 0,
-        `${gyldige} av ${flis.length} celler har verdi`);
-    }
-    const paaLand = H.pakkOpp(await H.hentFlis(sr, tx, ty, 1)).data;
-    paastand('en flis med dekning blir ikke kastet som tom',
-      [...paaLand].filter(v => !Number.isNaN(v)).length > paaLand.length * 0.9);
-
+  console.log('\n8. Terrengmodellen – flisene, mellomlageret og Kartverket sitt punkt-API');
+  /* DET SOM IKKE TRENGER NETT, KJØRES UTEN. Her lå kantprøvene og
+     mellomlagerprøven inne i samme try som oppslaget mot Kartverket, og uten
+     nett ble alt hoppet over – også det som ikke hadde noe med nettet å gjøre. */
+  {
     /* EN FLIS KAN VÆRE HALVT UTENFOR DEKNINGEN.
        «Bare null» fanger flisen som er null over alt. En flis PÅ kanten har
        ekte data i den ene enden og nuller i den andre, og de nullene sto som
@@ -4020,6 +3982,98 @@ console.log('\n6c. Avlesning av PDF');
           + (verstFil ? ' i ' + verstFil : ''));
       }
     } catch (e3) { paastand('mellomlagerprøven kom seg gjennom', false, e3.message); }
+  }
+  /* TIFF-LESEREN PRØVES MED EN FIL BYGD HER. Kontrollen mot Kartverket under
+     henter flisa gjennom mellomlageret – ligger den der, blir lesGeoTiff aldri
+     kjørt, og en feil i den ville gått rett gjennom. */
+  {
+    const zlibT = require('zlib');
+    const lagTiff = ({ W, Hh, data, komprimer, flis }) => {
+      const verdier = Buffer.alloc(W * Hh * 4);
+      for (let i = 0; i < W * Hh; i++) verdier.writeFloatLE(data[i], i * 4);
+      const kropp = komprimer ? zlibT.deflateSync(verdier) : verdier;
+      const tagger = [[256, 4, [W]], [257, 4, [Hh]], [258, 3, [32]], [259, 3, [komprimer ? 8 : 1]],
+        [277, 3, [1]], [339, 3, [3]], [33550, 12, [2, 2, 0]], [33922, 12, [0, 0, 0, 1000, 2000, 0]]];
+      if (flis) tagger.push([322, 3, [W]], [323, 3, [Hh]], [324, 4, [0]], [325, 4, [kropp.length]]);
+      else tagger.push([273, 4, [0]], [278, 4, [Hh]], [279, 4, [kropp.length]]);
+      tagger.sort((a, b) => a[0] - b[0]);
+      const ifd = 8, n = tagger.length, ekstraStart = ifd + 2 + n * 12 + 4;
+      const ekstra = [];
+      let ekstraLengde = 0;
+      const entries = tagger.map(([tag, type, v]) => {
+        const st = type === 12 ? 8 : type === 4 ? 4 : 2;
+        const lengde = st * v.length;
+        const e = Buffer.alloc(12);
+        e.writeUInt16LE(tag, 0); e.writeUInt16LE(type, 2); e.writeUInt32LE(v.length, 4);
+        if (lengde <= 4) { if (type === 3) e.writeUInt16LE(v[0], 8); else e.writeUInt32LE(v[0], 8); }
+        else {
+          const b2 = Buffer.alloc(lengde);
+          v.forEach((x, k) => (type === 12 ? b2.writeDoubleLE(x, k * 8) : b2.writeUInt32LE(x, k * 4)));
+          e.writeUInt32LE(ekstraStart + ekstraLengde, 8);
+          ekstra.push(b2); ekstraLengde += lengde;
+        }
+        return { e, tag };
+      });
+      const dataStart = ekstraStart + ekstraLengde;
+      for (const { e, tag } of entries) if (tag === 273 || tag === 324) e.writeUInt32LE(dataStart, 8);
+      const hode = Buffer.alloc(8); hode.write('II', 0, 'ascii'); hode.writeUInt16LE(42, 2); hode.writeUInt32LE(ifd, 4);
+      const antall = Buffer.alloc(2); antall.writeUInt16LE(n, 0);
+      return Buffer.concat([hode, antall, ...entries.map(x => x.e), Buffer.alloc(4), ...ekstra, kropp]);
+    };
+    const W = 4, Hh = 3, data = [];
+    for (let i = 0; i < W * Hh; i++) data.push(100 + i * 0.25);
+    for (const [hva, o] of [['ukomprimert', {}], ['deflate', { komprimer: true }], ['flislagt', { flis: true }]]) {
+      const r = H.lesGeoTiff(lagTiff(Object.assign({ W, Hh, data }, o)));
+      paastand(`TIFF-leseren leser en ${hva} fil: verdiene, størrelsen og plasseringen`,
+        r.bredde === W && r.hoyde === Hh && [...r.data].every((v, i) => Math.abs(v - data[i]) < 1e-6)
+        && r.originX === 1000 && r.originY === 2000 && r.px === 2,
+        JSON.stringify([r.bredde, r.hoyde, r.originX, r.px, [...r.data].slice(0, 3)]));
+    }
+  }
+  try {
+    const sone = 33, sr = 25833;
+    const tx = 171, ty = 25344;                       // 43776–44032 øst, 6488064–6488320 nord
+    const rist = H.pakkOpp(await H.hentFlis(sr, tx, ty, 1)).data;
+    const P = 256;
+    const originX = tx * 256, originY = (ty + 1) * 256;
+
+    const punkter = [];
+    const indekser = [];
+    for (let n = 0; n < 30; n++) {
+      const i = 10 + (n * 8) % 236, j = 10 + (n * 17) % 236;
+      punkter.push([originX + (i + 0.5), originY - (j + 0.5)]);
+      indekser.push(j * P + i);
+    }
+    const svar = await fetch(`https://ws.geonorge.no/hoydedata/v1/punkt?koordsys=${sr}&punkter=${encodeURIComponent(JSON.stringify(punkter))}`);
+    const data = await svar.json();
+    let maks = 0, sum = 0, m = 0;
+    data.punkter.forEach((p, n) => {
+      if (p.z == null) return;
+      const v = rist[indekser[n]];
+      if (!isFinite(v)) return;
+      const d = Math.abs(v - p.z);
+      maks = Math.max(maks, d); sum += d; m++;
+    });
+    console.log(`  ${m} kontrollpunkt, snitt ${(sum / m).toFixed(4)} m, største ${maks.toFixed(4)} m`);
+    paastand('terrenghøydene stemmer med Kartverket (< 1 cm)', m > 20 && maks < 0.01);
+
+    /* Utenfor dekningen svarer høydetjenesten 0,00 for hver eneste piksel -
+       ikke en nodata-verdi, ikke en feilmelding. Uten at det fanges opp blir
+       et hull i terrengmodellen lest som havflaten, og en veg pa kote 260 far
+       en skjæring pa 260 meter uten en eneste merknad. */
+    const utenfor = [['Nordsjøen', 58.0, 3.0], ['Sverige', 59.8, 13.5]];
+    for (const [navn, lat, lon] of utenfor) {
+      const s2 = Geo.sone(lon);
+      const p2 = Geo.tilUtm(lat, lon, s2);
+      const flis = H.pakkOpp(await H.hentFlis(Geo.epsg(s2), Math.floor(p2.x / 256), Math.floor(p2.y / 256), 1)).data;
+      const gyldige = [...flis].filter(v => !Number.isNaN(v)).length;
+      paastand(`${navn}: uten dekning gir manglende data, ikke kote 0`, gyldige === 0,
+        `${gyldige} av ${flis.length} celler har verdi`);
+    }
+    const paaLand = H.pakkOpp(await H.hentFlis(sr, tx, ty, 1)).data;
+    paastand('en flis med dekning blir ikke kastet som tom',
+      [...paaLand].filter(v => !Number.isNaN(v)).length > paaLand.length * 0.9);
+
   } catch (e) {
     /* Bare nettfeil er en gyldig grunn til a hoppe over. Alt annet er en feil
        i prøven eller i koden, og skal telle - ellers rapporterer denne
@@ -4232,6 +4286,66 @@ console.log('\n6h. Reglene og beregningen (veg, pulje 5)');
     const lv = [{ s: 0, z: 100, k: 0 }, { s: 20, z: 103, k: 0, laast: true }, { s: 40, z: 100, k: 0 }];
     const svar = rettVertikalgeometri(lv, { minVertikalLavbrekk: 200, minVertikalHoybrekk: 200 });
     paastand('de låste i veien kommer med stedene sine', Array.isArray(svar.lasteSteder) && svar.lasteSteder[0] === 20);
+  }
+
+  // N30: bakkefaktoren mot håndregning – på midtmeridianen er den 1/k0 · (1 + h/R)
+  {
+    sjekk('bakkefaktoren på midtmeridianen, 300 moh', Geo.bakkefaktor(500000, 6700000, 33, 300),
+      (1 / 0.9996) * (1 + 300 / 6371000), 1e-12);
+    const ost = Geo.bakkefaktor(600000, 6700000, 33, 0), vest = Geo.bakkefaktor(400000, 6700000, 33, 0);
+    sjekk('hundre kilometer ut fra midtmeridianen: like mye på begge sider', ost, vest, 1e-12);
+    paastand('og mindre enn på midtmeridianen, der kartet er krympet mest', ost < 1 / 0.9996 && ost > 1.00027 && ost < 1.00029,
+      ost.toFixed(8));
+  }
+
+  // N31: breddeutvidelsen trappes av over overgangslengden – rett av, ikke et sprang
+  {
+    const malU = Object.assign({}, KLASSISK, { vegbredde: 4, breddeIKurve: [[10, 99, 6, 6]], utvidelseOvergang: 20 });
+    const l = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 100, y: 0, r: 30 },
+      { x: 100 + 100 * Math.cos(Math.PI / 6), y: 100 * Math.sin(Math.PI / 6), r: 0 }]);
+    const k = l.kurver[0];
+    const st = [];
+    for (let s = 0; s <= l.lengde + 1e-9; s += 1) st.push(s);
+    const u = M.lagUtvidelsesprofil(l, malU, st).map(x => (x && x.sym != null ? x.sym : x));
+    const vedS = s => u[Math.round(s)];
+    sjekk('i kurven: hele utvidelsen (6 − 4 m)', vedS((k.sBC + k.sEC) / 2), 2, 1e-9);
+    sjekk('halvveis ut i overgangen: halvparten', vedS(k.sEC + 10.5), 2 * (1 - 10 / 20), 0.11);
+    sjekk('etter overgangen: ingenting', vedS(k.sEC + 25), 0, 1e-9);
+    const flate = u.reduce((a, v) => a + v, 0);
+    sjekk('arealet er kurven pluss to halve overganger', flate, 2 * (k.sEC - k.sBC + 20), 4);
+  }
+
+  // N32: massetransportdiagrammet stiger i skjæringen og synker i fyllingen, og ender i balansen
+  {
+    const trapp = { z: (x) => (x < 150 ? 102 : 98) };
+    // uten masseutskifting – den tar alt ned til fjellet under vegen og fyller igjen
+    const r = kjor(flat, { utskifting: false }, { terreng: trapp, fjell: new M.Fjellmodell({ standarddybde: 99 }) });
+    const b = r.bruckner;
+    const topp = b.reduce((m, p) => (p.verdi > m.verdi ? p : m), b[0]);
+    paastand('Bruckner begynner på null', b[0].verdi === 0);
+    paastand('og har toppen der skjæringen går over i fylling', Math.abs(topp.s - 150) <= 10, String(topp.s));
+    const f = r.faktorer;
+    sjekk('og ender i skjæring × brukbar × faktor minus fylling', b[b.length - 1].verdi,
+      r.sum.skjaeringLosmasse * f.brukbarLosmasse * f.losmasseIFylling - r.sum.fylling, 1e-6);
+  }
+
+  /* N33: TALLENE PÅ ET HELT ANLEGG LIGGER STILLE. Ett anlegg med kurver,
+     vertikalkurver, sidehelling og fjell, på et terreng som er det samme hver
+     gang – uten nett. Endrer en retting tallene, skal det være med vilje, og
+     da oppdateres de her sammen med rettingen. */
+  {
+    const terr = { z: (x, y) => 100 + 0.08 * x + 0.12 * y + 1.5 * Math.sin(x / 37) + 0.8 * Math.cos(y / 23 + x / 51) };
+    const l = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 120, y: 15, r: 40 }, { x: 230, y: -20, r: 60 }, { x: 360, y: 10, r: 0 }]);
+    const vp = new Vertikalprofil([{ s: 0, z: 100.5, k: 2 }, { s: 90, z: 108, k: 3 }, { s: 200, z: 115, k: 3 }, { s: l.lengde, z: 129, k: 2 }]);
+    const r = M.beregnMasser({ linje: l, profil: vp, terreng: terr, mal: Object.assign({}, KLASSISK),
+      fjell: new M.Fjellmodell({ standarddybde: 1.2, punkter: [{ x: 200, y: -10, dybde: 0.3 }] }), profilAvstand: 5, bakkefaktor: 1.0003 });
+    // regnet 2026-10-06, etter pulje 7 – se commit-meldingen når tallene endres
+    const fasit = { 'skjæring': 3613.4, fjell: 1565.1, fylling: 1804.4, 'bærelag': 1304.9, 'må kjøres inn': 101.8 };
+    const avvik = (a, b) => Math.abs(a - b) / Math.max(1, Math.abs(b));
+    for (const [hva, tall] of [['skjæring', r.sum.skjaering], ['fjell', r.sum.skjaeringFjell], ['fylling', r.sum.fylling],
+      ['bærelag', r.sum.baerelag], ['må kjøres inn', r.balanse.manglerTotalt]]) {
+      paastand(`tallregresjon: ${hva} innenfor 0,5 %`, avvik(tall, fasit[hva]) < 0.005, `${tall.toFixed(1)} mot ${fasit[hva]}`);
+    }
   }
 
   // L8: et umulig krav mellom to låste høyder fordeles jevnt
