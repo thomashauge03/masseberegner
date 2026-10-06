@@ -1729,7 +1729,7 @@ console.log('\n4i. Linjeføring som ikke lar seg tegne slik den står');
       && Math.abs(rLiten[1] - (99.9 - 30)) < 1e-6, JSON.stringify(rLiten));
     // plassdelingen: aldri mer enn strekket, aldri mer enn ønsket, og lik begge veier
     const { delPlass } = require(path.join(__dirname, '..', 'public', 'js', 'plassdeling.js'));
-    let brudd = 0, asym = 0, s = 7;
+    let brudd = 0, asym = 0, urettferdig = 0, unoyaktig = 0, s = 7;
     const tilf = () => (s = (s * 16807) % 2147483647) / 2147483647;
     for (let k = 0; k < 20000; k++) {
       const n = 3 + Math.floor(tilf() * 8);
@@ -1740,9 +1740,32 @@ console.log('\n4i. Linjeføring som ikke lar seg tegne slik den står');
       for (let i = 0; i < n; i++) if (fa[i] > o[i] + 1e-12 || fa[i] < 0) brudd++;
       const sp = delPlass(o.slice().reverse(), p.slice().reverse()).reverse();
       for (let i = 0; i < n; i++) asym = Math.max(asym, Math.abs(sp[i] - fa[i]));
+      /* Likedelt: den som ikke fikk alt, står ved et fullt strekk der den har
+         minst like mye som naboen. Ellers kunne den fått mer uten å ta fra en
+         som har mindre. Og den som fikk det den ba om, fikk det nøyaktig. */
+      for (let i = 0; i < n; i++) {
+        if (fa[i] >= o[i] - 1e-9) { if (o[i] > 0 && fa[i] !== o[i]) unoyaktig++; continue; }
+        const holdt = [i - 1, i].some(kk => kk >= 0 && kk < n - 1
+          && p[kk] - fa[kk] - fa[kk + 1] <= 1e-9 * Math.max(1, p[kk]) && fa[i] >= fa[kk === i ? i + 1 : i - 1] - 1e-9);
+        if (!holdt) urettferdig++;
+      }
     }
     paastand('plassdelingen gir aldri mer enn strekket eller ønsket, og er lik begge veier – 20 000 tilfeller',
       brudd === 0 && asym < 1e-9, `${brudd} brudd, asymmetri ${asym}`);
+    paastand('  og den er likedelt: den som får mindre enn den ba om, står ved et fullt strekk og har minst naboens del',
+      urettferdig === 0, `${urettferdig} tilfeller`);
+    paastand('  den som får det den ba om, får det nøyaktig', unoyaktig === 0, `${unoyaktig} tilfeller`);
+    sjekk('et uendelig langt strekk er ikke fullt', delPlass([0, 30, 10, 0], [Infinity, 25, 100])[1], 15, 1e-12);
+    {
+      // 2 000 knekkpunkt som alle konkurrerer: likedelingen er ikke kvadratisk der strekkene har plass
+      const n = 2000, o = [], p = [];
+      for (let i = 0; i < n; i++) o.push(i === 0 || i === n - 1 ? 0 : 10 + i * 0.003);
+      for (let i = 0; i < n - 1; i++) p.push(i % 50 === 0 ? 15 : 100);
+      const t0 = Date.now();
+      for (let g = 0; g < 20; g++) delPlass(o, p);
+      // kvadratisk tok dette over 40 ms; bitvis rundt én
+      paastand('2 000 punkt deles på et øyeblikk', (Date.now() - t0) / 20 < 10, `${((Date.now() - t0) / 20).toFixed(1)} ms`);
+    }
     sjekk('fire like i en kjede med trange ender: ingen får mer enn strekket', (() => {
       const fa = delPlass([0, 20, 20, 20, 20, 0], [1, 10, 12, 10, 1]);
       return Math.max(fa[1] + fa[2] - 10, fa[2] + fa[3] - 12, fa[3] + fa[4] - 10, 0);
@@ -1807,6 +1830,18 @@ console.log('\n4i. Linjeføring som ikke lar seg tegne slik den står');
       { x: 25 + 25 * Math.cos(2 * Math.PI / 180), y: 25 * Math.sin(2 * Math.PI / 180), r: 0 }]);
     paastand('et knekk på 2° gir ikke stigningskravet til en hårnål', M.effektivRadius(knekk, k3, 25) > 700
       && M.maksStigningFraRadius(k3, M.effektivRadius(knekk, k3, 25), 0.05, 1) === 0.10, String(M.effektivRadius(knekk, k3, 25)));
+    // det korteste benet bestemmer: 100 og 40 m gir tangent 20, R = 20 i 90°
+    const skjev = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 100, y: 0, r: 0 }, { x: 100, y: 40, r: 0 }]);
+    sjekk('med ben på 100 og 40 m er det det korte som bestemmer', skjev.hjorner()[0].rEkv, 20, 1e-9);
+    /* Og en kurve i andre enden av benet tar sin del først: R = 30 i 90° bruker
+       30 av de 40 m, og hjørnet har 10 igjen. Her fikk det 20. */
+    const nabo = new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 100, y: 0, r: 0 }, { x: 100, y: 40, r: 30 }, { x: 200, y: 40, r: 0 }]);
+    sjekk('ved siden av en kurve har hjørnet det kurven lar ligge', nabo.hjorner()[0].rEkv, 10, 1e-9);
+    // et hjørne akkurat i kanten av vinduet er med – i begge kanter
+    const h0 = l.hjorner()[0];
+    paastand('minsteRadius tar med et hjørne som står akkurat i starten eller slutten av vinduet',
+      l.minsteRadius(h0.s, h0.s + 1) === h0.rEkv && l.minsteRadius(h0.s - 1, h0.s) === h0.rEkv,
+      `${l.minsteRadius(h0.s, h0.s + 1)} / ${l.minsteRadius(h0.s - 1, h0.s)}`);
   }
 
   // en romslig kurve skal ikke røres av noen av delene
@@ -1965,6 +2000,38 @@ console.log('\n4w. Rapportens bolker og stikningstabell, og merknadene');
     terreng: { z: () => 101 }, mal: { minRadius: 20 }, fjell: new M.Fjellmodell({ standarddybde: 5 }), profilAvstand: 10, bakkefaktor: 1 });
   const mh = rh.merknader.find(m => /skarpt hjørne/.test(m.tekst));
   paastand('og merknaden står der, ikke på profil 0', !!mh && Math.abs(mh.s - 100) < 1e-9, mh ? String(mh.s) : 'ingen');
+  {
+    const k3 = Object.assign(require(path.join(__dirname, '..', 'public', 'js', 'veiklasser.js')).malFraVeiklasse('k3', Object.assign({}, KLASSISK)),
+      { lassretning: 1 });
+    /* Stigningen ved et skarpt hjørne sier hvor kravet kommer fra: hjørnet,
+       regnet som kurven det minst ville trengt. 90° med ben på 100 m er R = 50,
+       og der er 9,5 % for bratt. */
+    const rk = M.beregnMasser({ linje: new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 100, y: 0, r: 0 }, { x: 100, y: 100, r: 0 }]),
+      profil: new Vertikalprofil([{ s: 0, z: 100, k: 0 }, { s: 200, z: 119, k: 0 }]),
+      terreng: { z: (x, y) => 100 + (x + y) * 0.095 }, mal: k3, fjell: new M.Fjellmodell({ standarddybde: 5 }), profilAvstand: 10, bakkefaktor: 1 });
+    paastand('stigningen ved et skarpt hjørne sier at kravet kommer fra hjørnet – og radien',
+      rk.brudd.some(m => m.type === 'stigning' && /ved et skarpt hjørne, regnet som radius 50 m – legg inn en kurve/.test(m.tekst)),
+      rk.brudd.filter(m => m.type === 'stigning').map(m => m.tekst).slice(0, 2).join(' | '));
+    /* Et bratt strekk på en halv meter midt i et bratt stykke på 200 m: det
+       korte rettstrekket gjelder ikke, for stykket er langt. Her ble det
+       vurdert med bare profilet på hver side – et stykke på tjue meter – og
+       fikk tillegget. */
+    const rs = M.beregnMasser({ linje: new Linjeforing([{ x: 0, y: 0, r: 0 }, { x: 200, y: 0, r: 0 }]),
+      profil: new Vertikalprofil([{ s: 0, z: 100, k: 0 }, { s: 100, z: 111, k: 0 }, { s: 100.5, z: 111.0575, k: 0 }, { s: 200, z: 122, k: 0 }]),
+      terreng: { z: x => 100 + x * 0.11 }, mal: k3, fjell: new M.Fjellmodell({ standarddybde: 5 }), profilAvstand: 10, bakkefaktor: 1 });
+    paastand('et kort bratt strekk inne i et langt bratt stykke får ikke tillegget for korte rettstrekk',
+      rs.brudd.some(m => /på et strekk på 0,50 m mellom profilene overstiger 10 %/.test(m.tekst)),
+      rs.brudd.filter(m => m.type === 'stigning').map(m => m.tekst).slice(0, 3).join(' | '));
+  }
+  /* «Rett opp» godtar det kontrollen godtar: en kurve som får 99,94 % av
+     lengden kravet sier, er nok – profilen korter inn til 99,9 % av plassen. */
+  {
+    const vip = [{ s: 0, z: 100, k: 0 }, { s: 5.002, z: 100, k: 1 }, { s: 10.004, z: 100.5002, k: 0 }];
+    const foer = JSON.stringify(vip);
+    const r = rettVertikalgeometri(vip, { minVertikalLavbrekk: 100 });
+    paastand('en kurve på 99,94 % av kravet rettes ikke', r.satt === 0 && r.glattet === 0 && JSON.stringify(vip) === foer,
+      JSON.stringify(r));
+  }
   // faktormerknaden sier tallet som faktisk brukes
   const rf = M.beregnMasser({ linje: hjorne, profil: new Vertikalprofil([{ s: 0, z: 100, k: 0 }, { s: 180, z: 100, k: 0 }]),
     terreng: { z: () => 101 }, mal: {}, faktorer: { sprengningsfaktor: 'tull' }, fjell: new M.Fjellmodell({ standarddybde: 5 }),
@@ -2043,6 +2110,29 @@ console.log('\n4f. Eksportformatene');
   paastand('PI er selve knekkpunktet',
     !!pi && Math.hypot(+pi[1] - 6500000, +pi[2] - 500100) < 0.01,
     pi ? `${pi[1]} ${pi[2]}` : 'ingen PI');
+
+  /* HØYDENE BAK LINJESLUTT. Profilen skrives fram til slutten med et siste
+     punkt PÅ den – én gang, og i rekkefølge. Her sto stasjon 200 to ganger når
+     et punkt lå på slutten og et bak den, og 200,004 foran 200 når det lå
+     innenfor slingringen. */
+  {
+    const { vipTilLengde } = require(path.join(__dirname, '..', 'public', 'js', 'vertikalprofil.js'));
+    const kort = new Linjeforing([{ x: 500000, y: 6500000, r: 0 }, { x: 500200, y: 6500000, r: 0 }]);
+    const stasjoner = vip => {
+      const vpK = new Vertikalprofil(vipTilLengde(vip, kort.lengde));
+      const x = Eksport.landxml(Object.assign({}, app, { linje: kort, vprofil: vpK, P: Object.assign({}, app.P, { vip }) }), res);
+      return [...x.matchAll(/<(?:PVI|ParaCurve)[^>]*>([\d.]+) ([\d.]+)</g)].map(m => [+m[1], +m[2]]);
+    };
+    const paaOgBak = stasjoner([{ s: 0, z: 100, k: 0 }, { s: 200, z: 102, k: 0 }, { s: 250, z: 103, k: 0 }]);
+    paastand('et punkt på slutten og et bak: slutten står én gang', JSON.stringify(paaOgBak.map(p => p[0])) === '[0,200]',
+      JSON.stringify(paaOgBak));
+    const innenfor = stasjoner([{ s: 0, z: 100, k: 0 }, { s: 200.004, z: 102, k: 0 }, { s: 250, z: 103, k: 0 }]);
+    paastand('et punkt innenfor slingringen bak slutten: én stasjon, på slutten', JSON.stringify(innenfor.map(p => p[0])) === '[0,200]',
+      JSON.stringify(innenfor));
+    const bak = stasjoner([{ s: 0, z: 100, k: 0 }, { s: 150, z: 101, k: 0 }, { s: 250, z: 103, k: 0 }]);
+    paastand('bare et punkt bak slutten: et nytt på slutten, på linja mot det',
+      JSON.stringify(bak) === '[[0,100],[150,101],[200,102]]', JSON.stringify(bak));
+  }
 
   const sos = Eksport.sosi(app, res);
   paastand('SOSI oppgir høydereferansen', sos.includes('...VERT-DATUM NN2000'));
@@ -3770,6 +3860,40 @@ console.log('\n6c. Avlesning av PDF');
     paastand('en klippegrense (W n) tegnes ikke', klipp.length === 0);
     const medH = Pdf.tolkBaner(`${veg} h S`);
     paastand('h lukker banen', medH.length === 1 && medH[0].lukket === true);
+    // «h b» lukker én gang: sluttpunktet står ikke to ganger
+    const hb = Pdf.tolkBaner('0 0 m 10 0 l 10 10 l h b');
+    paastand('«h b» gir sluttpunktet én gang', hb.length === 1 && hb[0].length === 4, JSON.stringify(hb.map(b => b.length)));
+    // `s` lukker bare den siste delbanen – den første er en åpen linje, og en kandidat
+    const s2 = Pdf.tolkBaner('0 0 m 100 10 l 200 5 l 0 50 m 100 60 l 100 80 l s');
+    paastand('`s` lukker bare den siste delbanen', s2.length === 2 && !s2[0].lukket && s2[1].lukket === true,
+      JSON.stringify(s2.map(b => !!b.lukket)));
+    paastand('  og den åpne er en kandidat', Pdf.kandidater(s2).some(k => k.bane === s2[0]));
+    // en strek etter `h` begynner en ny delbane i startpunktet
+    const etterH = Pdf.tolkBaner('0 0 m 10 0 l 10 10 l h 20 20 l S');
+    paastand('en strek etter h er en ny delbane fra startpunktet', etterH.length === 2 && etterH[0].lukket === true
+      && etterH[0].length === 4 && !etterH[1].lukket && etterH[1][0].x === 0 && etterH[1][1].x === 20,
+      JSON.stringify(etterH.map(b => b.map(p => [p.x, p.y]))));
+  }
+  /* Et lite tilbakesteg sorteres inn – og høydene leses av den sorterte
+     linja: midt i steget ligger høyden mellom de to punktene der. */
+  {
+    const ref = [{ pdfX: 0, pdfY: 0, s: 0, z: 100 }, { pdfX: 200, pdfY: 40, s: 200, z: 140 }];
+    const r = Pdf.tilHoyder([{ x: 0, y: 0 }, { x: 100, y: 20 }, { x: 99.8, y: 30 }, { x: 200, y: 0 }], ref, 0.1);
+    const midt = r && r.punkt.find(p => Math.abs(p.s - 99.9) < 1e-6);
+    sjekk('et tilbakesteg innenfor slingringen sorteres før høydene leses', midt ? midt.z : NaN, 125, 0.01);
+    // mange små steg tilbake er en linje som snur, selv om hvert steg er lite
+    const tilbake = [{ x: 0, y: 0 }, { x: 100, y: 20 }];
+    for (let i = 1; i <= 300; i++) tilbake.push({ x: 100 - 0.3 * i, y: 20 });
+    tilbake.push({ x: 200, y: 0 });
+    const rt = Pdf.tilHoyder(tilbake, ref, 1);
+    paastand('300 steg på 0,3 tilbake er en linje som snur', !!rt && rt.punkt.length === 0 && !!rt.feil);
+  }
+  // ordboken: «>>» i en tekststreng, en heksstreng rett før slutten, og et \-tegn
+  {
+    paastand('«>>» i en tekststreng avslutter ikke ordboken', Pdf._ordbok('<< /T (a >> b) /C 1 >> etter', 0) === '<< /T (a >> b) /C 1 >>');
+    paastand('  heller ikke med en escapet parentes i strengen', Pdf._ordbok('<< /T (a \\) >> b) /C 1 >>', 0) === '<< /T (a \\) >> b) /C 1 >>');
+    paastand('  og en heksstreng rett før slutten tar ikke med seg en «>»', Pdf._ordbok('<< /ID <ab>>> etter', 0) === '<< /ID <ab>>>');
+    paastand('  nøstede ordbøker telles', Pdf._ordbok('<< /A << /B 1 >> /C 2 >> etter', 0) === '<< /A << /B 1 >> /C 2 >>');
   }
 }
 
@@ -3874,6 +3998,62 @@ console.log('\n6c. Avlesning av PDF');
       { nr: 9, ordbok: '/Length LEN', data: tegning }])));
     paastand('/Contents som peker på en tabell: én tegning, med målestokken', tabell.length === 1
       && Math.abs(tabell[0].maksX - 400) < 1e-9, JSON.stringify(tabell.map(t => [t.baner.length, t.maksX])));
+
+    // den siste utgaven av et objekt gjelder – en oppdatert fil legger den nye bakerst
+    const oppdatert = await Pdf.lesFil(fil(lagPdf([
+      { nr: 3, ordbok: '<< /Type /Page /Contents 9 0 R >>' },
+      { nr: 8, ordbok: '/Length LEN', data: '2 0 0 2 0 0 cm' },
+      { nr: 9, ordbok: '/Length LEN', data: tegning },
+      { nr: 3, ordbok: '<< /Type /Page /Contents [8 0 R 9 0 R] >>' }])));
+    paastand('den siste utgaven av en side gjelder', oppdatert.length === 1 && Math.abs(oppdatert[0].maksX - 400) < 1e-9,
+      JSON.stringify(oppdatert.map(t => t.maksX)));
+    /* Sider i en objektstrøm finnes – og en ny utgave der, bak den gamle,
+       vinner. Målestokken i den første strømmen viser at det er siden som er
+       lest, og ikke hver strøm for seg. */
+    const objStm = (nr, kropp) => {
+      const hode = `${nr} 0 `;
+      return { ordbok: `/Type /ObjStm /N 1 /First ${hode.length} /Length LEN`, data: hode + kropp };
+    };
+    const iStrom = await Pdf.lesFil(fil(lagPdf([
+      Object.assign({ nr: 40 }, objStm(3, '<< /Type /Page /Contents [8 0 R 9 0 R] >>')),
+      { nr: 8, ordbok: '/Length LEN', data: '2 0 0 2 0 0 cm' },
+      { nr: 9, ordbok: '/Length LEN', data: tegning }])));
+    paastand('en side i en objektstrøm leses som en side', iStrom.length === 1 && Math.abs(iStrom[0].maksX - 400) < 1e-9,
+      JSON.stringify(iStrom.map(t => t.maksX)));
+    const nyIStrom = await Pdf.lesFil(fil(lagPdf([
+      { nr: 3, ordbok: '<< /Type /Page /Contents 9 0 R >>' },
+      { nr: 8, ordbok: '/Length LEN', data: '2 0 0 2 0 0 cm' },
+      { nr: 9, ordbok: '/Length LEN', data: tegning },
+      Object.assign({ nr: 40 }, objStm(3, '<< /Type /Page /Contents [8 0 R 9 0 R] >>'))])));
+    paastand('en ny utgave i en objektstrøm bakerst vinner over den gamle foran', nyIStrom.length === 1
+      && Math.abs(nyIStrom[0].maksX - 400) < 1e-9, JSON.stringify(nyIStrom.map(t => t.maksX)));
+    // et skjema som tegner et annet, slår det opp i sine egne ressurser – ikke sidens
+    const nostet = await Pdf.lesFil(fil(lagPdf([
+      { nr: 3, ordbok: '<< /Type /Page /Resources << /XObject << /Fm0 10 0 R /Fm1 13 0 R >> >> /Contents 11 0 R >>' },
+      { nr: 10, ordbok: '/Type /XObject /Subtype /Form /Resources << /XObject << /Fm1 12 0 R >> >> /Length LEN', data: '/Fm1 Do' },
+      { nr: 12, ordbok: '/Type /XObject /Subtype /Form /Length LEN', data: lang },
+      { nr: 13, ordbok: '/Type /XObject /Subtype /Form /Length LEN', data: tegning },
+      { nr: 11, ordbok: '/Length LEN', data: 'q /Fm0 Do Q' }])));
+    paastand('et skjema i et skjema slås opp i det ytres egne ressurser', nostet.length === 1 && Math.abs(nostet[0].maksX - 300) < 1e-9,
+      JSON.stringify(nostet.map(t => t.maksX)));
+    // /Type /Pages er ikke en side, selv med en /Contents
+    const pagesIkkeSide = await Pdf.lesFil(fil(lagPdf([
+      { nr: 2, ordbok: '<< /Type /Pages /Kids [3 0 R] /Count 1 /Contents 12 0 R >>' },
+      { nr: 3, ordbok: '<< /Type /Page /Parent 2 0 R /Contents 9 0 R >>' },
+      { nr: 9, ordbok: '/Length LEN', data: tegning },
+      { nr: 12, ordbok: '/Length LEN', data: lang }])));
+    paastand('/Type /Pages er ikke en side', pagesIkkeSide.length === 1 && Math.abs(pagesIkkeSide[0].maksX - 200) < 1e-9,
+      JSON.stringify(pagesIkkeSide.map(t => t.maksX)));
+    // uten sider: hver strøm prøves for seg
+    const utenSider = await Pdf.lesFil(fil(lagPdf([{ nr: 9, ordbok: '/Length LEN', data: tegning }])));
+    paastand('en fil uten sider: strømmene prøves hver for seg', utenSider.length === 1, JSON.stringify(utenSider.map(t => t.maksX)));
+    // en tekststreng med «>>» i sideordboken tar ikke siden bort
+    const medTittel = await Pdf.lesFil(fil(lagPdf([
+      { nr: 3, ordbok: '<< /Type /Page /Tittel (a >> b) /Contents [8 0 R 9 0 R] >>' },
+      { nr: 8, ordbok: '/Length LEN', data: '2 0 0 2 0 0 cm' },
+      { nr: 9, ordbok: '/Length LEN', data: tegning }])));
+    paastand('«>>» i en tekststreng i sideordboken tar ikke siden bort', medTittel.length === 1 && Math.abs(medTittel[0].maksX - 400) < 1e-9,
+      JSON.stringify(medTittel.map(t => t.maksX)));
   }
 
   console.log('\n6i. Tjeneren og flisene (veg, pulje 7)');
@@ -3908,21 +4088,85 @@ console.log('\n6c. Avlesning av PDF');
     delete require.cache[sokSti];
     try {
       const rs = lagRes();
-      await require(sokSti)({ query: { q: 'Ydestad' } }, rs);
+      await require(sokSti)({ query: { q: 'Prøvested' } }, rs);
       paastand('søket uten svar fra noen av tjenestene gir 502, og mellomlagres ikke',
         rs.kode === 502 && rs.hoder['Cache-Control'] === 'no-store', `${rs.kode} ${rs.hoder['Cache-Control']}`);
+      // svarer bare den ene, sendes treffene – men de er halve, og mellomlagres ikke
+      delete require.cache[sokSti];
+      hd.hentJson = async url => {
+        if (/stedsnavn/.test(url)) throw new Error('prøvefeil');
+        return { adresser: [{ adressetekst: 'Prøvevegen 1', kommunenavn: 'Prøve', representasjonspunkt: { lat: 58, lon: 7 } }] };
+      };
+      const rh = lagRes();
+      await require(sokSti)({ query: { q: 'Prøvested' } }, rh);
+      paastand('svarer bare den ene tjenesten, sendes treffene uten å mellomlagres',
+        rh.kode === 200 && rh.hoder['Cache-Control'] === 'no-store' && JSON.parse(rh.kropp).treff.length === 1,
+        `${rh.kode} ${rh.hoder['Cache-Control']}`);
     } finally { hd.hentJson = ekteJson; delete require.cache[sokSti]; }
+    // flis-API-et: en flis som ikke kunne hentes, mellomlagres ikke
+    const flisSti = require.resolve(path.join(__dirname, '..', 'api', 'dtm', 'flis.js'));
+    const ekteFlis = hd.hentFlis;
+    hd.hentFlis = async () => { throw new Error('prøvefeil'); };
+    delete require.cache[flisSti];
+    try {
+      const rf = lagRes();
+      await require(flisSti)({ query: { sr: '25832', tx: '1', ty: '1', res: '1' } }, rf);
+      paastand('en flis som ikke kunne hentes, gir 502 som ikke mellomlagres', rf.kode === 502 && rf.hoder['Cache-Control'] === 'no-store',
+        `${rf.kode} ${rf.hoder['Cache-Control']}`);
+    } finally { hd.hentFlis = ekteFlis; delete require.cache[flisSti]; }
+    /* Mellomlageret på disk: en fil leses bare når den er hel – en kuttet fil
+       fjernes – og en skriving som stopper midt i, etterlater ingenting. */
+    {
+      const fs = require('fs');
+      const mappe = fs.mkdtempSync(path.join(require('os').tmpdir(), 'massekalk-prove-'));
+      try {
+        const fil = path.join(mappe, 'flis.bin');
+        fs.writeFileSync(fil, flis);
+        paastand('en hel flis leses fra mellomlageret', !!hd.lesMellomlager(fil, 16) && hd.lesMellomlager(fil, 16).length === flis.length);
+        fs.writeFileSync(fil, flis.slice(0, flis.length - 2));
+        paastand('en kuttet flis leses ikke – og fila fjernes', hd.lesMellomlager(fil, 16) === null && !fs.existsSync(fil));
+        const ekteSkriv = fs.writeFileSync;
+        fs.writeFileSync = (p, data) => { ekteSkriv(p, data.slice(0, 10)); throw new Error('full disk'); };
+        try { hd.skrivMellomlager(fil, flis); } finally { fs.writeFileSync = ekteSkriv; }
+        paastand('en skriving som stopper midt i, etterlater ingen fil – heller ikke en halv', !fs.existsSync(fil)
+          && fs.readdirSync(mappe).length === 0, fs.readdirSync(mappe).join(', '));
+        hd.skrivMellomlager(fil, flis);
+        paastand('  og en hel skriving gir en hel fil', hd.lesMellomlager(fil, 16) !== null && fs.readdirSync(mappe).length === 1);
+      } finally { fs.rmSync(mappe, { recursive: true, force: true }); }
+    }
+    // flisa pakkes ut i nettleseren bare når hodet og lengden stemmer
+    {
+      const { pakkOppFlis } = require(path.join(__dirname, '..', 'public', 'js', 'terreng.js'));
+      const ab = b => b.buffer.slice(b.byteOffset, b.byteOffset + b.length);
+      paastand('nettleseren pakker ut en hel flis', pakkOppFlis(ab(flis), 16).length === 256);
+      const kaster = f => { try { f(); return false; } catch (e) { return true; } };
+      paastand('  men ikke en med et annet antall punkt enn ventet', kaster(() => pakkOppFlis(ab(flis), 32)));
+      paastand('  og ikke en kuttet', kaster(() => pakkOppFlis(ab(flis.slice(0, flis.length - 2)), 16)));
+    }
     // tjeneren: en søskenmappe med samme prefiks er ikke innenfor public
     const server = require(path.join(__dirname, '..', 'server.js'));
     await new Promise(r => server.listen(0, '127.0.0.1', r));
     const port = server.address().port;
-    const hent = sti => new Promise(r => require('http').get({ host: '127.0.0.1', port, path: sti }, s => { s.resume(); r(s.statusCode); }));
+    const hent = sti => new Promise(r => {
+      const q = require('http').get({ host: '127.0.0.1', port, path: sti }, s => { s.resume(); r(s.statusCode); });
+      q.on('error', e => r('feil: ' + e.code));
+    });
     const utenfor = await hent('/..%2Fpublic-gammel%2Findex.html');
     const opp = await hent('/..%2Fpackage.json');
     const inne = await hent('/index.html');
+    // det tjeneren ikke kan lese, er en feil i forespørselen – og tjeneren står etterpå
+    const dobbel = await hent('//');
+    const prosent = await hent('/%E0%A4%A');
+    const etterpaa = await hent('/index.html');
     server.close();
     paastand('tjeneren nekter en søskenmappe med samme prefiks, og mappa over', utenfor === 403 && opp === 403 && inne === 200,
       `${utenfor} / ${opp} / ${inne}`);
+    paastand('«//» og et ødelagt %-tegn gir 400, og tjeneren svarer etterpå', dobbel === 400 && prosent === 400 && etterpaa === 200,
+      `${dobbel} / ${prosent} / ${etterpaa}`);
+    const pub = path.join(__dirname, '..', 'public');
+    paastand('en fil som heter «..noe» er innenfor mappa, men ikke mappa over eller ved siden av',
+      server.innenforMappa(pub, path.join(pub, '..noe.txt')) && !server.innenforMappa(pub, path.join(pub, '..', 'package.json'))
+      && !server.innenforMappa(pub, path.join(pub, '..', 'public-gammel', 'index.html')));
   }
 
   console.log('\n7. Pakking av terrengfliser');

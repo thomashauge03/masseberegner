@@ -19,6 +19,10 @@ node server.js
 Åpne så <http://localhost:5178>. Ingen npm install – programmet bruker bare
 det som ligger i Node fra før.
 
+Tjeneren svarer bare på maskinen selv. Skal andre på samme nett nå den (et
+nettbrett på plassen), startes den med `MASSEKALK_VERT=0.0.0.0 node server.js`;
+`PORT=…` velger en annen port.
+
 Terrengdata blir hentet automatisk. Flisene har ett år med hurtigbuffer, så andre
 gangen du åpner samme prosjektet går det med en gang – også uten nett.
 

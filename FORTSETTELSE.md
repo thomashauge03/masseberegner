@@ -23,17 +23,21 @@ Nettlesertesten kjøres ved å åpne programmet med `?test=1`, eller fra konsoll
 med `Nettlesertest.kjor()`. Utviklingstjeneren startes med `node server.js`
 (port 5178). Programmet ligger også på https://masseberegner.vercel.app.
 
-Ved siste lagring: **609 prøver i selvtesten, 194 i rørprøven
+Ved siste lagring: **818 prøver i selvtesten, 194 i rørprøven
 (`test/rorprove.js`), 133 i grøfteprøven (`test/groftprove.js`), 100 i
 planprøven (`test/rorplanprove.js`), 62 i eksportprøven
 (`test/roreksportprove.js`), 77 i avviksprøven (`test/roravvikprove.js`), 53 i
-anleggsprøven og 258 i tomteprøven, alle grønne; 1262 av 1262 i nettlesertesten.** «Klikk i modellen flytter snittet
+anleggsprøven og 258 i tomteprøven, alle grønne; 1369 av 1369 i nettlesertesten.** «Klikk i modellen flytter snittet
 dit» i `veg3d` kan feile når vinduet emuleres 1440 × 900 i en mindre rute –
-klikket lander én rad ved siden av; det gjør den likt på `main`. 3D-prøvene
+klikket lander én rad ved siden av; det gjør den likt på `main`. «og merknaden
+sier det som gjelder nå» i `flereAnlegg` feilet én gang i hele runden og aldri
+alene: merknaden velger naboene etter `_mittOmraade`, som leser resultatet som
+står, mens prøven sammenligner med hurtiglageret. `test/demo-ydestad.js` skriver
+demoen på nytt; den holder demoens bredde (4,5 m) fast, så fila blir lik. 3D-prøvene
 må ha fanen framme; i en bakgrunnsfane tegnes ingen rammer. Nettlesertesten
 må kjøres i et vindu som er minst 1000 px bredt – under det legger
-sidepanelet seg oppå, og tre panelprøver blir røde uten at noe er galt. Massene på demoen er uendret gjennom hele runden: 1 548 m³ skjæring,
-1 015 m³ fjell, 135 m³ fylling — rettingene gjelder feilmåter, ikke normalveien.
+sidepanelet seg oppå, og tre panelprøver blir røde uten at noe er galt. Massene på demoen: 1 397 m³ skjæring, 1 397 m³ fjell og 778 m³ fylling,
+med masseutskifting. De er uendret gjennom veg-restfunnene.
 
 ## Det som skal gjøres nå
 
@@ -45,6 +49,90 @@ stikkrenner. Designvalgene tas underveis og står i spesifikasjonen for hver del
 hver del flettes inn i `main` og pushes når den er gjennomgått og grønn.
 **Alt som endrer høyder, skal ligge på knapper – innmålte høyder endres aldri
 automatisk.** Delte prosjekt (database og innlogging) er holdt utenfor.
+
+### Veg – restfunnene fra GJENNOMGANG.md
+
+Spec: `docs/superpowers/specs/2026-10-06-veg-restfunn-design.md`. Åtte puljer på
+grenen `veg-restfunn`, hver gjennomgått av en egen granskning og rettet etterpå:
+
+1. **Høyder uten knapp.** En omregning endrer aldri `P.vip`: beregningen får en
+   kopi (`vipTilLengde`), der det første punktet bak linjeslutt er med som det
+   er, så vegen som er igjen blir den samme når linja kortes. «Rett opp» og
+   «Optimaliser» flytter bare høyder på linja. Knappene gjør det de sier.
+   Massebalansen sikter mot minst kjøring.
+2. **Lagring og angre.** Angreposter for alle endringer, ingen tomme poster,
+   og navnet angres ikke. Lesefeil skilles fra «finnes ikke».
+3. **Rapport, PDF og eksport.** Bolker, stikningstabell, desimalkomma,
+   slitelag og brukt profilavstand.
+4. **PDF-avlesningen.** Strømlengder, sider, skjemaer per side, lukkede og
+   fylte flater, og klikkforskyvningen.
+5. **Regler og beregning.** Kurver som konkurrerer om et strekk, deler
+   plassen likt (`plassdeling.js`), for både planlinja og lengdeprofilen.
+   Skarpe hjørner regnes med kurven de minst ville trengt. Normalens unntak
+   for korte rettstrekk er i bruk. Bakkefaktoren går inn én gang på volumet.
+   Fjellmodellen toner ut mot rekkevidden. Ellers: radiusbånd, K4, K5,
+   inngangsvakter, utslag mot hel fot og hårnål/180°.
+6. **Grensesnittet.** Etiketter, skyveren, tverrsnittsavlesningen, kartklikk
+   og dobbeltklikk.
+7. **Tjeneren.** Flisene kontrolleres. Feilsvar mellomlagres ikke. Stien
+   holdes innenfor `public/`, og tjeneren lytter på 127.0.0.1.
+8. **Prøvene.** Detaljer ved feil, en TIFF bygd i prøven, console.error i
+   nettleserprøven, og en tallregresjon.
+9. **Den siste gjennomgangen.**
+   - LandXML skriver linjeslutt én gang og i rekkefølge.
+   - `GET //` tar ikke ned tjeneren.
+   - Angre: et merke som slippes, legger tilbake det det tok – «Gjør om» og
+     den eldste posten. Navnet er ikke med i angrepostene.
+   - Plassdelingen deles opp der strekket har plass til begge, og er lineær i
+     praksis. Hjørnet regner med det naboens kurve lar ligge.
+   - PDF-leseren:
+     - tekst i ordbøker teller ikke med;
+     - den nyeste utgaven vinner, også i objektstrømmer;
+     - `h`/`s` lukker riktig;
+     - et tilbakesteg måles mot det lengste linja har nådd.
+   - Halve søketreff mellomlagres ikke.
+   - Et kort bratt strekk mellom profilene vurderes med alle profilene rundt.
+   - Etiketter uten id får en.
+   - Prøver for alle mutantene som overlevde. Det var 23 i selvtesten og 18 i
+     nettleseren; nettleserprøven `vegRettelser` er ny. Mutasjonslistene er
+     kjørt igjen, og alle blir drept.
+
+**Tall som kan flytte seg i et lagret prosjekt, med vilje:**
+- Bakkefaktoren på volum: en gang, ikke i annen potens. Utslaget er om lag
+  0,04 %.
+- Sprengningen der sonderingene ligger glissent: standarddybden eller
+  strekningen veier nå med mellom sonderingene.
+- Vegnivå og planlinje der kurver ble kortet inn for å få plass: nå deler de
+  likt, før ble begge skalert med samme faktor.
+- Bredde og stigningskrav ved skarpe hjørner. Uten kurve ble hjørnet regnet
+  som rettstrekk.
+- Færre stigningsmerknader på korte rettstrekk (+2 %, inntil 60 m).
+- En tverrfallsoverstyring gjelder fra den forrige til den neste, med 10 m
+  overgang. Før gjaldt den hele vegen.
+- Nye prosjekt får klasse 5 sine tall: 4,0 m veg og 3,5 m slitelag. Lagrede
+  prosjekter beholder sin bredde.
+- Et skarpt hjørne ved siden av en kurve får radien som er igjen når kurven
+  har tatt sitt. Den kan bli mindre enn før.
+- Et kort bratt strekk inne i et langt bratt stykke får ikke lenger tillegget
+  for korte rettstrekk.
+
+Demoen er uendret: 1 397 m³ skjæring, 1 397 m³ fjell og 778 m³ fylling, med
+masseutskifting. Det er det samme som på `main` før grenen.
+
+**Ikke gjort, eller bør sjekkes:**
+- K4 sin returstigning er satt til 16 %, det tabellen håndhevet. K5 sitt
+  unntak for korte rettstrekk gjelder returretningen. Begge bør sjekkes mot
+  normalen (kap. 3.4 og 3.5).
+- K7 sitt stigningsvilkår for ensidig tverrfall (L6) og breddekravet over
+  135° dreining (L7) krever normalens figurer. Infoboksen sier at de ikke er
+  med.
+- «Rett opp» er strengere enn kontrollen der vertikalkurvene gjør det bratte
+  stykket kortere enn 60 m. Den kan rette noe kontrollen godtar, men aldri
+  omvendt.
+- Tallregresjonen (selvtesten 6h) bruker et syntetisk terreng. Ekte fliser er
+  ikke lagt inn i repoet som fast grunnlag.
+- LandXML skriver et høydepunkt bak linjeslutt når en vertikalkurve går over
+  slutten. Det er ikke prøvd i en mottaker.
 
 ### Rør, etappe 3c – planlagt mot innmålt
 
@@ -258,18 +346,9 @@ fliser i endene av linja — er rettet nå.
 
 ### Igjen på lista
 
-Bruk `GJENNOMGANG.md` for detaljene. De tyngste som står igjen:
-
-- **`public/js/geo.js:60`** — sonevalget. Nå synlig i stedet for stille, siden
-  manglende dekning blir oppdaget, men bør fortsatt vurderes.
-- **`public/js/vertikalprofil.js`** — `_bygg` kan slette lovlige
-  vertikalkurver, og `rettVertikalgeometri` setter K opp men aldri ned.
-- **`public/js/app.js`** — kostnadsfunksjonen måler stigningskravet mot feil
-  radius og straffer ikke vertikalkurvebrudd.
-- **`public/js/ui-pdfrapport.js`** — bolkmerkingen og stikningstabellen tåler
-  ikke en profilavstand som ikke går opp i 20 eller 5.
-- **`test/selftest.js`** — flere prøver kan aldri feile, og fjellmodellen er
-  fortsatt tynt dekket. *(Seksjon 8 svelget enhver feil; det er rettet.)*
+Restfunnene i `GJENNOMGANG.md` er tatt i veg-delen over, unntatt det som står
+under «Ikke gjort, eller bør sjekkes» der. Sonevalget (`public/js/geo.js:60`)
+er fortsatt synlig i stedet for stille, siden manglende dekning blir oppdaget.
 
 ## Kjør gjennomgangen på nytt
 

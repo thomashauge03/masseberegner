@@ -33,11 +33,29 @@ const MIME = {
   '.webmanifest': 'application/manifest+json'
 };
 
+/**
+ * Om fila ligger under mappa.
+ *
+ * INNENFOR MAPPA, IKKE BARE MED SAMME BEGYNNELSE. `startsWith` slapp gjennom
+ * en søskenmappe med samme prefiks – «public-gammel» begynner med «public».
+ * Den relative stien sier om fila ligger under mappa: den går opp («..» som
+ * eget ledd), eller er absolutt (en annen disk). En fil som heter «..noe»,
+ * ligger innenfor.
+ */
+function innenforMappa(mappe, fil) {
+  const rel = path.relative(path.resolve(mappe), path.resolve(fil));
+  return !(rel === '..' || rel.startsWith('..' + path.sep) || path.isAbsolute(rel));
+}
+
 const server = http.createServer(async (req, res) => {
-  // WHATWG-URL: `url.parse` er foreldet og tolker stier ulikt fra nettleseren
-  const u = new URL(req.url, 'http://lokal');
-  let sti;
-  try { sti = decodeURIComponent(u.pathname); } catch (e) { res.writeHead(400); return res.end('Ugyldig sti'); }
+  /* WHATWG-URL: `url.parse` er foreldet og tolker stier ulikt fra nettleseren.
+     `new URL` kaster på det den ikke kan lese – «//» blir en adresse uten
+     vert – og et kast her tok ned hele tjeneren. */
+  let u, sti;
+  try {
+    u = new URL(req.url, 'http://lokal');
+    sti = decodeURIComponent(u.pathname);
+  } catch (e) { res.writeHead(400); return res.end('Ugyldig sti'); }
 
   const handler = RUTER[sti];
   if (handler) {
@@ -53,11 +71,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   const filsti = path.join(PUBLIC_DIR, sti === '/' ? 'index.html' : sti);
-  /* INNENFOR MAPPA, IKKE BARE MED SAMME BEGYNNELSE. `startsWith` slapp
-     gjennom en søskenmappe med samme prefiks – «public-gammel» begynner med
-     «public». Den relative stien sier om fila ligger under mappa. */
-  const rel = path.relative(path.resolve(PUBLIC_DIR), path.resolve(filsti));
-  if (rel.startsWith('..') || path.isAbsolute(rel)) {
+  if (!innenforMappa(PUBLIC_DIR, filsti)) {
     res.writeHead(403); return res.end('Nei');
   }
   if (fs.existsSync(filsti) && fs.statSync(filsti).isFile()) {
@@ -83,3 +97,4 @@ if (require.main === module) {
 }
 
 module.exports = server;
+module.exports.innenforMappa = innenforMappa;

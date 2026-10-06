@@ -57,8 +57,9 @@ class Vertikalprofil {
        ga samme svar begge veier, men ødela en kurve som hadde fått plass: et
        brekk på 5 % som trengte 15 m og hadde 40 m til rådighet, fikk ingenting
        fordi naboen ba om for mye.
-       DEN MINSTE FÅR DET DEN TRENGER – samme deling som planlinja, se
-       plassdeling.js. Halve kurvelengden ligger på hver side av knekkpunktet,
+       LIKEDELING – samme deling som planlinja, se plassdeling.js: den som ber
+       om mindre enn sin del, får alt, og to som begge ber om for mye, deler
+       likt. Halve kurvelengden ligger på hver side av knekkpunktet,
        og endene er ensidige: den første kurven kan strekke seg bakover til
        profilets start, den siste framover til slutten. Svaret er det samme
        uansett hvilken vei man teller. */

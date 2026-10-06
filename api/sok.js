@@ -10,9 +10,9 @@ const { hentJson } = require('../lib/hoydedata.js');
 module.exports = async (req, res) => {
   const q = String((req.query || {}).q || '').trim();
   // bare et svar som er et svar, mellomlagres – se api/punkt.js
-  const svar = (kode, data) => {
+  const svar = (kode, data, lagres = kode === 200) => {
     res.writeHead(kode, { 'Content-Type': 'application/json; charset=utf-8',
-      'Cache-Control': kode === 200 ? 'public, max-age=3600' : 'no-store' });
+      'Cache-Control': lagres ? 'public, max-age=3600' : 'no-store' });
     res.end(JSON.stringify(data));
   };
   if (q.length < 2) return svar(400, { feil: 'For kort søk' });
@@ -50,5 +50,8 @@ module.exports = async (req, res) => {
 
   await Promise.all(jobber);
   if (feilet === jobber.length) return svar(502, { feil: 'Fikk ikke kontakt med Kartverket sitt søk' });
-  svar(200, { treff });
+  /* Svarte bare den ene, er treffene halve. De sendes, men mellomlagres ikke:
+     her sto de i en time, og alle som søkte det samme, fikk dem uten
+     stedsnavnene – eller uten adressene. */
+  svar(200, { treff }, feilet === 0);
 };

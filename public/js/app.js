@@ -29,6 +29,7 @@ const App = {
      angre: hadde du nettopp flyttet et punkt eller endret en radius, slettet
      «Angre» et helt annet punkt i stedet for a ta tilbake det du gjorde. */
   historikk: { bakover: [], framover: [], grense: 60 },
+  _merke: null,                     // det siste merket, til `slippMerke`
 
   /**
    * Tar vare pa tilstanden slik den er akkurat na, før den endres.
@@ -47,17 +48,25 @@ const App = {
        Brukeren står i det anlegget han sto i da runden er ferdig; det er ikke
        en endring, og skal ikke se ut som en. */
     if (this._ikkeMerk) return;
-    const tekst = JSON.stringify(this.P);
+    const tekst = this._bilde();
     /* LIKT DET SOM ALT LIGGER ØVERST, ER INGEN NY POST. Her ble det
        sammenlignet med `_sist` – og etter et angre er `_sist` tilstanden man
        angret TIL. Den første endringen etterpå ble da aldri merket: et
        malfelt, en fjellstrekning, hva som helst – og neste angre hoppet to
        steg tilbake, forbi det man nettopp hadde angret til. */
-    const topp = this.historikk.bakover[this.historikk.bakover.length - 1];
+    const h = this.historikk;
+    const topp = h.bakover[h.bakover.length - 1];
     if (topp && topp.tekst === tekst) return;       // ingenting har endret seg siden forrige merke
-    this.historikk.bakover.push({ tekst, hva: hva || 'endring' });
-    if (this.historikk.bakover.length > this.historikk.grense) this.historikk.bakover.shift();
-    this.historikk.framover.length = 0;             // ny gren - det som la foran gjelder ikke lenger
+    const post = { tekst, hva: hva || 'endring' };
+    h.bakover.push(post);
+    /* Det merket tar fra resten av historikken – den eldste posten når lista
+       er full, og «Gjør om» (ny gren: det som lå foran gjelder ikke lenger) –
+       huskes til `slippMerke`, som legger det tilbake. */
+    this._merke = {
+      post,
+      skjovet: h.bakover.length > h.grense ? h.bakover.shift() : null,
+      framover: h.framover.splice(0)
+    };
     this.visAngreknapper();
     this.planleggAutolagring();
   },
@@ -65,24 +74,45 @@ const App = {
   /**
    * Tar bort det siste merket når ingenting ble endret likevel. En knapp som
    * ga seg etter å ha merket, la ellers en angrepost som ikke angret noe.
+   * OG DET MERKET TOK, KOMMER TILBAKE. Her ble bare posten tatt bort: med
+   * full liste var den eldste posten skjøvet ut for godt – «Lås» uten å
+   * endre noe kostet ett steg bakerst – og «Gjør om» var tømt av en knapp
+   * som ikke gjorde noe.
    */
   slippMerke() {
-    const b = this.historikk.bakover;
-    if (b.length && b[b.length - 1].tekst === JSON.stringify(this.P)) {
-      b.pop();
-      this.visAngreknapper();
+    const h = this.historikk, b = h.bakover, m = this._merke;
+    if (!b.length || b[b.length - 1].tekst !== this._bilde()) return;
+    const post = b.pop();
+    if (m && m.post === post) {
+      if (m.skjovet) b.unshift(m.skjovet);
+      if (!h.framover.length) h.framover.push(...m.framover);
     }
+    this._merke = null;
+    this.visAngreknapper();
   },
 
   tomHistorikk() {
     this.historikk.bakover.length = 0;
     this.historikk.framover.length = 0;
+    this._merke = null;
     this.visAngreknapper();
+  },
+
+  /**
+   * Tilstanden slik angrelista tar vare på den – uten navnet.
+   *
+   * NAVNET ER IKKE MED. Det endres ikke med et merke og angres ikke (se
+   * `_tilbakeTil`). Var det med, ble en post som bare skilte seg i navnet –
+   * etter et navnebytte – ikke hoppet over som tom, og Angre så ut til å ikke
+   * gjøre noe.
+   */
+  _bilde() {
+    return JSON.stringify(Object.assign({}, this.P, { navn: null }));
   },
 
   async _tilbakeTil(steg, fra, til) {
     if (!fra.length) return false;
-    const na = JSON.stringify(this.P);
+    const na = this._bilde();
     /* EN ANGREPOST SOM IKKE ENDRER NOE, HOPPES OVER. En knapp som merket og så
        ga seg, la igjen en post der tilstanden var den samme som nå – og Angre
        gjorde tilsynelatende ingenting. */
@@ -2095,10 +2125,13 @@ const App = {
       const kontroll = felt.querySelector(':scope > input, :scope > select, :scope > textarea');
       if (!etikett || !kontroll) continue;
       if ((kontroll.labels && kontroll.labels.length) || kontroll.getAttribute('aria-label')) continue;
-      if (kontroll.id) etikett.htmlFor = kontroll.id;
-      else kontroll.setAttribute('aria-label', etikett.textContent.trim());
+      /* Et felt uten id får en. Her fikk det bare et aria-label: skjermleseren
+         leste det, men et klikk på etiketten satte ikke markøren i feltet. */
+      if (!kontroll.id) kontroll.id = 'felt-' + (++this._etikettNr);
+      etikett.htmlFor = kontroll.id;
     }
   },
+  _etikettNr: 0,
 
   async start() {
     this.settPekertype();
@@ -3984,6 +4017,82 @@ const App = {
     };
   },
 
+  /**
+   * Taket og gulvet senterlinja må holde seg mellom, REGNET AV SNITTENE.
+   *
+   * DETTE ER GRUNNEN TIL AT «RETT OPP» IKKE KLARTE Å FJERNE BRUDDENE.
+   * Rettingen håndhevet `v.z - terreng(v.s)` – høyden over terrenget PÅ
+   * SENTERLINJA, og bare i knekkpunktene, som standard hver 40. meter.
+   * Merknaden måler noe helt annet: `pr.maksFylling`, den største loddrette
+   * avstanden mellom jordarbeidsflaten og terrenget HVOR SOM HELST i
+   * tverrsnittet, ut til søkebredden, på hvert eneste beregningsprofil.
+   * På en tverrfallende li er de to tallene ikke i nærheten av hverandre:
+   * senterlinja kan ligge i dagen mens ytterkanten av en fem meter bred veg
+   * står tjue meter over bakken. Knappen jaget altså ett tall til det var
+   * innenfor, mens listen talte et annet – og svarte «fant ingen bedre
+   * profil, 81 brudd står som før».
+   *
+   * Rettelsen er å måle det man faktisk håndhever. Senker man vegen én
+   * meter, synker HELE jordarbeidsflaten én meter, og største fylling
+   * synker like mye – til første orden eksakt. Overskuddet er derfor
+   * nøyaktig så mange meter linja må ned:
+   *     tak(s) = dagens kote − (målt fylling − grensen)
+   * og speilvendt for skjæring.
+   *
+   * Hvert profil hører til det NÆRMESTE knekkpunktet, og knekkpunktet får
+   * det verste kravet blant sine. Uten det ville et brudd midt mellom to
+   * knekkpunkt ikke hatt noen å be om å flytte seg.
+   */
+  grenserFraSnitt(res, liste) {
+    const mal = this.P.mal;
+    if (!res || !res.profiler || !res.profiler.length) return null;
+    const tak = new Map(), gulv = new Map();
+    /* Nærmeste knekkpunkt PÅ LINJA – den låste kopien av punktet bak slutten
+       tar ikke profilene ved slutten med seg, så de ble aldri rettet. */
+    const paa = liste.filter(v => this.paaLinja(v));
+    const naermeste = s => {
+      let best = paa[0], bd = Infinity;
+      for (const v of paa) {
+        const d = Math.abs(v.s - s);
+        if (d < bd) { bd = d; best = v; }
+      }
+      return best;
+    };
+    /* OVERSKUDDET ER EN AVSTAND, IKKE EN KOTE.
+       Første forsøk regnet taket som `profilens kote − overskudd`. Men
+       profilen ligger et stykke fra knekkpunktet, og med ti prosent stigning
+       og tjue meter imellom er de to kotene to meter fra hverandre – taket
+       ble altså gitt til feil høyde. Overskuddet i METER er derimot det
+       samme uansett hvor man står: skal fyllingen ned 7,6 m, skal
+       knekkpunktet ned 7,6 m fra SIN egen kote. */
+    let n = 0;
+    const ned = new Map(), opp = new Map();
+    for (const pr of res.profiler) {
+      const v = naermeste(pr.s);
+      if (!v || v.laast) continue;
+      if (mal.maksFyllingshoyde > 0 && pr.maksFylling > mal.maksFyllingshoyde) {
+        const d = pr.maksFylling - mal.maksFyllingshoyde;
+        if (d > (ned.get(v.s) || 0)) ned.set(v.s, d);
+        n++;
+      }
+      if (mal.maksSkjaeringsdybde > 0 && pr.maksSkjaering > mal.maksSkjaeringsdybde) {
+        const d = pr.maksSkjaering - mal.maksSkjaeringsdybde;
+        if (d > (opp.get(v.s) || 0)) opp.set(v.s, d);
+        n++;
+      }
+    }
+    for (const v of liste) {
+      if (!Number.isFinite(v.z)) continue;
+      if (ned.has(v.s)) tak.set(v.s, v.z - ned.get(v.s));
+      if (opp.has(v.s)) gulv.set(v.s, v.z + opp.get(v.s));
+    }
+    if (!n) return null;
+    return {
+      takVed: s => (tak.has(s) ? tak.get(s) : Infinity),
+      gulvVed: s => (gulv.has(s) ? gulv.get(s) : -Infinity)
+    };
+  },
+
   async rettOpp(modus) {
     try {
       return await this._rettOpp(modus);
@@ -4075,87 +4184,13 @@ const App = {
       const mal = this.P.mal;
       // `let`: optimaliseringen kan flytte linja sidelengs og hente nytt terreng – se sluttrettingen
       let terrengVed = lagTerrengoppslag(this.terrengProfil.s, this.terrengProfil.z);
-      /**
-       * Taket og gulvet senterlinja må holde seg mellom, REGNET AV SNITTENE.
-       *
-       * DETTE ER GRUNNEN TIL AT «RETT OPP» IKKE KLARTE Å FJERNE BRUDDENE.
-       * Rettingen håndhevet `v.z - terreng(v.s)` – høyden over terrenget PÅ
-       * SENTERLINJA, og bare i knekkpunktene, som standard hver 40. meter.
-       * Merknaden måler noe helt annet: `pr.maksFylling`, den største loddrette
-       * avstanden mellom jordarbeidsflaten og terrenget HVOR SOM HELST i
-       * tverrsnittet, ut til søkebredden, på hvert eneste beregningsprofil.
-       * På en tverrfallende li er de to tallene ikke i nærheten av hverandre:
-       * senterlinja kan ligge i dagen mens ytterkanten av en fem meter bred veg
-       * står tjue meter over bakken. Knappen jaget altså ett tall til det var
-       * innenfor, mens listen talte et annet – og svarte «fant ingen bedre
-       * profil, 81 brudd står som før».
-       *
-       * Rettelsen er å måle det man faktisk håndhever. Senker man vegen én
-       * meter, synker HELE jordarbeidsflaten én meter, og største fylling
-       * synker like mye – til første orden eksakt. Overskuddet er derfor
-       * nøyaktig så mange meter linja må ned:
-       *     tak(s) = dagens kote − (målt fylling − grensen)
-       * og speilvendt for skjæring.
-       *
-       * Hvert profil hører til det NÆRMESTE knekkpunktet, og knekkpunktet får
-       * det verste kravet blant sine. Uten det ville et brudd midt mellom to
-       * knekkpunkt ikke hatt noen å be om å flytte seg.
-       */
-      const grenserFraSnitt = (res, liste) => {
-        if (!res || !res.profiler || !res.profiler.length) return null;
-        const tak = new Map(), gulv = new Map();
-        /* Nærmeste knekkpunkt PÅ LINJA – den låste kopien av punktet bak slutten
-           tar ikke profilene ved slutten med seg, så de ble aldri rettet. */
-        const paa = liste.filter(v => this.paaLinja(v));
-        const naermeste = s => {
-          let best = paa[0], bd = Infinity;
-          for (const v of paa) {
-            const d = Math.abs(v.s - s);
-            if (d < bd) { bd = d; best = v; }
-          }
-          return best;
-        };
-        /* OVERSKUDDET ER EN AVSTAND, IKKE EN KOTE.
-           Første forsøk regnet taket som `profilens kote − overskudd`. Men
-           profilen ligger et stykke fra knekkpunktet, og med ti prosent stigning
-           og tjue meter imellom er de to kotene to meter fra hverandre – taket
-           ble altså gitt til feil høyde. Overskuddet i METER er derimot det
-           samme uansett hvor man står: skal fyllingen ned 7,6 m, skal
-           knekkpunktet ned 7,6 m fra SIN egen kote. */
-        let n = 0;
-        const ned = new Map(), opp = new Map();
-        for (const pr of res.profiler) {
-          const v = naermeste(pr.s);
-          if (!v || v.laast) continue;
-          if (mal.maksFyllingshoyde > 0 && pr.maksFylling > mal.maksFyllingshoyde) {
-            const d = pr.maksFylling - mal.maksFyllingshoyde;
-            if (d > (ned.get(v.s) || 0)) ned.set(v.s, d);
-            n++;
-          }
-          if (mal.maksSkjaeringsdybde > 0 && pr.maksSkjaering > mal.maksSkjaeringsdybde) {
-            const d = pr.maksSkjaering - mal.maksSkjaeringsdybde;
-            if (d > (opp.get(v.s) || 0)) opp.set(v.s, d);
-            n++;
-          }
-        }
-        for (const v of liste) {
-          if (!Number.isFinite(v.z)) continue;
-          if (ned.has(v.s)) tak.set(v.s, v.z - ned.get(v.s));
-          if (opp.has(v.s)) gulv.set(v.s, v.z + opp.get(v.s));
-        }
-        if (!n) return null;
-        return {
-          takVed: s => (tak.has(s) ? tak.get(s) : Infinity),
-          gulvVed: s => (gulv.has(s) ? gulv.get(s) : -Infinity)
-        };
-      };
 
       const rettEnGang = () => {
         /* Profilen slik beregningen ser den, og bare det som er på linja
            flyttes – se `vipIArbeid`. Objektene er de samme som i P.vip. */
         const arbeid = this.vipIArbeid();
         /* Målt snitt om det finnes, terrenghøyde om det ikke gjør det. */
-        const maalt = grenserFraSnitt(sisteGrove || this.resultat, arbeid);
+        const maalt = this.grenserFraSnitt(sisteGrove || this.resultat, arbeid);
         rettProfil(arbeid, Object.assign({
           maksStigningFor: (sA, sB, g, gFor, gEtter) => this.tillattStigning(sA, sB, g, gFor, gEtter),
           // et mellomrom kortere enn profilavstanden ser ikke kontrollen – det skiller ikke to bratte strekk

@@ -193,9 +193,13 @@ const Nettlesertest = {
       'groftRapport',
       'planBeregning', 'planNyttAnlegg', 'planTegnTrase', 'planRediger', 'planFane', 'planProfil', 'planRapport',
       'planForklaring', 'planEksport', 'planEksportSoner', 'planAvvik', 'planTerrengAndre',
-      'vegProfilLengde', 'vegLinjeslutt', 'vegStigningIKurve', 'vegKnapper', 'vegSluttretting', 'lagringOgAngre', 'angreposter', 'grensesnittVeg', 'vegRegler',
+      'vegProfilLengde', 'vegLinjeslutt', 'vegStigningIKurve', 'vegKnapper', 'vegSluttretting', 'lagringOgAngre', 'angreposter', 'grensesnittVeg', 'vegRegler', 'vegRettelser',
       'lovlighet', 'framdrift', 'gamleFilerOgUtskifting', 'opprydding'];
     for (const navn of proever) {
+      /* Det en prøve venter i konsollen, gjelder den – ikke de som kommer
+         etter. Her sto lista hele runden, og en ventet feil ble godtatt i
+         alle prøvene bak. */
+      this._forventet = [];
       try {
         await this.medFrist(() => this[navn]());
       } catch (e) {
@@ -9238,7 +9242,8 @@ const Nettlesertest = {
         RorPlanUI.punktfelt(plan.ror[0].id, plan.traseer[0].punkter[0].id);
         const posterFoerLaas = App.historikk.bakover.length;
         document.getElementById('ppLaas').click();
-        this.sjekk('å låse på nytt uten å endre noe legger ingen angrepost', App.historikk.bakover.length === posterFoerLaas);
+        this.sjekk('å låse på nytt uten å endre noe legger ingen angrepost', App.historikk.bakover.length === posterFoerLaas,
+          `${posterFoerLaas} → ${App.historikk.bakover.length}`);
         clearTimeout(App._tidsavbrudd);
         await App.beregnRor();
         this.sjekk('å låse påkoblingen på nytt gir ikke «treffer» der den er koblet på',
@@ -10305,6 +10310,8 @@ const Nettlesertest = {
    */
   async angreposter() {
     const gammelBekreft = App.bekreft;
+    // tom angreliste å telle i – se vegRettelser; den gamle legges tilbake etterpå
+    const lagretB = App.historikk.bakover.splice(0), lagretF = App.historikk.framover.splice(0);
     try {
       await this._medVeg(async ll => {
         App.P.ip = [ll(0, 0), ll(100, 0), ll(200, 0)];
@@ -10362,8 +10369,34 @@ const Nettlesertest = {
         this.sjekk('veiklassen er en post', sist() === 'veiklasse', sist());
         await App.angre();
 
-        // det åpne prosjektet slettes, så angres noe: navnet kommer ikke tilbake
+        /* Et merke som slippes, tar ingenting med seg: ikke «Gjør om», og ikke
+           den eldste posten når lista er full. */
+        App.P.ip[1].r = 40;
+        App.merk('prøve før angre');
+        App.P.ip[1].r = 50;
+        await App.angre();
+        const fFoer = F.length;
+        App.merk('ingenting');
+        App.slippMerke();
+        this.sjekk('et merke som slippes, lar «Gjør om» stå', F.length === fFoer && fFoer > 0, `${fFoer} → ${F.length}`);
+        await App.gjorOm();
+        this.sjekk('  og «Gjør om» virker etterpå', App.P.ip[1].r === 50, String(App.P.ip[1].r));
+        const lagret = B.splice(0);
+        try {
+          for (let i = 0; i < App.historikk.grense; i++) B.push({ tekst: '{"prøve":' + i + '}', hva: 'post ' + i });
+          App.merk('ingenting');
+          App.slippMerke();
+          this.sjekk('med full liste tar et merke som slippes, ikke med seg den eldste posten',
+            B.length === App.historikk.grense && B[0].hva === 'post 0', `${B.length}, ${B[0] && B[0].hva}`);
+        } finally {
+          B.splice(0, B.length, ...lagret);
+        }
+
+        /* det åpne prosjektet slettes, så angres noe: navnet kommer ikke tilbake.
+           Prosjektet må hete noe annet enn «Nytt prosjekt» FØR merket – her het
+           det det alt, og prøven kunne ikke feile. */
         const navn = App.P.navn;
+        App.P.navn = 'Prøveveg';
         App.merk('prøve før sletting');
         App.P.ip[1].r = 30;
         App.P.navn = 'Nytt prosjekt';           // det slettingen gjør med det åpne prosjektet
@@ -10373,6 +10406,9 @@ const Nettlesertest = {
       });
     } finally {
       App.bekreft = gammelBekreft;
+      App.historikk.bakover.splice(0, App.historikk.bakover.length, ...lagretB);
+      App.historikk.framover.splice(0, App.historikk.framover.length, ...lagretF);
+      App.visAngreknapper();
     }
   },
 
@@ -10423,6 +10459,218 @@ const Nettlesertest = {
       });
     } finally {
       App.bekreft = gammelBekreft;
+    }
+  },
+
+  /**
+   * Rettelsene i vegdelen som bare kan prøves i appen – hver med en prøve som
+   * feiler om rettelsen tas bort. Gjennomgangen tok dem bort én og én og
+   * kjørte vegprøvene: atten gikk gjennom uten at noe merket det.
+   */
+  async vegRettelser() {
+    const gammelBekreft = App.bekreft;
+    /* Angrelista tømmes først og legges tilbake etterpå. I hele runden er den
+       full (60) når prøven kommer hit, og da vokser den ikke – «én ny post»
+       kan ikke telles, og en post for mye skyver bare ut den eldste. */
+    const B = App.historikk.bakover, F = App.historikk.framover;
+    const lagretB = B.splice(0), lagretF = F.splice(0);
+    try {
+      await this._medVeg(async ll => {
+        App.P.ip = [ll(0, 0), ll(100, 0), ll(200, 0)];
+        App.P.vip = [{ s: 0, z: 101, k: 1 }, { s: 100, z: 102, k: 1 }, { s: 200, z: 101, k: 1 }];
+        clearTimeout(App._tidsavbrudd);
+        await App.oppdater();
+        const lengde = App.linje.lengde;
+        const omregn = async () => { clearTimeout(App._tidsavbrudd); await App.oppdater(); };
+
+        // angre hopper over en post som er lik det som står, og tar den før
+        App.merk('ekte');
+        App.P.vip[1].z = 103;
+        B.push({ tekst: App._bilde(), hva: 'tom' });
+        await App.angre();
+        this.sjekk('angre hopper over en post som er lik det som står', App.P.vip[1].z === 102, String(App.P.vip[1].z));
+        // et navnebytte alene er ingen endring for angrelista
+        App.merk('før navnebytte');
+        const nNavn = B.length;
+        App.P.navn = 'Prøveveg omdøpt';
+        App.merk('etter navnebytte');
+        this.sjekk('et navnebytte alene gir ingen ny angrepost', B.length === nNavn, `${nNavn} → ${B.length}`);
+        App.P.navn = 'Nytt prosjekt';
+
+        // Hev/Senk: er bare et punkt bak slutten ulåst, er det ingen veg å flytte
+        App.P.vip = [{ s: 0, z: 101, k: 1, laast: true }, { s: 100, z: 102, k: 1, laast: true },
+          { s: lengde, z: 101, k: 1, laast: true }, { s: lengde + 30, z: 99, k: 1 }];
+        const nHev = B.length;
+        App.flyttProfil(0.5);
+        this.sjekk('Hev/Senk med alt på linja låst flytter ikke punktet bak slutten', App.P.vip[3].z === 99 && B.length === nHev,
+          `${App.P.vip[3].z}, ${nHev} → ${B.length}`);
+        // to punkt bak slutten på samme profilnummer: det siste gjelder, som i beregningen
+        App.P.vip = [{ s: 0, z: 101, k: 1 }, { s: 100, z: 102, k: 1 }, { s: lengde + 30, z: 98, k: 1 }, { s: lengde + 30, z: 99, k: 1 }];
+        const arbeid = App.vipIArbeid();
+        this.sjekk('«Rett opp» bruker det siste av to punkt bak slutten', arbeid.length === 3 && arbeid[2].z === 99 && arbeid[2].laast === true,
+          JSON.stringify(arbeid.map(v => [v.s, v.z, !!v.laast])));
+        // profilene ved slutten hører til det siste punktet PÅ linja – ikke den låste kopien bak
+        App.P.vip = [{ s: 0, z: 101, k: 1 }, { s: 100, z: 102, k: 1 }, { s: lengde + 10, z: 103, k: 1 }];
+        const fyllFoer = App.P.mal.maksFyllingshoyde;
+        App.P.mal.maksFyllingshoyde = 1;
+        const grenser = App.grenserFraSnitt({ profiler: [{ s: lengde - 2, maksFylling: 3, maksSkjaering: 0 }] }, App.vipIArbeid());
+        App.P.mal.maksFyllingshoyde = fyllFoer;
+        this.sjekk('profilene ved slutten gir taket til det siste punktet på linja', !!grenser && Math.abs(grenser.takVed(100) - 100) < 1e-9,
+          grenser ? String(grenser.takVed(100)) : 'ingen grenser');
+
+        // «Rett opp» med alt låst og ingen brudd: ingen angrepost
+        App.P.vip = [{ s: 0, z: 100, k: 1, laast: true }, { s: 100, z: 100, k: 1, laast: true }, { s: 200, z: 100, k: 1, laast: true }];
+        await omregn();
+        const nRett = B.length;
+        await App.rettOpp();
+        this.sjekk('«Rett opp» med alt låst og ingen brudd legger ingen angrepost', B.length === nRett, `${nRett} → ${B.length}`);
+        // «Rett opp» sier til rettingen at et mellomrom kortere enn profilavstanden ikke skiller to bratte strekk
+        App.P.vip = [{ s: 0, z: 100, k: 1 }, { s: 100, z: 115, k: 1 }, { s: 200, z: 100, k: 1 }];
+        await omregn();
+        const ekteRett = window.rettProfil;
+        let nabo = null;
+        window.rettProfil = (vip, o) => { if (nabo == null) nabo = o.naboGjennom; return ekteRett(vip, o); };
+        App.bekreft = async () => true;
+        try { await App.rettOpp(); } finally { window.rettProfil = ekteRett; }
+        this.sjekk('«Rett opp» gir rettingen profilavstanden som naboGjennom', nabo === (App.P.profilAvstand || 5), String(nabo));
+        // «Optimaliser» regner utgangspunktet før den teller bruddene
+        App.P.vip = [{ s: 0, z: 100, k: 1 }, { s: 100, z: 115, k: 1 }, { s: 200, z: 100, k: 1 }];
+        await omregn();
+        const ekteBeregn = App.beregn, ekteTell = App.tellBrudd;
+        let regnet = false, foerTelling = null;
+        App.beregn = function (...a) { regnet = true; return ekteBeregn.apply(this, a); };
+        App.tellBrudd = function (...a) { if (foerTelling == null) foerTelling = regnet; return ekteTell.apply(this, a); };
+        try { await App.optimaliser(); } finally { App.beregn = ekteBeregn; App.tellBrudd = ekteTell; }
+        this.sjekk('«Optimaliser» regner utgangspunktet før den teller bruddene', foerTelling === true, String(foerTelling));
+
+        // «Punkthøyder tilbake til malen» der ingenting er satt: ingen angrepost
+        App.P.vip = [{ s: 0, z: 101, k: 1 }, { s: 100, z: 102, k: 1 }, { s: 200, z: 101, k: 1 }];
+        App.P.tverrfall = [];
+        await omregn();
+        App.tverrStasjon = 50;
+        const nPunkt = B.length;
+        App.nullstillPunkthoyder();
+        this.sjekk('punkthøydene tilbake der ingenting er satt, legger ingen angrepost', B.length === nPunkt, `${nPunkt} → ${B.length}`);
+        // høydetabellen: et tomt profilnummer endrer ingenting
+        App.visHoydetabell();
+        const nTab = B.length;
+        const fS = document.querySelectorAll('#hoydeTabell tbody tr')[1].querySelectorAll('input[type=number]')[0];
+        fS.value = ''; fS.dispatchEvent(new Event('change'));
+        this.sjekk('et tomt profilnummer i høydetabellen endrer ingenting', App.P.vip.every(v => Number.isFinite(v.s)) && B.length === nTab,
+          JSON.stringify(App.P.vip.map(v => v.s)));
+        // linjetabellen: et tomt radiusfelt er ikke radius 0
+        App.P.ip[1].r = 30;
+        App.byggLinje();
+        App.visLinjetabell();
+        const nRad = B.length;
+        const fr = document.querySelectorAll('#ipTabell tbody tr')[1].querySelector('input');
+        fr.value = ''; fr.dispatchEvent(new Event('change'));
+        this.sjekk('et tomt radiusfelt lar radien stå', App.P.ip[1].r === 30 && B.length === nRad, String(App.P.ip[1].r));
+        App.P.ip[1].r = 0;
+        await omregn();
+        // prosjektsummen har slitelaget som må kjøpes
+        const ps = App.prosjektsum();
+        const slitelag = App.resultat.balanse.slitelagKjopes;
+        this.sjekk('prosjektsummen har slitelaget som må kjøpes', slitelag > 0 && Math.abs(ps.slitelagKjopes - slitelag) < 1e-6,
+          `${ps.slitelagKjopes} / ${slitelag}`);
+
+        // å dra en høyde i lengdeprofilen er én angrepost
+        const lp = document.getElementById('lengdeprofil');
+        const rl = lp.getBoundingClientRect();
+        const pv = Lengdeprofil.tilSkjerm(100, App.P.vip[1].z);
+        const nDra = B.length;
+        const mus = (type, dy, mal) => mal.dispatchEvent(new MouseEvent(type, { clientX: rl.left + pv.x, clientY: rl.top + pv.y + dy, bubbles: true }));
+        mus('mousedown', 0, lp);
+        mus('mousemove', -15, window);
+        mus('mousemove', -25, window);
+        mus('mouseup', -25, window);
+        this.sjekk('å dra en høyde i lengdeprofilen er én angrepost', B.length === nDra + 1 && B[B.length - 1].hva === 'dro en høyde i lengdeprofilen',
+          `${nDra} → ${B.length} ${B.length ? B[B.length - 1].hva : ''}`);
+        await omregn();
+
+        // et nytt knekkpunkt tar ikke radien fra naboen
+        App.P.ip = [ll(0, 0), ll(100, 0), ll(100, 100)];
+        App.P.ip[1].r = 30;
+        App.P.standardRadius = 40;
+        App.byggLinje();
+        const nytt = ll(70, 5);
+        Kart.settInnPunkt(L.latLng(nytt.lat, nytt.lon), 40);
+        App.byggLinje();
+        const rNabo = App.linje.oppnaddeRadier(App.P.ip.length)[2];
+        this.sjekk('et nytt knekkpunkt tar ikke mer enn en fjerdedel av naboens radius', App.P.ip.length === 4 && rNabo >= 22.5,
+          `${App.P.ip.length} punkt, naboen R = ${rNabo}`);
+        App.P.ip = [ll(0, 0), ll(100, 0), ll(200, 0)];
+        await omregn();
+
+        // tverrsnittet: et hull i terrenget males bort, og avlesningen bak terrenglista sier at data mangler
+        const res = App.resultat;
+        let pr = res.profiler[Math.floor(res.profiler.length / 2)];
+        if (!pr.geometri && res.geometriFor) pr = res.geometriFor(pr.s);
+        const kopi = Object.assign({}, pr, { geometri: Object.assign({}, pr.geometri) });
+        kopi.geometri.terreng = pr.geometri.terreng.filter(([t]) => !(t > -1 && t < 1.5) && t <= pr.fotHoyre - 1);
+        const c = Tverrprofil.ctx;
+        const firkanter = [], tekster = [];
+        c.fillRect = function (x, y, w, h) { firkanter.push({ stil: this.fillStyle, x, w, h }); return CanvasRenderingContext2D.prototype.fillRect.call(this, x, y, w, h); };
+        c.fillText = function (t, x, y, ...r) { tekster.push(String(t)); return CanvasRenderingContext2D.prototype.fillText.call(this, t, x, y, ...r); };
+        const forrigeProfil = Tverrprofil.profil;
+        try {
+          Tverrprofil.peker = null;
+          Tverrprofil.profil = kopi;
+          Tverrprofil.tegn();
+          const k = Tverrprofil._kart;
+          const flate = (() => { const cc = document.createElement('canvas').getContext('2d'); cc.fillStyle = Farger.flate; return cc.fillStyle; })();
+          // akkurat over hullet, i hele tegningens høyde – tallene på aksene har også flatefarge under seg
+          const [hull] = Tverrprofil._hullene(kopi.geometri.terreng);
+          this.sjekk('et hull i terrenget males bort i tverrsnittet', !!k && !!hull && firkanter.some(q => q.stil === flate
+            && Math.abs(q.x - k.px(hull[0])) < 0.5 && Math.abs(q.w - (k.px(hull[1]) - k.px(hull[0]))) < 0.5
+            && Math.abs(q.h - (k.H - k.m.u - k.m.o)) < 0.5),
+          `hull ${JSON.stringify(hull)}; ` + firkanter.filter(q => q.stil === flate).map(q => `${Math.round(q.x)}+${Math.round(q.w)}×${Math.round(q.h)}`).join(', '));
+          const tBak = kopi.geometri.terreng[kopi.geometri.terreng.length - 1][0] + 0.5;
+          Tverrprofil.peker = { x: k.px(tBak), y: (k.m.o + k.H - k.m.u) / 2 };
+          tekster.length = 0;
+          Tverrprofil.tegn();
+          this.sjekk('avlesningen forbi enden av terrenglista, innenfor foten, sier at data mangler',
+            tekster.some(t => /mangler data her/.test(t)), tekster.slice(-6).join(' | '));
+        } finally {
+          delete c.fillRect; delete c.fillText;
+          Tverrprofil.peker = null; Tverrprofil.profil = forrigeProfil;
+        }
+
+        // PDF-avlesningen: et klikk treffer der det pekes, også med en ramme rundt tegneflaten
+        const dlg = document.getElementById('pdfdialog'), pl = document.getElementById('pdflerret');
+        const varSkjult = dlg.classList.contains('skjult'), ramme = pl.style.border, vis = PdfUI.vis;
+        try {
+          dlg.classList.remove('skjult');
+          pl.style.border = '3px solid black';
+          PdfUI.vis = { skala: 2, dx: 10, dy: 300 };
+          const q = PdfUI.tilSkjerm({ x: 50, y: 40 });
+          const rr = pl.getBoundingClientRect();
+          const tilbake = PdfUI.fraSkjerm({ clientX: rr.left + pl.clientLeft + q.x, clientY: rr.top + pl.clientTop + q.y });
+          // rammen er hele piksler på skjermen – 3 px kan bli 2 når vinduet er skalert
+          this.sjekk('et klikk i PDF-en treffer der det pekes, også innenfor en ramme', pl.clientLeft > 0
+            && Math.abs(tilbake.x - 50) < 1e-6 && Math.abs(tilbake.y - 40) < 1e-6, `${pl.clientLeft} px ramme: ${JSON.stringify(tilbake)}`);
+        } finally {
+          if (varSkjult) dlg.classList.add('skjult');
+          pl.style.border = ramme; PdfUI.vis = vis;
+        }
+
+        // et felt som lages i koden uten id, får en – og etiketten setter markøren der
+        const ytre = document.createElement('div');
+        ytre.innerHTML = '<div class="felt"><label>Prøvefelt</label><input type="number"></div>';
+        document.body.appendChild(ytre);
+        try {
+          App.kobleEtiketter(ytre);
+          const inn = ytre.querySelector('input');
+          ytre.querySelector('label').click();
+          this.sjekk('et felt uten id får en, og et klikk på etiketten setter markøren der',
+            !!inn.id && inn.labels.length === 1 && document.activeElement === inn, inn.id || 'ingen id');
+        } finally { ytre.remove(); }
+      });
+    } finally {
+      App.bekreft = gammelBekreft;
+      B.splice(0, B.length, ...lagretB);
+      F.splice(0, F.length, ...lagretF);
+      App.visAngreknapper();
     }
   },
 

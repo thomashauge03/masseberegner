@@ -88,7 +88,12 @@ class NodeTerreng {
   linje.advarsler.forEach(a => console.log('  ! ' + a.tekst));
 
   const terreng = new NodeTerreng(sone);
-  const mal = Object.assign({}, M.StandardMal);
+  /* Demoen er et lagret prosjekt, og den beholder bredden sin: 4,5 m veg og
+     4,0 m slitelag, slik den ble laget. Standardmalen er nå klasse 5 (4,0 og
+     3,5), og her ble demoen skrevet om med den – andre masser i demoen bare
+     fordi noen kjørte skriptet. */
+  const mal = Object.assign({}, M.StandardMal, { vegbredde: 4.5, slitelagBredde: 4 });
+  delete mal.kortStrekk;          // fylles inn fra klassen når prosjektet åpnes
   const antall = await terreng.last(linje, mal.maksSokebredde + 12);
   console.log(`Terrengfliser: ${antall}`);
 

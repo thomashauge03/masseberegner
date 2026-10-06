@@ -25,6 +25,12 @@
  * har ingen grenser å hoppe over, gir aldri mer enn strekket har, og gir samme
  * svar uansett hvilken ende linja tegnes fra.
  *
+ * ET STREKK MED PLASS TIL BEGGE ENDENE SINE, FYLLES ALDRI, og skiller det som
+ * ligger på hver side: bitene deles hver for seg, med samme svar. Her gikk
+ * hver runde over hele linja – kvadratisk i antall punkt, 104 ms på 2 000.
+ * Et uendelig langt strekk er et slikt skille; her talte det som fullt
+ * (∞ − x ≤ ∞) og stoppet endene sine.
+ *
  * @param {number[]} onsket  det hvert punkt ber om (0 = ingen kurve)
  * @param {number[]} plass   plassen på strekket mellom punkt k og k+1 (lengde n−1)
  * @returns {number[]} det hvert punkt får, aldri mer enn det ba om
@@ -32,26 +38,34 @@
 function delPlass(onsket, plass) {
   const n = onsket.length;
   const fatt = new Array(n).fill(0);
-  const aktiv = onsket.map(o => o > 0);
+  const vil = i => (onsket[i] > 0 ? onsket[i] : 0);
   const P = k => (plass[k] > 0 ? plass[k] : 0);
-  // hver runde stopper minst ett punkt, så det er aldri flere runder enn punkt
-  for (let runde = 0; runde <= n; runde++) {
-    if (!aktiv.some(Boolean)) break;
-    // hvor mye alle som ennå er med, kan få til – før noen er mette eller et strekk er fullt
-    let d = Infinity;
-    for (let i = 0; i < n; i++) if (aktiv[i]) d = Math.min(d, onsket[i] - fatt[i]);
-    for (let k = 0; k + 1 < n; k++) {
-      const m = (aktiv[k] ? 1 : 0) + (aktiv[k + 1] ? 1 : 0);
-      if (m) d = Math.min(d, (P(k) - fatt[k] - fatt[k + 1]) / m);
+  const fullt = k => P(k) - fatt[k] - fatt[k + 1] <= 1e-12 * Math.max(1, P(k));
+  const aktiv = new Uint8Array(n);
+  // punktene a..b, med strekkene a..b−1 mellom seg
+  const delBit = (a, b) => {
+    for (let i = a; i <= b; i++) aktiv[i] = vil(i) > 0 ? 1 : 0;
+    // hver runde stopper minst ett punkt, så det er aldri flere runder enn punkt
+    for (let runde = 0; runde <= b - a + 1; runde++) {
+      let d = Infinity;
+      // hvor mye alle som ennå er med, kan få til – før noen er mette eller et strekk er fullt
+      for (let i = a; i <= b; i++) if (aktiv[i]) d = Math.min(d, onsket[i] - fatt[i]);
+      if (d === Infinity) return;                 // ingen er med lenger
+      for (let k = a; k < b; k++) {
+        const m = (aktiv[k] ? 1 : 0) + (aktiv[k + 1] ? 1 : 0);
+        if (m) d = Math.min(d, (P(k) - fatt[k] - fatt[k + 1]) / m);
+      }
+      d = Math.max(0, d);
+      for (let i = a; i <= b; i++) if (aktiv[i]) fatt[i] += d;
+      for (let i = a; i <= b; i++) {
+        if (aktiv[i] && fatt[i] >= onsket[i] - 1e-12) { fatt[i] = onsket[i]; aktiv[i] = false; }
+      }
+      for (let k = a; k < b; k++) if (fullt(k)) { aktiv[k] = false; aktiv[k + 1] = false; }
     }
-    d = Math.max(0, d);
-    for (let i = 0; i < n; i++) if (aktiv[i]) fatt[i] += d;
-    for (let i = 0; i < n; i++) {
-      if (aktiv[i] && fatt[i] >= onsket[i] - 1e-12) { fatt[i] = onsket[i]; aktiv[i] = false; }
-    }
-    for (let k = 0; k + 1 < n; k++) {
-      if (P(k) - fatt[k] - fatt[k + 1] <= 1e-12 * Math.max(1, P(k))) { aktiv[k] = false; aktiv[k + 1] = false; }
-    }
+  };
+  let a = 0;
+  for (let k = 0; k < n; k++) {
+    if (k === n - 1 || P(k) >= vil(k) + vil(k + 1)) { delBit(a, k); a = k + 1; }
   }
   return fatt;
 }

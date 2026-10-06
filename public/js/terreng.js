@@ -294,4 +294,4 @@ class Terreng {
   }
 }
 
-if (typeof module !== 'undefined') module.exports = { Terreng, FLIS_M };
+if (typeof module !== 'undefined') module.exports = { Terreng, FLIS_M, pakkOppFlis };

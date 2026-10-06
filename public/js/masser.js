@@ -2267,6 +2267,7 @@ function beregnMasser(o) {
   {
     const V = profil.vip || [];
     const kurveVed = new Map((profil.kurver || []).map(c => [c.vip, c]));
+    const smale = [];
     for (let i = 0; i + 1 < V.length; i++) {
       const a = Math.max(0, V[i].s + (kurveVed.has(i) ? kurveVed.get(i).L / 2 : 0));
       const b = Math.min(linje.lengde, V[i + 1].s - (kurveVed.has(i + 1) ? kurveVed.get(i + 1).L / 2 : 0));
@@ -2274,23 +2275,25 @@ function beregnMasser(o) {
       // et profil som leser NETTOPP dette strekkets stigning – et profil på knekkpunktet leser strekket før
       const g = profil.stigninger[i];
       if (profiler.some(pr => pr.s >= a - 1e-9 && pr.s <= b + 1e-9 && Math.abs(profil.stigning(pr.s) - g) < 1e-9)) continue;
-      /* Med profilene på hver side, så unntaket for korte rettstrekk ser hele
-         det bratte stykket – ikke bare det ene punktet midt i strekket. */
-      const midt = (a + b) / 2;
-      let foran = null, bak = null;
-      for (const pr of profiler) {
-        if (pr.s < a - 1e-9) foran = pr.s;
-        else if (pr.s > b + 1e-9 && bak == null) bak = pr.s;
+      smale.push({ i, midt: (a + b) / 2 });
+    }
+    /* MED ALLE PROFILENE RUNDT, så unntaket for korte rettstrekk ser hele det
+       bratte stykket strekket er en del av. Her ble det vurdert med bare
+       profilet på hver side: et bratt stykke på hundre meter så ut som tjue,
+       og fikk tillegget for korte rettstrekk. */
+    if (smale.length) {
+      const sted = profiler.map(p => p.s).concat(smale.map(x => x.midt)).sort((x, y) => x - y);
+      const krav = stigningskrav(linje, mal, profil, sted);
+      for (const { i, midt } of smale) {
+        const k = krav[sted.indexOf(midt)];
+        if (Math.abs(k.stigning) <= k.maks + 1e-4) continue;
+        merknader.push({
+          s: midt, type: 'stigning', verdi: Math.abs(k.stigning) * 100, enhet: '%', vaerst: 'stor',
+          tekst: `Stigning ${kom(Math.abs(k.stigning) * 100, 1)} % på et strekk på ${kom(V[i + 1].s - V[i].s, 2)} m `
+            + `mellom profilene overstiger ${kom(k.maks * 100, 0)} % – to høyder ligger for tett`,
+          raad: { type: 'stigning', maks: k.maks }
+        });
       }
-      const sted = [foran, midt, bak].filter(v => v != null);
-      const k = stigningskrav(linje, mal, profil, sted)[sted.indexOf(midt)];
-      if (Math.abs(k.stigning) <= k.maks + 1e-4) continue;
-      merknader.push({
-        s: (a + b) / 2, type: 'stigning', verdi: Math.abs(k.stigning) * 100, enhet: '%', vaerst: 'stor',
-        tekst: `Stigning ${kom(Math.abs(k.stigning) * 100, 1)} % på et strekk på ${kom(V[i + 1].s - V[i].s, 2)} m `
-          + `mellom profilene overstiger ${kom(k.maks * 100, 0)} % – to høyder ligger for tett`,
-        raad: { type: 'stigning', maks: k.maks }
-      });
     }
   }
 

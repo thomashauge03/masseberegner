@@ -99,13 +99,13 @@ class Linjeforing {
       data[i] = { inn, ut, avbøy };
     }
 
-    /* 2) DEL PLASSEN PÅ HVERT STREKK – DEN MINSTE FÅR DET DEN TRENGER.
+    /* 2) DEL PLASSEN PÅ HVERT STREKK – LIKT.
        Her ble begge tangentene skalert ned med samme faktor når de ikke fikk
-       plass. En kurve brukeren hadde prosjektert riktig – R = 60 på et ben på
-       100 m – ble ødelagt fordi naboen ba om R = 200: begge fikk 38 %, og R = 60
-       ble 23. Det fantes en fordeling der den beholdt hele radien.
-       Nå tar knekkpunktene for seg i rekkefølge etter hvor mye de ber om, den
-       minste først – se plassdeling.js, som lengdeprofilen deler med. */
+       plass: R = 60 på et ben på 100 m ble 23 fordi naboen ba om R = 200.
+       Nå deles det likt – se plassdeling.js, som lengdeprofilen deler med. Den
+       som ber om mindre enn sin del, får alt; to som begge ber om mer enn
+       strekket har, får halvparten hver, så R = 60 ved siden av R = 200 på
+       100 m blir 50 og 50. */
     const onsket = tangent.slice();
     const plass = [];
     for (let i = 0; i < nP - 1; i++) plass.push(avstand(P[i], P[i + 1]) * 0.999);
@@ -141,6 +141,7 @@ class Linjeforing {
           + `(bare ${r.toFixed(2)} m ble igjen av radien) – punktet er satt som skarp knekk.`
       });
     }
+    this._tangent = tangent;          // det hver kurve fikk – hjørnene får det som er igjen
 
     // 3) Bygg elementlisten
     let s = 0;
@@ -247,22 +248,29 @@ class Linjeforing {
    * Skarpe hjørner som betyr noe – over én grads avbøyning – regnet én gang,
    * sortert på stasjon.
    *
-   * `rEkv` er radien til den største kurven som ville fått plass med halve det
-   * korteste benet som tangent. Det er den svingen vegen minst må ha der. Her
-   * talte hvert hjørne som radius 0, og et knekk på to grader i en innmålt
-   * trasé fikk stigningskravet og breddeutvidelsen til en hårnål: med førti
-   * slike punkt ble det 195 stigningsbrudd og tre fjerdedeler mer skjæring.
+   * `rEkv` er radien til den største kurven som ville fått plass i hjørnet. Det
+   * er den svingen vegen minst må ha der. Her talte hvert hjørne som radius 0,
+   * og et knekk på to grader i en innmålt trasé fikk stigningskravet og
+   * breddeutvidelsen til en hårnål: med førti slike punkt ble det 195
+   * stigningsbrudd og tre fjerdedeler mer skjæring.
+   *
+   * PLASSEN ER DET NABOEN LAR LIGGE. På hvert ben har hjørnet det kurven i
+   * andre enden ikke bruker – halve benet når det er et hjørne eller en ende
+   * der. Her fikk hjørnet alltid halve det korteste benet, også ved siden av
+   * en kurve som tok nesten hele: 20 m av et ben på 40 der R = 300 brukte
+   * 39,96, og hjørnet ble regnet slakere enn det er plass til.
    */
   hjorner() {
     if (!this._hjorner) {
-      const P = this.ip;
+      const P = this.ip, T = this._tangent || [];
+      const ledig = (i, j) => (T[j] > 0 ? avstand(P[i], P[j]) - T[j] : avstand(P[i], P[j]) / 2);
       this._hjorner = this.skarpeHjorner()
         .filter(h => Math.abs(h.avboy) * 180 / Math.PI >= 1 && Number.isFinite(h.s))
         .map(h => {
           const i = P.findIndex(p => p.kilde === h.kilde);
-          const ben = i > 0 && i < P.length - 1 ? Math.min(avstand(P[i - 1], P[i]), avstand(P[i], P[i + 1])) : 0;
+          const tangent = i > 0 && i < P.length - 1 ? Math.max(0, Math.min(ledig(i, i - 1), ledig(i, i + 1))) : 0;
           const t = Math.tan(Math.abs(h.avboy) / 2);
-          return Object.assign({}, h, { rEkv: t > 1e-12 ? (ben / 2) / t : Infinity });
+          return Object.assign({}, h, { rEkv: t > 1e-12 ? tangent / t : Infinity });
         })
         .sort((x, y) => x.s - y.s);
     }

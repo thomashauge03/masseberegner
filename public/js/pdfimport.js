@@ -93,7 +93,8 @@ const PdfImport = {
       let innhold = null;
       if (!filtre.length) innhold = new TextDecoder('latin1').decode(bytes.subarray(start, slutt));
       else if (filtre.length === 1 && /^\/(FlateDecode|Fl)$/.test(filtre[0])) innhold = await this.pakkUt(bytes.subarray(start, slutt));
-      if (innhold) ut.push({ nr: hode ? +hode[1] : NaN, gen: hode ? +hode[2] : 0, ordbok, tekst: innhold });
+      // `pos`: hvor i fila strømmen står – en senere utgave av et objekt vinner (se objektIndeks)
+      if (innhold) ut.push({ nr: hode ? +hode[1] : NaN, gen: hode ? +hode[2] : 0, ordbok, tekst: innhold, pos: s });
     }
     return ut;
   },
@@ -137,11 +138,23 @@ const PdfImport = {
 
     const bruk = (px, py) => ({ x: m[0] * px + m[2] * py + m[4], y: m[1] * px + m[3] * py + m[5] });
     const avsluttDel = () => { if (bane.length > 1) sti.push(bane); bane = []; };
-    const lukkDel = () => { if (bane.length > 1) { bane.lukket = true; bane.push({ x: bane[0].x, y: bane[0].y }); } };
+    /* `h` LUKKER DELBANEN DEN STÅR I – ÉN GANG. Etterpå står pennen i
+       startpunktet, og en strek derfra er en ny delbane, slik PDF sier. Her
+       fikk «h b» og «h s» sluttpunktet to ganger, en strek etter `h` fortsatte
+       den lukkede banen, og `s` merket alle delbanene i stien som lukket – men
+       `s` er «h S» og lukker bare den siste. */
+    const lukkDel = () => {
+      if (bane.length < 2) return;
+      const start = bane[0];
+      bane.lukket = true;
+      bane.push({ x: start.x, y: start.y });
+      avsluttDel();
+      bane = [{ x: start.x, y: start.y }];
+    };
     const mal = (lukk, fyll, tegnes = true) => {
       if (lukk) lukkDel();
       avsluttDel();
-      if (tegnes) for (const b of sti) { if (lukk) b.lukket = true; if (fyll) b.fylt = true; baner.push(b); }
+      if (tegnes) for (const b of sti) { if (fyll) b.fylt = true; baner.push(b); }
       sti = [];
     };
     const avslutt = () => mal(false, false);
@@ -273,21 +286,31 @@ const PdfImport = {
   },
 
   /**
-   * Objektene i fila: nummer → teksten mellom «N G obj» og «endobj». Den
-   * siste definisjonen gjelder – en oppdatert PDF legger nye utgaver bak de
-   * gamle. Objekter i en objektstrøm (/Type /ObjStm) er med, så sider og
-   * ressurser som ligger komprimert, også blir funnet.
+   * Objektene i fila: nummer → teksten mellom «N G obj» og «endobj», i den
+   * rekkefølgen de står i fila. Den siste definisjonen gjelder – en oppdatert
+   * PDF legger nye utgaver bak de gamle. Objekter i en objektstrøm
+   * (/Type /ObjStm) er med, så sider og ressurser som ligger komprimert, også
+   * blir funnet.
+   *
+   * OGSÅ EN OBJEKTSTRØM ER EN UTGAVE, med sin plass i fila. Her ble objektene
+   * i strømmene bare lagt til der nummeret ikke fantes fra før: en side som
+   * Acrobat hadde skrevet på nytt i en ny objektstrøm bakerst, tapte for den
+   * gamle utgaven foran.
    */
   objektIndeks(tekst, objekter) {
-    const indeks = new Map();
+    const indeks = new Map(), hvor = new Map();
+    const sett = (nr, kropp, pos) => {
+      if (hvor.has(nr) && hvor.get(nr) > pos) return;
+      indeks.set(nr, kropp);
+      hvor.set(nr, pos);
+    };
     const re = /(\d+)\s+(\d+)\s+obj\b/g;
     let m;
     while ((m = re.exec(tekst)) !== null) {
       const start = m.index + m[0].length;
       const slutt = tekst.indexOf('endobj', start);
       if (slutt === -1) break;
-      indeks.delete(+m[1]);                       // så rekkefølgen er der den siste står
-      indeks.set(+m[1], tekst.slice(start, slutt));
+      sett(+m[1], tekst.slice(start, slutt), m.index);
       re.lastIndex = slutt + 6;
     }
     for (const o of objekter) {
@@ -299,18 +322,42 @@ const PdfImport = {
       for (let k = 0; k < N; k++) {
         const nr = par[2 * k], fra = par[2 * k + 1];
         const til = k + 1 < N ? par[2 * k + 3] : o.tekst.length - forst;
-        if (Number.isFinite(nr) && Number.isFinite(fra) && !indeks.has(nr)) indeks.set(nr, o.tekst.slice(forst + fra, forst + til));
+        // objektene i en strøm står der strømmen står, i sin rekkefølge
+        if (Number.isFinite(nr) && Number.isFinite(fra)) sett(nr, o.tekst.slice(forst + fra, forst + til), (o.pos || 0) + k / (N + 1));
       }
     }
-    return indeks;
+    return new Map([...indeks].sort((a, b) => hvor.get(a[0]) - hvor.get(b[0])));
   },
 
-  /** Ordboken som begynner med «<<» ved `i`, til og med sin «>>». */
+  /**
+   * Ordboken som begynner med «<<» ved `i`, til og med sin «>>».
+   *
+   * TEKST TELLER IKKE. En «>>» inne i en tekststreng – `/Title (a >> b)` –
+   * avsluttet ordboken før tiden, og siden falt bort uten et ord. Strenger
+   * (med nøstede parenteser og \-tegn), heksstrenger og kommentarer hoppes
+   * over.
+   */
   _ordbok(t, i) {
-    let dybde = 0;
-    for (let k = i; k < t.length - 1; k++) {
-      if (t[k] === '<' && t[k + 1] === '<') { dybde++; k++; }
-      else if (t[k] === '>' && t[k + 1] === '>') { dybde--; k++; if (dybde === 0) return t.slice(i, k + 1); }
+    let dybde = 0, k = i;
+    while (k < t.length) {
+      const c = t[k];
+      if (c === '(') {
+        let n = 1;
+        for (k++; k < t.length && n > 0; k++) {
+          if (t[k] === '\\') k++;
+          else if (t[k] === '(') n++;
+          else if (t[k] === ')') n--;
+        }
+      } else if (c === '%') {
+        while (k < t.length && t[k] !== '\n' && t[k] !== '\r') k++;
+      } else if (c === '<' && t[k + 1] === '<') { dybde++; k += 2; }
+      else if (c === '<') {
+        const e = t.indexOf('>', k + 1);
+        k = e < 0 ? t.length : e + 1;
+      } else if (c === '>' && t[k + 1] === '>') {
+        dybde--; k += 2;
+        if (dybde === 0) return t.slice(i, k);
+      } else k++;
     }
     return t.slice(i);
   },
@@ -478,10 +525,17 @@ const PdfImport = {
     if (punkt[punkt.length - 1].s < punkt[0].s) punkt = punkt.reverse();
     /* Et tilbakesteg på under en halv tegneenhet er tegneprogrammets
        avrunding, ikke en linje som snur – det sorteres bort. Her avviste en
-       hundredels punkt hele linja. */
+       hundredels punkt hele linja.
+       MÅLT MOT DET LENGSTE LINJA HAR NÅDD, ikke mot punktet før: tre hundre
+       små steg på 0,3 tilbake – 90 enheter i alt – slapp gjennom ett og ett,
+       og ble sortert inn i linja. */
     const slakk = 0.5 * Math.abs(sPerX);
-    if (punkt.some((p, i) => i && p.s < punkt[i - 1].s - slakk - 1e-9)) {
-      return { punkt: [], feil: 'Linja du valgte går fram og tilbake – den er en flate eller to linjer i én. Velg en annen.' };
+    let lengst = -Infinity;
+    for (const p of punkt) {
+      if (p.s < lengst - slakk - 1e-9) {
+        return { punkt: [], feil: 'Linja du valgte går fram og tilbake – den er en flate eller to linjer i én. Velg en annen.' };
+      }
+      if (p.s > lengst) lengst = p.s;
     }
     punkt = punkt.map((p, i) => ({ p, i })).sort((a, b) => a.p.s - b.p.s || a.i - b.i).map(x => x.p);
 

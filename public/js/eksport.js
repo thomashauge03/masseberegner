@@ -310,7 +310,14 @@ ${kropp}
     let knekk = vp.vip;
     const siste = knekk[knekk.length - 1];
     if (siste && siste.s > L + 1e-6 && !(vp.kurver || []).some(c => c.sEVC > L + 1e-6)) {
-      knekk = knekk.slice(0, -1).concat([{ s: L, z: vp.hoyde(L) }]);
+      /* STÅR DET ET PUNKT PÅ SLUTTEN FRA FØR – eller innenfor slingringen bak
+         den – er det det siste; ellers legges et nytt der. Her ble det lagt et
+         nytt også da, og samme stasjon sto to ganger (200, 200), eller
+         baklengs (200,004 og så 200), i fila maskinstyringen leser. */
+      knekk = knekk.slice(0, -1);
+      const forrige = knekk[knekk.length - 1];
+      if (forrige && forrige.s >= L - 1e-6) knekk[knekk.length - 1] = { s: L, z: vp.hoyde(L) };
+      else knekk.push({ s: L, z: vp.hoyde(L) });
     }
     const pvi = knekk.map((v, i) => {
       const kurve = (vp.kurver || []).find(c => c.vip === i);
