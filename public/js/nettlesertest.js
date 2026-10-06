@@ -192,7 +192,7 @@ const Nettlesertest = {
       'groftBeregning', 'groftFane', 'groftKoder', 'groftVerktoy', 'groftKnutepunkt', 'groftProfil', 'groft3d',
       'groftRapport',
       'planBeregning', 'planNyttAnlegg', 'planTegnTrase', 'planRediger', 'planFane', 'planProfil', 'planRapport',
-      'planForklaring', 'planEksport', 'planEksportSoner', 'planAvvik', 'planTerrengAndre',
+      'planForklaring', 'planEksport', 'planEksportSoner', 'planAvvik', 'planTerrengAndre', 'rorOversiktskart',
       'vegProfilLengde', 'vegLinjeslutt', 'vegStigningIKurve', 'vegKnapper', 'vegSluttretting', 'lagringOgAngre', 'angreposter', 'grensesnittVeg', 'vegRegler', 'vegRettelser',
       'lovlighet', 'framdrift', 'gamleFilerOgUtskifting', 'opprydding'];
     for (const navn of proever) {
@@ -312,7 +312,7 @@ const Nettlesertest = {
     };
     for (const n of ['Geo', 'Linjeforing', 'Vertikalprofil', 'Terreng', 'Fjellmodell',
       'beregnMasser', 'Veiklasser', 'Lager', 'Farger', 'PdfImport', 'Kart', 'Lengdeprofil',
-      'Tverrprofil', 'Rapport', 'App', 'delPlass', 'stigningskrav']) {
+      'Tverrprofil', 'Rapport', 'App', 'delPlass', 'stigningskrav', 'Rorkart', 'RorkartUI']) {
       this.sjekk('modulen ' + n + ' er lastet', finnes(n));
     }
     this.sjekk('nettleseren kan pakke ut PDF', typeof DecompressionStream !== 'undefined');
@@ -9123,6 +9123,103 @@ const Nettlesertest = {
     clearTimeout(App._tidsavbrudd);
     await App.beregnRor();
     return { a, ll: (x, y) => { const g = gr(x, y); return L.latLng(g.lat, g.lon); } };
+  },
+
+  /**
+   * Oversiktskartet: rørene fra et tegnet og et innmålt anlegg, valget, og
+   * PDF-en med samleside og én side per type. Bakgrunnsflisene kommer fra en
+   * stubbet fetch, så prøven trenger ikke nett.
+   */
+  async rorOversiktskart() {
+    const foer = JSON.stringify(App.P);
+    const ekteFetch = window.fetch;
+    try {
+      await this._medFlattTerreng(21.5, async () => {
+        await this._planProsjekt();
+        const o = Geo.tilUtm(58.1412, 7.0705, 32);
+        const im = App.nyttAnlegg('ror', 'Innmålt');
+        im.ror.sone = 32;
+        im.ror.punkter = [[0, -0.4, 19.5, 'SP 160PE'], [10, -0.4, 19.4, 'SP 160PE'], [20, -0.4, 19.3, 'SP 160PE'],
+          [0, 5, 20, 'OV 200PVC'], [15, 5, 19.9, 'OV 200PVC'], [30, 5, 19.8, 'OV 200PVC'], [15, 5.3, 21, 'KUM']]
+          .map(([x, y, z, kode], i) => ({ id: 'm' + (i + 1), kode, n: o.y + y, o: o.x + x, z, tid: '', nr: i + 1 }));
+        im.ror.koder = Ror.koderFra(im.ror.punkter, {});
+        App.P.anlegg.push(im);
+        App.visAnleggsvelger();
+        App.visMalfane();
+        const aktivt = App.P.aktivt, prosjekt = JSON.stringify(App.P), poster = App.historikk.bakover.length;
+        this.sjekk('knappene står der når prosjektet har rør', !document.getElementById('verktoyRorKart').classList.contains('skjult')
+          && !document.getElementById('knappEksportRorkart').classList.contains('skjult'));
+
+        const data = RorkartUI.samle();
+        const koder = [...new Set(data.linjer.map(l => l.kode))].sort();
+        this.sjekk('rørene fra begge anleggene er med – uten å bytte anlegg', JSON.stringify(koder) === '["OV 200PVC","SP 160PE","VL 110PE"]'
+          && data.linjer.some(l => l.kilde === 'planlagt') && data.linjer.some(l => l.kilde === 'innmalt') && App.P.aktivt === aktivt,
+        JSON.stringify(koder));
+        this.sjekk('kummene: den tegnede på spillvannet, den innmålte på overvannet som går nærmest',
+          data.kummer.some(k => k.kilde === 'planlagt' && k.kode === 'SP 160PE')
+          && data.kummer.some(k => k.kilde === 'innmalt' && k.kode === 'OV 200PVC'), JSON.stringify(data.kummer.map(k => [k.kilde, k.kode])));
+
+        // valget: alle kodene, «Ingen» og «Alle», og ingen valgt sies i dialogen
+        const svar = RorkartUI.dialog(data);
+        const rader = [...document.querySelectorAll('#dialoginnhold table.rorkartkoder tbody tr')];
+        this.sjekk('valget viser de tre rørtypene, med farge', rader.length === 3 && rader.every(r => !!r.querySelector('.rorfarge')),
+          String(rader.length));
+        document.getElementById('rkIngen').click();
+        document.getElementById('rkLag').click();
+        this.sjekk('ingen valgt: dialogen står og sier fra', !document.getElementById('dialog').classList.contains('skjult')
+          && /minst én/.test(document.getElementById('rkSvar').textContent));
+        document.getElementById('rkAlle').click();
+        rader.find(r => r.dataset.kode === 'OV 200PVC').querySelector('input').checked = false;
+        document.getElementById('rkPapir').value = 'A4';
+        document.getElementById('rkLag').click();
+        const valg = await svar;
+        this.sjekk('valget gir kodene, en side per type, bakgrunnen og papiret', !!valg
+          && JSON.stringify(valg.koder.slice().sort()) === '["SP 160PE","VL 110PE"]' && valg.perType === true
+          && valg.bakgrunn === 'topograatone' && valg.papir === 'A4', JSON.stringify(valg));
+
+        // bakgrunnen: en grå flis fra en stubbet fetch
+        const flis = await new Promise(los => {
+          const l = document.createElement('canvas'); l.width = 256; l.height = 256;
+          const c = l.getContext('2d'); c.fillStyle = '#d0d0d0'; c.fillRect(0, 0, 256, 256);
+          l.toBlob(los, 'image/png');
+        });
+        const adresser = [];
+        window.fetch = async (url, o2) => {
+          if (/cache\.kartverket\.no/.test(String(url))) { adresser.push(String(url)); return new Response(flis, { status: 200, headers: { 'Content-Type': 'image/png' } }); }
+          return ekteFetch(url, o2);
+        };
+        const bytes = await RorkartUI.lag(valg, false, data);
+        const tekst = bytes ? new TextDecoder('latin1').decode(bytes) : '';
+        this.sjekk('PDF-en har samlesiden og én side per type, liggende A4', /\/Count 3\b/.test(tekst)
+          && /\/MediaBox \[0 0 841\.89 595\.28\]/.test(tekst), (tekst.match(/\/Count \d+/) || [''])[0]);
+        this.sjekk('hver side har bakgrunnskartet', (tekst.match(/\/Subtype \/Image/g) || []).length === 3,
+          String((tekst.match(/\/Subtype \/Image/g) || []).length));
+        this.sjekk('  hentet fra Kartverkets UTM-fliser for sone 32', adresser.length > 0
+          && adresser.every(u => /\/topograatone\/default\/utm32n\/\d+\/\d+\/\d+\.png$/.test(u)), adresser[0] || 'ingen');
+        const strommer = (await PdfImport.lesStrommer(bytes)).join('\n');
+        this.sjekk('tegnforklaringen har typene, og Kartverket er kreditert', strommer.includes('(SP 160PE)') && strommer.includes('(VL 110PE)')
+          && !strommer.includes('(OV 200PVC)') && strommer.includes('Kartgrunnlag \\251 Kartverket'));
+        this.sjekk('det tegnede er stiplet, det innmålte heltrukket – og begge står i forklaringen',
+          / 0 d /.test(strommer) && strommer.includes('Heltrukken: innm\\345lt') && strommer.includes('Stiplet: planlagt'));
+
+        // flisene kommer ikke: PDF-en lages likevel, uten bakgrunn, og det sies
+        window.fetch = async (url, o2) => (/cache\.kartverket\.no/.test(String(url))
+          ? new Response('', { status: 503 }) : ekteFetch(url, o2));
+        const uten = await RorkartUI.lag(Object.assign({}, valg, { perType: false }), false, data);
+        const tUten = uten ? new TextDecoder('latin1').decode(uten) : '';
+        const sUten = uten ? (await PdfImport.lesStrommer(uten)).join('\n') : '';
+        this.sjekk('uten fliser: PDF-en lages uten bakgrunn, og både kartet og statuslinja sier fra', !!uten
+          && !/\/Subtype \/Image/.test(tUten) && sUten.includes('Bakgrunnskartet kunne ikke hentes')
+          && /bakgrunnskartet kunne ikke hentes/.test(document.getElementById('statuslinje').textContent),
+        document.getElementById('statuslinje').textContent);
+
+        this.sjekk('ingenting i prosjektet er endret, og ingen angrepost', JSON.stringify(App.P) === prosjekt
+          && App.P.aktivt === aktivt && App.historikk.bakover.length === poster);
+      });
+    } finally {
+      window.fetch = ekteFetch;
+      await this._rorTilbake(foer);
+    }
   },
 
   /** Et tegnet anlegg regnes som et innmålt: linjer, profiler, grøft, kummer og kontroller. */

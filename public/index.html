@@ -532,6 +532,9 @@
         <!-- RØRENE TEGNES IKKE, DE HENTES. Knappene under er de tre enkle
              grepene for når appen har koblet noe feil – se RorUI.kartklikk. -->
         <button id="verktoyRorImport" class="verktoyknapp skjult" title="Hent innmålte rør fra en LandXML-fil fra maskinstyringen">📂 Importer rør</button>
+        <!-- KARTET SOM SKAL UT PÅ PLASSEN: alle rørtypene i hver sin farge, og
+             ett kart per type – se RorkartUI. -->
+        <button id="verktoyRorKart" class="verktoyknapp skjult" title="Ett kart med alle rørene i hver sin farge, og ett kart per type, som PDF">🗺 Oversiktskart</button>
         <button id="verktoyRorAv" class="verktoyknapp skjult" aria-pressed="false" title="Klikk på et målt punkt for å slå det av eller på">⊘ Slå av punkt</button>
         <button id="verktoyRorBryt" class="verktoyknapp skjult" aria-pressed="false" title="Klikk på en rørstrek der den ikke skal henge sammen">✂ Bryt</button>
         <button id="verktoyRorKoble" class="verktoyknapp skjult" aria-pressed="false" title="Klikk på to rørender som hører sammen">⟷ Koble</button>
@@ -942,6 +945,7 @@
         <button id="knappEksportMasser" class="knapp bred">Masseoppsett per profil (CSV)</button>
         <button id="knappEksportGeojson" class="knapp bred">Linje og fotavtrykk (GeoJSON)</button>
         <button id="knappEksportRutenett" class="knapp bred skjult">Rutenett per celle (CSV)</button>
+        <button id="knappEksportRorkart" class="knapp bred skjult">Oversiktskart over rørene (PDF)</button>
       </div>
       <div id="eksportsvar" class="listeboks"></div>
     </div>
@@ -1225,8 +1229,12 @@
 <script src="js/ui-ror3d.js"></script>
 <script src="js/ui-forklaring.js"></script>
 <script src="js/pdfeksport.js"></script>
+<!-- Oversiktskartet for rør: ren tegning på PdfSkriver, og valget og
+     bakgrunnskartet i nettleseren. -->
+<script src="js/rorkart.js"></script>
 <script src="js/ui-rapport.js"></script>
 <script src="js/ui-pdfrapport.js"></script>
+<script src="js/ui-rorkart.js"></script>
 <script src="js/ui-pdf.js"></script>
 <script src="js/app.js"></script>
 <script src="js/nettlesertest.js"></script>

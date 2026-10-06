@@ -4188,6 +4188,116 @@ console.log('\n6c. Avlesning av PDF');
       && !server.innenforMappa(pub, path.join(pub, '..', 'public-gammel', 'index.html')));
   }
 
+  console.log('\n6j. Oversiktskartet for rør');
+  {
+    const { PdfSkriver } = require(path.join(__dirname, '..', 'public', 'js', 'pdfeksport.js'));
+    const Rorkart = require(path.join(__dirname, '..', 'public', 'js', 'rorkart.js'));
+    const Pdf = require(path.join(__dirname, '..', 'public', 'js', 'pdfimport.js'));
+    // PDF-skriveren: en hel bane, en sirkel og et klipp
+    const P = new PdfSkriver();
+    P.nySide();
+    P.sti([[10, 10], [50, 20], [90, 10]], { farge: [1, 0, 0], tykkelse: 2, stiplet: [3, 1.5] });
+    P.sirkel(100, 100, 5, { fyll: [1, 1, 1], strek: [0, 0, 0] });
+    let kastet = false;
+    try { P.klipp(0, 0, 50, 50, () => { P.linje(0, 0, 10, 10); throw new Error('prøve'); }); } catch (e) { kastet = true; }
+    const [sti, sirkel, klippStart, , klippSlutt] = P.side.deler;
+    paastand('en bane er én sti med runde ledd og ender, mellom q og Q', /^q 1 J 1 j .* m .* l .* l S Q$/.test(sti) && /\[3 1\.5\] 0 d/.test(sti), sti);
+    paastand('en sirkel er fire kurver, fylt og strøket', (sirkel.match(/ c/g) || []).length === 4 && / b Q$/.test(sirkel), sirkel);
+    paastand('klippet slutter med Q også når tegningen kaster', kastet && / re W n$/.test(klippStart) && klippSlutt === 'Q',
+      JSON.stringify(P.side.deler.slice(2)));
+    {
+      const bytes = await P.bygg();
+      const tekst = new TextDecoder('latin1').decode(bytes);
+      const xref = tekst.slice(tekst.lastIndexOf('xref')).split('\n').slice(3).filter(l => / n $/.test(l)).map(l => +l.slice(0, 10));
+      paastand('  og fila er en gyldig PDF – hver krysshenvisning treffer sitt objekt',
+        tekst.startsWith('%PDF-1.') && xref.every((o, i) => tekst.slice(o).startsWith((i + 1) + ' 0 obj')), String(xref.length));
+    }
+
+    // fargene: samme system er samme familie, med ulike nyanser – og samme svar hver gang
+    const koder = { 'SP 160PE': { system: 'spill', dim: 160 }, 'SP 110PE': { system: 'spill', dim: 110 },
+      'SP 200PVC': { system: 'spill', dim: 200 }, 'VL 110PE': { system: 'vann', dim: 110 }, '90PE': { system: '', dim: 90 } };
+    const f = Rorkart.fargetabell(koder);
+    const sp = ['SP 200PVC', 'SP 160PE', 'SP 110PE'].map(k => f.get(k).hex);
+    paastand('tre spillvannsrør får tre ulike nyanser av spillvannsfargen – det største først',
+      new Set(sp).size === 3 && sp[0] === Rorkart.FAMILIER.spill[0] && sp.every(h => Rorkart.FAMILIER.spill.includes(h)), sp.join(' '));
+    paastand('vann er blått, og en kode uten system får en nøytral farge', f.get('VL 110PE').hex === Rorkart.FAMILIER.vann[0]
+      && f.get('90PE').system === 'annet');
+    const baklengs = Rorkart.fargetabell(Object.fromEntries(Object.entries(koder).reverse()));
+    paastand('rekkefølgen kodene kommer i, endrer ikke fargene', [...f].every(([k, v]) => baklengs.get(k).hex === v.hex));
+
+    // utsnitt og målestokk
+    const u = Rorkart.utsnitt({ x0: 500000, y0: 6500000, x1: 500300, y1: 6500100 }, { b: 299, h: 277 });
+    paastand('300 × 100 m på A3: 1:2000 – 1:1000 får ikke plass med luft rundt', u.N === 2000, String(u.N));
+    sjekk('  og rørene står midt i', (u.x0 + u.x1) / 2, 500150, 1e-6);
+    const liten = Rorkart.utsnitt({ x0: 10, y0: 10, x1: 10, y1: 10 }, { b: 299, h: 277 });
+    paastand('et utsnitt rundt ett punkt er minst 40 m', (liten.x1 - liten.x0) >= 40 && liten.N === 200, `${liten.N}`);
+    const stor = Rorkart.utsnitt({ x0: 0, y0: 0, x1: 3000, y1: 500 }, { b: 299, h: 277 });
+    paastand('3 km på A3: 1:20 000', stor.N === 20000, String(stor.N));
+    const [px, py] = Rorkart.tilPapir(u)(u.x0, u.y1);
+    paastand('øvre venstre hjørne av utsnittet er øvre venstre hjørne av kartflaten', px === 0 && py === 0);
+
+    // flisene: rad og kolonne i Kartverkets UTM-rutenett
+    const fp = Rorkart.flisplan({ N: 1000, x0: 500000, x1: 500300, y0: 6500000, y1: 6500277 }, 32, 'topograatone');
+    const res17 = 21664 / Math.pow(2, 17);
+    const forventetKol = Math.floor((500000 + 2000000) / (256 * res17));
+    paastand('1:1000 gir nivå 17 – om lag 150 dpi', fp.z === 17 && Math.abs(fp.res - res17) < 1e-12, `nivå ${fp.z}`);
+    paastand('  og den første flisa er den som dekker hjørnet', fp.fliser[0].kol === forventetKol
+      && fp.fliser[0].px <= 0 && fp.fliser[0].px > -256 && fp.fliser[0].py <= 0 && fp.fliser[0].py > -256,
+    JSON.stringify(fp.fliser[0]));
+    paastand('  med adressen i Kartverkets UTM-cache', /^https:\/\/cache\.kartverket\.no\/v1\/wmts\/1\.0\.0\/topograatone\/default\/utm32n\/17\/\d+\/\d+\.png$/.test(fp.fliser[0].url),
+      fp.fliser[0].url);
+    const fp33 = Rorkart.flisplan({ N: 1000, x0: 500000, x1: 500300, y0: 6500000, y1: 6500277 }, 33, 'topo');
+    paastand('sone 33 har sitt eget origo', fp33.fliser[0].kol === Math.floor((500000 + 2500000) / (256 * res17)) && /utm33n/.test(fp33.fliser[0].url));
+    const mange = Rorkart.flisplan({ N: 1000, x0: 500000, x1: 510000, y0: 6500000, y1: 6510000 }, 32, 'topograatone');
+    paastand('flere enn 300 fliser: nivået under', mange.fliser.length <= 300 && mange.z < 17, `${mange.fliser.length} fliser på nivå ${mange.z}`);
+    paastand('en sone uten rutenett gir ingen bakgrunn', Rorkart.flisplan(u, 34) === null);
+
+    // en hel PDF: samleside og en side per type
+    const data = {
+      prosjekt: 'Prøveprosjekt', sone: 32, dato: '01.01.2026',
+      koder: { 'SP 160PE': { system: 'spill', dim: 160 }, 'VL 110PE': { system: 'vann', dim: 110 } },
+      linjer: [
+        { kode: 'SP 160PE', kilde: 'innmalt', dim: 160, lengde: 100, xy: [{ x: 500000, y: 6500000 }, { x: 500100, y: 6500000 }] },
+        { kode: 'SP 160PE', kilde: 'innmalt', dim: 160, lengde: 50, xy: [{ x: 500100, y: 6500000 }, { x: 500100, y: 6500050 }] },
+        { kode: 'VL 110PE', kilde: 'planlagt', dim: 110, lengde: 80, xy: [{ x: 500000, y: 6500010 }, { x: 500080, y: 6500010 }] }
+      ],
+      kummer: [{ x: 500100, y: 6500000, d: 1, kode: 'SP 160PE' }]
+    };
+    const valg = { koder: ['SP 160PE', 'VL 110PE'], perType: true, papir: 'A3' };
+    const sidene = Rorkart.sider(data, valg);
+    paastand('to typer med «ett kart per type»: tre sider', sidene.length === 3 && sidene[1].tittel === 'SP 160PE'
+      && sidene[2].graa.includes('SP 160PE'), sidene.map(s => s.tittel).join(' | '));
+    paastand('uten: én side', Rorkart.sider(data, Object.assign({}, valg, { perType: false })).length === 1);
+    paastand('én type valgt: én side, med koden som tittel', (() => {
+      const s = Rorkart.sider(data, { koder: ['VL 110PE'], perType: true, papir: 'A3' });
+      return s.length === 1 && s[0].tittel === 'VL 110PE';
+    })());
+    const P2 = Rorkart.lagPdf(data, valg, sidene, null, 'Bakgrunnskartet kunne ikke hentes');
+    const bytes = await P2.bygg();
+    const tekst = new TextDecoder('latin1').decode(bytes);
+    paastand('PDF-en har tre sider, liggende A3', /\/Count 3\b/.test(tekst) && /\/MediaBox \[0 0 1190\.55 841\.89\]/.test(tekst));
+    const strommer = (await Pdf.lesStrommer(bytes)).join('\n');
+    paastand('tegnforklaringen har kodene, lengden og antallet', strommer.includes('(SP 160PE)') && strommer.includes('(VL 110PE)')
+      && /150 m \\267 2 r\\370r \\267 innm\\345lt/.test(strommer), strommer.slice(0, 200));
+    // parentesene er escapet i PDF-strengen
+    paastand('målestokken og koordinatsystemet står på siden', /M\\345lestokk 1:/.test(strommer)
+      && strommer.includes('EUREF89 UTM 32 \\(EPSG:25832\\)'), (strommer.match(/\(EUREF[^)]*\)/) || [''])[0]);
+    paastand('uten bakgrunn: ingen kreditering av Kartverket, og merknaden står i kartet',
+      !strommer.includes('Kartgrunnlag') && strommer.includes('Bakgrunnskartet kunne ikke hentes'));
+    const rgb = h => Rorkart.fargetabell(data.koder).get(h).rgb.map(v => (Math.round(v * 100) / 100).toString()).join(' ') + ' RG';
+    paastand('rørene har fargene sine', strommer.includes(rgb('SP 160PE')) && strommer.includes(rgb('VL 110PE')));
+    paastand('det planlagte røret er stiplet', /\[8\.5 4\.54\] 0 d/.test(strommer));
+    paastand('typesiden for vann har spillvannsrøret i grått under', strommer.includes('0.62 0.62 0.62 RG'));
+    // med bakgrunn: bildet ligger én gang per side, og Kartverket krediteres
+    const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
+    const P3 = Rorkart.lagPdf(data, Object.assign({}, valg, { perType: false }), null, new Map([[0, { bytes: jpeg, bredde: 10, hoyde: 10 }]]));
+    const b3 = await P3.bygg();
+    const t3 = new TextDecoder('latin1').decode(b3);
+    const s3 = (await Pdf.lesStrommer(b3)).join('\n');
+    paastand('med bakgrunn: bildet er med, og Kartverket står på siden', (t3.match(/\/Subtype \/Image/g) || []).length === 1
+      && s3.includes('Kartgrunnlag \\251 Kartverket'));
+  }
+
   console.log('\n7. Pakking av terrengfliser');
   {
     // Fram og tilbake gjennom flisformatet skal ikke endre høydene

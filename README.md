@@ -136,6 +136,24 @@ Rørene vises i kart, lengdeprofil og 3D (piltastene blar mellom dem), og får
 sin egen del i rapporten og PDF-en. De eksporteres som rør – se «Eksport» under.
 Nye rør tegnes i et eget anlegg – se «Planlagte rør» under.
 
+### Oversiktskart
+
+**🗺 Oversiktskart** i kartverktøyet (og «Oversiktskart over rørene (PDF)» under
+Eksport) lager kartet som skal ut på plassen. Det er én PDF:
+* Første side er et samlekart med alle rørtypene du krysser av, innmålte og
+  planlagte, fra alle røranleggene i prosjektet.
+* Hver rørkode har sin farge, i systemets fargefamilie: vann blå, spillvann
+  brun/rød, overvann grønn.
+* Tegnforklaringen i siden har lengden, antall rør og om de er innmålt eller
+  planlagt. Innmålte rør er heltrukne, planlagte stiplet, og kummene er
+  sirkler.
+* Med «Ett kart per type» følger én side per type, med de andre rørene i grått
+  under.
+
+Bakgrunnen er Kartverkets gråtone- eller topografiske kart, hentet i UTM så
+rørene ligger der de er målt. Arket er A3 eller A4 liggende, med målestokk,
+linjal og nordpil. Ingenting i prosjektet endres.
+
 ### Grøftemasser
 
 Grøfta regnes med rørene, mot et teoretisk grøfteprofil og Kartverkets terreng

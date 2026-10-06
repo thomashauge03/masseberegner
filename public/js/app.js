@@ -1312,6 +1312,8 @@ const App = {
     for (const id of ['verktoyRorImport', 'verktoyRorAv', 'verktoyRorBryt', 'verktoyRorKoble']) bytt(id, ror && !plan);
     for (const id of ['verktoyGroftStrekning', 'verktoyGroftSammen']) bytt(id, ror);
     for (const id of ['verktoyTrase', 'verktoyKum', 'verktoySnu']) bytt(id, plan);
+    // oversiktskartet: for innmålte og tegnede rør – det tegner alle røranleggene
+    bytt('verktoyRorKart', ror);
     if (tomt) { this.tomtTilSkjema(); this.visTomtemasser(); }
     if (ror && typeof RorUI !== 'undefined') RorUI.vis();
 
@@ -2176,6 +2178,7 @@ const App = {
     RorUI.init(this);
     GroftUI.init(this);
     RorPlanUI.init(this);
+    RorkartUI.init(this);
     Rorprofil.init(this);
     Ror3d.init(this);
     this.koblingerUI();
@@ -5865,6 +5868,8 @@ const App = {
        tomtene i samme prosjekt kunne ikke hentes ut i det hele tatt. */
     vis('#knappEksportRutenett', this.alleAnlegg()
       ? this.P.anlegg.some(a => a.type === 'tomt') : tomt);
+    // oversiktskartet tegner alle røranleggene, så det er der når prosjektet har ett
+    vis('#knappEksportRorkart', this.P.anlegg.some(a => a.type === 'ror'));
     /* RAPPORTKNAPPEN LIGGER I TOPPLINJA, BRYTEREN INNE I EKSPORTFANEN.
        En knapp som gjør to forskjellige ting etter en innstilling man ikke ser
        derfra, er en knapp man ikke kan stole på. Derfor sier den selv hva den
@@ -7643,6 +7648,8 @@ const App = {
       ? Rapport.eksporterAlle('geojson') : Rapport.eksportGeojson();
     id('knappEksportRutenett').onclick = () => this.alleAnlegg()
       ? Rapport.eksporterCsvAlle('rutenett') : Rapport.eksportRutenett();
+    id('knappEksportRorkart').onclick = () => RorkartUI.apne();
+    id('verktoyRorKart').onclick = () => RorkartUI.apne();
     id('knappKontroller').onclick = () => this.kontrollerHoyder();
 
     /* Stor visning. Panelene tegner seg sjøl pa nytt via ResizeObserver,

@@ -183,6 +183,56 @@ class PdfSkriver {
   }
 
   /**
+   * En sammenhengende strek gjennom punktene.
+   *
+   * EN TYKK STREK MÅ VÆRE ÉN BANE. Tegnet stykke for stykke med `linje` får
+   * hver knekk et hakk der to rektangler møtes – på et rør i kartet, med
+   * millimeterbred strek, ser det ut som en kjede. Runde ledd og ender (1 J
+   * 1 j) gjør knekkene hele. Stiplingen og fargen gjelder bare banen: alt står
+   * mellom q og Q.
+   *
+   * @param {Array<[number, number]>} punkter  x og y i punkt, y fra toppen
+   * @param {object} [o] farge [r,g,b] 0–1, tykkelse, stiplet [på, av] i
+   *   punkt, lukket, fyll [r,g,b]
+   */
+  sti(punkter, o = {}) {
+    if (!punkter || punkter.length < 2) return;
+    const f = o.farge || [0, 0, 0];
+    const deler = ['q 1 J 1 j',
+      `${this._n(f[0])} ${this._n(f[1])} ${this._n(f[2])} RG ${this._n(o.tykkelse || 0.5)} w`];
+    if (o.fyll) deler.push(`${this._n(o.fyll[0])} ${this._n(o.fyll[1])} ${this._n(o.fyll[2])} rg`);
+    if (o.stiplet) deler.push(`[${o.stiplet.map(v => this._n(v)).join(' ')}] 0 d`);
+    deler.push(punkter.map(([x, y], i) => `${this._n(x)} ${this._n(this._y(y))} ${i ? 'l' : 'm'}`).join(' '));
+    deler.push(o.fyll ? 'b' : o.lukket ? 's' : 'S');
+    deler.push('Q');
+    this.side.deler.push(deler.join(' '));
+  }
+
+  /** En sirkel – fire Bézier-kurver, som avviker under en promille fra en ekte. */
+  sirkel(x, y, r, o = {}) {
+    const k = 0.5522847498 * r, Y = this._y(y), n = v => this._n(v);
+    const deler = ['q'];
+    if (o.fyll) deler.push(`${n(o.fyll[0])} ${n(o.fyll[1])} ${n(o.fyll[2])} rg`);
+    if (o.strek) deler.push(`${n(o.strek[0])} ${n(o.strek[1])} ${n(o.strek[2])} RG ${n(o.tykkelse || 0.5)} w`);
+    deler.push(`${n(x + r)} ${n(Y)} m`,
+      `${n(x + r)} ${n(Y + k)} ${n(x + k)} ${n(Y + r)} ${n(x)} ${n(Y + r)} c`,
+      `${n(x - k)} ${n(Y + r)} ${n(x - r)} ${n(Y + k)} ${n(x - r)} ${n(Y)} c`,
+      `${n(x - r)} ${n(Y - k)} ${n(x - k)} ${n(Y - r)} ${n(x)} ${n(Y - r)} c`,
+      `${n(x + k)} ${n(Y - r)} ${n(x + r)} ${n(Y - k)} ${n(x + r)} ${n(Y)} c`);
+    deler.push(o.fyll && o.strek ? 'b' : o.fyll ? 'f' : 's', 'Q');
+    this.side.deler.push(deler.join(' '));
+  }
+
+  /**
+   * Alt `tegn` tegner, holdes innenfor rektangelet – et kart skal ikke flyte
+   * ut over tegnforklaringen. Klippet gjelder til Q, også om `tegn` kaster.
+   */
+  klipp(x, y, bredde, hoyde, tegn) {
+    this.side.deler.push(`q ${this._n(x)} ${this._n(this._y(y + hoyde))} ${this._n(bredde)} ${this._n(hoyde)} re W n`);
+    try { tegn(); } finally { this.side.deler.push('Q'); }
+  }
+
+  /**
    * Legger inn et JPEG. Bildet deles mellom sider som bruker det samme, sa
    * en tegning som gjentas ikke gjør fila dobbelt sa stor.
    * @param {Uint8Array} bytes rene JPEG-bytes

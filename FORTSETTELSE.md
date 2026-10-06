@@ -49,6 +49,24 @@ stikkrenner. Designvalgene tas underveis og står i spesifikasjonen for hver del
 hver del flettes inn i `main` og pushes når den er gjennomgått og grønn.
 **Alt som endrer høyder, skal ligge på knapper – innmålte høyder endres aldri
 automatisk.** Delte prosjekt (database og innlogging) er holdt utenfor.
+Underveis ba brukeren om et **oversiktskart for rørene** – ett kart med alle
+typene i hver sin farge og tegnforklaring, og ett kart per type. Det kom foran
+resten av «Utenfor 3a».
+
+### Rør – oversiktskart
+
+Spec: `docs/superpowers/specs/2026-10-06-ror-oversiktskart-design.md`.
+Plan: `docs/superpowers/plans/2026-10-06-ror-oversiktskart.md`.
+
+**🗺 Oversiktskart** (kartverktøyet for rør, og under Eksport) lager én PDF:
+samlekartet med de avkryssede rørtypene fra alle røranleggene, og én side per
+type. Ren modul `public/js/rorkart.js`: fargetabell per kode (familie etter
+system, nyanse etter dimensjon), utsnitt med fast målestokkrekke, flisplan i
+Kartverkets UTM-cache (`utm32n/33n/35n`, ingen omprojisering), og tegningen på
+`PdfSkriver`, som har fått `sti`, `sirkel` og `klipp`. `public/js/ui-rorkart.js`
+samler rørene uten å bytte anlegg, viser valget, henter flisene (fetch, CORS) og
+laster ned. Mangler flisene, lages PDF-en uten bakgrunn, og det står på siden.
+Visuelt sjekket mot appens eget kart: bakgrunnen ligger der den skal.
 
 ### Veg – restfunnene fra GJENNOMGANG.md
 
