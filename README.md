@@ -129,8 +129,7 @@ i førstevalget, eller slipp fila på kartet.
   punktene kjennes igjen på id-en i fila, og ingenting slettes stille.
 
 Rørene vises i kart, lengdeprofil og 3D (piltastene blar mellom dem), og får
-sin egen del i rapporten og PDF-en. De kan ikke eksporteres til KOF, LandXML,
-SOSI eller DXF ennå – knappene sier fra, og samleeksporten hopper over dem.
+sin egen del i rapporten og PDF-en. De eksporteres som rør – se «Eksport» under.
 Nye rør tegnes i et eget anlegg – se «Planlagte rør» under.
 
 ### Grøftemasser
@@ -199,8 +198,8 @@ rapporteres som et innmålt, med grøft og alt.
 
 Punktene i kartet dras i Rediger, et klikk på traseen setter inn et punkt, og
 Delete tar bort det valgte. Rør-fanen viser traseene med rørene, fallet og
-kumlista; Koder-fanen har gods, regel, overdekning og fall per kode. Eksport til
-maskinstyring og stikning (3b) og planlagt mot innmålt (3c) kommer.
+kumlista; Koder-fanen har gods, regel, overdekning og fall per kode. Til
+maskinstyring og stikning går de gjennom Eksport-fanen (se «Eksport»).
 
 ## Hva «billigst» betyr
 
@@ -298,6 +297,19 @@ må du kontrollere mot befaring.
 | **CSV** | Stikningsdata og masseoppsett per profil, til regneark |
 | **GeoJSON** | Senterlinje, fotavtrykk og fjellobservasjoner |
 
+**Rør** – innmålte og planlagte – går ut i de samme formatene, med **tre høyder som
+egne lag**: bunn innvendig (bunnløpet), topp rør og gravebunn (bunnen av grøfta, brutt
+der det ikke graves). Den som setter opp maskina, velger laget.
+
+| Format | Rørene |
+|---|---|
+| **KOF** | Stikningspunkt i hvert knekkpunkt, hver 10. meter og enden: `RORBUNN`, `RORTOPP`, `GRAVBUNN`; kummene `KUMBUNN` (bunnløp) og `KUMTOPP` (lokk). Hodet sier hva rørnumrene er |
+| **LandXML** | En 3D-linje (`PlanFeature`) per rør og høyde, og kummene som punkt (`CgPoint`) |
+| **SOSI** | `Rørledning` (bunn og topp) og `Grøftebunn` som kurver, med høydereferanse og diameter; kummene som `Kum` |
+| **DXF** | 3D-polylinjer på lagene `<KODE>_BUNN`, `_TOPP` og `_GRAVEBUNN`; kummene som sirkler på bunnløpet |
+| **CSV** | Stikningsliste med alle tre høydene, terreng og overdekning per punkt; grøftemassene per kode |
+| **GeoJSON** | Rørene som linjer med egenskapene, kummene som punkt |
+
 Formatene er skrevet etter spesifikasjonene, men er **ikke prøvd mot hvert enkelt
 mottakersystem**. Ta en prøveimport av én fil før dere baserer en jobb på dem.
 
@@ -354,7 +366,15 @@ De planlagte rørene: bunn ↔ topp med godset, sideavstanden i knekker, høyden
 for selvfall og trykk mellom kontrollpunktene, kummer, greiner og påkoblinger,
 kontrollene (overdekning, fall og motfall med millimeteravrundingen, kryssing),
 fallet mellom kontrollpunktene og ryddingen av plandelen når prosjektfila åpnes.
-`npm test` kjører alle fire.
+
+```bash
+node test/roreksportprove.js
+```
+
+Eksporten av rør: stikningspunktene (knekk, hver 10. meter, enden og kummene),
+de tre høydene mot grøftemotoren – også bruddet der røret ligger over terrenget –
+og hvert format: KOF-navn og koder, LandXML-linjer og kummer, SOSI-kurver i
+centimeter, DXF-lag og GeoJSON. `npm test` kjører alle fem.
 
 ```bash
 node test/demo-ydestad.js
@@ -385,6 +405,7 @@ public/js/pdfimport.js   avlesning av tegnede kurver i en PDF
 public/js/ror.js         rørene: LandXML, koder, linjer, sone, profil
 public/js/groft.js       grøfta: rutenett, felles grøft, kummer, fjell, lag, dybdeklasser, balanse
 public/js/rorplan.js     planlagte rør: høydene, kummer, greiner, påkoblinger og kontrollene
+public/js/roreksport.js  rørene til KOF, LandXML, SOSI, DXF og GeoJSON – bunn, topp og gravebunn
 public/js/ui-ror*.js     rørene i skjermen: import, faner, profil, 3D
 public/js/ui-rorplan.js  planlagte rør i skjermen: tegning, redigering, Rør-fanen, punktfeltet
 public/js/ui-groft.js    grøfta i skjermen: Rør-fanen, verktøyene i kartet, normalgrøfta

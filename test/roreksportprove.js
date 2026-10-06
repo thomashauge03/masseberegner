@@ -180,6 +180,39 @@ console.log('\n7. Ingen rør');
   }
 }
 
+/* Den ekte fila – bare hvis stien står i ROR_FIL. Kundens filer ligger ikke i
+   repoet, og utskriften sier bare antall og tid, aldri navn eller tall fra fila. */
+if (process.env.ROR_FIL) {
+  console.log('\n8. Den ekte fila (ROR_FIL)');
+  const fs = require('fs');
+  const les = Ror.lesLandXML(Ror.dekod(fs.readFileSync(process.env.ROR_FIL)));
+  const ror = { punkter: les.punkter, koder: Ror.koderFra(les.punkter), retting: { av: [], brudd: [], koble: [] } };
+  const b = Ror.byggLinjer(ror, Ror.StandardRormal, Ror.lagTilXY(32, 32));
+  // terrenget 1,5 m over nærmeste målte punkt – nok til at grøfta regnes
+  const zMaks = Math.max(...les.punkter.map(p => p.z));
+  const terreng = (x, y) => {
+    let best = null;
+    for (const p of les.punkter) { const dd = Math.hypot(p.o - x, p.n - y); if (!best || dd < best.d) best = { d: dd, z: p.z }; }
+    return best && best.d < 20 ? best.z + 1.5 : zMaks + 1.5;
+  };
+  const t0 = Date.now();
+  const g = Groft.beregn({ linjer: b.linjer, koder: ror.koder, terrengZ: terreng, rute: 0.2 });
+  const pr = new Map(b.linjer.map(l => [l.id, Ror.profil(l, terreng, RorPlan.kodeAv(ror.koder, l.kode).dim)]));
+  const r = { linjer: b.linjer, groft: g, profiler: pr, kummer: [], sone: 32 };
+  const a = { P: { navn: 'Ekte fil', ror: { koder: ror.koder } }, sone: 32 };
+  let melding = null, filer = null;
+  try {
+    filer = { kof: RorEksport.kof(a, r), landxml: RorEksport.landxml(a, r), sosi: RorEksport.sosi(a, r), dxf: RorEksport.dxf(a, r) };
+  } catch (e) { melding = e.message; }
+  const ms = Date.now() - t0;
+  paastand('alle formatene skrives for den ekte fila', !!filer, String(melding));
+  if (filer) {
+    const kof = filer.kof.split('\r\n').filter(x => x.startsWith(' 05')).length;
+    console.log(`       ${b.linjer.length} rør · ${kof} KOF-punkt · ${(filer.landxml.match(/<PlanFeature /g) || []).length} LandXML-linjer · ${ms} ms`);
+    paastand('og raskt', ms < 20000, ms + ' ms');
+  }
+}
+
 /* ---------------- sluttsum ---------------- */
 console.log(`\n${ok} tester ok, ${feil} feil`);
 process.exit(feil ? 1 : 0);

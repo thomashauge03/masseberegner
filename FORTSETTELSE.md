@@ -16,7 +16,7 @@ Kjør testene først, så du vet du starter fra noe som virker:
 npm test
 ```
 
-(selvtesten, rørprøven, grøfteprøven og planprøven etter hverandre)
+(selvtesten, rørprøven, grøfteprøven, planprøven og eksportprøven etter hverandre)
 
 Nettlesertesten kjøres ved å åpne programmet med `?test=1`, eller fra konsollen
 med `Nettlesertest.kjor()`. Utviklingstjeneren startes med `node server.js`
@@ -35,7 +35,27 @@ sidepanelet seg oppå, og tre panelprøver blir røde uten at noe er galt. Masse
 
 ## Det som skal gjøres nå
 
-### Rør, etappe 3a – planlagte rør, ferdig på grenen `ror-etappe3a`
+Brukeren ba 2026-10-06 om at «alt» gjøres ferdig, i denne rekkefølgen: rør 3b,
+rør 3c (med de to restpunktene fra 3a), restfunnene i veg-delen fra
+`GJENNOMGANG.md`, resten av «Utenfor 3a» (import av traseer fra DXF/KOF, kummer
+i 3D, fallkrav for trykkrør, grøftekasse/spunt, optimalisering av høydene) og
+stikkrenner. Designvalgene tas underveis og står i spesifikasjonen for hver del;
+hver del flettes inn i `main` og pushes når den er gjennomgått og grønn.
+**Alt som endrer høyder, skal ligge på knapper – innmålte høyder endres aldri
+automatisk.** Delte prosjekt (database og innlogging) er holdt utenfor.
+
+### Rør, etappe 3b – eksport til maskinstyring og stikning
+
+Spec: `docs/superpowers/specs/2026-10-06-ror-etappe3b-design.md`.
+Plan: `docs/superpowers/plans/2026-10-06-ror-etappe3b.md`.
+
+Røranleggene – tegnede og innmålte – går ut i KOF, LandXML, SOSI, DXF, GeoJSON
+og CSV, med bunn innvendig, topp rør og gravebunn som egne lag (brukerens valg).
+Ny ren modul `public/js/roreksport.js`; Eksport-fanen vises for rør, og
+samlefilene tar rørene med. Stikningspunktene er knekkpunktene, hver 10. meter
+og enden; kummene har bunnløp og lokk.
+
+### Rør, etappe 3a – planlagte rør, flettet inn i `main`
 
 Spec: `docs/superpowers/specs/2026-10-05-ror-etappe3a-design.md`.
 Plan: `docs/superpowers/plans/2026-10-05-ror-etappe3a.md`.
@@ -75,9 +95,6 @@ terrengnøkkelen og en svak greinprøve.
 Ikke gjort: andre tegnede anlegg regnes mot terrenget til det aktive i
 kryssingskontrollen (mangler det, får de ingen linjer der), og et klikk nær et
 innmålt punkt fester også midtpunkt (ufarlig – bare endene kobles).
-
-Igjen: **3b** – eksport til maskinstyring og stikning, og **3c** – planlagt mot
-innmålt.
 
 ### Rør, etappe 2 – grøftemasser, ferdig og flettet inn i `main`
 
@@ -148,7 +165,7 @@ punktnavn som selv inneholder `~` kunne i teorien gi samme id. Neste:
 
 - **Etappe 2 – grøftemasser.** Ferdig – se over.
 - **Etappe 3 – planlegge nye rør.** 3a (tegne, høydene, kummer, kontrollene,
-  grøfta) er ferdig – se over. 3b (eksport) og 3c (planlagt mot innmålt) står
+  grøfta) og 3b (eksport) er ferdige – se over. 3c (planlagt mot innmålt) står
   igjen.
 
 `GJENNOMGANG.md` er lista. 18 uavhengige granskere gikk gjennom hver sin del av
