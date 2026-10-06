@@ -3053,7 +3053,7 @@ const App = {
     this.visProsjektmasser();
     Kart.tegnResultat(this.resultat);
     // lengden og høydene til stikkrennene står i lista – de er regnet nå
-    this.stikkrennerTilSkjema();
+    this.stikkrennerTilSkjema(true);
     Lengdeprofil.tegn();
     this.settTverrStasjon(this.tverrStasjon);
     this.visLinjetabell();
@@ -6628,8 +6628,12 @@ const App = {
    *
    * Bunnen i innløp og utløp er tom til den låses: tom er «regnet av vegen og
    * terrenget», et tall er brukerens, og det står (se Stikkrenner).
+   *
+   * `bareSvar`: etter en beregning skrives bare det som er regnet, inn i radene
+   * som står. Ble lista bygd på nytt, mistet et felt man skrev i, markøren
+   * midt i et tall – beregningen kan komme av noe helt annet.
    */
-  stikkrennerTilSkjema() {
+  stikkrennerTilSkjema(bareSvar) {
     const boks = document.getElementById('stikkrenneliste');
     if (!boks) return;
     const liste = this.P && this.P.stikkrenner;
@@ -6640,17 +6644,29 @@ const App = {
     const res = this.resultat && this.resultat._anlegg === this.P.aktivt ? this.resultat : null;
     const regnet = r => (res && res.stikkrenner ? res.stikkrenner.find(x => x.id === r.id) : null);
     const t = (v, d) => Rapport.tall(v, d);
+    const svarFor = sv => ({
+      tekst: !sv ? '' : sv.feil ? `⚠ ${sv.feil}`
+        : `${t(sv.lengde, 1)} m · ${t(sv.bunnInn, 2)} → ${t(sv.bunnUt, 2)} · fall ${t(sv.fall, 1)} ‰ · dekning ${t(sv.overdekning, 2)} m`
+          + (sv.merknader.length ? ' ⚠' : ''),
+      tittel: sv && !sv.feil && sv.merknader.length ? sv.merknader.map(m => m.tekst).join('\n') : ''
+    });
+    const rader = [...boks.querySelectorAll('.srrad')];
+    if (bareSvar && rader.length === liste.length && rader.every((rad, i) => rad.dataset.id === liste[i].id)) {
+      rader.forEach((rad, i) => {
+        const { tekst, tittel } = svarFor(regnet(liste[i])), e = rad.querySelector('.srsvar');
+        e.textContent = tekst;
+        if (tittel) e.title = tittel; else e.removeAttribute('title');
+      });
+      return;
+    }
     boks.innerHTML = '';
     liste.forEach((r, i) => {
       const rad = document.createElement('div');
       rad.className = 'rad srrad';
-      const sv = regnet(r);
+      rad.dataset.id = r.id;
       const innlop = r.innlop === 'venstre' || r.innlop === 'hoyre' ? r.innlop : 'auto';
       const valgt = v => (innlop === v ? ' selected' : '');
-      const svar = !sv ? '' : sv.feil ? `⚠ ${sv.feil}`
-        : `${t(sv.lengde, 1)} m · ${t(sv.bunnInn, 2)} → ${t(sv.bunnUt, 2)} · fall ${t(sv.fall, 1)} ‰ · dekning ${t(sv.overdekning, 2)} m`
-          + (sv.merknader.length ? ' ⚠' : '');
-      const tittel = sv && !sv.feil && sv.merknader.length ? sv.merknader.map(m => m.tekst).join('\n') : '';
+      const { tekst: svar, tittel } = svarFor(regnet(r));
       const tall = v => (typeof v === 'number' && Number.isFinite(v) ? v : '');
       rad.innerHTML = `<input type="text" class="srnavn" value="${escapeAttr(r.navn || `Stikkrenne ${i + 1}`)}" spellcheck="false" aria-label="Navn">
         <label>prof</label><input type="number" step="1" class="srs" value="${tall(r.s)}">

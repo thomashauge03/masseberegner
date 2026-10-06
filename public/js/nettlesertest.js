@@ -2095,6 +2095,13 @@ const Nettlesertest = {
       const rad = document.querySelector('#stikkrenneliste .srrad');
       this.sjekk('lista viser det som er regnet', !!rad && /9,8 m/.test(rad.querySelector('.srsvar').textContent),
         rad ? rad.querySelector('.srsvar').textContent : 'ingen rad');
+      // en beregning skriver bare tallene inn – feltet man står i, beholder markøren
+      const navnFelt = rad.querySelector('.srnavn');
+      navnFelt.focus();
+      clearTimeout(app._tidsavbrudd);
+      await app.oppdater();
+      this.sjekk('en ny beregning tar ikke markøren fra lista', navnFelt.isConnected && document.activeElement === navnFelt,
+        document.activeElement ? document.activeElement.className : 'ingen');
       // bunnen i innløpet låses i lista, og står
       const inn = rad.querySelector('.srinn');
       inn.value = '99.5';
