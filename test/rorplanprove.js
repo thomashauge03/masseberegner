@@ -255,6 +255,10 @@ console.log('\n4. Kontrollene');
   paastand('topp, dal, topp', B([0, 1, 0, 1, 0]) === 'hoy1,lav2,hoy3', B([0, 1, 0, 1, 0]));
   paastand('et hull i høydene hoppes over', B([0, NaN, 1, NaN, 0]) === 'hoy2', B([0, NaN, 1, NaN, 0]));
   paastand('en dal rett etter starten teller når starten lå over den', B([1, 0, 1.2, 1.4]) === 'lav1', B([1, 0, 1.2, 1.4]));
+  paastand('en liten tue før et stort fall er ikke et høybrekk', B([0, 0.1, -1, 0]) === 'lav2', B([0, 0.1, -1, 0]));
+  paastand('et flatt topp er et brekk midt på', B([0, 1, 1, 1, 1, 1, 0]) === 'hoy3', B([0, 1, 1, 1, 1, 1, 0]));
+  paastand('en flat dal likeså', B([1, 0, 0, 0, 1]) === 'lav2', B([1, 0, 0, 0, 1]));
+  paastand('terskel 0: starten er fortsatt ikke et brekk', B([0, 0, 1], 0) === '', B([0, 0, 1], 0));
   // et tegnet trykkrør over en kolle: ett høybrekk, ved toppen
   const kolle = x => 10 + 3 * Math.exp(-(((x - 50) / 10) ** 2));
   const vl = (T, mal = RorPlan.nyPlanmal(), koder = {}) => RorPlan.kontroller({
@@ -272,6 +276,9 @@ console.log('\n4. Kontrollene');
     && /under 2,0 ‰/.test(flatF[0].tekst), JSON.stringify(flatF));
   const helning = x => 10 + x * 0.005;     // 5 ‰ jevnt
   paastand('5 ‰ jevnt med krav 2 ‰: ingen merknad', !vl(helning, malF).some(v => v.type === 'fall'));
+  // retningen spiller ingen rolle: begge sider av kollen er bratte, opp og ned
+  paastand('bratt opp og ned en kolle med krav 2 ‰: ingen merknad', !vl(kolle, malF).some(v => v.type === 'fall'),
+    JSON.stringify(vl(kolle, malF).filter(v => v.type === 'fall')));
   const kodeKrav = { 'VL 110PE': Object.assign({}, VL, { minFall: 8 }) };
   paastand('kodens minste fall går foran anleggets', vl(helning, malF, kodeKrav).some(v => v.type === 'fall' && /under 8,0 ‰/.test(v.tekst)));
   // et selvfallsrør satt til trykk tar ikke med seg selvfallskravet (10 ‰) – anleggets 2 ‰ gjelder
@@ -283,10 +290,12 @@ console.log('\n4. Kontrollene');
   // terskelen fra anlegget: 4 m er mer enn kollen stikker opp
   paastand('terskelen kan settes: med 4 m er kollen ikke et brekk',
     !vl(kolle, Object.assign(RorPlan.nyPlanmal(), { brekk: 4 })).some(v => v.type === 'hoybrekk'));
-  // et selvfallsrør over den samme kollen får ingen brekk – det har fallkravet sitt
-  const sp = RorPlan.kontroller({ bygg: bygg(plan1([[0, 0], [100, 0]], [{ kode: 'SP 160PE' }]), kolle), koder: {}, mal: RorPlan.nyPlanmal(),
-    terrengZ: kolle, andre: [] });
-  paastand('selvfall får ingen høybrekk', !sp.some(v => v.type === 'hoybrekk' || v.type === 'lavbrekk'));
+  /* Et selvfallsrør med en låst topp midt på får ingen brekk – det har
+     fallkravet sitt, og motfallet sier fra. */
+  const spTopp = plan1([[0, 0], [50, 0], [100, 0]], [{ kode: 'SP 160PE' }], { laast: [{ ror: 'r1', punkt: 'p2', bunn: 9.0 }] });
+  const sp = RorPlan.kontroller({ bygg: bygg(spTopp, flatt), koder: {}, mal: RorPlan.nyPlanmal(), terrengZ: flatt, andre: [] });
+  paastand('selvfall med en topp: motfall, men ingen høybrekk', sp.some(v => v.type === 'motfall')
+    && !sp.some(v => v.type === 'hoybrekk' || v.type === 'lavbrekk'), JSON.stringify(sp.map(v => v.type)));
   sjekk('standarden: 0,3 m', RorPlan.StandardPlanmal.brekk, 0.3, 0);
   paastand('grensene: under 0,05 m avvises', RorPlan.klem('brekk', 0.01) === null && RorPlan.klem('brekk', '0,5') === 0.5);
 }

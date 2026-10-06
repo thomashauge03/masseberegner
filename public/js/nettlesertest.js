@@ -11215,6 +11215,13 @@ const Nettlesertest = {
         valg.value = 'kasse';
         valg.dispatchEvent(new Event('change'));
         this.sjekk('  og vises når kasse velges', !rad.classList.contains('skjult'));
+        // en bredde under grensen byttes ikke stille mot standarden
+        document.getElementById('gsKassebredde').value = '0.2';
+        document.getElementById('gsLagre').click();
+        this.sjekk('en ugyldig kassebredde lagres ikke, og det sies fra', App.P.ror.groft.strekninger.length === 0
+          && !document.getElementById('dialog').classList.contains('skjult')
+          && /Ugyldig tall i «Kassebredde, innvendig»/.test(document.getElementById('statuslinje').textContent),
+          document.getElementById('statuslinje').textContent);
         document.getElementById('gsKassebredde').value = '1.4';
         document.getElementById('gsLagre').click();
         const st = () => App.P.ror.groft.strekninger[0];

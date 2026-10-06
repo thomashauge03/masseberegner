@@ -385,6 +385,21 @@ const GroftUI = {
     }
     innhold.querySelector('#gsLagre').onclick = () => {
       const les = (id, f) => Groft.klem(f, innhold.querySelector('#' + id).value);
+      /* Et tall som er skrevet, men ikke kan brukes, sies det fra om. Her ble
+         det byttet stille mot standarden: 0,2 m kassebredde ble 1,2 m. */
+      const felt = [['gsHelning', 'helning'], ['gsBunntillegg', 'bunntillegg'], ['gsFundament', 'fundament'],
+        ['gsOmfylling', 'omfylling'], ['gsFjell', 'fjell']].concat(avstiving.value === 'kasse' ? [['gsKassebredde', 'kassebredde']] : []);
+      const feil = felt.find(([id, f]) => {
+        const v = innhold.querySelector('#' + id).value.trim();
+        return v !== '' && Groft.klem(f, v) === null;
+      });
+      if (feil) {
+        const navn = innhold.querySelector(`label[for="${feil[0]}"]`).textContent;
+        const [min, maks] = Groft.GRENSER[feil[1]], tt = v => String(+v.toFixed(2)).replace('.', ',');
+        app.status(`Ugyldig tall i «${navn}» – det må være fra ${tt(min)} til ${tt(maks)}, eller tomt`);
+        innhold.querySelector('#' + feil[0]).focus();
+        return;
+      }
       const mal = {};
       for (const [id, f] of [['gsHelning', 'helning'], ['gsBunntillegg', 'bunntillegg'],
         ['gsFundament', 'fundament'], ['gsOmfylling', 'omfylling']]) {

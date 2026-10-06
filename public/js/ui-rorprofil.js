@@ -305,11 +305,18 @@ const Rorprofil = {
         k.fillStyle = Farger.skjaering; k.globalAlpha = 0.16;
         k.fillRect(X(v.fra), mt, Math.max(3, X(v.til) - X(v.fra)), hh);
         k.globalAlpha = 1;
-        // et brekk er et punkt: det får navnet sitt øverst, så stripa ikke er gåtefull
-        if (v.type === 'hoybrekk' || v.type === 'lavbrekk') {
-          k.fillStyle = Farger.skjaering; k.font = '10px system-ui'; k.textAlign = 'center';
-          k.fillText(v.type === 'hoybrekk' ? '▲ høybrekk' : '▼ lavbrekk', X(v.fra), mt + 11);
-        }
+      }
+      /* Et brekk er et punkt: det får navnet sitt øverst, så stripa ikke er
+         gåtefull. Står to tett, går det neste en rad ned – ellers sto de oppå
+         hverandre. */
+      k.fillStyle = Farger.skjaering; k.font = '10px system-ui'; k.textAlign = 'center';
+      const rader = [];   // høyre kant av det siste navnet i hver rad
+      for (const v of pl.varsler.filter(x => x.type === 'hoybrekk' || x.type === 'lavbrekk').sort((a, b) => a.fra - b.fra)) {
+        const tekst = v.type === 'hoybrekk' ? '▲ høybrekk' : '▼ lavbrekk', x = X(v.fra), b = k.measureText(tekst).width;
+        let rad = rader.findIndex(h => h < x - b / 2 - 4);
+        if (rad < 0) { rad = rader.length; rader.push(0); }
+        rader[rad] = x + b / 2;
+        k.fillText(tekst, x, mt + 11 + 12 * rad);
       }
       for (const km of pl.kummer) {
         const c = pl.kontroll.find(x => x.kum === km.id);

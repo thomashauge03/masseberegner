@@ -24,10 +24,10 @@ med `Nettlesertest.kjor()`. Utviklingstjeneren startes med `node server.js`
 (port 5178). Programmet ligger også på https://masseberegner.vercel.app.
 
 Ved siste lagring: **894 prøver i selvtesten, 194 i rørprøven
-(`test/rorprove.js`), 133 i grøfteprøven (`test/groftprove.js`), 100 i
-planprøven (`test/rorplanprove.js`), 62 i eksportprøven
+(`test/rorprove.js`), 197 i grøfteprøven (`test/groftprove.js`), 124 i
+planprøven (`test/rorplanprove.js`), 63 i eksportprøven
 (`test/roreksportprove.js`), 77 i avviksprøven (`test/roravvikprove.js`), 53 i
-anleggsprøven og 258 i tomteprøven, alle grønne; 1398 av 1398 i nettlesertesten.** «Klikk i modellen flytter snittet
+anleggsprøven og 258 i tomteprøven, alle grønne; 1433 av 1433 i nettlesertesten.** «Klikk i modellen flytter snittet
 dit» i `veg3d` kan feile når vinduet emuleres 1440 × 900 i en mindre rute –
 klikket lander én rad ved siden av; det gjør den likt på `main`. «og merknaden
 sier det som gjelder nå» i `flereAnlegg` feilet én gang i hele runden og aldri
@@ -52,6 +52,63 @@ automatisk.** Delte prosjekt (database og innlogging) er holdt utenfor.
 Underveis ba brukeren om et **oversiktskart for rørene** – ett kart med alle
 typene i hver sin farge og tegnforklaring, og ett kart per type. Det kom foran
 resten av «Utenfor 3a».
+
+### Rør, etappe 3d-1 – kummer i 3D, trykkrør, grøftekasse og spunt
+
+Spec: `docs/superpowers/specs/2026-10-06-ror-etappe3d1-design.md`.
+Plan: `docs/superpowers/plans/2026-10-06-ror-etappe3d1.md`.
+
+Tre av de fem tingene i «Utenfor 3a». De to siste – traseer fra DXF/KOF og
+høydene lagt på knapp – er 3d-2.
+
+- **Kummer i 3D** (`ui-ror3d.js`): en tegnet kum står som en sylinder fra
+  bunnen av kumgropa (bunnløp − 0,25 m) opp til terrenget. En innmålt
+  KUM-kode står som en ring på 1 m i målt høyde. Laget «Kummer» står i
+  verktøylinja, og kameraet rammer inn kumbunnen.
+- **Trykkrør** (`RorPlan.brekk` og `kontroller`): høybrekk og lavbrekk finnes
+  med terskel (`mal.plan.brekk`, 0,3 m), så en tue ikke blir et brekk; endene
+  teller ikke. Mellom brekkene kan et minste fall kreves
+  (`mal.plan.trykkMinFall`, 0 = av). Det er kodens minste fall når koden selv
+  er et trykkrør. Begge står i Rør-fanen. Brekkene står i merknadene, i kartet
+  og i profilen (▲/▼).
+- **Grøftekasse og spunt** (`groft.js`): «Avstiving» på en strekning.
+  - Veggene står loddrett: kassa i kassebredden (1,2 m, aldri smalere enn
+    røret med arbeidsrom; da kommer en merknad), spunten i bunnbredden.
+  - Rundt strekningen ligger en avstivingssone: den naturlige gropa, der
+    grøfta ellers ville skrånet. Ingen skråning fra samme grøft graver inn i
+    den – verken enden av den åpne grøfta før kassa eller naboen i felles
+    grøft. Naboen har sonen langs den delen som går langs kassa. Andre rør er
+    sin egen grøft og beholder skråningen.
+  - Hvilke rør som ligger i samme grøft, avgjøres som uten avstiving.
+  - `kasseLengde` og `spuntAreal` telles én gang per meter grøft. De står i
+    fanen, rapporten, PDF-en og CSV-en (`Kasse_m;Spunt_m2` til sist).
+  - Spunten stopper på fjell, og der veggen er fjell hele veien opp, telles
+    verken kasse eller spunt.
+  - Uten avstiving er tallene uendret. Segmentene har nå alle de samme
+    feltene: ett felt for mye gjorde grøfta nesten fire ganger så treg, og
+    selvtesten passer på det.
+
+En kodegjennomgang fant ingen kritiske feil og tre alvorlige, alle rettet med
+prøver:
+- Sonen var søkeradiusen og gjaldt alle rør. En egen grøft 8 m unna mistet
+  9 % av gravingen.
+- En nabo i felles grøft som bøyde av, fikk kassa langs hele segmentet. Det
+  ga 130 m kasse for 100 m.
+- Spunten ble regnet gjennom fjellet.
+
+Av de mindre er disse rettet:
+- dobbeltpunkt i overgangen;
+- den naturlige gropa gikk ut fra kasseveggen;
+- en ugyldig kassebredde ble byttet stille mot standarden;
+- merknaden om smal kasse viste bare den første bredden;
+- kasse og spunt mot samme nabo hang på rekkefølgen;
+- flatt topp ble meldt i enden;
+- terskel 0;
+- navnene i profilen sto oppå hverandre.
+
+Mutasjonsprøvd to ganger: de 24 første mutantene og 12 nye for rettingene.
+Under prøvingen viste det seg at to grener i `brekk` aldri kunne nås, og de
+ble fjernet.
 
 ### Rør – oversiktskart
 

@@ -598,27 +598,36 @@ const RorPlan = (() => {
    * @returns {Array<{i:number, type:'hoy'|'lav'}>}
    */
   function brekk(z, h) {
+    // en terskel på null gjorde starten til et brekk; den må være over null
+    const t = h > 0 ? h : 1e-9;
     const idx = [];
     for (let i = 0; i < z.length; i++) if (Number.isFinite(z[i])) idx.push(i);
     if (idx.length < 3) return [];
     const ut = [], start = idx[0];
     let trend = 0, kand = start, hoy = start, lav = start;
+    // punktene med samme høyde som kandidaten: et flatt topp er et brekk midt på, ikke i enden
+    let like = [start];
+    const midt = () => like[(like.length - 1) >> 1];
     for (const i of idx.slice(1)) {
       if (trend === 0) {
         if (z[i] > z[hoy]) hoy = i;
         if (z[i] < z[lav]) lav = i;
-        if (z[hoy] - z[lav] < h) continue;
-        // den første store bevegelsen: steg profilen, er det laveste før et lavbrekk – om starten lå minst h over det
-        if (hoy > lav) { trend = 1; kand = hoy; if (lav !== start && z[start] - z[lav] >= h) ut.push({ i: lav, type: 'lav' }); }
-        else { trend = -1; kand = lav; if (hoy !== start && z[hoy] - z[start] >= h) ut.push({ i: hoy, type: 'hoy' }); }
+        if (z[hoy] - z[lav] < t) continue;
+        /* Den første store bevegelsen avgjør retningen. Det laveste før en
+           stigning er ikke et lavbrekk: hadde profilen falt t fra starten
+           ned dit, var den første store bevegelsen et fall. */
+        if (hoy > lav) { trend = 1; kand = hoy; } else { trend = -1; kand = lav; }
+        like = [kand];
         continue;
       }
       if (trend === 1) {
-        if (z[i] >= z[kand]) kand = i;
-        else if (z[kand] - z[i] >= h) { ut.push({ i: kand, type: 'hoy' }); trend = -1; kand = i; }
+        if (z[i] > z[kand]) { kand = i; like = [i]; }
+        else if (z[i] === z[kand]) { kand = i; like.push(i); }
+        else if (z[kand] - z[i] >= t) { ut.push({ i: midt(), type: 'hoy' }); trend = -1; kand = i; like = [i]; }
       } else {
-        if (z[i] <= z[kand]) kand = i;
-        else if (z[i] - z[kand] >= h) { ut.push({ i: kand, type: 'lav' }); trend = 1; kand = i; }
+        if (z[i] < z[kand]) { kand = i; like = [i]; }
+        else if (z[i] === z[kand]) { kand = i; like.push(i); }
+        else if (z[i] - z[kand] >= t) { ut.push({ i: midt(), type: 'lav' }); trend = 1; kand = i; like = [i]; }
       }
     }
     return ut;

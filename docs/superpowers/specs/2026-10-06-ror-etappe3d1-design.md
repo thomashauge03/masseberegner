@@ -39,6 +39,7 @@ Det som teller for et trykkrør, er der luft samler seg og der det må tømmes:
 - Endene teller ikke.
 - Brekkene finnes med terskel, ikke punkt for punkt. Profilen følger
   terrenget meter for meter, og hver tue ville ellers blitt et brekk.
+- Et flatt topp eller en flat dal er et brekk midt på.
 
 **Fallkravet:**
 - Mellom to brekk, eller mellom et brekk og en ende, er fallet
@@ -82,19 +83,24 @@ noe annet.
 **Graving:** veggene er loddrette, så ingenting graves utenfor bredden.
 
 **Avstivingssonen:** rundt en strekning med kasse eller spunt ligger en
-sone. Sonen er der grøfta ville gått med skråning, og der graver ingen
-skråning – fra noe segment. Én regel tar tre tilfeller:
-- enden av den åpne grøfta før kassa graver ikke en halv kjegle inn langs
-  kassa;
-- en nabo i samme grøft skråner ikke inn over den;
-- et rør som slutter like ved, skråner ikke inn i den.
+sone. Sonen er den naturlige gropa: der grøfta ville gått med skråning, fra
+bunnbredden uten avstiving. I sonen graver ingen skråning fra samme grøft:
+- røret selv – enden av den åpne grøfta før kassa graver ikke en halv kjegle
+  inn langs kassa;
+- kummene og tverrstrekene røret har;
+- naboen i felles grøft, som skråner ikke inn over kassa.
+
+**Andre rør** – et som krysser, slutter like ved eller ligger i en egen grøft
+ved siden av – er sin egen grøft og beholder skråningen. Skal den avstives,
+settes avstiving på den strekningen også.
 
 Formen på sonen:
 - langs strekningen er den et bånd som slutter rett av endene. Grøfta før
   kassa beholder dermed skråningen sin helt fram;
 - der sonen går videre fra ett segment til det neste, er skjøten rund, så
   yttersida av en knekk er med;
-- rundt en kum med kasse er den en sirkel.
+- rundt en kum med kasse er den en sirkel. Et segment uten lengde (to punkt
+  på samme sted) har ingen sone.
 
 **Fjell:** i fjell står veggene loddrett fra før.
 
@@ -102,6 +108,13 @@ Formen på sonen:
 strekningen, får hele grøfta kasse der. Det er grøfta som avstives, ikke
 røret. Naboen får sonen langs den delen som går langs kassa, med sin egen
 rekkevidde, så også yttersida dens står loddrett.
+- Langs er der tverrstrekene går, meter for meter, og en meter på naboen
+  avgjøres midt i den.
+- En nabo som bøyer av, er med til den er lenger unna enn felles grøft
+  rekker (10 m).
+- Står kasse og spunt mot samme nabo, gjelder spunten.
+- Har det ene røret kasse og det andre spunt, telles det som står på røret
+  som har meteren.
 
 **Samme grøft eller ikke:** hvilke rør som ligger i samme grøft, avgjøres
 som om det ikke var noen avstiving. Kassa gjør veggene loddrette, men det er
@@ -118,6 +131,15 @@ siden.
   naboen til kassa i en felles grøft;
 - har et rør med kasse gitt meteren til et dypere rør uten, telles kassa på
   røret som har kassa.
+
+**Avstivingen holder løsmassen:**
+- spunten går fra terrenget ned til gravebunnen, eller ned til fjellet, der
+  den stopper;
+- står veggen i fjell hele veien opp, telles verken kasse eller spunt.
+
+**Dialogen** sier fra om et tall den ikke kan bruke, for eksempel en
+kassebredde under 0,3 m. Den lagrer ikke, og tallet byttes ikke stille mot
+standarden.
 
 **Mengdene står** i:
 - grøftesummen (`kasseLengde`, `spuntAreal`);
@@ -139,9 +161,16 @@ valideres i `_rettGroft`. Ukjente verdier faller bort.
   - grøfta før kassa skråner helt fram, men ikke inn langs kassa;
   - en nabo i felles grøft står loddrett også på yttersida, og kassa telles
     én gang;
+  - en nabo som bøyer av, får kassa bare der den går langs;
   - to rør i samme grøft uten «felles grøft»: kassa på det grunne telles
     der, og én gang også når begge har kasse;
-  - yttersida av en knekk i kassa er med i sonen;
+  - yttersida av naboens hjørne er med i sonen;
+  - det som ikke hører til grøfta, er urørt: en egen grøft ved siden av, og
+    et rør som slutter like ved;
+  - et dobbeltpunkt i overgangen gir samme grøft fra hvilket av punktene;
+  - spunt og fjell;
+  - ulike kassebredder gir hver sin merknad;
+  - alle segmentene har de samme feltene, så grøfta ikke blir treg;
   - kumgropa i kassa står loddrett, og kummen i overgangen hører til den
     åpne grøfta;
   - et rør bredere enn kassa gir en merknad;

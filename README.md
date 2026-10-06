@@ -133,7 +133,9 @@ i førstevalget, eller slipp fila på kartet.
   punktene kjennes igjen på id-en i fila, og ingenting slettes stille.
 
 Rørene vises i kart, lengdeprofil og 3D (piltastene blar mellom dem), og får
-sin egen del i rapporten og PDF-en. De eksporteres som rør – se «Eksport» under.
+sin egen del i rapporten og PDF-en. I 3D står kummene: en tegnet kum som en
+sylinder fra bunnen av kumgropa opp til terrenget, en innmålt som en ring på
+1 m der den ble målt (laget «Kummer»). De eksporteres som rør – se «Eksport» under.
 Nye rør tegnes i et eget anlegg – se «Planlagte rør» under.
 
 ### Oversiktskart
@@ -188,10 +190,20 @@ slik det var før graving.
   til veggen møter terrenget. Er lia brattere enn skråningen, kappes gropa 30 m
   ut, og merknadene sier fra.
 * **Rør uten dimensjon får ingen grøft**, og merknadene sier hvor mye det gjelder.
+* **Grøftekasse og spunt** velges på en strekning («Avstiving»). Veggene står da
+  loddrett: kassa i kassebredden (standard 1,2 m innvendig, aldri smalere enn
+  røret med arbeidsrom), spunten i bunnbredden. Ingen skråning fra samme grøft
+  graver inn der den ellers ville skrånet – ikke enden av den åpne grøfta før
+  kassa, og ikke naboen i felles grøft; i felles grøft avstives hele grøfta.
+  Et rør som krysser eller ligger i en egen grøft ved siden av, er sin egen
+  grøft og beholder skråningen. Mengdene er meter grøft med kasse og
+  spuntareal (to vegger fra terreng til gravebunn, eller til fjellet, der
+  spunten stopper), telt én gang per meter grøft.
 * **Tallene:** kubikk per lag (graving løsmasse, sprengning, fundament,
   omfylling uten røret, gjenfylling), løpemeter grøft per dybdeklasse
-  (0–1, 1–2, 2–3, 3–4 og over 4 m), alt per kode, og massebalansen med
-  prosjektets faktorer. Lengder og volum er på bakken, som for vegen.
+  (0–1, 1–2, 2–3, 3–4 og over 4 m), kasse og spunt, alt per kode, og
+  massebalansen med prosjektets faktorer. Lengder og volum er på bakken, som
+  for vegen.
 
 Grøftekanten står i kartet, fundament, omfylling, gravebunn og fjell i
 lengdeprofilen (gravedybden under musa), og laget «Grøft» viser den som åpen
@@ -224,6 +236,11 @@ rapporteres som et innmålt, med grøft og alt.
   fall (med toleranse for millimeteravrundingen), kryss med for liten klaring
   mot alle andre rør i prosjektet – og fjell i grøfta. Rødt i kartet og
   profilen, og i merknadene.
+* **Trykkrør:** høybrekk (lufting) og lavbrekk (tømming) der røret stiger eller
+  faller minst 0,3 m og snur – med terskel, så en tue ikke blir et brekk; endene
+  teller ikke. Mellom brekkene kan et minste fall kreves (av som standard; kodens
+  minste fall gjelder for en trykkode). Begge settes i Rør-fanen, og brekkene står
+  i profilen.
 * **I profilen** klikkes et kontrollpunkt for punktfeltet (bunn innvendig, lås,
   fall videre, hent påkoblingen på nytt), det dras for å låse en ny høyde, og et
   klikk på røret mellom kontrollpunktene setter inn et punkt.
@@ -398,6 +415,7 @@ omfylling, gjenfylling, endene), fjellgrøft fra strekninger og sonderinger,
 loddrette vegger, sidehelling, hull i terrenget, felles og egen grøft (også midt
 på et rør og i en knekk), sammenslåing med fall, ulike lengder og fjell, et
 T-kryss bygd som programmet bygger det, mål per kode og strekning,
+grøftekasse og spunt (sonen, felles grøft, kummer og tellingen),
 dybdeklassene, massebalansen og bakkefaktoren. Med `ROR_FIL=<sti til en xml>` kjøres
 en ekte fil i tillegg i begge rørprøvene – kundens filer ligger ikke i repoet.
 
@@ -407,7 +425,8 @@ node test/rorplanprove.js
 
 De planlagte rørene: bunn ↔ topp med godset, sideavstanden i knekker, høydene
 for selvfall og trykk mellom kontrollpunktene, kummer, greiner og påkoblinger,
-kontrollene (overdekning, fall og motfall med millimeteravrundingen, kryssing),
+kontrollene (overdekning, fall og motfall med millimeteravrundingen, kryssing,
+høybrekk, lavbrekk og fall for trykkrør),
 fallet mellom kontrollpunktene og ryddingen av plandelen når prosjektfila åpnes.
 
 ```bash
