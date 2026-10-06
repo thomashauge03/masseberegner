@@ -27,7 +27,7 @@ Ved siste lagring: **894 prøver i selvtesten, 194 i rørprøven
 (`test/rorprove.js`), 219 i grøfteprøven (`test/groftprove.js`), 175 i
 planprøven (`test/rorplanprove.js`), 63 i eksportprøven
 (`test/roreksportprove.js`), 77 i avviksprøven (`test/roravvikprove.js`), 45 i
-traseprøven (`test/traseimportprove.js`), 36 i stikkrenneprøven
+traseprøven (`test/traseimportprove.js`), 38 i stikkrenneprøven
 (`test/stikkrenneprove.js`), 53 i anleggsprøven og 258 i tomteprøven, alle
 grønne; 1472 av 1472 i nettlesertesten.** «Klikk i modellen flytter snittet
 dit» i `veg3d` kan feile når vinduet emuleres 1440 × 900 i en mindre rute –

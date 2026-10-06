@@ -430,11 +430,13 @@ const Tverrprofil = {
     for (const sv of renner) {
       const V = sv.ender.venstre, H = sv.ender.hoyre, farge = Farger.ror('overvann');
       const bunn = [[-V.t, V.bunn], [H.t, H.bunn]], topp = bunn.map(([tt, z]) => [tt, z + sv.ytre]);
+      /* Tett farge og mørk kant: gjennomsiktig turkis forsvant i det lyseblå
+         båndet for masseutskiftingen, som renna ofte ligger i. */
       c.save();
-      c.globalAlpha = 0.35; c.fillStyle = farge;
+      c.globalAlpha = 0.9; c.fillStyle = farge;
       bane(bunn.concat(topp.slice().reverse()), true); c.fill();
-      c.globalAlpha = 1; c.strokeStyle = farge; c.lineWidth = 1.6;
-      bane(bunn); c.stroke(); bane(topp); c.stroke();
+      c.globalAlpha = 1; c.strokeStyle = Farger.blekk; c.lineWidth = 1.2;
+      bane(bunn.concat(topp.slice().reverse()), true); c.stroke();
       c.restore();
       c.font = '10px system-ui'; c.textAlign = 'center'; c.textBaseline = 'top';
       this._merkelapp(c, `${sv.navn} · Ø${sv.dim} · ${Rapport.tall(sv.lengde, 1)} m · `
@@ -470,7 +472,7 @@ const Tverrprofil = {
       ['Skjæring', 'flate', Farger.skjaeringFlate],
       ['Fylling', 'flate', Farger.fyllingFlate],
       ['Fjell', 'skravur', null],
-      ...(renner.length ? [['Stikkrenne', 'strek', Farger.ror('overvann')]] : [])
+      ...(renner.length ? [['Stikkrenne', 'flate', Farger.ror('overvann')]] : [])
     ];
     c.textAlign = 'left'; c.textBaseline = 'middle'; c.font = '10px system-ui';
     let fx = m.v + 4;

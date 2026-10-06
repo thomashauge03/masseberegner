@@ -106,6 +106,10 @@ console.log('\n3. Sidebratt terreng: skjæring til venstre, fylling til høyre')
     JSON.stringify(c.merknader));
   const h = regn((x, y) => 100 + 0.3 * y, 100, { id: 's3h', s: 50, innlop: 'hoyre' }).svar;
   paastand('innløpet kan velges mot fallet i terrenget', h.innlop === 'hoyre' && h.bunnInn > h.bunnUt);
+  // speilet: terrenget stiger mot høyre – da er det høyre side auto velger
+  const sp = regn((x, y) => 100 - 0.3 * y, 100, { id: 's3s', s: 50, innlop: 'auto' }).svar;
+  paastand('terrenget stiger mot høyre: auto velger høyre', sp.innlop === 'hoyre' && sp.ender.hoyre.type === 'skjaering'
+    && Math.abs(sp.ender.hoyre.t - 3.40) < 0.001, JSON.stringify({ innlop: sp.innlop, h: sp.ender.hoyre }));
 }
 
 console.log('\n4. Låste høyder står');
@@ -129,6 +133,10 @@ console.log('\n5. Det som ikke går');
   // terrenget mangler et stykke ut på høyre side: skråningen når det ikke
   const hull = regn((x, y) => (y < -3 ? NaN : 100), 101.5, { id: 's8', s: 42.5 }).svar;
   paastand('terrenget mangler: lengden er usikker, og det sies', hull.merknader.some(m => m.type === 'terreng'), JSON.stringify(hull.merknader));
+  // bakken faller brattere enn fyllingen til høyre: skråningen når den aldri – uten hull i terrenget
+  const stup = regn((x, y) => (y < 0 ? 100 + y : 100), 100.5, { id: 's9', s: 42.5 }).svar;
+  paastand('skråningen når ikke bakken: det sies, også uten hull', stup.merknader.some(m => m.type === 'terreng' && /søkebredden/.test(m.tekst)),
+    JSON.stringify(stup.merknader));
   const k = Stikkrenner.fraMal({ stikkrenneDim: 'x', stikkrenneFall: -3, stikkrenneOverdekning: 99, stikkrenneTillegg: null });
   paastand('malen: et ugyldig tall er forvalget, et for stort klemmes', k.dim === 600 && k.fall === 0 && k.overdekning === 5 && k.tillegg === 0.5,
     JSON.stringify(k));
