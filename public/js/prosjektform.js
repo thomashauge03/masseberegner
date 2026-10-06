@@ -450,6 +450,12 @@ function klargjor(P) {
      tverrfallslista over: to veger i samme prosjekt har hver sine, og en
      stasjon på den ene er et helt annet sted i terrenget enn på den andre. */
   for (const a of P.anlegg) if (!Array.isArray(a.plasser)) a.plasser = [];
+  /* Stikkrennene likeså – og en renne uten et profil å stå i er ingen renne.
+     Resten av tallene klemmes der de leses (se stikkrenner.js). */
+  for (const a of P.anlegg) {
+    a.stikkrenner = Array.isArray(a.stikkrenner)
+      ? a.stikkrenner.filter(r => r && typeof r.s === 'number' && Number.isFinite(r.s)) : [];
+  }
 
   const aktivt = () => P.anlegg.find(a => a.id === P.aktivt) || P.anlegg[0];
   for (const felt of FELT) {
@@ -467,7 +473,7 @@ function klargjor(P) {
 /* Feltene som er VINDUER inn i det aktive anlegget. Lista står her og ikke
    inne i løkka, så en prøve kan lese den og kreve at hvert felt virker – da
    kan ikke et nytt felt legges til uten at det blir prøvd. */
-const FELT = ['ip', 'vip', 'mal', 'tomt', 'ror', 'tverrfall', 'plasser'];
+const FELT = ['ip', 'vip', 'mal', 'tomt', 'ror', 'tverrfall', 'plasser', 'stikkrenner'];
 
 const Prosjektform = { klargjor, moderniserMal, FELT };
 

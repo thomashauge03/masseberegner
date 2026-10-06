@@ -687,6 +687,32 @@ const Pdfrapport = {
       }])
     );
 
+    /* ---------------- stikkrenner ---------------- */
+    const renner = res.stikkrenner || [];
+    if (renner.length) {
+      overskrift('Stikkrenner', 60);
+      brodtekst('Lengden går fra fyllingsfoten – eller midt i grøftebunnen i skjæring – på den ene siden til den andre, '
+        + 'langs renna. Høydene er bunn innvendig. Overdekningen er minste avstand fra vegoverflaten til topp rør, '
+        + 'med ytre diameter 1,15 × innvendig.');
+      tilstand.y += 2;
+      const n2 = v => Rapport.n(v, 2);
+      tabell(
+        [{ tekst: 'Navn', bredde: 16, venstre: true }, { tekst: 'Profil', bredde: 8 }, { tekst: 'Ø mm', bredde: 7 },
+          { tekst: 'Vinkel', bredde: 7 }, { tekst: 'Lengde', bredde: 8 }, { tekst: 'Bunn inn', bredde: 10 },
+          { tekst: 'Bunn ut', bredde: 10 }, { tekst: 'Fall ‰', bredde: 7 }, { tekst: 'Overd. m', bredde: 8 },
+          { tekst: 'Merknad', bredde: 34, venstre: true }],
+        renner.map(sv => ({
+          celler: sv.feil
+            ? [sv.navn, Number.isFinite(sv.s) ? Rapport.stasjon(sv.s) : '–', '', '', '', '', '', '', '',
+              this._kort(P, sv.feil, (innmarg - this.MARG) * 0.3, 7.2)]
+            : [this._kort(P, sv.navn, (innmarg - this.MARG) * 0.14, 7.2), Rapport.stasjon(sv.s), String(sv.dim),
+              `${t(sv.vinkel)}°`, t(sv.lengde, 1), n2(sv.bunnInn) + (sv.laastInn ? ' L' : ''),
+              n2(sv.bunnUt) + (sv.laastUt ? ' L' : ''), t(sv.fall, 1), t(sv.overdekning, 2),
+              this._kort(P, sv.merknader.map(m => m.tekst).join('; ') || '–', (innmarg - this.MARG) * 0.3, 7.2)]
+        }))
+      );
+    }
+
     /* ---------------- stikning ---------------- */
     const steg = res.lengdeKart > 600 ? 10 : 5;
     const stikning = Rapport.stikningstabell(res, steg);

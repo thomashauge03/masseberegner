@@ -16,8 +16,8 @@ Kjør testene først, så du vet du starter fra noe som virker:
 npm test
 ```
 
-(selvtesten, rørprøven, grøfteprøven, planprøven, eksportprøven, avviksprøven
-og traseprøven etter hverandre)
+(selvtesten, rørprøven, grøfteprøven, planprøven, eksportprøven, avviksprøven,
+traseprøven og stikkrenneprøven etter hverandre)
 
 Nettlesertesten kjøres ved å åpne programmet med `?test=1`, eller fra konsollen
 med `Nettlesertest.kjor()`. Utviklingstjeneren startes med `node server.js`
@@ -27,8 +27,9 @@ Ved siste lagring: **894 prøver i selvtesten, 194 i rørprøven
 (`test/rorprove.js`), 219 i grøfteprøven (`test/groftprove.js`), 175 i
 planprøven (`test/rorplanprove.js`), 63 i eksportprøven
 (`test/roreksportprove.js`), 77 i avviksprøven (`test/roravvikprove.js`), 45 i
-traseprøven (`test/traseimportprove.js`), 53 i anleggsprøven og 258 i
-tomteprøven, alle grønne; 1472 av 1472 i nettlesertesten.** «Klikk i modellen flytter snittet
+traseprøven (`test/traseimportprove.js`), 36 i stikkrenneprøven
+(`test/stikkrenneprove.js`), 53 i anleggsprøven og 258 i tomteprøven, alle
+grønne; 1472 av 1472 i nettlesertesten.** «Klikk i modellen flytter snittet
 dit» i `veg3d` kan feile når vinduet emuleres 1440 × 900 i en mindre rute –
 klikket lander én rad ved siden av; det gjør den likt på `main`. «og merknaden
 sier det som gjelder nå» i `flereAnlegg` feilet én gang i hele runden og aldri
@@ -55,6 +56,33 @@ automatisk.** Delte prosjekt (database og innlogging) er holdt utenfor.
 Underveis ba brukeren om et **oversiktskart for rørene** – ett kart med alle
 typene i hver sin farge og tegnforklaring, og ett kart per type. Det kom foran
 resten av «Utenfor 3a».
+
+### Stikkrenner – den siste delen
+
+Spec: `docs/superpowers/specs/2026-10-07-stikkrenner-design.md`.
+Plan: `docs/superpowers/plans/2026-10-07-stikkrenner.md`.
+
+- **Regnestykket** (`stikkrenner.js`, ren modul): én renne av tverrsnittet i
+  profilet der den krysser. Profilet regnes som eget profil – stasjonen går i
+  `ekstraStasjoner` i alle tre kallene som regner vegen (`beregn`,
+  `vegOverlapp` og naboens fotavtrykk), så forskjellene mellom dem ikke får med
+  seg oppdelingen.
+  - Endene: fyllingsfoten (uklippet) pluss `stikkrenneTillegg`, eller midt i
+    grøftebunnen i skjæring. Lengden er `(tV + tH) / cos(vinkel)`.
+  - Høydene: innløpet på overflaten, utløpet etter terrenget eller
+    minstefallet; låst `bunnInn`/`bunnUt` står.
+  - Overdekningen fra kant til kant, med vegens stigning for en skjev renne;
+    for lite senker renna når ingenting er låst.
+- **Data:** `a.stikkrenner` per veganlegg (vindu i `Prosjektform.FELT`); malen
+  har `stikkrenneDim`, `stikkrenneFall`, `stikkrenneOverdekning` og
+  `stikkrenneTillegg` med grenser i `MALGRENSER`.
+- **Skjermen:** «⊖ Stikkrenne» i kartet, lista under Vegmal (`stikkrennerTilSkjema`,
+  `visPlassliste` med valg), streken og merket i kartet (`Kart.tegnStikkrenner`),
+  tverrsnittet og lengdeprofilen.
+- **Rapport, PDF og eksport:** tabellen «Stikkrenner»; KOF `STIKKINN`/`STIKKUT`;
+  DXF-laget `STIKKRENNE` (`Eksport.stikkrennepunkter`).
+- Merknadene escapes nå på skjermen og i rapporten – de bærer navn brukeren
+  har skrevet.
 
 ### Rør, etappe 3d-2 – traseer fra DXF og KOF, og høydene lagt på knapp
 

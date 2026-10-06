@@ -70,10 +70,12 @@ const Rapport = {
        uten en eneste feilmelding på skjermen. Spørsmålet er om det finnes en
        stasjon å skrive, og det svarer tallet selv på. */
     const utenSted = v => v.type === 'inngang' || !Number.isFinite(v.s);
+    /* TEKSTEN ER TEKST. Merknadene bærer navn brukeren har skrevet – på
+       naboanlegg og på stikkrenner – og her ble de satt inn som HTML. */
     const varselHtml = alvorlig + (varsler.length
       ? `<div class="varselboks"><b>${varsler.length} merknad${varsler.length === 1 ? '' : 'er'}</b>`
       + varsler.slice(0, 40).map(v =>
-        `<div>${utenSted(v) ? '' : 'prof ' + v.s.toFixed(0) + ' – '}${v.tekst}</div>`).join('')
+        `<div>${utenSted(v) ? '' : 'prof ' + v.s.toFixed(0) + ' – '}${escapeHtml(v.tekst)}</div>`).join('')
       + (varsler.length > 40 ? `<div>… og ${varsler.length - 40} til</div>` : '') + '</div>'
       : '');
 
@@ -644,6 +646,30 @@ ${this.sprengningsrader(res)}
   },
 
   /**
+   * Tabellen over stikkrennene i vegrapporten – tom når vegen ikke har noen.
+   * Høydene er bunn innvendig; en låst høyde er merket.
+   */
+  stikkrenneHtml(res) {
+    const liste = (res && res.stikkrenner) || [];
+    if (!liste.length) return '';
+    const t = (v, d = 0) => this.tall(v, d), n = (v, d) => this.n(v, d);
+    const rad = sv => (sv.feil
+      ? `<tr><td class="tekst">${escapeHtml(sv.navn)}</td><td>${Number.isFinite(sv.s) ? this.stasjon(sv.s) : '–'}</td>`
+        + `<td colspan="8" class="tekst">${escapeHtml(sv.feil)}</td></tr>`
+      : `<tr><td class="tekst">${escapeHtml(sv.navn)}</td><td>${this.stasjon(sv.s)}</td><td>${sv.dim}</td><td>${t(sv.vinkel)}°</td>`
+        + `<td>${t(sv.lengde, 1)}</td><td>${n(sv.bunnInn, 2)}${sv.laastInn ? ' (låst)' : ''}</td>`
+        + `<td>${n(sv.bunnUt, 2)}${sv.laastUt ? ' (låst)' : ''}</td><td>${t(sv.fall, 1)}</td><td>${t(sv.overdekning, 2)}</td>`
+        + `<td class="tekst">${escapeHtml(sv.merknader.map(m => m.tekst).join('; ')) || '–'}</td></tr>`);
+    return `<h2>Stikkrenner</h2>
+<p class="liten">Lengden går fra fyllingsfoten – eller midt i grøftebunnen i skjæring – på den ene siden til den
+andre, langs renna. Høydene er bunn innvendig; innløpet er siden vannet kommer fra. Overdekningen er den minste
+avstanden fra vegoverflaten til topp rør under vegen, med ytre diameter 1,15 × innvendig.</p>
+<table><thead><tr><th>Navn</th><th>Profil</th><th>Ø mm</th><th>Vinkel</th><th>Lengde m</th><th>Bunn innløp</th>
+<th>Bunn utløp</th><th>Fall ‰</th><th>Overdekning m</th><th>Merknad</th></tr></thead>
+<tbody>${liste.map(rad).join('')}</tbody></table>`;
+  },
+
+  /**
    * @param {{seksjon?:string}} [valg] med `seksjon` settes rapporten sammen som
    *   en DEL av et større dokument, og HTML-en returneres i stedet for å åpnes.
    */
@@ -665,7 +691,7 @@ ${this.sprengningsrader(res)}
     const n = (v, d) => this.n(v, d);
 
     const merknader = res.merknader.map(v =>
-      `<tr><td>${Number.isFinite(v.s) && v.type !== 'inngang' ? v.s.toFixed(0) : '–'}</td><td>${v.type}</td><td>${v.tekst}</td></tr>`).join('');
+      `<tr><td>${Number.isFinite(v.s) && v.type !== 'inngang' ? v.s.toFixed(0) : '–'}</td><td>${escapeHtml(v.type)}</td><td>${escapeHtml(v.tekst)}</td></tr>`).join('');
 
     const tegninger = this.lagTegninger(res);
     const stikning = this.stikningstabell(res, res.lengdeKart > 600 ? 10 : 5);
@@ -752,6 +778,7 @@ ${tegninger.tverrsnitt.map(x => `<figure>
     (fjell ${t(x.areal.skjaeringFjell, 1)}) · fylling ${t(x.areal.fylling, 1)} m²</figcaption>
 </figure>`).join('')}
 </div>
+${this.stikkrenneHtml(res)}
 
 <h2>Stikningsdata – senterlinje</h2>
 <p class="liten">EUREF89 UTM${app.sone}. VK og HK er venstre og høyre vegkant.

@@ -119,6 +119,15 @@ const StandardMal = {
   plassRadius: 13,
   plassOvergangsradius: 15,
   plassBredde: 5.5,
+  /* STIKKRENNENE: forvalget for en ny renne og kravene – se stikkrenner.js.
+     600 mm er den vanlige dimensjonen på en landbruksveg, og 10 ‰ fall holder
+     den ren. Overdekningen er fra vegoverflaten til topp rør; den riktige
+     verdien avhenger av rørtypen og lasten, og står hos leverandøren. Renna
+     stikker et stykke forbi fyllingsfoten, så foten ikke graves ut. */
+  stikkrenneDim: 600,
+  stikkrenneFall: 10,
+  stikkrenneOverdekning: 0.5,
+  stikkrenneTillegg: 0.5,
   utflatingForKurve: 10,     // hvor langt stigningen flates ut før kurven
 
   /* Største stigning: [radius til og med, med lass, uten lass] */
@@ -1747,6 +1756,10 @@ const MALGRENSER = {
   utskiftingUtenfor: [0, 20, 'Trauets bunn utenfor vegkroppen'],
   plassLengde: [1, 500, 'Lengde på snuplass'],
   plassBredde: [0, 50, 'Bredde på snuplass'],
+  stikkrenneDim: [100, 3000, 'Diameter på ny stikkrenne'],
+  stikkrenneFall: [0, 500, 'Minste fall i stikkrenner'],
+  stikkrenneOverdekning: [0, 5, 'Overdekning over stikkrenner'],
+  stikkrenneTillegg: [0, 10, 'Stikkrenne forbi fyllingsfoten'],
   plassRadius: [3, 60, 'Radius på snuplass'],
   plassOvergangsradius: [0, 200, 'Overgangsradius på snuplass'],
   tverrfall: [0, 0.3, 'Tverrfall'],

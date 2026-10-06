@@ -212,7 +212,26 @@ const Eksport = {
       rader.push(this.kofPunkt(navn('V', pt.s), 'VKANT', pt.venstre.n, pt.venstre.o, pt.venstre.z));
       rader.push(this.kofPunkt(navn('H', pt.s), 'HKANT', pt.hoyre.n, pt.hoyre.o, pt.hoyre.z));
     }
+    // stikkrennene: bunn innvendig i innløpet og utløpet, til å sette ut
+    for (const r of this.stikkrennepunkter(res)) rader.push(this.kofPunkt(navner(r.navn), r.kode, r.y, r.x, r.z));
     return rader;
+  },
+
+  /**
+   * Innløpet og utløpet for hver stikkrenne som er regnet: `SR<nr>I` og
+   * `SR<nr>U`, bunn innvendig. En renne som ikke kunne regnes, er ikke med.
+   */
+  stikkrennepunkter(res) {
+    const ut = [];
+    for (const sv of (res && res.stikkrenner) || []) {
+      if (sv.feil || !sv.ender) continue;
+      const inn = sv.innlop === 'venstre' ? sv.ender.venstre : sv.ender.hoyre;
+      const ute = sv.innlop === 'venstre' ? sv.ender.hoyre : sv.ender.venstre;
+      if (![inn.x, inn.y, inn.bunn, ute.x, ute.y, ute.bunn].every(Number.isFinite)) continue;
+      ut.push({ navn: `SR${sv.nr}I`, kode: 'STIKKINN', x: inn.x, y: inn.y, z: inn.bunn, sv },
+        { navn: `SR${sv.nr}U`, kode: 'STIKKUT', x: ute.x, y: ute.y, z: ute.bunn, sv });
+    }
+    return ut;
   },
 
   kof(app, res) {
@@ -522,6 +541,12 @@ ${this.landxmlAlignment(app, res, navn)}
       fot.push({ n: q.y, o: q.x, z: pr.zFotHoyre });
     }
     polylinje('FOTAVTRYKK', 2, fot, true);
+
+    // stikkrennene: bunn innvendig fra innløp til utløp, som 3D-linje
+    const sr = this.stikkrennepunkter(res);
+    for (let i = 0; i + 1 < sr.length; i += 2) {
+      polylinje('STIKKRENNE', 5, [sr[i], sr[i + 1]].map(q => ({ n: q.y, o: q.x, z: q.z })));
+    }
 
     /* Profilnummer hvert femtiende meter.
        Sto som `Math.round(q.s) % 50 !== 0`, som treffer der profilavstanden og

@@ -554,6 +554,9 @@
              utvidelse - da følger masser, tverrsnitt, 3D og rapport med av seg
              selv. -->
         <button id="verktoyPlass" class="verktoyknapp" title="Klikk på vegen der du vil ha snuplass eller møteplass">⬒ Snuplass</button>
+        <!-- STIKKRENNEN ER ET PUNKT PÅ LINJA, SOM SNUPLASSEN. Lengden og høydene
+             regnes av tverrsnittet der den krysser – se stikkrenner.js. -->
+        <button id="verktoyStikkrenne" class="verktoyknapp" aria-pressed="false" title="Klikk på vegen der en stikkrenne skal krysse">⊖ Stikkrenne</button>
         <!-- MÅLESTREKENE ER Å SIKTE, IKKE Å PROSJEKTERE.
              «Treffer vegen mellom de to husene?», «er det femti meter til
              bekken?» – spørsmål man ellers svarer på ved å tegne en linje man
@@ -1077,6 +1080,20 @@
         kan endres i listen under.</p>
       <div id="plassliste" class="minitabell"></div>
 
+      <h3>Stikkrenner</h3>
+      <p class="notis">En stikkrenne leder vannet under vegen. Trykk <b>⊖ Stikkrenne</b> i kartet og klikk
+        der den skal krysse. Lengden regnes fra fyllingsfoten – eller grøftebunnen i skjæring – på den ene
+        siden til den andre, og innløpet ligger på bakken. Utløpet følger terrenget når det faller minst
+        fallet under; ellers gir fallet høyden. Er overdekningen for liten, senkes renna, og merknaden sier
+        det. Skriver du bunnen i innløpet eller utløpet i lista, er den låst og står.</p>
+      <div class="felt"><label for="m_stikkrenneDim">Ny stikkrenne: diameter (innvendig)</label><input type="number" id="m_stikkrenneDim" step="100" value="600" min="100" max="3000"><span>mm</span></div>
+      <div class="felt"><label for="m_stikkrenneFall">Minste fall i stikkrenner</label><input type="number" id="m_stikkrenneFall" step="1" value="10" min="0" max="500"><span>‰</span></div>
+      <div class="felt"><label for="m_stikkrenneOverdekning">Overdekning over stikkrenner, fra vegoverflaten</label><input type="number" id="m_stikkrenneOverdekning" step="0.1" value="0.5" min="0" max="5"><span>m</span></div>
+      <div class="felt"><label for="m_stikkrenneTillegg">Stikkrenna går forbi fyllingsfoten</label><input type="number" id="m_stikkrenneTillegg" step="0.1" value="0.5" min="0" max="10"><span>m</span></div>
+      <p class="notis">Overdekningen avhenger av rørtypen og lasten – sjekk hos leverandøren. Ytre diameter
+        regnes som 1,15 × innvendig, som for korrugert plastrør.</p>
+      <div id="stikkrenneliste" class="minitabell"></div>
+
       <h3>Krav fra veiklassen</h3>
       <p class="notis">Minste totale veibredde i kurver, og største stigning med og uten lass.
         Verdiene kommer fra veiklassen, men kan overstyres.</p>
@@ -1206,6 +1223,7 @@
      eksisterende veg. AR5 fra NIBIO - se toppen av fila. -->
 <script src="js/arealdekke.js"></script>
 <script src="js/masser.js"></script>
+<script src="js/stikkrenner.js"></script>
 <script src="js/tomt.js"></script>
 <script src="js/tomtmasser.js"></script>
 <!-- Rørene fra maskinstyringen: innlesing, koder og linjer. Ren logikk uten

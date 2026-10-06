@@ -385,6 +385,8 @@ const Kart = {
     }).addTo(kart);
     this.lag.tomtHjorner = L.layerGroup().addTo(kart);
     this.lag.vegkant = L.layerGroup().addTo(kart);
+    // stikkrennene: merket i krysset og streken fra ende til ende – se tegnStikkrenner
+    this.lag.stikkrenner = L.layerGroup().addTo(kart);
     this.lag.stasjoner = L.layerGroup().addTo(kart);
     this.lag.markorPos = L.layerGroup().addTo(kart);
     /* MÅLESTREKENE.
@@ -456,6 +458,7 @@ const Kart = {
     p('verktoyFlytt').onclick = () => this.settModus('rediger');
     p('verktoySondering').onclick = () => this.settModus('sondering');
     p('verktoyPlass').onclick = () => this.settModus('plass');
+    if (p('verktoyStikkrenne')) p('verktoyStikkrenne').onclick = () => this.settModus(this.modus === 'stikkrenne' ? 'rediger' : 'stikkrenne');
     if (p('verktoyMaal')) p('verktoyMaal').onclick = () => this.settModus('maal');
     if (p('verktoyMaalTom')) p('verktoyMaalTom').onclick = () => this.tomMaal();
     if (p('modusVeg')) p('modusVeg').onclick = () => this.app.settModus('veg');
@@ -561,7 +564,7 @@ const Kart = {
   settModus(m) {
     this.modus = m;
     for (const [id, navn] of [['verktoyTegn', 'tegn'], ['verktoyFlytt', 'rediger'],
-      ['verktoySondering', 'sondering'], ['verktoyPlass', 'plass'], ['verktoyTomt', 'tegnTomt'],
+      ['verktoySondering', 'sondering'], ['verktoyPlass', 'plass'], ['verktoyStikkrenne', 'stikkrenne'], ['verktoyTomt', 'tegnTomt'],
       ['verktoyMaal', 'maal'], ['verktoyRorAv', 'rorAv'], ['verktoyRorBryt', 'rorBryt'],
       ['verktoyRorKoble', 'rorKoble'], ['verktoyGroftStrekning', 'groftStrekning'], ['verktoyGroftSammen', 'groftSammen'],
       ['verktoyTrase', 'tegnTrase'], ['verktoyKum', 'kum'], ['verktoySnu', 'snuTrase']]) {
@@ -585,6 +588,7 @@ const Kart = {
       // bytter man verktøy midt i en strek, blir den stående som den er
       this._avsluttMaal();
     }
+    if (m === 'stikkrenne') this.app.status('Klikk på vegen der stikkrenna skal krysse.');
     if (m === 'rorAv') this.app.status('Klikk på et målt punkt for å slå det av eller på. Rediger avslutter.');
     if (m === 'rorBryt') this.app.status('Klikk på rørstreken der den ikke skal henge sammen.');
     if (m === 'rorKoble') this.app.status('Klikk på enden av det ene røret, så på enden av det andre.');
@@ -958,6 +962,29 @@ const Kart = {
       this.app.planlegg(30);
       this.app.status(`Snuplass lagt inn ved profil ${tr.s.toFixed(0)} – `
         + 'lengde og bredde kan endres i listen under Mal');
+    } else if (this.modus === 'stikkrenne') {
+      /* SOM SNUPLASSEN: en stasjon på vegen, ikke en koordinat. Klikket står
+         sjelden midt på senterlinja, og renna krysser der den gjør. Målene
+         kommer fra malen – lengden og høydene regnes av vegen. */
+      if (!this.app.linje || !(this.app.linje.lengde > 0)) {
+        this.app.status('Tegn veglinjen først – en stikkrenne krysser vegen');
+        return;
+      }
+      const utm = Geo.tilUtm(e.latlng.lat, e.latlng.lng, this.app.sone);
+      const tr = this.app.linje.projiser(utm.x, utm.y);
+      const liste = this.app.P.stikkrenner;
+      const k = Stikkrenner.fraMal(this.app.P.mal);
+      let n = 1;
+      while (liste.some(r => r.id === 'sr' + n)) n++;
+      this.app.merk('ny stikkrenne');
+      liste.push({ id: 'sr' + n, navn: 'Stikkrenne ' + (liste.length + 1), s: +tr.s.toFixed(2),
+        dim: k.dim, vinkel: 0, innlop: 'auto', fall: k.fall });
+      this.settModus('rediger');
+      this.app.stikkrennerTilSkjema();
+      this.app.visPlassliste(liste.length - 1, { liste: 'stikkrenneliste', rad: '.srrad', navn: '.srnavn' });
+      this.app.planlegg(30);
+      this.app.status(`Stikkrenne Ø${k.dim} lagt inn ved profil ${tr.s.toFixed(0)} – lengden og høydene regnes av vegen; `
+        + 'endres i listen under Mal');
     } else if (this.modus === 'sondering') {
       this.app.merk('ny fjellobservasjon');
       const punkt = { lat: e.latlng.lat, lon: e.latlng.lng, dybde: P.fjell.standarddybde };
@@ -1483,6 +1510,7 @@ const Kart = {
       for (const n of ['linje', 'linjeSkygge', 'hjelpelinje', 'venstreFot', 'hoyreFot']) this.lag[n].setLatLngs([]);
       this.lag.vegkant.clearLayers();
       this.lag.stasjoner.clearLayers();
+      this.lag.stikkrenner.clearLayers();
       if (app.erRor()) {
         /* Tomtas lag og vegens markører hører ikke til rørbildet. Se
            kommentaren under om lag som henger igjen fra forrige anlegg. */
@@ -1641,6 +1669,57 @@ const Kart = {
     this.lag.linjeSkygge.setLatLngs(punkter);
   },
 
+  /**
+   * Stikkrennene i vegen som er regnet: en strek fra ende til ende i fargen
+   * for overvann, en ring i innløpet, og et merke i krysset med navnet,
+   * målene, høydene og «Slett».
+   */
+  tegnStikkrenner(res) {
+    const app = this.app, lag = this.lag.stikkrenner;
+    lag.clearLayers();
+    if (!app.linje || !(app.linje.lengde > 0)) return;
+    const ll = (x, y) => { const g = Geo.fraUtm(x, y, app.sone); return [g.lat, g.lon]; };
+    const farge = Farger.ror('overvann'), t = (v, d) => Rapport.tall(v, d);
+    for (const sv of (res && res.stikkrenner) || []) {
+      if (!Number.isFinite(sv.s)) continue;
+      const p = app.linje.punktVed(Math.min(Math.max(sv.s, 0), app.linje.lengde));
+      if (!sv.feil) {
+        const V = sv.ender.venstre, H = sv.ender.hoyre, strek = [ll(V.x, V.y), ll(H.x, H.y)];
+        // lys kant under, så streken synes over flyfotoet og fotavtrykket
+        L.polyline(strek, { color: Farger.flate, weight: 7, opacity: 0.9, interactive: false }).addTo(lag);
+        L.polyline(strek, { color: farge, weight: 4, opacity: 1, interactive: false }).addTo(lag);
+        const inn = sv.innlop === 'venstre' ? V : H;
+        L.circleMarker(ll(inn.x, inn.y), { radius: 4, color: farge, weight: 2, fillColor: Farger.flate, fillOpacity: 1,
+          interactive: false }).addTo(lag);
+      }
+      const m = L.marker(ll(p.x, p.y), { icon: L.divIcon({ className: '', iconSize: [13, 13], iconAnchor: [6.5, 6.5],
+        html: '<div class="sr-markor" title="Stikkrenne"></div>' }) }).addTo(lag);
+      m.bindPopup(() => {
+        const d = document.createElement('div');
+        d.innerHTML = `<b>${escapeHtml(sv.navn)}</b><br>Profil ${t(sv.s, 0)}`
+          + (sv.feil ? `<br>⚠ ${escapeHtml(sv.feil)}`
+            : ` · Ø${sv.dim} mm · ${t(sv.lengde, 1)} m${sv.vinkel ? ` · ${t(sv.vinkel, 0)}°` : ''}<br>`
+              + `Bunn innløp ${t(sv.bunnInn, 2)}${sv.laastInn ? ' (låst)' : ''}, utløp ${t(sv.bunnUt, 2)}${sv.laastUt ? ' (låst)' : ''}<br>`
+              + `Fall ${t(sv.fall, 1)} ‰ · overdekning ${t(sv.overdekning, 2)} m`
+              + sv.merknader.map(x => `<br>⚠ ${escapeHtml(x.tekst)}`).join(''))
+          + '<br><small>Endres i listen under Mal</small><br>';
+        const b = document.createElement('button');
+        b.className = 'knapp'; b.textContent = 'Slett';
+        b.onclick = () => {
+          const liste = app.P.stikkrenner, j = liste.findIndex(r => r.id === sv.id);
+          if (j < 0) return;
+          app.merk('slettet stikkrenne');
+          liste.splice(j, 1);
+          this.kart.closePopup();
+          app.stikkrennerTilSkjema();
+          app.planlegg(30);
+        };
+        d.appendChild(b);
+        return d;
+      });
+    }
+  },
+
   /** Tegner fotavtrykket (skjæringstopp / fyllingsfot) etter en beregning. */
   tegnResultat(res) {
     const app = this.app;
@@ -1659,6 +1738,7 @@ const Kart = {
     this.lag.vegkant.clearLayers();
     L.polyline(vk1, { color: Farger.veg, weight: 1.2, opacity: .7 }).addTo(this.lag.vegkant);
     L.polyline(vk2, { color: Farger.veg, weight: 1.2, opacity: .7 }).addTo(this.lag.vegkant);
+    this.tegnStikkrenner(res);
 
     this.lag.stasjoner.clearLayers();
     const merkeavstand = res.lengdeKart > 1200 ? 100 : 50;

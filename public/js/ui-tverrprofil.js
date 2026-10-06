@@ -198,11 +198,17 @@ const Tverrprofil = {
       return;
     }
 
+    // stikkrennene som krysser i dette profilet – de står i sitt eget, se Stikkrenner
+    const renner = ((this.app.resultat && this.app.resultat.stikkrenner) || [])
+      .filter(sv => !sv.feil && Math.abs(sv.s - pr.s) < 0.01);
+
     // omrade
     let zMin = Infinity, zMax = -Infinity;
     for (const liste of [pr.geometri.terreng, pr.geometri.jord, pr.geometri.veg]) {
       for (const [, z] of liste) if (isFinite(z)) { zMin = Math.min(zMin, z); zMax = Math.max(zMax, z); }
     }
+    // en renne som er senket for overdekningen, ligger under alt det andre
+    for (const sv of renner) zMin = Math.min(zMin, sv.ender.venstre.bunn, sv.ender.hoyre.bunn);
     if (!isFinite(zMin)) { zMin = pr.vegnivaa - 2; zMax = pr.vegnivaa + 2; }
     /* Bildet må dekke TRAUET også, ikke bare skråningen.
        Området var foten pluss halvannen meter. Med skrå trauvegg går gropa
@@ -217,8 +223,9 @@ const Tverrprofil = {
       ? pr.utskiftingHalvbreddeVenstre : (pr.utskiftingHalvbredde || 0);
     const hTrau = pr.utskiftingHalvbreddeHoyre != null
       ? pr.utskiftingHalvbreddeHoyre : (pr.utskiftingHalvbredde || 0);
-    const tMin = Math.min(pr.fotVenstre, -vTrau) - 1.5;
-    const tMax = Math.max(pr.fotHoyre, hTrau) + 1.5;
+    // renna går forbi foten – og en beregningsbredde klipper foten, ikke renna
+    const tMin = Math.min(pr.fotVenstre, -vTrau, ...renner.map(sv => -sv.ender.venstre.t)) - 1.5;
+    const tMax = Math.max(pr.fotHoyre, hTrau, ...renner.map(sv => sv.ender.hoyre.t)) + 1.5;
     const zSlakk = Math.max(0.35, (zMax - zMin) * 0.10);
     zMin -= zSlakk; zMax += zSlakk;
 
@@ -417,6 +424,24 @@ const Tverrprofil = {
     // terrenglinje
     c.strokeStyle = Farger.terreng; c.lineWidth = 1.7; bane(terr); c.stroke();
 
+    /* STIKKRENNA PÅ TVERS: bunn og topp rør fra ende til ende – der den går
+       ut i grøfta eller ved foten. Den tegnes over alt annet; den ligger inne
+       i fyllingen og ville ellers vært borte. */
+    for (const sv of renner) {
+      const V = sv.ender.venstre, H = sv.ender.hoyre, farge = Farger.ror('overvann');
+      const bunn = [[-V.t, V.bunn], [H.t, H.bunn]], topp = bunn.map(([tt, z]) => [tt, z + sv.ytre]);
+      c.save();
+      c.globalAlpha = 0.35; c.fillStyle = farge;
+      bane(bunn.concat(topp.slice().reverse()), true); c.fill();
+      c.globalAlpha = 1; c.strokeStyle = farge; c.lineWidth = 1.6;
+      bane(bunn); c.stroke(); bane(topp); c.stroke();
+      c.restore();
+      c.font = '10px system-ui'; c.textAlign = 'center'; c.textBaseline = 'top';
+      this._merkelapp(c, `${sv.navn} · Ø${sv.dim} · ${Rapport.tall(sv.lengde, 1)} m · `
+        + `${Rapport.tall(sv.bunnInn, 2)} → ${Rapport.tall(sv.bunnUt, 2)}`,
+      px(0), py(Math.min(V.bunn, H.bunn)) + 6);
+    }
+
     /* Malsetting. Breddemalet ligger rett over vegoverflaten, som er hvit -
        derfor med bakgrunn under, ellers forsvinner det. */
     c.font = '10px system-ui'; c.textAlign = 'center'; c.textBaseline = 'bottom';
@@ -444,7 +469,8 @@ const Tverrprofil = {
       ['Planum/skråning', 'strek', Farger.planum],
       ['Skjæring', 'flate', Farger.skjaeringFlate],
       ['Fylling', 'flate', Farger.fyllingFlate],
-      ['Fjell', 'skravur', null]
+      ['Fjell', 'skravur', null],
+      ...(renner.length ? [['Stikkrenne', 'strek', Farger.ror('overvann')]] : [])
     ];
     c.textAlign = 'left'; c.textBaseline = 'middle'; c.font = '10px system-ui';
     let fx = m.v + 4;

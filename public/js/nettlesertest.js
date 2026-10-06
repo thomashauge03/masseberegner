@@ -182,7 +182,7 @@ const Nettlesertest = {
       'veiklasser', 'tverrprofil', 'grenser', 'eksport', 'linjeredigering',
       'autolagring', 'overskriving', 'tverrsnittAvlesning', 'pdfrapport',
       'pdfavlesning', 'pdfLerret', 'rapport', 'paneler', 'flereAnlegg', 'tverrsnittEnsidig',
-      'snuplassBlirSynlig', 'naboOverlapping', 'anleggsrekkefolge', 'anleggsmerking', 'prosjektmasserOgRekkefolge', 'vegMellomToTomter',
+      'snuplassBlirSynlig', 'stikkrenner', 'naboOverlapping', 'anleggsrekkefolge', 'anleggsmerking', 'prosjektmasserOgRekkefolge', 'vegMellomToTomter',
       'automatiskeNaboer', 'skisseSkraaninger', 'arealdekkePaaModellen',
       'grensesnittbredder', 'panelhoder',
       'tomt', 'tomteksport', 'tomterydding', 'tomtsnittOverbygning',
@@ -2031,6 +2031,102 @@ const Nettlesertest = {
     } finally {
       Terreng.prototype.z = gz; Terreng.prototype.dekning = gd; Terreng.prototype.lastOmraade = gl;
       if (ruteEl && ruteKlasse != null) ruteEl.className = ruteKlasse;
+      app.P = JSON.parse(foer);
+      app.klargjorProsjekt(app.P);
+      app._ferdigflater = null;
+      app.resultat = null;
+      app._terrengnokkel = null;
+      app.visAnleggsvelger();
+    }
+  },
+
+  /**
+   * Stikkrenner: et klikk på vegen setter en renne, lista viser det som er
+   * regnet, en låst bunn står og kan angres, merknaden kommer, og rapporten
+   * og KOF-en har den. Vegen ligger 1,5 m over flatt terreng: fot til fot pluss
+   * tillegget er 9,80 m, som i test/stikkrenneprove.js.
+   */
+  async stikkrenner() {
+    const app = App;
+    const foer = JSON.stringify(app.P);
+    const gz = Terreng.prototype.z, gd = Terreng.prototype.dekning, gl = Terreng.prototype.lastOmraade;
+    // klikket åpner sidepanelet og malfanen (se visPlassliste) – det legges tilbake
+    const ruteEl = document.querySelector('.rute'), ruteKlasse = ruteEl ? ruteEl.className : null;
+    try {
+      Terreng.prototype.z = function () { return 100; };
+      Terreng.prototype.dekning = function () { return 1; };
+      Terreng.prototype.lastOmraade = async function () { return true; };
+      const pkt = (x, y) => {
+        const q = Geo.fraUtm(430000 + x, 6460000 + y, app.sone);
+        return { lat: q.lat, lon: q.lon };
+      };
+      app.P.anlegg = [{ id: 'v1', type: 'veg', navn: 'V', tverrfall: [], plasser: [],
+        mal: Object.assign({}, StandardMal),
+        ip: [Object.assign(pkt(0, 0), { r: 0 }), Object.assign(pkt(200, 0), { r: 0 })],
+        vip: [{ s: 0, z: 101.5, k: 0 }, { s: 200, z: 101.5, k: 0 }] }];
+      app.P.aktivt = 'v1';
+      app.klargjorProsjekt(app.P);
+      app._ferdigflater = null;
+      app._terrengnokkel = '';
+      app.visAnleggsvelger();
+      app.byggLinje();
+      app.vprofil = new Vertikalprofil(app.P.vip);
+      await app.oppdater();
+      this.sjekk('verktøyet står framme for en veg', !document.getElementById('verktoyStikkrenne').classList.contains('skjult'));
+      this.sjekk('lista er et vindu inn i anlegget', Array.isArray(app.P.stikkrenner) && app.P.stikkrenner === app.anlegg().stikkrenner);
+
+      // ett klikk litt ved siden av vegen, midt på
+      Kart.settModus('stikkrenne');
+      const midt = app.linje.punktVed(100.3);
+      const ll = Geo.fraUtm(midt.x, midt.y + 3, app.sone);
+      const poster = app.historikk.bakover.length;
+      Kart.klikk({ latlng: { lat: ll.lat, lng: ll.lon } });
+      this.sjekk('et klikk setter en renne i nærmeste profil, med forvalgene', app.P.stikkrenner.length === 1
+        && Math.abs(app.P.stikkrenner[0].s - 100.3) < 0.05 && app.P.stikkrenner[0].dim === 600 && app.P.stikkrenner[0].fall === 10,
+        JSON.stringify(app.P.stikkrenner));
+      this.sjekk('  som ett angresteg', app.historikk.bakover.length === poster + 1);
+      clearTimeout(app._tidsavbrudd);
+      await app.oppdater();
+      const sv = () => (app.resultat.stikkrenner || [])[0];
+      this.naer('lengden fot til fot pluss tillegget', sv() ? sv().lengde : NaN, 9.80, 0.01);
+      this.sjekk('renna står i sitt eget profil', app.resultat.stasjoner.some(s => Math.abs(s - app.P.stikkrenner[0].s) < 1e-6));
+      this.sjekk('merknaden om utløpet kommer i vegens liste', app.resultat.merknader.some(m => m.type === 'stikkrenne'
+        && /utløpet/.test(m.tekst)), app.resultat.merknader.map(m => m.tekst).join(' | '));
+      const rad = document.querySelector('#stikkrenneliste .srrad');
+      this.sjekk('lista viser det som er regnet', !!rad && /9,8 m/.test(rad.querySelector('.srsvar').textContent),
+        rad ? rad.querySelector('.srsvar').textContent : 'ingen rad');
+      // bunnen i innløpet låses i lista, og står
+      const inn = rad.querySelector('.srinn');
+      inn.value = '99.5';
+      inn.dispatchEvent(new Event('change', { bubbles: true }));
+      this.sjekk('en bunn skrevet i lista er låst', app.P.stikkrenner[0].bunnInn === 99.5);
+      clearTimeout(app._tidsavbrudd);
+      await app.oppdater();
+      this.sjekk('  og den står i det som er regnet', sv() && sv().bunnInn === 99.5 && sv().laastInn);
+      await app.angre();
+      this.sjekk('  angre låser den opp igjen', app.P.stikkrenner[0] && app.P.stikkrenner[0].bunnInn === undefined,
+        JSON.stringify(app.P.stikkrenner));
+      clearTimeout(app._tidsavbrudd);
+      await app.oppdater();
+      // rapporten og KOF-en
+      const html = Rapport.stikkrenneHtml(app.resultat);
+      this.sjekk('rapporten har tabellen', /<h2>Stikkrenner<\/h2>/.test(html) && /Stikkrenne 1/.test(html));
+      const kof = Eksport.kof(app, app.resultat);
+      this.sjekk('KOF-en har innløpet og utløpet', /SR1I\s+STIKKINN/.test(kof) && /SR1U\s+STIKKUT/.test(kof));
+      const dxf = Eksport.dxf(app, app.resultat);
+      this.sjekk('DXF-en har laget', /\nSTIKKRENNE\r?\n/.test(dxf));
+      // tverrsnittet i profilet til renna tegnes uten feil
+      app.settTverrStasjon(app.P.stikkrenner[0].s);
+      this.sjekk('tverrsnittet står i profilet til renna', Tverrprofil.profil && Math.abs(Tverrprofil.profil.s - app.P.stikkrenner[0].s) < 1e-6);
+      // slett i lista
+      document.querySelector('#stikkrenneliste .srrad button').click();
+      this.sjekk('× i lista sletter renna', app.P.stikkrenner.length === 0);
+    } catch (e) {
+      this.sjekk('stikkrenneprøven kom seg gjennom', false, e.message + ' — ' + (e.stack || '').split('\n')[1]);
+    } finally {
+      Terreng.prototype.z = gz; Terreng.prototype.dekning = gd; Terreng.prototype.lastOmraade = gl;
+      if (ruteEl && ruteKlasse != null) ruteEl.className = ruteKlasse;
+      if (Kart.modus !== 'rediger') Kart.settModus('rediger');
       app.P = JSON.parse(foer);
       app.klargjorProsjekt(app.P);
       app._ferdigflater = null;

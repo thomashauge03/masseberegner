@@ -104,6 +104,31 @@ Knappene over lengdeprofilen:
 | Massebalanse | Løfter/senker hele profilen dit minst masse må kjøres inn og ut av anlegget |
 | Optimaliser | Finjusterer hvert knekkpunkt for billigst mulig løsning |
 
+## Stikkrenner
+
+Trykk **⊖ Stikkrenne** i kartet og klikk der renna skal krysse vegen. Den
+settes i nærmeste profil, med diameter og minste fall fra malen, og står i
+lista under **Vegmal**:
+
+* **Lengden** regnes av tverrsnittet i profilet: fra fyllingsfoten – eller midt
+  i grøftebunnen der vegen ligger i skjæring – på den ene siden til den andre,
+  og et tillegg forbi foten (0,5 m). En skjev renne (vinkel mot normalen) blir
+  1 / cos lengre.
+* **Høydene** er bunn innvendig. Innløpet ligger på bakken eller i grøftebunnen
+  på siden vannet kommer fra (auto: siden som ligger høyest). Utløpet følger
+  terrenget når det faller minst minstefallet; ellers gir fallet høyden.
+* **Overdekningen** prøves under vegen fra kant til kant, fra vegoverflaten til
+  topp rør (ytre diameter 1,15 × innvendig). Er den under kravet (0,5 m),
+  senkes renna, og merknaden sier hvor mye.
+* **Låste høyder:** skriver du bunnen i innløpet eller utløpet i lista, står den
+  – den endres aldri av seg selv, og merknadene sier fra om overdekning, fall
+  og et utløp som henger over bakken.
+
+Renna tegnes i kartet, i tverrsnittet i profilet sitt og i lengdeprofilen, og
+står i rapporten, PDF-en, KOF-en (`STIKKINN`/`STIKKUT`, bunn innvendig) og
+DXF-en (laget `STIKKRENNE`). Massene for selve renna – fundament og omfylling –
+telles ikke.
+
 ## Rør fra maskinstyringen
 
 Innmålte rør kan hentes inn fra en LandXML-fil – eksporten «as-built» fra Xsite
@@ -482,7 +507,16 @@ Traseer fra fil: KOF med linjeblokker, lukkede og åpne linjer, punkt med samme
 kode og koder med mellomrom, sonen fra hodet, stikningsfila røreksporten skriver
 lest tilbake; DXF med løse streker som kjedes (ikke gjennom en T, og med
 3D-høyden i skjøtene), LWPOLYLINE med høyde, 2D- og 3D-polylinjer, buer, sirkler
-og ARC, papirrom, flatenett, speiling med høyden og 20 000 streker på tid. `npm test` kjører alle sju.
+og ARC, papirrom, flatenett, speiling med høyden og 20 000 streker på tid.
+
+```bash
+node test/stikkrenneprove.js
+```
+
+Stikkrennene mot fasit regnet for hånd på en rett veg: fylling på flatt terreng
+(fot til fot pluss tillegget, minstefallet, overdekningen i vegkanten), en skjev
+renne, sidebratt terreng med innløpet i grøftebunnen og renna senket for
+overdekningen, låste høyder, og det som ikke går. `npm test` kjører alle åtte.
 
 ```bash
 node test/demo-ydestad.js
@@ -506,6 +540,7 @@ public/js/linjeforing.js horisontal linjeføring med sirkelkurver
 public/js/vertikalprofil.js  lengdeprofil, retting mot kravene, innlesing av høydetabell
 public/js/terreng.js     terrengmodell i nettleseren, bilineær interpolasjon
 public/js/masser.js      tverrprofil og volumberegning
+public/js/stikkrenner.js stikkrennene: endene, lengden, høydene og overdekningen av tverrsnittet
 public/js/veiklasser.js  veiklassene fra landbruksveinormalen
 public/js/lager.js       prosjektlager i nettleseren, import og eksport
 public/js/eksport.js     KOF, LandXML, SOSI og DXF
@@ -537,6 +572,3 @@ dersom formatet blir endret, siden flisene blir bufret i ett år.
 * **Delte prosjekt.** I dag ligger prosjektene lokalt i nettleseren. Skal flere på
   kontoret se de samme prosjektene, trengs det en delt database (Supabase eller
   Vercel Postgres) med innlogging.
-* **Stikkrenner.** Veiplanene har stikkrenner med plassering, dimensjon og lengde.
-  Disse kan legges inn som punkt langs linjen med automatisk lengde ut fra
-  fyllingshøyden.

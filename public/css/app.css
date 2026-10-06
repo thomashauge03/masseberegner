@@ -848,6 +848,28 @@ body {
 }
 .plassrad button { background: none; border: none; color: var(--raud); cursor: pointer; font-size: 15px; font-weight: 700; }
 
+/* Stikkrennene: samme rad som snuplassene, og det som er regnet på egen linje under. */
+.srrad {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px;
+  padding: 5px 0; border-bottom: 1px solid var(--kant); font-size: 12px;
+}
+.srrad .srnavn { flex: 1 1 100%; min-width: 90px; }
+.srrad label { color: var(--blekk-svak); font-size: 11px; }
+.srrad input[type="number"] { width: 58px; flex: 0 0 auto; }
+.srrad select {
+  background: var(--flate-opp); border: 2px solid var(--kant); color: var(--blekk);
+  font-size: 11px; font-family: var(--skrift); padding: 1px 2px;
+  flex: 0 0 auto; min-width: 104px;
+}
+.srrad .srsvar { flex: 1 1 100%; color: var(--blekk-svak); }
+.srrad button { background: none; border: none; color: var(--raud); cursor: pointer; font-size: 15px; font-weight: 700; }
+/* Merket i kartet: en sirkel med en strek gjennom – et rør sett fra enden. */
+.sr-markor {
+  width: 13px; height: 13px; border-radius: 50%;
+  background: var(--data-veg, #fafafa); border: 2px solid var(--ror-overvann, #17a2b8);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, .45);
+}
+
 /* ── høgdetabell ───────────────────────────────────────── */
 /* ── veiklasse ─────────────────────────────────────────── */
 .klasseboks {
