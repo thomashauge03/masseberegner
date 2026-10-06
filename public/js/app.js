@@ -238,6 +238,11 @@ const App = {
     }
     // tverrfallet er nøklet på stasjon og hører derfor til dette anlegget
     a.tverrfall = [];
+    /* Snuplassene og stikkrennene likeså. De ble bare satt av `klargjor` når
+       et prosjekt ble åpnet – en veg lagt til med «+ Veg» hadde ingen liste,
+       og verktøyet kastet på første klikk til prosjektet ble åpnet på nytt. */
+    a.plasser = [];
+    a.stikkrenner = [];
     return a;
   },
 
@@ -599,7 +604,6 @@ const App = {
         terreng: this.terreng,             // rå bakke – se `ferdigflateForTomt`
         mal: a.mal, fjell: this.fjellmodellIUtm(), faktorer: this.P.faktorer,
         tverrfallOverstyring: a.tverrfall, plasser: a.plasser,
-        ekstraStasjoner: this._rennestasjoner(a.stikkrenner),
         profilAvstand: this.P.profilAvstand, bakkefaktor: this.bakkefaktor()
       });
     } catch (e) { return null; }
@@ -813,14 +817,10 @@ const App = {
     if (!roerer) return null;
     let raa;
     try {
-      /* SAMME STASJONER SOM VEGENS EGEN BEREGNING. Det som trekkes fra, er
-         forskjellen mellom de to – med stikkrennenes profil bare i den ene
-         ville forskjellen fått med seg oppdelingen. */
       raa = beregnMasser({
         linje: this.linje, profil: this.vprofil, terreng: this.terreng,
         mal: this.P.mal, fjell: this.fjellmodell, faktorer: this.P.faktorer,
         tverrfallOverstyring: this.P.tverrfall, plasser: this.P.plasser,
-        ekstraStasjoner: this._rennestasjoner(this.P.stikkrenner),
         profilAvstand: this.P.profilAvstand, bakkefaktor: this.bakkefaktor()
       });
     } catch (e) { return null; }
@@ -3013,8 +3013,6 @@ const App = {
       mal: this.P.mal, fjell: this.fjellmodell, faktorer: this.P.faktorer,
       tverrfallOverstyring: this.P.tverrfall,
       plasser: this.P.plasser,
-      // hver stikkrenne i sitt eget profil – lengden leses av det samme snittet som massene
-      ekstraStasjoner: this._rennestasjoner(this.P.stikkrenner),
       profilAvstand: this.P.profilAvstand, bakkefaktor: this.bakkefaktor()
     });
     // den som er brukt – motoren klemmer en urimelig verdi, og da skal skjermen si det samme
@@ -3065,25 +3063,33 @@ const App = {
     this.planleggAutolagring();
   },
 
-  /** Profilene stikkrennene står i – egne stasjoner i beregningen (se `regnStikkrenner`). */
-  _rennestasjoner(liste) {
-    return (liste || []).map(r => r && r.s).filter(s => typeof s === 'number' && Number.isFinite(s));
-  },
-
   /**
-   * Stikkrennene i vegen som nettopp er regnet: hver av tverrsnittet i sitt
-   * eget profil, med vegens stigning der (se Stikkrenner.beregn). Merknadene
-   * går i vegens liste, med rennas navn foran.
+   * Stikkrennene i vegen som nettopp er regnet: hver av sitt eget snitt
+   * (`res.snittVed`), med vegens stigning der og terrenget der endene ligger
+   * (se Stikkrenner.beregn). Merknadene går i vegens liste, med rennas navn
+   * foran.
+   *
+   * SNITTET STÅR UTENFOR MASSENE. Som egen stasjon i beregningen endret en
+   * renne fyllingen – og hver beregning av den samme vegen måtte da ha den
+   * samme stasjonen med, ellers sammenlignet de ulike oppdelinger (fradraget
+   * fra naboene, usikkerheten i fjellet).
+   *
+   * `nr` er nummeret i id-en (`sr3` → 3): det står i KOF-navnet (SR3I/SR3U),
+   * og det endres ikke når en annen renne slettes.
    */
   regnStikkrenner(res) {
-    if (!res || !res.geometriFor || !this.linje) return;
+    if (!res || !res.snittVed || !this.linje) return;
+    const terreng = this.prosjektterreng();
     res.stikkrenner = (this.P.stikkrenner || []).map((r, i) => {
-      let svar;
+      let svar, snitt = null;
       try {
-        svar = Stikkrenner.beregn(r, res.geometriFor(r.s), res.mal,
-          { stigning: this.vprofil ? this.vprofil.stigning(r.s) : 0, lengde: this.linje.lengde });
+        snitt = res.snittVed(r.s);
+        svar = Stikkrenner.beregn(r, snitt, res.mal, { stigning: this.vprofil ? this.vprofil.stigning(r.s) : 0,
+          lengde: this.linje.lengde, terreng: terreng ? (x, y) => terreng.z(x, y) : undefined });
       } catch (e) { svar = { id: r.id, feil: 'kunne ikke regnes – ' + e.message }; }
-      return Object.assign(svar, { nr: i + 1, navn: r.navn || `Stikkrenne ${i + 1}`, s: r.s });
+      const nr = +(/^sr(\d+)$/.exec(r.id || '') || [])[1] || i + 1;
+      Object.defineProperty(svar, 'snitt', { value: svar.feil ? null : snitt, enumerable: false });
+      return Object.assign(svar, { nr, navn: r.navn || `Stikkrenne ${nr}`, s: r.s });
     });
     for (const sv of res.stikkrenner) {
       const merk = tekst => res.merknader.push({ s: sv.s, type: 'stikkrenne', tekst: `${sv.navn}: ${tekst}` });
@@ -3323,6 +3329,9 @@ const App = {
       const d = Math.abs(p.s - s);
       if (d < bestD) { bestD = d; best = p; }
     }
+    // en stikkrenne har sitt eget snitt, utenfor profilene – se regnStikkrenner
+    const renne = (this.resultat.stikkrenner || []).find(x => x.snitt && Math.abs(x.s - s) < 0.01);
+    if (renne) best = renne.snitt;
     this.tverrStasjon = best.s;
     Tverrprofil.vis(best);
     this.visPunkthoyder(best);
@@ -6641,12 +6650,17 @@ const App = {
       boks.innerHTML = '<span class="tomtekst">Ingen satt ut. Velg «⊖ Stikkrenne» i kartet og klikk der den skal krysse vegen.</span>';
       return;
     }
-    const res = this.resultat && this.resultat._anlegg === this.P.aktivt ? this.resultat : null;
-    const regnet = r => (res && res.stikkrenner ? res.stikkrenner.find(x => x.id === r.id) : null);
+    /* Slås opp når det trengs, ikke når raden ble bygd: radene står gjennom
+       beregningene (se bareSvar), og en låsing etterpå ville ellers lest
+       resultatet fra før renna var regnet – og ikke funnet den. */
+    const regnet = r => {
+      const res = this.resultat && this.resultat._anlegg === this.P.aktivt ? this.resultat : null;
+      return res && res.stikkrenner ? res.stikkrenner.find(x => x.id === r.id) : null;
+    };
     const t = (v, d) => Rapport.tall(v, d);
     const svarFor = sv => ({
       tekst: !sv ? '' : sv.feil ? `⚠ ${sv.feil}`
-        : `${t(sv.lengde, 1)} m · ${t(sv.bunnInn, 2)} → ${t(sv.bunnUt, 2)} · fall ${t(sv.fall, 1)} ‰ · dekning ${t(sv.overdekning, 2)} m`
+        : `SR${sv.nr} · ${t(sv.lengde, 1)} m · ${t(sv.bunnInn, 2)} → ${t(sv.bunnUt, 2)} · fall ${t(sv.fall, 1)} ‰ · dekning ${t(sv.overdekning, 2)} m`
           + (sv.merknader.length ? ' ⚠' : ''),
       tittel: sv && !sv.feil && sv.merknader.length ? sv.merknader.map(m => m.tekst).join('\n') : ''
     });
@@ -6668,7 +6682,7 @@ const App = {
       const valgt = v => (innlop === v ? ' selected' : '');
       const { tekst: svar, tittel } = svarFor(regnet(r));
       const tall = v => (typeof v === 'number' && Number.isFinite(v) ? v : '');
-      rad.innerHTML = `<input type="text" class="srnavn" value="${escapeAttr(r.navn || `Stikkrenne ${i + 1}`)}" spellcheck="false" aria-label="Navn">
+      rad.innerHTML = `<input type="text" class="srnavn" value="${escapeAttr(r.navn || 'Stikkrenne')}" spellcheck="false" aria-label="Navn">
         <label>prof</label><input type="number" step="1" class="srs" value="${tall(r.s)}">
         <label>Ø</label><input type="number" step="100" min="100" class="srdim" value="${tall(r.dim)}">
         <label>vinkel</label><input type="number" step="5" min="-60" max="60" class="srvinkel" value="${tall(r.vinkel) || 0}" title="Skjevhet mot vegen i grader – 0 er rett på tvers">
@@ -6680,27 +6694,32 @@ const App = {
         <label>bunn inn</label><input type="number" step="0.01" class="srinn" value="${tall(r.bunnInn)}" placeholder="regnes" title="Tomt: regnet av vegen og terrenget. Et tall låser det.">
         <label>ut</label><input type="number" step="0.01" class="srut" value="${tall(r.bunnUt)}" placeholder="regnes" title="Tomt: regnet av vegen og terrenget. Et tall låser det.">
         <small class="srsvar"${tittel ? ` title="${escapeAttr(tittel)}"` : ''}>${escapeHtml(svar)}</small>
-        <button title="Slett">×</button>`;
+        <button class="srsnitt minilenke" title="Vis renna i tverrsnittet">snitt</button>
+        <button class="srslett" title="Slett">×</button>`;
       const endret = () => { this.stikkrennerTilSkjema(); this.planlegg(30); };
       const navn = rad.querySelector('.srnavn');
       navn.onchange = () => { this.merk('endret stikkrenne'); r.navn = navn.value; endret(); };
       /* Et ugyldig tall skriver ikke NaN inn i renna – det som sto, står. Under
-         grensen er en skrivefeil; over klemmes det, som i malen. */
-      const felt = (velger, nokkel, lav, hoy) => {
+         grensen er en skrivefeil; over klemmes det, som i malen. Vinkelen
+         klemmes begge veier: −70° er like mye et ønske om en skjev renne som 70°. */
+      const felt = (velger, nokkel, lav, hoy, klemLav) => {
         const e = rad.querySelector(velger);
         e.onchange = () => {
           const v = parseFloat(String(e.value).replace(',', '.'));
-          if (!Number.isFinite(v) || v < lav) { e.value = tall(r[nokkel]); return; }
+          if (!Number.isFinite(v) || (v < lav && !klemLav)) { e.value = tall(r[nokkel]); return; }
           this.merk('endret stikkrenne');
-          r[nokkel] = Math.min(hoy, v);
+          r[nokkel] = Math.min(hoy, Math.max(lav, v));
           endret();
         };
       };
       felt('.srs', 's', 0, Infinity);
       felt('.srdim', 'dim', 100, 3000);
-      felt('.srvinkel', 'vinkel', -60, 60);
+      felt('.srvinkel', 'vinkel', -60, 60, true);
       felt('.srfall', 'fall', 0, 500);
-      // bunnen: tomt låser opp, et tall låser
+      /* Bunnen: tomt låser opp, et tall låser. De låste høydene er innløpets og
+         utløpets – og står «innløp auto», kunne siden snu seg når vegen
+         endret seg, og høyden flyttet seg til den andre enden. Låses en høyde,
+         låses siden med, i det samme angresteget. */
       for (const [velger, nokkel] of [['.srinn', 'bunnInn'], ['.srut', 'bunnUt']]) {
         const e = rad.querySelector(velger);
         e.onchange = () => {
@@ -6708,13 +6727,18 @@ const App = {
           const v = parseFloat(tekst.replace(',', '.'));
           if (tekst && !Number.isFinite(v)) { e.value = tall(r[nokkel]); return; }
           this.merk(tekst ? 'låste bunnen i en stikkrenne' : 'låste opp bunnen i en stikkrenne');
-          if (tekst) r[nokkel] = Math.round(v * 1000) / 1000; else delete r[nokkel];
+          if (tekst) {
+            r[nokkel] = Math.round(v * 1000) / 1000;
+            const sv = regnet(r);
+            if (r.innlop !== 'venstre' && r.innlop !== 'hoyre' && sv && !sv.feil) r.innlop = sv.innlop;
+          } else delete r[nokkel];
           endret();
         };
       }
+      rad.querySelector('.srsnitt').onclick = () => this.settTverrStasjon(r.s);
       const sel = rad.querySelector('.srinnlop');
       sel.onchange = () => { this.merk('endret stikkrenne'); r.innlop = sel.value; endret(); };
-      rad.querySelector('button').onclick = () => {
+      rad.querySelector('.srslett').onclick = () => {
         const j = this.P.stikkrenner.indexOf(r);
         if (j < 0) return;
         this.merk('slettet stikkrenne');

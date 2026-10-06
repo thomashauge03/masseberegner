@@ -693,7 +693,7 @@ const Pdfrapport = {
       overskrift('Stikkrenner', 60);
       brodtekst('Lengden går fra fyllingsfoten – eller midt i grøftebunnen i skjæring – på den ene siden til den andre, '
         + 'langs renna. Høydene er bunn innvendig. Overdekningen er minste avstand fra vegoverflaten til topp rør, '
-        + 'med ytre diameter 1,15 × innvendig.');
+        + 'med ytre diameter 1,15 × innvendig. SR-nummeret er punktnavnet i KOF-en (I innløp, U utløp).');
       tilstand.y += 2;
       const n2 = v => Rapport.n(v, 2);
       tabell(
@@ -705,7 +705,7 @@ const Pdfrapport = {
           celler: sv.feil
             ? [sv.navn, Number.isFinite(sv.s) ? Rapport.stasjon(sv.s) : '–', '', '', '', '', '', '', '',
               this._kort(P, sv.feil, (innmarg - this.MARG) * 0.3, 7.2)]
-            : [this._kort(P, sv.navn, (innmarg - this.MARG) * 0.14, 7.2), Rapport.stasjon(sv.s), String(sv.dim),
+            : [this._kort(P, `${sv.navn} · SR${sv.nr}`, (innmarg - this.MARG) * 0.14, 7.2), Rapport.stasjon(sv.s), String(sv.dim),
               `${t(sv.vinkel)}°`, t(sv.lengde, 1), n2(sv.bunnInn) + (sv.laastInn ? ' L' : ''),
               n2(sv.bunnUt) + (sv.laastUt ? ' L' : ''), t(sv.fall, 1), t(sv.overdekning, 2),
               this._kort(P, sv.merknader.map(m => m.tekst).join('; ') || '–', (innmarg - this.MARG) * 0.3, 7.2)]

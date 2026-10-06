@@ -863,6 +863,7 @@ body {
 }
 .srrad .srsvar { flex: 1 1 100%; color: var(--blekk-svak); }
 .srrad button { background: none; border: none; color: var(--raud); cursor: pointer; font-size: 15px; font-weight: 700; }
+.srrad button.srsnitt { color: var(--blekk-svak); font-size: 11px; font-weight: 400; text-decoration: underline; }
 /* Merket i kartet: en sirkel med en strek gjennom – et rør sett fra enden. */
 .sr-markor {
   width: 13px; height: 13px; border-radius: 50%;

@@ -23,13 +23,13 @@ Nettlesertesten kjøres ved å åpne programmet med `?test=1`, eller fra konsoll
 med `Nettlesertest.kjor()`. Utviklingstjeneren startes med `node server.js`
 (port 5178). Programmet ligger også på https://masseberegner.vercel.app.
 
-Ved siste lagring: **894 prøver i selvtesten, 194 i rørprøven
+Ved siste lagring: **895 prøver i selvtesten, 194 i rørprøven
 (`test/rorprove.js`), 219 i grøfteprøven (`test/groftprove.js`), 175 i
 planprøven (`test/rorplanprove.js`), 63 i eksportprøven
 (`test/roreksportprove.js`), 77 i avviksprøven (`test/roravvikprove.js`), 45 i
-traseprøven (`test/traseimportprove.js`), 38 i stikkrenneprøven
-(`test/stikkrenneprove.js`), 53 i anleggsprøven og 258 i tomteprøven, alle
-grønne; 1472 av 1472 i nettlesertesten.** «Klikk i modellen flytter snittet
+traseprøven (`test/traseimportprove.js`), 58 i stikkrenneprøven
+(`test/stikkrenneprove.js`), 57 i anleggsprøven og 258 i tomteprøven, alle
+grønne; 1490 av 1490 i nettlesertesten.** «Klikk i modellen flytter snittet
 dit» i `veg3d` kan feile når vinduet emuleres 1440 × 900 i en mindre rute –
 klikket lander én rad ved siden av; det gjør den likt på `main`. «og merknaden
 sier det som gjelder nå» i `flereAnlegg` feilet én gang i hele runden og aldri
@@ -41,7 +41,8 @@ må kjøres i et vindu som er minst 1000 px bredt – under det legger
 sidepanelet seg oppå, og tre panelprøver blir røde uten at noe er galt. Last
 siden på nytt før en ny runde: står resultatet fra forrige runde åpent, måler
 fingerprøven «Lukk»-knappen dets (54×29) og blir rød. Massene på demoen: 1 397 m³ skjæring, 1 397 m³ fjell og 778 m³ fylling,
-med masseutskifting. De er uendret gjennom veg-restfunnene.
+med masseutskifting. De er uendret gjennom veg-restfunnene og stikkrennene
+(demofila fikk bare de fire nye forvalgene i malen).
 
 ## Det som skal gjøres nå
 
@@ -63,24 +64,31 @@ Spec: `docs/superpowers/specs/2026-10-07-stikkrenner-design.md`.
 Plan: `docs/superpowers/plans/2026-10-07-stikkrenner.md`.
 
 - **Regnestykket** (`stikkrenner.js`, ren modul): én renne av tverrsnittet i
-  profilet der den krysser. Profilet regnes som eget profil – stasjonen går i
-  `ekstraStasjoner` i alle tre kallene som regner vegen (`beregn`,
-  `vegOverlapp` og naboens fotavtrykk), så forskjellene mellom dem ikke får med
-  seg oppdelingen.
-  - Endene: fyllingsfoten (uklippet) pluss `stikkrenneTillegg`, eller midt i
-    grøftebunnen i skjæring. Lengden er `(tV + tH) / cos(vinkel)`.
+  stasjonen der den krysser, `res.snittVed(s)` (`masser.js`). Snittet regnes av
+  de samme dataene og påslagene som profilene, men står **utenfor
+  volumsummen** – en renne flytter ikke massene. (Første versjon la stasjonen i
+  `ekstraStasjoner`; ved en kolle mellom to profiler ga det 10 % mer fylling.)
+  - Endene: fyllingsfoten pluss `stikkrenneTillegg`, med bakken lest der enden
+    ligger (minus rensken innenfor renskebredden); eller midt i grøftebunnen i
+    skjæring, flyttet med vegens stigning for en skjev renne. Lengden er
+    `(tV + tH) / cos(vinkel)`.
   - Høydene: innløpet på overflaten, utløpet etter terrenget eller
     minstefallet; låst `bunnInn`/`bunnUt` står.
-  - Overdekningen fra kant til kant, med vegens stigning for en skjev renne;
-    for lite senker renna når ingenting er låst.
-- **Data:** `a.stikkrenner` per veganlegg (vindu i `Prosjektform.FELT`); malen
-  har `stikkrenneDim`, `stikkrenneFall`, `stikkrenneOverdekning` og
-  `stikkrenneTillegg` med grenser i `MALGRENSER`.
-- **Skjermen:** «⊖ Stikkrenne» i kartet, lista under Vegmal (`stikkrennerTilSkjema`,
-  `visPlassliste` med valg), streken og merket i kartet (`Kart.tegnStikkrenner`),
-  tverrsnittet og lengdeprofilen.
-- **Rapport, PDF og eksport:** tabellen «Stikkrenner»; KOF `STIKKINN`/`STIKKUT`;
-  DXF-laget `STIKKRENNE` (`Eksport.stikkrennepunkter`).
+  - Overdekningen fra kant til kant: topp rør er bunn + innvendig + én vegg.
+    For lite, og ingenting låst: innløpet senkes først (renna dreies om
+    utløpet) til fallet er nede i minstefallet, så hele renna med resten.
+- **Data:** `a.stikkrenner` per veganlegg (vindu i `Prosjektform.FELT`, og satt
+  i `nyttAnlegg`, så «+ Veg» har lista); malen har `stikkrenneDim`,
+  `stikkrenneFall`, `stikkrenneOverdekning` og `stikkrenneTillegg` med grenser
+  i `MALGRENSER`. `nr` kommer fra id-en `sr<n>`; `SR<nr>` er KOF-navnet.
+- **Skjermen:** «⊖ Stikkrenne» i kartet, lista under Vegmal (`stikkrennerTilSkjema`
+  – skriver bare svaret inn etter en beregning; slår opp resultatet når det
+  trengs; en låst høyde låser siden), streken og merket i kartet
+  (`Kart.tegnStikkrenner`: merkene fra lista, strekene fra resultatet for vegen
+  som står oppe), tverrsnittet (rennas eget snitt) og lengdeprofilen.
+- **Rapport, PDF og eksport:** tabellen «Stikkrenner»; KOF `STIKKINN`/`STIKKUT`
+  med `SR<nr>I`/`SR<nr>U`; DXF-laget `STIKKRENNE` (`Eksport.stikkrennepunkter`).
+  Vegens egne KOF-navn får to eller tre desimaler når to stasjoner ligger tett.
 - Merknadene escapes nå på skjermen og i rapporten – de bærer navn brukeren
   har skrevet.
 

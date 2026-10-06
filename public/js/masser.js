@@ -2081,6 +2081,7 @@ function beregnMasser(o) {
      eller er bratt. Fyllingshøyden er ikke kjent før profilene er regnet,
      sa de stedene far et nytt gjennomløp med den økte bredden. */
   const ekstra = o.raskt ? null : mal.ekstraBredde;
+  let paslagBrukt = null;   // tillegget per stasjon, når det er brukt – se `snittVed`
   if (ekstra && ekstra.tillegg) {
     const paslag = profiler.map(p => {
       const brattNok = ekstra.stigning != null && Math.abs(profil.stigning(p.s)) > ekstra.stigning;
@@ -2088,10 +2089,39 @@ function beregnMasser(o) {
       return (brattNok || høyNok) ? ekstra.tillegg : 0;
     });
     if (paslag.some(v => v > 0)) {
+      paslagBrukt = paslag;
       utvidelser = lagUtvidelsesprofil(linje, mal, stasjoner, paslag, o.plasser);
       profiler = kjørProfiler(utvidelser);
     }
   }
+
+  /**
+   * Et snitt i en hvilken som helst stasjon, med tegningsgeometri – UTENFOR
+   * volumet. Stikkrennene leser lengden av sitt eget (se stikkrenner.js).
+   * Lagt inn som egen stasjon i beregningen, endret en renne massene: ett
+   * profil mer i summen, og 10 % mer fylling der en kolle lå mellom to profiler.
+   *
+   * Utvidelsen avhenger av naboene (se lagUtvidelsesprofil), så den regnes med
+   * stasjonen satt inn blant de andre – bare for dette snittet. Normalens
+   * tillegg på høy fylling avgjøres av snittet selv, som for profilene.
+   */
+  const snittVed = s => {
+    if (!(s >= -1e-6 && s <= linje.lengde + 1e-6)) return null;
+    const i = stasjoner.findIndex(x => Math.abs(x - s) < 1e-6);
+    if (i >= 0) return ettProfil(stasjoner[i], utvidelser[i], true);
+    let j = 0;
+    while (j < stasjoner.length && stasjoner[j] < s) j++;
+    const med = stasjoner.slice(0, j).concat([s], stasjoner.slice(j));
+    const tillegg = t => (paslagBrukt ? paslagBrukt.slice(0, j).concat([t], paslagBrukt.slice(j))
+      : t ? med.map((_, k) => (k === j ? t : 0)) : null);
+    let pr = ettProfil(s, lagUtvidelsesprofil(linje, mal, med, tillegg(0), o.plasser)[j], true);
+    if (ekstra && ekstra.tillegg) {
+      const brattNok = ekstra.stigning != null && Math.abs(profil.stigning(s)) > ekstra.stigning;
+      const høyNok = ekstra.fyllingshoyde != null && pr.maksFylling > ekstra.fyllingshoyde;
+      if (brattNok || høyNok) pr = ettProfil(s, lagUtvidelsesprofil(linje, mal, med, tillegg(ekstra.tillegg), o.plasser)[j], true);
+    }
+    return pr;
+  };
 
   /**
    * Regner om ett tverrprofil med tegningsgeometri, for skjermen.
@@ -2595,7 +2625,7 @@ function beregnMasser(o) {
   return {
     stasjoner, profiler, intervaller, sum, bruckner, sprengning,
     merknader: merknaderUt, brudd,
-    antallAvkortet, geometriFor,
+    antallAvkortet, geometriFor, snittVed,
     mal, faktorer,
     lengde: linje.lengde * bf,
     lengdeKart: linje.lengde,

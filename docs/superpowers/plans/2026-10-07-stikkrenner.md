@@ -4,7 +4,9 @@
 
 **Goal:** Stikkrenner under en prosjektert veg: satt ut i kartet, lengden og høydene regnet av tverrsnittet, vist i kart, tverrsnitt og lengdeprofil, og med i rapport, PDF og eksport.
 
-**Architecture:** En ren modul `public/js/stikkrenner.js` regner én renne av tverrsnittet i profilet der den krysser (`res.geometriFor(s)`). Profilet regnes som eget profil ved at stasjonen legges i `ekstraStasjoner` i alle tre kallene som regner vegens masser. Rennene lagres per veganlegg i `a.stikkrenner`, som snuplassene.
+**Architecture:** En ren modul `public/js/stikkrenner.js` regner én renne av tverrsnittet i stasjonen der den krysser, `res.snittVed(s)`: regnet av de samme dataene som profilene, men utenfor volumsummen. Rennene lagres per veganlegg i `a.stikkrenner`, som snuplassene.
+
+> **Endret etter gjennomgangen.** Første versjon la stasjonen i `ekstraStasjoner` i de tre kallene som regner vegens masser, og hentet snittet med `res.geometriFor(s)`. Det flyttet massene (10 % mer fylling ved en kolle mellom to profiler) og ga KOF-punkt med samme navn. Nå: `res.snittVed(s)` i `masser.js`, og ingen ekstra stasjoner. Se «Rettelser etter gjennomgangen» nederst.
 
 **Tech Stack:** Vanilla JS uten byggesteg, IIFE-moduler med `module.exports` for node-prøvene; Leaflet i kartet; canvas i profilene.
 
@@ -27,25 +29,25 @@
 - Modify: `package.json` (npm test kjører prøven)
 
 **Interfaces:**
-- Produces: `Stikkrenner.beregn(renne, tverrsnitt, mal, { stigning, lengde })` → `{ id, navn, s, dim, vinkel, innlop, lengde, fall, bunnInn, bunnUt, laastInn, laastUt, senket, overdekning, overdekningVed, kravOverdekning, ytre, ender: { venstre: { t, overflate, type, bunn, x, y }, hoyre: {…} }, merknader: [{ type, tekst }] }` eller `{ id, navn, feil }`; `Stikkrenner.fraMal(mal)`, `Stikkrenner.bunnISenter(svar)`, `Stikkrenner.STANDARD`, `Stikkrenner.GRENSER`.
+- Produces: `Stikkrenner.beregn(renne, tverrsnitt, mal, { stigning, lengde, terreng })` → `{ id, navn, s, dim, vinkel, innlop, lengde, fall, bunnInn, bunnUt, laastInn, laastUt, senket, senketInn, overdekning, overdekningVed, kravOverdekning, ytre, vegg, ender: { venstre: { t, overflate, type, bunn, x, y }, hoyre: {…} }, merknader: [{ type, tekst }] }` eller `{ id, navn, feil }`; `Stikkrenner.fraMal(mal)`, `Stikkrenner.bunnISenter(svar)`, `Stikkrenner.STANDARD`, `Stikkrenner.GRENSER`.
 
-- [ ] Skriv prøven (fem bolker: fylling på flatt, skjev renne, sidebratt, låste høyder, det som ikke går) med fasit regnet for hånd.
-- [ ] Skriv modulen; kjør `node test/stikkrenneprove.js` til alt er grønt.
-- [ ] Legg prøven i `npm test`.
+- [x] Skriv prøven (fem bolker: fylling på flatt, skjev renne, sidebratt, låste høyder, det som ikke går) med fasit regnet for hånd.
+- [x] Skriv modulen; kjør `node test/stikkrenneprove.js` til alt er grønt.
+- [x] Legg prøven i `npm test`.
 
 ### Task 2: Malen, prosjektfila og beregningen
 
 **Files:**
 - Modify: `public/js/masser.js` (StandardMal og MALGRENSER: `stikkrenneDim`, `stikkrenneFall`, `stikkrenneOverdekning`, `stikkrenneTillegg`)
 - Modify: `public/js/prosjektform.js` (`a.stikkrenner = []`, FELT)
-- Modify: `public/js/app.js` (`ekstraStasjoner` i de tre kallene; `res.stikkrenner`; merknadene)
+- Modify: `public/js/app.js` (`res.stikkrenner`; merknadene)
 - Modify: `public/index.html` (skriptet)
 
-- [ ] StandardMal og MALGRENSER.
-- [ ] `klargjor`: lista per anlegg, og `stikkrenner` i FELT.
-- [ ] `App._rennestasjoner(a)` og `ekstraStasjoner` i `beregn`, `vegOverlapp` og naboens fotavtrykk.
-- [ ] `App.regnStikkrenner(res)`: svaret per renne med vegens stigning; merknadene i resultatet med type `stikkrenne`.
-- [ ] `npm test` – selvtesten uendret.
+- [x] StandardMal og MALGRENSER.
+- [x] `klargjor`: lista per anlegg, og `stikkrenner` i FELT.
+- [x] ~~`App._rennestasjoner(a)` og `ekstraStasjoner` i `beregn`, `vegOverlapp` og naboens fotavtrykk.~~ Erstattet av `res.snittVed(s)`.
+- [x] `App.regnStikkrenner(res)`: svaret per renne med vegens stigning og terrenget; merknadene i resultatet med type `stikkrenne`.
+- [x] `npm test` – selvtesten uendret.
 
 ### Task 3: Skjermen
 
@@ -55,22 +57,36 @@
 - Modify: `public/js/app.js` (`stikkrennerTilSkjema`, skjemaet, knappens synlighet)
 - Modify: `public/js/ui-tverrprofil.js`, `public/js/ui-lengdeprofil.js`
 
-- [ ] «⊖ Stikkrenne»: klikk ved linja → renne i nærmeste profil, ett angresteg.
-- [ ] Kartet: strek fra ende til ende og merke i krysset med popup og «Slett».
-- [ ] Lista under Vegmal: feltene, svaret og ⚠.
-- [ ] Tverrsnittet og lengdeprofilet.
+- [x] «⊖ Stikkrenne»: klikk ved linja → renne i nærmeste profil, ett angresteg.
+- [x] Kartet: strek fra ende til ende og merke i krysset med popup og «Slett».
+- [x] Lista under Vegmal: feltene, svaret og ⚠.
+- [x] Tverrsnittet og lengdeprofilet.
 
 ### Task 4: Rapport, PDF og eksport
 
 **Files:**
 - Modify: `public/js/ui-rapport.js`, `public/js/ui-pdfrapport.js`, `public/js/eksport.js`
 
-- [ ] Tabellen «Stikkrenner» i rapporten og PDF-en.
-- [ ] KOF: `STIKKINN`/`STIKKUT`; DXF: laget `STIKKRENNE`.
+- [x] Tabellen «Stikkrenner» i rapporten og PDF-en.
+- [x] KOF: `STIKKINN`/`STIKKUT`; DXF: laget `STIKKRENNE`.
 
 ### Task 5: Nettleserprøven, dokumentene og fletting
 
-- [ ] `Nettlesertest.stikkrenner`: verktøyet, lista med angre, merknaden, rapporten og KOF-en.
-- [ ] README, FORTSETTELSE.
-- [ ] Hele runden: `npm test`, anleggs- og tomteprøven, nettleseren fra en ny last.
+- [x] `Nettlesertest.stikkrenner`: verktøyet, lista med angre, merknaden, rapporten og KOF-en.
+- [x] README, FORTSETTELSE.
+- [x] Hele runden: `npm test`, anleggs- og tomteprøven, nettleseren fra en ny last.
 - [ ] Gjennomgang, rettelser, skanning for kundedata, flett og push.
+
+## Rettelser etter gjennomgangen
+
+- **Massene flyttet seg.** Rennas stasjon ble et eget profil i volumsummen. Nå `res.snittVed(s)` i `masser.js`: snittet regnes for seg, med de samme påslagene, og står utenfor summen.
+- **Verktøyet kastet** i en veg lagt til med «+ Veg»: `nyttAnlegg` gir `a.plasser` og `a.stikkrenner` fra start.
+- **En låst høyde med «innløp auto»** kunne flytte seg til den andre enden når siden snudde: siden låses med, i det samme angresteget. Oppslaget i resultatet gjøres når det trengs – radene står gjennom beregningene, og et oppslag fra da raden ble bygd fant ikke renna.
+- **Overflaten i endene:** bakken leses der enden ligger (ikke i foten), minus rensken bare innenfor renskebredden; grøfta i en skjev rennes ende følger vegens stigning.
+- **Topp rør** var bunn + hele den ytre diameteren – én vegg for mye.
+- **Senkingen:** innløpet først, renna dreid om utløpet, så langt minstefallet tåler; resten senker hele renna.
+- **KOF:** navnene `SR<nr>` fra id-en (faste når en renne slettes); vegens egne punkt får to eller tre desimaler når to stasjoner ligger tett.
+- **Kartet:** merkene fra lista, strekene bare fra resultatet for vegen som står oppe; ingen renner i tomt- eller rørvisning.
+- **Tverrsnittet:** renna tegnet fylt med mørk kant – den forsvant i utskiftingsbåndet.
+- **Lista:** en beregning skriver bare svaret inn, så feltet man står i, beholder markøren; vinkelen klemmes begge veier.
+- **Merknadene** er escapet i sammendraget og rapporten.

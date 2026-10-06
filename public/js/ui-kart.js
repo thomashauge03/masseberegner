@@ -977,7 +977,8 @@ const Kart = {
       let n = 1;
       while (liste.some(r => r.id === 'sr' + n)) n++;
       this.app.merk('ny stikkrenne');
-      liste.push({ id: 'sr' + n, navn: 'Stikkrenne ' + (liste.length + 1), s: +tr.s.toFixed(2),
+      // navnet bærer nummeret i id-en, som KOF-punktene (SR3I/SR3U) – det endres ikke når en annen slettes
+      liste.push({ id: 'sr' + n, navn: 'Stikkrenne ' + n, s: +tr.s.toFixed(2),
         dim: k.dim, vinkel: 0, innlop: 'auto', fall: k.fall });
       this.settModus('rediger');
       this.app.stikkrennerTilSkjema();
@@ -1649,6 +1650,8 @@ const Kart = {
         this.plassMarkorer.push(m);
       });
     }
+    // stikkrennene står der de er satt, også før vegen er regnet – se tegnStikkrenner
+    this.tegnStikkrenner(app.resultat);
   },
 
   tegnLinjeRask() {
@@ -1670,19 +1673,26 @@ const Kart = {
   },
 
   /**
-   * Stikkrennene i vegen som er regnet: en strek fra ende til ende i fargen
-   * for overvann, en ring i innløpet, og et merke i krysset med navnet,
-   * målene, høydene og «Slett».
+   * Stikkrennene i vegen som står oppe: et merke i krysset med navnet, målene,
+   * høydene, «Vis snittet» og «Slett» – og når vegen er regnet, en strek fra
+   * ende til ende i fargen for overvann, med en ring i innløpet.
+   *
+   * MERKENE KOMMER FRA LISTA, STREKENE FRA RESULTATET – og bare et resultat for
+   * vegen som står oppe. Her tegnet resultatet alt: rennene fra en annen veg
+   * ble stående etter et bytte, og «Slett» der slettet etter id i vegen som
+   * sto oppe – id-ene begynner på sr1 i hver veg.
    */
   tegnStikkrenner(res) {
     const app = this.app, lag = this.lag.stikkrenner;
     lag.clearLayers();
-    if (!app.linje || !(app.linje.lengde > 0)) return;
+    if (app.erTomt() || app.erRor() || !app.linje || !(app.linje.lengde > 0)) return;
     const ll = (x, y) => { const g = Geo.fraUtm(x, y, app.sone); return [g.lat, g.lon]; };
     const farge = Farger.ror('overvann'), t = (v, d) => Rapport.tall(v, d);
-    for (const sv of (res && res.stikkrenner) || []) {
-      if (!Number.isFinite(sv.s)) continue;
-      const p = app.linje.punktVed(Math.min(Math.max(sv.s, 0), app.linje.lengde));
+    const regnet = res && res._anlegg === app.P.aktivt && Array.isArray(res.stikkrenner) ? res.stikkrenner : [];
+    for (const r of app.P.stikkrenner || []) {
+      if (!Number.isFinite(r.s)) continue;
+      const sv = regnet.find(x => x.id === r.id) || { id: r.id, navn: r.navn || 'Stikkrenne', s: r.s, feil: 'regnes når vegen er regnet' };
+      const p = app.linje.punktVed(Math.min(Math.max(r.s, 0), app.linje.lengde));
       if (!sv.feil) {
         const V = sv.ender.venstre, H = sv.ender.hoyre, strek = [ll(V.x, V.y), ll(H.x, H.y)];
         // lys kant under, så streken synes over flyfotoet og fotavtrykket
@@ -1696,17 +1706,24 @@ const Kart = {
         html: '<div class="sr-markor" title="Stikkrenne"></div>' }) }).addTo(lag);
       m.bindPopup(() => {
         const d = document.createElement('div');
-        d.innerHTML = `<b>${escapeHtml(sv.navn)}</b><br>Profil ${t(sv.s, 0)}`
+        // SR-nummeret er navnet punktene har i KOF-en – det som står på stikkingslista
+        d.innerHTML = `<b>${escapeHtml(sv.navn)}</b>${sv.nr ? ` · SR${sv.nr}` : ''}<br>Profil ${t(sv.s, 0)}`
           + (sv.feil ? `<br>⚠ ${escapeHtml(sv.feil)}`
             : ` · Ø${sv.dim} mm · ${t(sv.lengde, 1)} m${sv.vinkel ? ` · ${t(sv.vinkel, 0)}°` : ''}<br>`
               + `Bunn innløp ${t(sv.bunnInn, 2)}${sv.laastInn ? ' (låst)' : ''}, utløp ${t(sv.bunnUt, 2)}${sv.laastUt ? ' (låst)' : ''}<br>`
               + `Fall ${t(sv.fall, 1)} ‰ · overdekning ${t(sv.overdekning, 2)} m`
               + sv.merknader.map(x => `<br>⚠ ${escapeHtml(x.tekst)}`).join(''))
           + '<br><small>Endres i listen under Mal</small><br>';
+        if (!sv.feil) {
+          const vis = document.createElement('button');
+          vis.className = 'knapp'; vis.textContent = 'Vis snittet';
+          vis.onclick = () => { this.kart.closePopup(); app.settTverrStasjon(r.s); };
+          d.appendChild(vis);
+        }
         const b = document.createElement('button');
         b.className = 'knapp'; b.textContent = 'Slett';
         b.onclick = () => {
-          const liste = app.P.stikkrenner, j = liste.findIndex(r => r.id === sv.id);
+          const liste = app.P.stikkrenner, j = liste.indexOf(r);
           if (j < 0) return;
           app.merk('slettet stikkrenne');
           liste.splice(j, 1);

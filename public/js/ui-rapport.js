@@ -656,14 +656,15 @@ ${this.sprengningsrader(res)}
     const rad = sv => (sv.feil
       ? `<tr><td class="tekst">${escapeHtml(sv.navn)}</td><td>${Number.isFinite(sv.s) ? this.stasjon(sv.s) : '–'}</td>`
         + `<td colspan="8" class="tekst">${escapeHtml(sv.feil)}</td></tr>`
-      : `<tr><td class="tekst">${escapeHtml(sv.navn)}</td><td>${this.stasjon(sv.s)}</td><td>${sv.dim}</td><td>${t(sv.vinkel)}°</td>`
+      : `<tr><td class="tekst">${escapeHtml(sv.navn)} · SR${sv.nr}</td><td>${this.stasjon(sv.s)}</td><td>${sv.dim}</td><td>${t(sv.vinkel)}°</td>`
         + `<td>${t(sv.lengde, 1)}</td><td>${n(sv.bunnInn, 2)}${sv.laastInn ? ' (låst)' : ''}</td>`
         + `<td>${n(sv.bunnUt, 2)}${sv.laastUt ? ' (låst)' : ''}</td><td>${t(sv.fall, 1)}</td><td>${t(sv.overdekning, 2)}</td>`
         + `<td class="tekst">${escapeHtml(sv.merknader.map(m => m.tekst).join('; ')) || '–'}</td></tr>`);
     return `<h2>Stikkrenner</h2>
 <p class="liten">Lengden går fra fyllingsfoten – eller midt i grøftebunnen i skjæring – på den ene siden til den
 andre, langs renna. Høydene er bunn innvendig; innløpet er siden vannet kommer fra. Overdekningen er den minste
-avstanden fra vegoverflaten til topp rør under vegen, med ytre diameter 1,15 × innvendig.</p>
+avstanden fra vegoverflaten til topp rør under vegen, med ytre diameter 1,15 × innvendig. SR-nummeret er
+punktnavnet i KOF-en: SR1I er innløpet og SR1U utløpet.</p>
 <table><thead><tr><th>Navn</th><th>Profil</th><th>Ø mm</th><th>Vinkel</th><th>Lengde m</th><th>Bunn innløp</th>
 <th>Bunn utløp</th><th>Fall ‰</th><th>Overdekning m</th><th>Merknad</th></tr></thead>
 <tbody>${liste.map(rad).join('')}</tbody></table>`;

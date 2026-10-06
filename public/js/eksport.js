@@ -205,8 +205,16 @@ const Eksport = {
   /** Koordinatlinjene for en veg, uten hode. */
   kofKroppVeg(app, res, navner) {
     const rader = [];
-    const navn = (bokstav, s) =>
-      navner(bokstav + (Number.isInteger(s) ? String(s) : s.toFixed(1).replace('.', '_')));
+    /* To stasjoner nærmere enn en desimeter – en snuplasskant ved et rutenett
+       på 2,5 m – fikk samme navn med én desimal, og hele fila feilet på «to
+       punkt fikk samme navn». Da får den neste to desimaler, så tre. */
+    const brukt = new Set();
+    const navn = (bokstav, s) => {
+      let n = bokstav + (Number.isInteger(s) ? String(s) : s.toFixed(1).replace('.', '_'));
+      for (let d = 2; brukt.has(n) && d <= 3; d++) n = bokstav + s.toFixed(d).replace('.', '_');
+      brukt.add(n);
+      return navner(n);
+    };
     for (const pt of this.punkter(app, res)) {
       rader.push(this.kofPunkt(navn('S', pt.s), 'SENTER', pt.senter.n, pt.senter.o, pt.senter.z));
       rader.push(this.kofPunkt(navn('V', pt.s), 'VKANT', pt.venstre.n, pt.venstre.o, pt.venstre.z));

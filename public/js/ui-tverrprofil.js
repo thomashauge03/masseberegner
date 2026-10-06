@@ -208,7 +208,7 @@ const Tverrprofil = {
       for (const [, z] of liste) if (isFinite(z)) { zMin = Math.min(zMin, z); zMax = Math.max(zMax, z); }
     }
     // en renne som er senket for overdekningen, ligger under alt det andre
-    for (const sv of renner) zMin = Math.min(zMin, sv.ender.venstre.bunn, sv.ender.hoyre.bunn);
+    for (const sv of renner) zMin = Math.min(zMin, sv.ender.venstre.bunn - (sv.vegg || 0), sv.ender.hoyre.bunn - (sv.vegg || 0));
     if (!isFinite(zMin)) { zMin = pr.vegnivaa - 2; zMax = pr.vegnivaa + 2; }
     /* Bildet må dekke TRAUET også, ikke bare skråningen.
        Området var foten pluss halvannen meter. Med skrå trauvegg går gropa
@@ -428,8 +428,9 @@ const Tverrprofil = {
        ut i grøfta eller ved foten. Den tegnes over alt annet; den ligger inne
        i fyllingen og ville ellers vært borte. */
     for (const sv of renner) {
-      const V = sv.ender.venstre, H = sv.ender.hoyre, farge = Farger.ror('overvann');
-      const bunn = [[-V.t, V.bunn], [H.t, H.bunn]], topp = bunn.map(([tt, z]) => [tt, z + sv.ytre]);
+      // bunn innvendig minus veggen er utsiden av røret; toppen er en ytre diameter over
+      const V = sv.ender.venstre, H = sv.ender.hoyre, farge = Farger.ror('overvann'), vegg = sv.vegg || 0;
+      const bunn = [[-V.t, V.bunn - vegg], [H.t, H.bunn - vegg]], topp = bunn.map(([tt, z]) => [tt, z + sv.ytre]);
       /* Tett farge og mørk kant: gjennomsiktig turkis forsvant i det lyseblå
          båndet for masseutskiftingen, som renna ofte ligger i. */
       c.save();

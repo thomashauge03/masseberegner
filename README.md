@@ -107,27 +107,34 @@ Knappene over lengdeprofilen:
 ## Stikkrenner
 
 Trykk **⊖ Stikkrenne** i kartet og klikk der renna skal krysse vegen. Den
-settes i nærmeste profil, med diameter og minste fall fra malen, og står i
-lista under **Vegmal**:
+settes i stasjonen nærmest klikket, med diameter og minste fall fra malen, og
+står i lista under **Vegmal**:
 
-* **Lengden** regnes av tverrsnittet i profilet: fra fyllingsfoten – eller midt
+* **Lengden** regnes av rennas eget tverrsnitt: fra fyllingsfoten – eller midt
   i grøftebunnen der vegen ligger i skjæring – på den ene siden til den andre,
   og et tillegg forbi foten (0,5 m). En skjev renne (vinkel mot normalen) blir
-  1 / cos lengre.
-* **Høydene** er bunn innvendig. Innløpet ligger på bakken eller i grøftebunnen
-  på siden vannet kommer fra (auto: siden som ligger høyest). Utløpet følger
-  terrenget når det faller minst minstefallet; ellers gir fallet høyden.
+  1 / cos lengre. Snittet står utenfor massene: en renne flytter ikke volumene.
+* **Høydene** er bunn innvendig. Innløpet ligger på bakken (renska, der enden
+  ligger) eller i grøftebunnen på siden vannet kommer fra (auto: siden som
+  ligger høyest). Utløpet følger terrenget når det faller minst minstefallet;
+  ellers gir fallet høyden.
 * **Overdekningen** prøves under vegen fra kant til kant, fra vegoverflaten til
-  topp rør (ytre diameter 1,15 × innvendig). Er den under kravet (0,5 m),
-  senkes renna, og merknaden sier hvor mye.
+  topp rør (bunnen, det innvendige og én vegg – ytre diameter 1,15 ×
+  innvendig). Er den under kravet (0,5 m), senkes innløpet først, så langt
+  minstefallet tåler, og hele renna med det som mangler etter det. Merknaden
+  sier hvor mye.
 * **Låste høyder:** skriver du bunnen i innløpet eller utløpet i lista, står den
   – den endres aldri av seg selv, og merknadene sier fra om overdekning, fall
-  og et utløp som henger over bakken.
+  og et utløp som henger over bakken. Står innløpet på auto, låses siden med.
 
-Renna tegnes i kartet, i tverrsnittet i profilet sitt og i lengdeprofilen, og
-står i rapporten, PDF-en, KOF-en (`STIKKINN`/`STIKKUT`, bunn innvendig) og
-DXF-en (laget `STIKKRENNE`). Massene for selve renna – fundament og omfylling –
-telles ikke.
+Hver renne har et nummer: `SR1`, `SR2` … er navnene i KOF-en (`SR1I` og `SR1U`
+for innløp og utløp), og nummeret står i lista, kartet og rapporten. Det endres
+ikke når en annen renne slettes.
+
+Renna tegnes i kartet, i tverrsnittet i stasjonen sin («snitt» i lista, «Vis
+snittet» i kartet) og i lengdeprofilen, og står i rapporten, PDF-en, KOF-en
+(`STIKKINN`/`STIKKUT`, bunn innvendig) og DXF-en (laget `STIKKRENNE`). Massene
+for selve renna – fundament og omfylling – telles ikke.
 
 ## Rør fra maskinstyringen
 
@@ -514,9 +521,11 @@ node test/stikkrenneprove.js
 ```
 
 Stikkrennene mot fasit regnet for hånd på en rett veg: fylling på flatt terreng
-(fot til fot pluss tillegget, minstefallet, overdekningen i vegkanten), en skjev
-renne, sidebratt terreng med innløpet i grøftebunnen og renna senket for
-overdekningen, låste høyder, og det som ikke går. `npm test` kjører alle åtte.
+(fot til fot pluss tillegget, minstefallet, overdekningen i vegkanten), massene
+uendret av en renne, en skjev renne (også i en stigning), sidebratt terreng med
+innløpet i grøftebunnen og renna dreid om utløpet for overdekningen, senking
+uten og med fall å gi, låste høyder, og det som ikke går. `npm test` kjører
+alle åtte.
 
 ```bash
 node test/demo-ydestad.js

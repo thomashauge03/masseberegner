@@ -2076,6 +2076,7 @@ const Nettlesertest = {
       this.sjekk('lista er et vindu inn i anlegget', Array.isArray(app.P.stikkrenner) && app.P.stikkrenner === app.anlegg().stikkrenner);
 
       // ett klikk litt ved siden av vegen, midt på
+      const sumFoer = JSON.stringify(app.resultat.sum);
       Kart.settModus('stikkrenne');
       const midt = app.linje.punktVed(100.3);
       const ll = Geo.fraUtm(midt.x, midt.y + 3, app.sone);
@@ -2089,7 +2090,8 @@ const Nettlesertest = {
       await app.oppdater();
       const sv = () => (app.resultat.stikkrenner || [])[0];
       this.naer('lengden fot til fot pluss tillegget', sv() ? sv().lengde : NaN, 9.80, 0.01);
-      this.sjekk('renna står i sitt eget profil', app.resultat.stasjoner.some(s => Math.abs(s - app.P.stikkrenner[0].s) < 1e-6));
+      this.sjekk('renna har sitt eget snitt, og massene er de samme', !!sv() && !!sv().snitt && Math.abs(sv().snitt.s - app.P.stikkrenner[0].s) < 1e-6
+        && JSON.stringify(app.resultat.sum) === sumFoer && !app.resultat.stasjoner.some(s => Math.abs(s - app.P.stikkrenner[0].s) < 1e-6));
       this.sjekk('merknaden om utløpet kommer i vegens liste', app.resultat.merknader.some(m => m.type === 'stikkrenne'
         && /utløpet/.test(m.tekst)), app.resultat.merknader.map(m => m.tekst).join(' | '));
       const rad = document.querySelector('#stikkrenneliste .srrad');
@@ -2102,17 +2104,18 @@ const Nettlesertest = {
       await app.oppdater();
       this.sjekk('en ny beregning tar ikke markøren fra lista', navnFelt.isConnected && document.activeElement === navnFelt,
         document.activeElement ? document.activeElement.className : 'ingen');
-      // bunnen i innløpet låses i lista, og står
+      // bunnen i innløpet låses i lista, og står – og siden låses med, så høyden ikke kan flytte seg til den andre enden
       const inn = rad.querySelector('.srinn');
       inn.value = '99.5';
       inn.dispatchEvent(new Event('change', { bubbles: true }));
-      this.sjekk('en bunn skrevet i lista er låst', app.P.stikkrenner[0].bunnInn === 99.5);
+      this.sjekk('en bunn skrevet i lista er låst, med siden', app.P.stikkrenner[0].bunnInn === 99.5 && app.P.stikkrenner[0].innlop === 'venstre',
+        JSON.stringify(app.P.stikkrenner[0]));
       clearTimeout(app._tidsavbrudd);
       await app.oppdater();
       this.sjekk('  og den står i det som er regnet', sv() && sv().bunnInn === 99.5 && sv().laastInn);
       await app.angre();
-      this.sjekk('  angre låser den opp igjen', app.P.stikkrenner[0] && app.P.stikkrenner[0].bunnInn === undefined,
-        JSON.stringify(app.P.stikkrenner));
+      this.sjekk('  angre låser den opp igjen, og siden er auto igjen', app.P.stikkrenner[0] && app.P.stikkrenner[0].bunnInn === undefined
+        && app.P.stikkrenner[0].innlop === 'auto', JSON.stringify(app.P.stikkrenner));
       clearTimeout(app._tidsavbrudd);
       await app.oppdater();
       // rapporten og KOF-en
@@ -2126,8 +2129,20 @@ const Nettlesertest = {
       app.settTverrStasjon(app.P.stikkrenner[0].s);
       this.sjekk('tverrsnittet står i profilet til renna', Tverrprofil.profil && Math.abs(Tverrprofil.profil.s - app.P.stikkrenner[0].s) < 1e-6);
       // slett i lista
-      document.querySelector('#stikkrenneliste .srrad button').click();
+      document.querySelector('#stikkrenneliste .srrad .srslett').click();
       this.sjekk('× i lista sletter renna', app.P.stikkrenner.length === 0);
+      /* EN VEG LAGT TIL MED «+ VEG» har lista si fra start. Den ble bare satt
+         når et prosjekt ble åpnet, og verktøyet kastet på første klikk. */
+      app.leggTilAnlegg('veg');
+      app.P.ip.push(Object.assign(pkt(0, 50), { r: 0 }), Object.assign(pkt(200, 50), { r: 0 }));
+      app.P.vip.push({ s: 0, z: 101.5, k: 0 }, { s: 200, z: 101.5, k: 0 });
+      app.byggLinje();
+      Kart.settModus('stikkrenne');
+      const m2 = app.linje.punktVed(60), ll2 = Geo.fraUtm(m2.x, m2.y, app.sone);
+      Kart.klikk({ latlng: { lat: ll2.lat, lng: ll2.lon } });
+      clearTimeout(app._tidsavbrudd);
+      this.sjekk('en veg lagt til med «+ Veg»: verktøyet setter en renne', Array.isArray(app.P.stikkrenner) && app.P.stikkrenner.length === 1
+        && app.P.stikkrenner === app.anlegg().stikkrenner && app.anlegg().id !== 'v1');
     } catch (e) {
       this.sjekk('stikkrenneprøven kom seg gjennom', false, e.message + ' — ' + (e.stack || '').split('\n')[1]);
     } finally {

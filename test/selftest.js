@@ -2216,6 +2216,17 @@ console.log('\n4f. Eksportformatene');
     const navn = kofRader.map(l => l.slice(4, 14).trim());
     return new Set(navn).size === navn.length;
   })());
+  /* To stasjoner nærmere enn en desimeter – en snuplasskant ved et rutenett
+     på 2,5 m – het det samme med én desimal, og hele fila feilet. */
+  paastand('KOF: stasjoner tett i tett får to og tre desimaler, ikke samme navn', (() => {
+    const p = { n: 6460000, o: 430000, z: 100 };
+    const pt = s => ({ s, senter: p, venstre: p, hoyre: p });
+    const E = Object.assign(Object.create(Eksport), { punkter: () => [pt(10.02), pt(10.04), pt(10.041)] });
+    try {
+      const navn = E.kofKroppVeg(app, { stikkrenner: [] }, Eksport.kofNavner()).map(l => l.slice(4, 14).trim());
+      return ['S10_0', 'S10_04', 'S10_041', 'V10_04', 'H10_041'].every(n => navn.includes(n));
+    } catch (e) { return false; }
+  })());
   paastand('KOF nekter når sonen er ukjent', (() => {
     try { Eksport.kof(Object.assign(Object.create(Object.getPrototypeOf(app)), app, { sone: 99 }), res); return false; }
     catch (e) { return /sone/i.test(e.message); }
