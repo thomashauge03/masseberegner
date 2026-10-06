@@ -8193,8 +8193,10 @@ const Nettlesertest = {
       this.sjekk('lengdeprofilen og tverrprofilen er borte', !vises('.profilpanel') && !vises('.tverrpanel'));
       this.sjekk('Rør- og Koder-fanen vises', !fane('ror').classList.contains('skjult')
         && !fane('rorkoder').classList.contains('skjult'));
-      this.sjekk('vegfanene er skjult', ['masser', 'hoyder', 'mal', 'grunn', 'linje', 'eksport']
+      this.sjekk('vegfanene er skjult', ['masser', 'hoyder', 'mal', 'grunn', 'linje']
         .every(n => fane(n).classList.contains('skjult')));
+      // Eksport er felles fra etappe 3b – rørene har sine egne filer der
+      this.sjekk('men Eksport-fanen vises', !fane('eksport').classList.contains('skjult'));
       this.sjekk('man står i Rør-fanen', fane('ror').classList.contains('aktiv'));
       this.sjekk('Tegn senterlinje og Fjellpunkt er skjult',
         document.getElementById('verktoyTegn').classList.contains('skjult')
