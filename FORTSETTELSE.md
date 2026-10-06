@@ -24,10 +24,10 @@ med `Nettlesertest.kjor()`. Utviklingstjeneren startes med `node server.js`
 (port 5178). Programmet ligger også på https://masseberegner.vercel.app.
 
 Ved siste lagring: **609 prøver i selvtesten, 194 i rørprøven
-(`test/rorprove.js`), 133 i grøfteprøven (`test/groftprove.js`), 97 i
+(`test/rorprove.js`), 133 i grøfteprøven (`test/groftprove.js`), 100 i
 planprøven (`test/rorplanprove.js`), 62 i eksportprøven
-(`test/roreksportprove.js`), 53 i anleggsprøven og 258 i tomteprøven, alle
-grønne; 1237 av 1237 i nettlesertesten.** «Klikk i modellen flytter snittet
+(`test/roreksportprove.js`), 77 i avviksprøven (`test/roravvikprove.js`), 53 i
+anleggsprøven og 258 i tomteprøven, alle grønne; 1262 av 1262 i nettlesertesten.** «Klikk i modellen flytter snittet
 dit» i `veg3d` kan feile når vinduet emuleres 1440 × 900 i en mindre rute –
 klikket lander én rad ved siden av; det gjør den likt på `main`. 3D-prøvene
 må ha fanen framme; i en bakgrunnsfane tegnes ingen rammer. Nettlesertesten
@@ -68,6 +68,14 @@ terrenget sitt hentet med det aktive (kryssingskontrollen fikk høyder lånt fra
 et annet sted langs røret, eller ingen linjer), og statuslinja sier «ved 90PE,
 kobles på om det blir en ende» i stedet for «festet til» for hvert punkt – og
 hvilke ender som ble koblet når traseen lagres.
+
+En kodegjennomgang fant ingen kritiske feil og to alvorlige, begge rettet med
+prøver: et T-punkt i det innmålte ble telt opptil tre ganger (importen deler
+rørnettet i knuten), og fortegnet på utsiden av en knekk skarpere enn 90° kom
+fra feil strekk – nå er det svingens. Av de mindre er disse rettet: en innmålt
+kode uten materiale bruker planens gods, toleransene skrives med tre desimaler
+når de trenger det, steget i feltene, rørnummeret i «De største avvikene», og
+de innmålte rørene bygges én gang per beregning.
 
 ### Rør, etappe 3b – eksport til maskinstyring og stikning, flettet inn i `main`
 
