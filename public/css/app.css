@@ -1051,6 +1051,15 @@ table.kumliste th[scope="row"], table.kumliste td:nth-child(2) { text-align: lef
 table.kumliste .minitall { width: 64px; }
 .planror { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .planror .rorlinje { flex: 1 1 100%; text-align: left; }
+/* Avvik mot innmålt: knappen står inne når den er på, og radene utenfor
+   toleransen er røde – med ⚠ ved tallet, så fargen ikke står alene */
+.knapp[aria-pressed="true"] { background: var(--hm-raud); border-color: var(--hm-raud); color: #fff; }
+table.avvikliste { width: 100%; border-collapse: collapse; font-size: 12px; margin: 6px 0; }
+table.avvikliste caption { text-align: left; font-weight: 700; padding: 2px 0 4px; }
+table.avvikliste th, table.avvikliste td { padding: 3px 4px; text-align: right; border-bottom: 1px solid var(--kant);
+  font-variant-numeric: tabular-nums; }
+table.avvikliste th[scope="row"], table.avvikliste .tekst { text-align: left; }
+table.avvikliste tr.utenfor td { color: var(--data-skjaering); font-weight: 600; }
 .stasjon-markor { width: 11px; height: 11px; background: #fff; border: 2px solid var(--hm-raud); border-radius: 50%; }
 .stasjonstall {
   font-family: var(--skrift-tittel); font-weight: 700; font-size: 12px; color: #fff;

@@ -201,6 +201,17 @@ Delete tar bort det valgte. Rør-fanen viser traseene med rørene, fallet og
 kumlista; Koder-fanen har gods, regel, overdekning og fall per kode. Til
 maskinstyring og stikning går de gjennom Eksport-fanen (se «Eksport»).
 
+**Avvik mot innmålt.** Når rørene er lagt og målt inn, importeres de innmålte
+som et eget anlegg i prosjektet. **Vis avvik mot innmålt** i Rør-fanen knytter
+hvert målte punkt til nærmeste planlagte rør med samme kode (eller samme system
+og dimensjon) innenfor søkebredden, og viser avviket i plan (+ til høyre i
+tegneretningen) og i høyde (bunn innvendig, + over planen): en tabell per rør
+med hvor mye som er innmålt, de største avvikene, ringer i kartet (grønne
+innenfor, røde utenfor), punktene i profilen, merknadene og et eget avsnitt i
+rapporten og PDF-en. Toleransene settes i fanen – standard 0,10 m i plan,
+0,03 m i høyde for selvfall og 0,10 m for trykk, søkebredde 1,0 m. Knappen
+endrer ingenting: verken planen eller de innmålte høydene.
+
 ## Hva «billigst» betyr
 
 Optimaliseringen vekter, i den rekkefølgen det gjør vondt:
@@ -374,7 +385,16 @@ node test/roreksportprove.js
 Eksporten av rør: stikningspunktene (knekk, hver 10. meter, enden og kummene),
 de tre høydene mot grøftemotoren – også bruddet der røret ligger over terrenget –
 og hvert format: KOF-navn og koder, LandXML-linjer og kummer, SOSI-kurver i
-centimeter, DXF-lag og GeoJSON. `npm test` kjører alle fem.
+centimeter, DXF-lag og GeoJSON.
+
+```bash
+node test/roravvikprove.js
+```
+
+Avviket mot innmålt: kodelikheten, sideavviket med fortegn (også i en knekk og
+forbi enden), høydeavviket med godset til hver sin kode, toleransene for
+selvfall og trykk, knytningen til nærmeste rør, dekningen og hullene, punkt nær
+men utenfor søkebredden og merknadene. `npm test` kjører alle seks.
 
 ```bash
 node test/demo-ydestad.js
@@ -406,6 +426,7 @@ public/js/ror.js         rørene: LandXML, koder, linjer, sone, profil
 public/js/groft.js       grøfta: rutenett, felles grøft, kummer, fjell, lag, dybdeklasser, balanse
 public/js/rorplan.js     planlagte rør: høydene, kummer, greiner, påkoblinger og kontrollene
 public/js/roreksport.js  rørene til KOF, LandXML, SOSI, DXF og GeoJSON – bunn, topp og gravebunn
+public/js/roravvik.js    planlagte rør mot innmålte: avvik i plan og høyde, dekning og toleranser
 public/js/ui-ror*.js     rørene i skjermen: import, faner, profil, 3D
 public/js/ui-rorplan.js  planlagte rør i skjermen: tegning, redigering, Rør-fanen, punktfeltet
 public/js/ui-groft.js    grøfta i skjermen: Rør-fanen, verktøyene i kartet, normalgrøfta

@@ -16,7 +16,8 @@ Kjør testene først, så du vet du starter fra noe som virker:
 npm test
 ```
 
-(selvtesten, rørprøven, grøfteprøven, planprøven og eksportprøven etter hverandre)
+(selvtesten, rørprøven, grøfteprøven, planprøven, eksportprøven og avviksprøven
+etter hverandre)
 
 Nettlesertesten kjøres ved å åpne programmet med `?test=1`, eller fra konsollen
 med `Nettlesertest.kjor()`. Utviklingstjeneren startes med `node server.js`
@@ -45,7 +46,30 @@ hver del flettes inn i `main` og pushes når den er gjennomgått og grønn.
 **Alt som endrer høyder, skal ligge på knapper – innmålte høyder endres aldri
 automatisk.** Delte prosjekt (database og innlogging) er holdt utenfor.
 
-### Rør, etappe 3b – eksport til maskinstyring og stikning
+### Rør, etappe 3c – planlagt mot innmålt
+
+Spec: `docs/superpowers/specs/2026-10-06-ror-etappe3c-design.md`.
+Plan: `docs/superpowers/plans/2026-10-06-ror-etappe3c.md`.
+
+**Vis avvik mot innmålt** i Rør-fanen for et tegnet anlegg sammenligner planen
+med de innmålte røranleggene i prosjektet. Ny ren modul `public/js/roravvik.js`:
+hvert målte punkt knyttes til nærmeste planlagte rør med samme kode (eller
+samme system og dimensjon) innenfor søkebredden; sideavvik med fortegn (+ til
+høyre), høydeavvik bunn mot bunn med godset til hver sin kode, dekningen av de
+innmålte linjene (hull på 2 m eller mer står som «ikke innmålt») og punkt nær
+men utenfor søkebredden. Toleransene (0,10 m i plan, 0,03/0,10 m i høyde for
+selvfall/trykk, søkebredde 1,0 m) står i `mal.plan.avvik`, lagres og kan
+angres. Vises i fanen (tabell per rør og de største avvikene), kartet (ringer),
+profilen (punktene, antallet i tittelen, avviket i avlesningen), merknadene,
+rapporten og PDF-en. Knappen endrer ingenting.
+
+De to restpunktene fra 3a er tatt: andre tegnede anlegg i nærheten får
+terrenget sitt hentet med det aktive (kryssingskontrollen fikk høyder lånt fra
+et annet sted langs røret, eller ingen linjer), og statuslinja sier «ved 90PE,
+kobles på om det blir en ende» i stedet for «festet til» for hvert punkt – og
+hvilke ender som ble koblet når traseen lagres.
+
+### Rør, etappe 3b – eksport til maskinstyring og stikning, flettet inn i `main`
 
 Spec: `docs/superpowers/specs/2026-10-06-ror-etappe3b-design.md`.
 Plan: `docs/superpowers/plans/2026-10-06-ror-etappe3b.md`.
@@ -104,9 +128,9 @@ dobbeltpunkt, traseen over rørene i kartet, dialoger som skrev i et angret
 prosjekt, ugyldige tall som ble stående, rør oppå hverandre uten varsel,
 terrengnøkkelen og en svak greinprøve.
 
-Ikke gjort: andre tegnede anlegg regnes mot terrenget til det aktive i
-kryssingskontrollen (mangler det, får de ingen linjer der), og et klikk nær et
-innmålt punkt fester også midtpunkt (ufarlig – bare endene kobles).
+Ikke gjort i 3a, tatt i 3c: andre tegnede anlegg regnes mot terrenget til det
+aktive i kryssingskontrollen, og statuslinja sa «festet» om midtpunkt nær et
+innmålt rør (bare endene kobles).
 
 ### Rør, etappe 2 – grøftemasser, ferdig og flettet inn i `main`
 
@@ -177,8 +201,7 @@ punktnavn som selv inneholder `~` kunne i teorien gi samme id. Neste:
 
 - **Etappe 2 – grøftemasser.** Ferdig – se over.
 - **Etappe 3 – planlegge nye rør.** 3a (tegne, høydene, kummer, kontrollene,
-  grøfta) og 3b (eksport) er ferdige – se over. 3c (planlagt mot innmålt) står
-  igjen.
+  grøfta), 3b (eksport) og 3c (planlagt mot innmålt) er ferdige – se over.
 
 `GJENNOMGANG.md` er lista. 18 uavhengige granskere gikk gjennom hver sin del av
 programmet, og hvert funn ble forsøkt motbevist av to andre — én som skulle

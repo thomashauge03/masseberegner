@@ -107,6 +107,8 @@ const Rorprofil = {
       objekter: res._objektplass.get(linje.id) || [],
       bakkefaktor: res.bakkefaktor || 1,
       groft: res.groft ? res.groft.profiler.get(linje.id) || null : null,
+      // avviket mot innmålt: de innmålte punktene som er knyttet til dette røret, langs det
+      avvik: res.avvik ? res.avvik.punkter.filter(p => p.linje === linje.id).sort((a, b) => a.s - b.s) : null,
       // et tegnet rør: kontrollpunktene, varslene og kummene langs det
       plan: res.plan && linje.plan ? Object.assign({}, linje.plan, {
         D: (kode.dim || 0) / 1000,
@@ -174,6 +176,7 @@ const Rorprofil = {
     }
     for (const q of d.groft || []) if (Number.isFinite(q.gravebunn)) zmin = Math.min(zmin, q.gravebunn, q.fundamentBunn);
     for (const km of (d.plan && d.plan.kummer) || []) zmin = Math.min(zmin, km.bunnlop - 0.4);
+    for (const p of d.avvik || []) { zmin = Math.min(zmin, p.z); zmaks = Math.max(zmaks, p.z); }
     const pad = Math.max(0.4, (zmaks - zmin) * 0.12);
     zmin -= pad; zmaks += pad;
     const X = s => ml + (s / L) * bb;
@@ -219,8 +222,10 @@ const Rorprofil = {
     if (bit.length) biter.push(bit);
     // hva tegningen er, og hvor mye høyden er strukket – står øverst til venstre
     const overdriv = (L / bb) / ((zmaks - zmin) / hh);
+    const nAv = d.avvik ? d.avvik.length : 0, utAv = d.avvik ? d.avvik.filter(p => !p.ok).length : 0;
     const tittel = `${d.linje.kode}${d.kode.dim ? ' · ⌀' + d.kode.dim : ''} · ${Rapport.tall(L * bf, 1)} m`
-      + ` · høyden ${Rapport.tall(overdriv, 0)}× overdrevet`;
+      + ` · høyden ${Rapport.tall(overdriv, 0)}× overdrevet`
+      + (d.avvik ? ` · ${nAv} ${nAv === 1 ? 'innmålt' : 'innmålte'} punkt${utAv ? `, ${utAv} utenfor` : ''}` : '');
     const tittelSlutt = ml + 6 + k.measureText(tittel).width + 12;
     if (biter.some(b => b.length > 1)) {
       const felt = (lo, hi, fyll) => {
@@ -344,6 +349,18 @@ const Rorprofil = {
       k.fillText(Rapport.tall(q.overdekning, 2), X(q.s), Y(Math.max(q.topp, q.terreng)) - 4);
     });
 
+    /* AVVIKET MOT INNMÅLT: de innmålte punktene (topp rør) på det planlagte
+       røret, med en strek fra planens topp. Høyden er overdrevet, så selv en
+       centimeter synes. Innenfor toleransen en grønn prikk, utenfor en rød ring;
+       tittelen og avlesningen sier det samme med ord. */
+    for (const p of d.avvik || []) {
+      const x = X(p.s), y = Y(p.z), f = p.ok ? Farger.avvikInnenfor : Farger.avvikUtenfor;
+      k.strokeStyle = f; k.fillStyle = f; k.lineWidth = 1.5;
+      k.beginPath(); k.moveTo(x, Y(p.toppPlan)); k.lineTo(x, y); k.stroke();
+      k.beginPath(); k.arc(x, y, p.ok ? 3 : 5, 0, Math.PI * 2);
+      if (p.ok) k.fill(); else { k.lineWidth = 2.5; k.stroke(); }
+    }
+
     // objektene som sitter på røret
     k.textBaseline = 'top';
     for (const o of d.objekter) {
@@ -388,11 +405,18 @@ const Rorprofil = {
       const a = ks[j - 1], c = ks[j], len = c.s - a.s;
       return len > 0.01 ? ` · fall ${Rapport.tall(1000 * (d.plan.motsatt ? c.bunn - a.bunn : a.bunn - c.bunn) / len, 1)} ‰` : '';
     })() : '';
+    // det innmålte punktet nærmest pekeren – innenfor seks skjermpunkt
+    const ip = (d.avvik || []).reduce((b, p) => {
+      const dx = Math.abs(X(p.s) - valg.peker);
+      return dx <= 6 && (!b || dx < Math.abs(X(b.s) - valg.peker)) ? p : b;
+    }, null);
+    const avvikstekst = ip ? ` · innmålt ${ip.punkt}: plan ${RorAvvik.fortegn(ip.side)} m, høyde ${RorAvvik.fortegn(ip.hoyde)} m`
+      + (ip.ok ? ', innenfor' : ', utenfor') : '';
     return `Profil ${Rapport.tall(q.s * bf, 1)} m · terreng ${Number.isFinite(q.terreng) ? Rapport.tall(q.terreng, 2) : '–'}`
       + ` · topp rør ${Rapport.tall(q.topp, 2)} · overdekning `
       + (Number.isFinite(q.overdekning) ? Rapport.tall(q.overdekning, 2) + ' m' : 'ukjent')
       + (!selvfall && f && Number.isFinite(f.fall) ? ` · fall ${Rapport.tall(f.fall * 100, 1)} %` : '')
-      + plantekst + grofttekst;
+      + plantekst + grofttekst + avvikstekst;
   },
 
   /**

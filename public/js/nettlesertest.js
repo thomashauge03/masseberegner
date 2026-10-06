@@ -173,7 +173,7 @@ const Nettlesertest = {
       'groftBeregning', 'groftFane', 'groftKoder', 'groftVerktoy', 'groftKnutepunkt', 'groftProfil', 'groft3d',
       'groftRapport',
       'planBeregning', 'planNyttAnlegg', 'planTegnTrase', 'planRediger', 'planFane', 'planProfil', 'planRapport',
-      'planForklaring', 'planEksport', 'planEksportSoner',
+      'planForklaring', 'planEksport', 'planEksportSoner', 'planAvvik', 'planTerrengAndre',
       'lovlighet', 'framdrift', 'gamleFilerOgUtskifting', 'opprydding'];
     for (const navn of proever) {
       try {
@@ -9147,6 +9147,9 @@ const Nettlesertest = {
         Kart.kart.setView(ll(100, 20), 18);
         this.sjekk('anlegget står i «Ny trase»', Kart.modus === 'tegnTrase');
         RorPlanUI.tegnKlikk(ll(100, 0));     // 90PE har et målt punkt her
+        const status1 = document.getElementById('statuslinje').textContent;
+        this.sjekk('statuslinja sier «ved», ikke «festet» – bare endene kobles', /ved 90PE, kobles på om det blir en ende/.test(status1)
+          && !/festet/.test(status1), status1);
         RorPlanUI.tegnKlikk(ll(100, 30));
         RorPlanUI.tegnKlikk(ll(140, 30));
         RorPlanUI.angreSiste();
@@ -9165,6 +9168,8 @@ const Nettlesertest = {
         rader[1].querySelector('.plankode').value = 'SP 160PE';
         rader[1].querySelector('.planside').value = '0.5';
         document.getElementById('planLagre').click();
+        const status2 = document.getElementById('statuslinje').textContent;
+        this.sjekk('og når traseen er lagret: hvilken ende som ble koblet', /starten er koblet på 90PE/.test(status2), status2);
         const plan = App.P.ror.plan;
         this.sjekk('traseen er lagret med tre punkt og to rør', plan.traseer.length === 1
           && plan.traseer[0].punkter.length === 3 && plan.ror.length === 2 && plan.ror[1].side === 0.5);
@@ -9663,6 +9668,186 @@ const Nettlesertest = {
       });
     } finally {
       Rapport.lastNed = gammelNed;
+      await this._rorTilbake(foer);
+    }
+  },
+
+  /**
+   * Avvik mot innmålt: knappen slår sammenligningen av og på, og den står i
+   * fanen, kartet, profilen, merknadene, rapporten og PDF-en – uten at planen
+   * eller de innmålte høydene endres.
+   */
+  async planAvvik() {
+    const foer = JSON.stringify(App.P);
+    const gammel = Rapport.visRapport;
+    let html = null;
+    Rapport.visRapport = h => { html = h; };
+    try {
+      await this._medFlattTerreng(21.5, async () => {
+        await this._planProsjekt();
+        /* Et innmålt anlegg langs spillvannet – det ligger 0,4 m til høyre for
+           traseen (y = −0,4) med topp 19,5: rett, 5 cm til høyre, 6 cm for
+           høyt, 12 cm til venstre. */
+        const o = Geo.tilUtm(58.1412, 7.0705, 32);
+        const im = App.nyttAnlegg('ror', 'Innmålt');
+        im.ror.sone = 32;
+        im.ror.punkter = [[0, -0.4, 19.5], [10, -0.45, 19.5], [20, -0.4, 19.56], [30, -0.28, 19.5]].map(([x, y, z], i) =>
+          ({ id: 'm' + (i + 1), kode: 'SP 160PE', n: o.y + y, o: o.x + x, z, tid: '', nr: i + 1 }));
+        im.ror.koder = Ror.koderFra(im.ror.punkter, {});
+        App.P.anlegg.push(im);
+        App.visAnleggsvelger();
+        const planFoer = JSON.stringify(App.P.ror.plan), innFoer = JSON.stringify(im.ror.punkter);
+        App.visFane('ror');
+        RorUI.vis();
+        const knapp = () => document.getElementById('planAvvik');
+        this.sjekk('knappen er av i et nytt anlegg', !!knapp() && knapp().getAttribute('aria-pressed') === 'false'
+          && App.resultat.avvik === null && !document.querySelector('table.avvikliste'));
+        knapp().click();
+        clearTimeout(App._tidsavbrudd);
+        await App.beregnRor();
+        const av = App.resultat.avvik;
+        this.sjekk('knappen på: fire punkt knyttet til spillvannet', !!av && av.punkter.length === 4
+          && av.punkter.every(p => p.linje === 'r1'), av ? av.punkter.map(p => p.punkt + '→' + p.linje).join(',') : 'ingen');
+        const p = id => av.punkter.find(x => x.punkt === id);
+        // traseen går via lengde- og breddegrader og tilbake: et par µm, ikke mer
+        this.sjekk('5 cm til høyre, 6 cm for høyt, 12 cm til venstre', Math.abs(p('m2').side - 0.05) < 1e-4
+          && Math.abs(p('m3').hoyde - 0.06) < 1e-4 && Math.abs(p('m4').side + 0.12) < 1e-4,
+        av.punkter.map(x => `${x.punkt}: ${x.side.toFixed(6)} / ${x.hoyde.toFixed(6)}`).join(', '));
+        this.sjekk('to utenfor toleransen', av.punkter.filter(x => !x.ok).map(x => x.punkt).join(',') === 'm3,m4');
+        this.sjekk('knappen står inne, med toleransene og tabellene', knapp().getAttribute('aria-pressed') === 'true'
+          && !!document.getElementById('planAvvikSelvfall') && document.querySelectorAll('table.avvikliste').length === 2);
+        const rad = document.querySelector('table.avvikliste tbody tr').textContent;
+        this.sjekk('raden for spillvannet: fire punkt, 30 av 81 m innmålt, to utenfor', /SP 160PE/.test(rad) && /30 av 81 m/.test(rad)
+          && /2 ⚠/.test(rad), rad);
+        let pkt = 0, ut = 0, tips = '';
+        Kart.lag.ror.eachLayer(l => {
+          const c = (l.options && l.options.className) || '';
+          if (!c.startsWith('avvikpunkt')) return;
+          pkt++;
+          if (c.includes('utenfor')) { ut++; tips = String(l.getTooltip().getContent()); }
+        });
+        this.sjekk('kartet har punktene – de to utenfor sier det med ord', pkt === 4 && ut === 2 && /utenfor i/.test(tips), `${pkt} / ${ut}: ${tips}`);
+        RorUI.velgLinje('r1');
+        const d = Rorprofil.dataFor(App, App.resultat, App.resultat.linjer.find(l => l.id === 'r1'));
+        this.sjekk('profilen får punktene, langs røret', !!d.avvik && d.avvik.length === 4
+          && d.avvik.every((x, i) => !i || x.s >= d.avvik[i - 1].s));
+        Rorprofil.tegn();
+        const sk = Rorprofil._skala;
+        if (sk) { Rorprofil.peker = sk.X(p('m3').s); Rorprofil.tegn(); }
+        const lesning = document.getElementById('rorEtikett').textContent;
+        Rorprofil.peker = null;
+        this.sjekk('avlesningen ved punktet sier avviket', /innmålt m3: plan 0,00 m, høyde \+0,06 m, utenfor/.test(lesning), lesning);
+        const tekster = App.resultat.merknader.map(m => m.tekst);
+        this.sjekk('merknadene har avviket og strekket som ikke er innmålt',
+          tekster.some(t => /SP 160PE: 2 av 4 innmålte punkt utenfor toleransen/.test(t)) && tekster.some(t => /ikke innmålt på 30–81 m/.test(t)),
+          tekster.join(' | '));
+        // toleransene: 7 cm i høyde gjør punktet som er 6 cm for høyt, til innenfor
+        const selv = document.getElementById('planAvvikSelvfall');
+        selv.value = '0.07';
+        selv.dispatchEvent(new Event('change'));
+        clearTimeout(App._tidsavbrudd);
+        await App.beregnRor();
+        this.sjekk('toleransen i høyde 0,07: punktet 6 cm for høyt er innenfor', App.P.mal.plan.avvik.selvfall === 0.07
+          && App.resultat.avvik.punkter.find(x => x.punkt === 'm3').ok);
+        const plan = document.getElementById('planAvvikPlan');
+        plan.value = '0.001';
+        plan.dispatchEvent(new Event('change'));
+        this.sjekk('et ugyldig tall settes tilbake', App.P.mal.plan.avvik.plan === 0.1 && Number(plan.value) === 0.1, plan.value);
+        await App.angre();
+        clearTimeout(App._tidsavbrudd);
+        await App.beregnRor();
+        this.sjekk('angre setter toleransen tilbake', App.P.mal.plan.avvik.selvfall === 0.03
+          && !App.resultat.avvik.punkter.find(x => x.punkt === 'm3').ok);
+        // et innmålt punkt som er slått av, er ikke med – rettingen gjelder, som i kartet
+        const inn = () => App.P.anlegg.find(a => a.navn === 'Innmålt');
+        inn().ror.retting.av.push('m4');
+        clearTimeout(App._tidsavbrudd);
+        await App.beregnRor();
+        this.sjekk('et punkt som er slått av i det innmålte, er ikke med', App.resultat.avvik.punkter.length === 3
+          && !App.resultat.avvik.punkter.some(x => x.punkt === 'm4'));
+        // rapporten og PDF-en
+        Rapport.apneRapport();
+        this.sjekk('rapporten har avviket, med toleransene og de største', !!html && /<h2>Avvik mot innmålt<\/h2>/.test(html)
+          && /Toleranse ±0,10 m i plan/.test(html) && /De største avvikene/.test(html) && /<b>utenfor<\/b>/.test(html));
+        const bytes = await Pdfrapport.lag(false);
+        const strommer = bytes ? await PdfImport.lesStrommer(bytes) : [];
+        const innhold = strommer.map(s => (typeof s === 'string' ? s : new TextDecoder('latin1').decode(s))).join('\n');
+        this.sjekk('PDF-en har avviket', /AVVIK MOT INNM\\305LT/.test(innhold) && /UTENFOR/.test(innhold));
+        this.sjekk('planen og de innmålte høydene er urørt', JSON.stringify(App.P.ror.plan) === planFoer
+          && JSON.stringify(inn().ror.punkter) === innFoer);
+        // lagret med prosjektet: på er på, og et ugyldig tall i fila blir standarden
+        const fil = JSON.parse(JSON.stringify(App.P));
+        const planIFila = fil.anlegg.find(a => a.ror && a.ror.plan);
+        planIFila.mal.plan.avvik.sok = 'tull';
+        const apnet = App.klargjorProsjekt(Object.assign(App.nyttProsjekt(), fil));
+        const avIFila = apnet.anlegg.find(a => a.ror && a.ror.plan).mal.plan.avvik;
+        this.sjekk('knappen og toleransene står seg i fila', avIFila.vis === true && avIFila.selvfall === 0.03 && avIFila.sok === 1.0);
+        // av igjen: ingen avvik, ingen punkt i kartet, ingen merknader om det
+        knapp().click();
+        clearTimeout(App._tidsavbrudd);
+        await App.beregnRor();
+        let igjen = 0;
+        Kart.lag.ror.eachLayer(l => { if (((l.options && l.options.className) || '').startsWith('avvikpunkt')) igjen++; });
+        this.sjekk('knappen av: ingenting av avviket står igjen', App.resultat.avvik === null && igjen === 0
+          && !App.resultat.merknader.some(m => m.type === 'avvik') && !document.querySelector('table.avvikliste'));
+      });
+    } finally {
+      Rapport.visRapport = gammel;
+      await this._rorTilbake(foer);
+    }
+  },
+
+  /**
+   * Et annet tegnet anlegg i nærheten får terrenget sitt hentet med det
+   * aktive. Kryssingskontrollen bygger det med terrenget som er lastet; der
+   * det manglet, fikk det høyder lånt fra et annet sted langs røret – eller
+   * ingen linjer i det hele tatt – og krysset ble ikke sett.
+   */
+  async planTerrengAndre() {
+    const foer = JSON.stringify(App.P);
+    const ekteZ = Terreng.prototype.z, ekteLast = Terreng.prototype.lastKorridorer;
+    try {
+      const o = Geo.tilUtm(58.1412, 7.0705, 32);
+      const lastet = [];
+      let antall = 0;
+      Terreng.prototype.lastKorridorer = async function (korr, halv) {
+        antall = korr.length;
+        for (const k of korr) {
+          const pts = [];
+          for (let s = 0; s < k.lengde; s += 2) pts.push(k.punktVed(s));
+          pts.push(k.punktVed(k.lengde));
+          lastet.push({ pts, halv });
+        }
+      };
+      // terrenget stiger mot nord – og finnes bare der det er hentet
+      Terreng.prototype.z = (x, y) => (lastet.some(l => l.pts.some(q => Math.hypot(q.x - x, q.y - y) <= l.halv))
+        ? 21.5 + 0.1 * (y - o.y) : NaN);
+      App.P = App.nyttProsjekt();
+      const lag = (navn, fra, til) => {
+        const a = App.nyttAnlegg('rorplan', navn);
+        a.ror.sone = 32;
+        a.ror.plan.traseer.push({ id: 't1', punkter: [fra, til].map(([x, y], i) => {
+          const g = Geo.fraUtm(o.x + x, o.y + y, 32);
+          return { id: 'p' + (i + 1), lat: g.lat, lon: g.lon };
+        }) });
+        a.ror.koder = Ror.koderFra([{ kode: 'SP 160PE' }], {});
+        a.ror.plan.ror.push({ id: 'r1', trase: 't1', kode: 'SP 160PE', side: 0, regel: null, motsatt: false });
+        return a;
+      };
+      /* Øst–vest ligger på 19,5 der det krysser. Nord–sør går fra 100 m sør til
+         50 m nord: med sitt eget terreng er det også 19,5 i krysset (treffer);
+         med høyder lånt fra kanten av terrenget rundt øst–vest ville det ligget
+         over 1 m høyere, og krysset hadde sett trygt ut. */
+      const A = lag('Øst-vest', [0, 0], [60, 0]), B = lag('Nord-sør', [30, -100], [30, 50]), C = lag('Langt unna', [2000, 0], [2060, 0]);
+      App.P.anlegg = [A, B, C]; App.P.aktivt = A.id; delete App.P.ubestemt;
+      App.visAnleggsvelger(); App.visAnleggsvalg(); App.malTilSkjema(); App.tegnAlt();
+      clearTimeout(App._tidsavbrudd);
+      await App.beregnRor();
+      this.sjekk('terrenget hentes langs det andre tegnede anlegget – ikke langs det langt unna', antall === 2, String(antall));
+      this.sjekk('krysset med det andre tegnede anlegget varsles, med dets egne høyder', App.resultat.merknader.some(m => m.type === 'kryss'
+        && /SP 160PE treffer SP 160PE \(Nord-sør\)/.test(m.tekst)), App.resultat.merknader.map(m => m.tekst).join(' | '));
+    } finally {
+      Terreng.prototype.z = ekteZ; Terreng.prototype.lastKorridorer = ekteLast;
       await this._rorTilbake(foer);
     }
   },

@@ -1121,6 +1121,31 @@ ${res.kummer.map(km => {
       + `<td>${t(km.terreng, 2)}</td><td>${t(km.bunnlop, 2)}</td><td>${t(km.terreng - km.bunnlop, 2)} m</td></tr>`;
   }).join('')}
 </tbody></table>` : '';
+    /* AVVIK MOT INNMÅLT – når knappen er på. Tabellen per rør har nummeret fra
+       rørtabellen; fortegnene står forklart, for et tall uten retning sier
+       ikke hvilken vei røret skal flyttes. */
+    const av = plan ? res.avvik : null;
+    const fs = v => (Number.isFinite(v) ? RorAvvik.fortegn(v) : '–');
+    const avvikhtml = av ? `
+<h2>Avvik mot innmålt</h2>
+<p class="liten">${av.anlegg.length
+    ? `Innmålte punkt fra ${av.anlegg.map(escapeHtml).join(', ')} er knyttet til nærmeste planlagte rør med samme kode innenfor `
+      + `${t(av.toleranse.sok, 1)} m – ${av.punkter.length} av ${av.antallInnmalt} punkt.`
+    : 'Det er ingen innmålte røranlegg i prosjektet.'}
+Toleranse ±${t(av.toleranse.plan, 2)} m i plan, ±${t(av.toleranse.selvfall, 2)} m i høyde for selvfall og ±${t(av.toleranse.trykk, 2)} m
+for trykk. Sideavviket er + til høyre i tegneretningen; høydeavviket er bunn innvendig innmålt minus planlagt, + over planen.</p>
+<table><thead><tr><th>#</th><th>Kode</th><th>Punkt</th><th>Innmålt</th><th>Utenfor</th><th>Største i plan m</th>
+<th>Største i høyde m</th></tr></thead><tbody>
+${RorAvvik.oppsummering(av, res.linjer, bf).map(x => `<tr><td>${x.nr}</td><td>${escapeHtml(x.kode)}</td>`
+    + `<td>${x.antall}${x.naer ? ` (+${x.naer} nær)` : ''}</td><td>${t(x.dekket, 1)} av ${t(x.lengde, 1)} m</td>`
+    + `<td>${x.utenfor}</td><td>${fs(x.maksSide)}</td><td>${fs(x.maksHoyde)}</td></tr>`).join('')}
+</tbody></table>
+${av.verste.length ? `<h3>De største avvikene</h3>
+<table><thead><tr><th>Rør</th><th>Profil m</th><th>I plan m</th><th>I høyde m</th><th></th><th>Punkt</th></tr></thead><tbody>
+${av.verste.map(p => `<tr><td>${escapeHtml(p.planKode)}</td><td>${t(p.stasjon, 1)}</td><td>${fs(p.side)}</td>`
+    + `<td>${fs(p.hoyde)}</td><td>${p.ok ? 'innenfor' : '<b>utenfor</b>'}</td>`
+    + `<td class="liten">${escapeHtml(p.navn)} · ${escapeHtml(p.punkt)}</td></tr>`).join('')}
+</tbody></table>` : ''}` : '';
     const html = this.rapportskall(app, {
       tittel: plan ? 'Planlagte rør' : 'Innmålte rør',
       typer: plan ? 'rorplan' : 'ror',
@@ -1140,6 +1165,7 @@ ${res.kummer.map(km => {
 <tr class="sum"><td></td><td>Sum</td><td></td><td>${t(s.lengde, 1)} m</td>${plan ? '<td></td><td></td>' : '<td></td>'}<td>${od(s.minOd)}</td><td>${od(s.maksOd)}</td><td></td></tr>
 </tbody></table>
 ${kumliste}
+${avvikhtml}
 ${grofthtml}
 ${merknader ? `<h2>Merknader</h2><ul>${merknader}</ul>` : ''}
 <h2>Lengdeprofiler</h2>

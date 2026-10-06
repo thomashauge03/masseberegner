@@ -1834,6 +1834,20 @@ const Kart = {
           .bindTooltip(escapeHtml(v.tekst), { sticky: true }).addTo(lag);
       }
     }
+    /* AVVIKET MOT INNMÅLT: hvert innmålte punkt som er knyttet til et planlagt
+       rør – lite og grønt innenfor toleransen, større og rødt utenfor. Verktøy-
+       tipset sier «innenfor» eller «utenfor»; fargen står aldri alene. */
+    if (res && res.avvik) {
+      for (const p of res.avvik.punkter) {
+        const g = Geo.fraUtm(p.x, p.y, res.sone);
+        L.circleMarker([g.lat, g.lon], { radius: p.ok ? 4 : 6, color: p.ok ? Farger.avvikInnenfor : Farger.avvikUtenfor,
+          weight: p.ok ? 2 : 3, fillColor: Farger.flate, fillOpacity: p.ok ? 0.6 : 0.3,
+          className: p.ok ? 'avvikpunkt' : 'avvikpunkt utenfor' })
+          .bindTooltip(`${escapeHtml(p.navn)} · punkt ${escapeHtml(p.punkt)}<br>`
+            + escapeHtml(RorAvvik.punkttekst(p, res.avvik.toleranse)), { sticky: true })
+          .addTo(lag);
+      }
+    }
     const ny = RorPlanUI._ny;
     if (this.modus === 'tegnTrase' && ny && ny.length) {
       L.polyline(ny.map(p => [p.lat, p.lon]), { color: Farger.blekk, weight: 2, dashArray: '5 4', interactive: false,

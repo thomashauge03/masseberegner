@@ -109,6 +109,10 @@ const Farger = {
   get skjaeringFlate() { return this.hent('data-skjaering-flate'); },
   get fylling() { return this.hent('data-fylling'); },
   get fyllingFlate() { return this.hent('data-fylling-flate'); },
+  /* Avviket mot innmålt: grønt innenfor toleransen, rødt utenfor – de samme to
+     fargene som ellers. Teksten ved punktet sier det samme; fargen står aldri alene. */
+  get avvikInnenfor() { return this.hent('data-fylling'); },
+  get avvikUtenfor() { return this.hent('data-skjaering'); },
   get fjell() { return this.hent('data-fjell'); },
   get baerelag() { return this.hent('data-baerelag'); },
   get slitelag() { return this.hent('data-slitelag'); },

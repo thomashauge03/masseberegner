@@ -33,7 +33,12 @@ const RorPlanUI = {
     if (!this._ny) this._ny = [];
     const fest = this._fest(latlng);
     this._ny.push({ lat: fest ? fest.lat : latlng.lat, lon: fest ? fest.lon : latlng.lng, fest });
-    this.app.status(`${this._ny.length} punkt${fest ? ' – festet til ' + (fest.trase ? 'traseen' : fest.kode) : ''}. `
+    /* BARE ENDENE KOBLES. Punktet legges på det det traff, men om det blir en
+       påkobling eller en grein, avgjøres når traseen er ferdig – et punkt midt
+       i traseen kobles ikke. Her sto «festet til» for hvert punkt. */
+    const ved = !fest ? '' : fest.trase ? ' – ved en annen trase, blir en grein om det er en ende'
+      : ` – ved ${fest.kode}, kobles på om det blir en ende`;
+    this.app.status(`${this._ny.length} punkt${ved}. `
       + 'Dobbeltklikk eller Enter avslutter, tilbaketasten tar bort det siste, Esc avbryter.');
     Kart.tegnRor();
   },
@@ -181,12 +186,17 @@ const RorPlanUI = {
       plan.ror.push(ror);
       return ror;
     });
-    // det som ikke ble festet, står i statuslinja til slutt – ikke skrevet over av den
-    const notater = [];
+    // det som ble koblet, og det som ikke ble det, står i statuslinja til slutt – ikke skrevet over av den
+    const koblet = [], notater = [];
     for (const [i, ende] of [[0, 'start'], [punkter.length - 1, 'slutt']]) {
       const f = punkter[i].fest;
       if (!f) continue;
-      if (f.trase) { plan.greiner.push({ trase: t.id, ende, til: { trase: f.trase, punkt: f.punkt } }); continue; }
+      const hvilken = ende === 'start' ? 'starten' : 'slutten';
+      if (f.trase) {
+        plan.greiner.push({ trase: t.id, ende, til: { trase: f.trase, punkt: f.punkt } });
+        koblet.push(`${hvilken} er en grein av en annen trase`);
+        continue;
+      }
       const k = RorPlan.kodeAv(f.koder, f.kode);
       if (!(k.dim > 0)) { notater.push(`påkoblingen har koden ${f.kode} uten dimensjon, så høyden ble ikke hentet`); continue; }
       const kodeAv = x => RorPlan.kodeAv(r.koder, x.kode);
@@ -195,13 +205,14 @@ const RorPlanUI = {
       if (!ror) { notater.push(`enden ligger på ${f.kode}, men ingen av rørene har den koden – høyden ble ikke hentet`); continue; }
       plan.laast.push({ ror: ror.id, punkt: t.punkter[i].id, bunn: +RorPlan.bunnFraTopp(f.topp, k).toFixed(3),
         kilde: { anlegg: f.anlegg, punkt: f.punkt, topp: f.topp } });
+      koblet.push(`${hvilken} er koblet på ${f.kode}`);
     }
     this._sistKode = rader[rader.length - 1].kode;
     RorUI.valgt = nye[0].id;
     app.tegnAlt();
     app.planlegg(30);
-    app.status(`Traseen er lagret med ${nye.length} rør – høydene kommer når terrenget er hentet`
-      + (notater.length ? ' · ' + notater.join(' · ') : ''));
+    app.status(`Traseen er lagret med ${nye.length} rør` + (koblet.length ? ' – ' + koblet.join(' og ') : '')
+      + ' – høydene kommer når terrenget er hentet' + (notater.length ? ' · ' + notater.join(' · ') : ''));
   },
 
   /* ---------------- redigering i kartet ---------------- */
@@ -437,8 +448,7 @@ const RorPlanUI = {
         }).join('') + '</tbody></table>'
       : '<p class="notis">Ingen kummer – sett dem med «◯ Kum» i kartet.</p>';
     const merk = (res ? res.merknader : []).map(m => `<li>${escapeHtml(m.tekst)}</li>`).join('');
-    const felt = (id, navn, verdi, enhet, steg, min, maks) => `<div class="rorinnstilling"><label for="${id}">${navn}</label>`
-      + `<input id="${id}" class="minitall" type="number" min="${min}" max="${maks}" step="${steg}" value="${verdi}"> ${enhet}</div>`;
+    const felt = this._felt;
     const s = res ? Ror.sammendrag(res) : null;
     e.innerHTML = `<h3>${escapeHtml(app.anlegg().navn || 'Planlagte rør')}</h3>
       <p class="notis">Tegnet i Massekalk · ${plan.traseer.length} ${plan.traseer.length === 1 ? 'trase' : 'traseer'}.
@@ -449,6 +459,7 @@ const RorPlanUI = {
       <h3>Kummer</h3>${kumtabell}
       ${merk ? `<h3>Kontroller og merknader</h3><ul class="rormerknader">${merk}</ul>` : ''}
       ${GroftUI.html(r, res)}
+      ${this.avvikHtml(res)}
       <h3>Innstillinger</h3>
       ${felt('planOverdekning', 'Overdekning til topp rør – frie punkt og varselgrense', mp.overdekning, 'm', 0.1, 0, 10)}
       ${felt('planKryss', 'Minste klaring der rør krysser', mp.kryssKlaring, 'm', 0.05, 0, 5)}
@@ -456,6 +467,62 @@ const RorPlanUI = {
       ${felt('planArbeidsrom', 'Arbeidsrom rundt kummene', mp.kum.arbeidsrom, 'm', 0.1, 0, 3)}`;
     GroftUI.koble(e);
     this.koble(e);
+  },
+
+  /** Ett tallfelt i fanen – merkelappen står, feltet har grensene. */
+  _felt(id, navn, verdi, enhet, steg, min, maks) {
+    return `<div class="rorinnstilling"><label for="${id}">${navn}</label>`
+      + `<input id="${id}" class="minitall" type="number" min="${min}" max="${maks}" step="${steg}" value="${verdi}"> ${enhet}</div>`;
+  },
+
+  /**
+   * «Avvik mot innmålt» i Rør-fanen: knappen, og når den er på, toleransene,
+   * tabellen per rør og de største avvikene.
+   *
+   * KNAPPEN ENDRER INGENTING. Den viser hvor de innmålte rørene ligger i
+   * forhold til planen – planen tilpasses ikke, og de målte høydene røres ikke.
+   */
+  avvikHtml(res) {
+    const av = this.app.P.mal.plan.avvik, t = (v, d = 0) => Rapport.tall(v, d);
+    const tegn = v => (Number.isFinite(v) ? RorAvvik.fortegn(v) : '–');
+    const hode = `<h3>Avvik mot innmålt</h3>
+      <p class="notis">Sammenligner rørene her med de innmålte røranleggene i prosjektet: avviket i plan (+ til høyre i
+        tegneretningen) og i høyde (bunn innvendig, + over planen) i hvert innmålt punkt. Endrer ingenting – verken planen
+        eller de innmålte høydene.</p>
+      <div class="knapperad"><button class="knapp${av.vis ? ' aktiv' : ''}" id="planAvvik" aria-pressed="${av.vis}">`
+      + 'Vis avvik mot innmålt</button></div>';
+    if (!av.vis) return hode;
+    const felt = this._felt;
+    const a = res && res.avvik;
+    let innhold;
+    if (!a) innhold = '<p class="notis">Regnes når rørene er regnet.</p>';
+    else if (!a.anlegg.length) {
+      innhold = '<p class="tomtekst">Ingen innmålte røranlegg i prosjektet – importer de innmålte rørene som et eget anlegg.</p>';
+    } else {
+      const rader = RorAvvik.oppsummering(a, res.linjer, res.bakkefaktor);
+      innhold = `<p class="notis">${a.punkter.length} av ${a.antallInnmalt} innmålte punkt med planens koder er knyttet til et rør
+          (fra ${a.anlegg.map(escapeHtml).join(', ')}).</p>`
+        + '<table class="avvikliste"><caption>Per rør</caption><thead><tr><th scope="col">Rør</th><th scope="col">Punkt</th>'
+        + '<th scope="col">Innmålt</th><th scope="col">Utenfor</th><th scope="col">Plan m</th><th scope="col">Høyde m</th></tr></thead><tbody>'
+        + rader.map(r => `<tr${r.utenfor ? ' class="utenfor"' : ''}><th scope="row"><button class="minilenke" data-linje="${escapeAttr(r.id)}">`
+          + `${r.nr} ${escapeHtml(r.kode)}</button></th><td>${r.antall}${r.naer ? ` (+${r.naer} nær)` : ''}</td>`
+          + `<td>${t(r.dekket)} av ${t(r.lengde)} m</td><td>${r.utenfor}${r.utenfor ? ' ⚠' : ''}</td>`
+          + `<td>${tegn(r.maksSide)}</td><td>${tegn(r.maksHoyde)}</td></tr>`).join('')
+        + '</tbody></table>'
+        + (a.verste.length ? '<table class="avvikliste"><caption>De største avvikene</caption><thead><tr><th scope="col">Rør</th>'
+          + '<th scope="col">Profil m</th><th scope="col">Plan m</th><th scope="col">Høyde m</th><th scope="col">Punkt</th></tr></thead><tbody>'
+          + a.verste.map(p => `<tr${p.ok ? '' : ' class="utenfor"'}><td class="tekst"><button class="minilenke" data-linje="${escapeAttr(p.linje)}">`
+            + `${escapeHtml(p.planKode)}</button></td><td>${t(p.stasjon, 1)}</td>`
+            + `<td>${tegn(p.side)}${p.utenforPlan ? ' ⚠' : ''}</td><td>${tegn(p.hoyde)}${p.utenforHoyde ? ' ⚠' : ''}</td>`
+            + `<td class="tekst">${escapeHtml(p.navn)} · ${escapeHtml(p.punkt)}</td></tr>`).join('')
+          + '</tbody></table>' : '');
+    }
+    return hode
+      + felt('planAvvikPlan', 'Toleranse i plan', av.plan, 'm', 0.01, 0.005, 2)
+      + felt('planAvvikSelvfall', 'Toleranse i høyde – selvfall', av.selvfall, 'm', 0.005, 0.005, 2)
+      + felt('planAvvikTrykk', 'Toleranse i høyde – trykk', av.trykk, 'm', 0.01, 0.005, 2)
+      + felt('planAvvikSok', 'Søkebredde – så langt fra røret kan et innmålt punkt ligge', av.sok, 'm', 0.1, 0.1, 10)
+      + innhold;
   },
 
   /**
@@ -560,6 +627,20 @@ const RorPlanUI = {
     tall('planKryss', 'kryssKlaring', () => mp().kryssKlaring, v => { mp().kryssKlaring = v; });
     tall('planKumDiameter', 'diameter', () => mp().kum.diameter, v => { mp().kum.diameter = v; });
     tall('planArbeidsrom', 'arbeidsrom', () => mp().kum.arbeidsrom, v => { mp().kum.arbeidsrom = v; });
+    // avviket mot innmålt: knappen og toleransene – de lagres med anlegget og kan angres
+    const avKnapp = e.querySelector('#planAvvik');
+    if (avKnapp) {
+      avKnapp.onclick = () => {
+        const av = mp().avvik;
+        app.merk(av.vis ? 'skjulte avviket mot innmålt' : 'viste avviket mot innmålt');
+        av.vis = !av.vis;
+        ferdig();
+      };
+    }
+    tall('planAvvikPlan', 'avvikPlan', () => mp().avvik.plan, v => { mp().avvik.plan = v; });
+    tall('planAvvikSelvfall', 'avvikHoyde', () => mp().avvik.selvfall, v => { mp().avvik.selvfall = v; });
+    tall('planAvvikTrykk', 'avvikHoyde', () => mp().avvik.trykk, v => { mp().avvik.trykk = v; });
+    tall('planAvvikSok', 'sok', () => mp().avvik.sok, v => { mp().avvik.sok = v; });
   },
 
   /** Planfeltene per kode. Tomt felt = standarden, som står som plassholder. */
