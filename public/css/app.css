@@ -981,6 +981,18 @@ body {
 
 /* Importdialogen for rør trenger plass til kodetabellen. */
 .dialogboks.bred { width: min(820px, 94vw); }
+/* PDF-avlesningen. LERRETET MÅ HA EN STØRRELSE I CSS: uten den er clientWidth
+   lerretets egen bredde, og `width = clientWidth × devicePixelRatio` fikk det
+   til å vokse for hver musebevegelse ved skalering 1,25 – 300, 375, 468,
+   585 px – og avlesningen sto i et vindu på 300 × 150. */
+.dialogboks.pdfboks { width: min(1100px, 96vw); max-height: 92vh; }
+.pdfinnhold { display: flex; flex-direction: column; gap: 8px; padding: 10px 14px 14px; }
+.pdfsteg { font-weight: 700; }
+.pdfverktoy { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.pdfverktoy .skilje { width: 1px; align-self: stretch; background: var(--kant); margin: 0 4px; }
+#pdflerret { display: block; width: 100%; height: 60vh; min-height: 260px; border: 1px solid var(--kant); cursor: crosshair; }
+.pdfstatus { font-size: 13px; min-height: 2.6em; }
+.pdfsmak { color: var(--blekk-svak); font-size: 12px; font-variant-numeric: tabular-nums; }
 .rorsone { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 8px 0 2px; }
 table.rorkoder { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 12.5px; }
 table.rorkoder th, table.rorkoder td { padding: 4px 6px; border-bottom: 1px solid var(--kant); text-align: left; }

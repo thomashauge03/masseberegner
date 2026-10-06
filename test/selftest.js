@@ -3436,10 +3436,87 @@ console.log('\n6c. Avlesning av PDF');
   paastand('snudd høydeakse gir synkende høyder', snudd.punkt[0].z > snudd.punkt[snudd.punkt.length - 1].z);
   paastand('like x-verdier avvises',
     Pdf.tilHoyder(rett, [{ pdfX: 5, pdfY: 0, s: 0, z: 100 }, { pdfX: 5, pdfY: 40, s: 400, z: 140 }], 50) === null);
+  // to klikk en halv tegneenhet fra hverandre er ikke to referansepunkt – her ga de høyder på 1e8
+  paastand('referansepunkt nesten oppå hverandre avvises',
+    Pdf.tilHoyder(rett, [{ pdfX: 0, pdfY: 0, s: 0, z: 100 }, { pdfX: 0.5, pdfY: 0.4, s: 400, z: 140 }], 50) === null);
+  // en bane tegnet fra høyre mot venstre er like god – den snus
+  const fraHoyre = rett.slice().reverse();
+  paastand('en profillinje tegnet fra høyre er en kandidat', Pdf.kandidater([fraHoyre]).length === 1);
+  const rf = Pdf.tilHoyder(fraHoyre, [{ pdfX: 0, pdfY: 0, s: 0, z: 100 }, { pdfX: 200, pdfY: 40, s: 400, z: 140 }], 50);
+  paastand('og gir de samme høydene', !!rf && rf.punkt.length === r.punkt.length && rf.punkt.every((p, i) => Math.abs(p.z - r.punkt[i].z) < 1e-9));
+  // en lukket flate er ikke en profillinje – og en bane som går fram og tilbake, sorteres ikke sammen
+  const flate = [{ x: 0, y: 0 }, { x: 100, y: 10 }, { x: 200, y: 5 }, { x: 200, y: 40 }, { x: 100, y: 45 }, { x: 0, y: 30 }, { x: 0, y: 0 }];
+  paastand('en lukket flate er ikke en kandidat', Pdf.kandidater([flate]).length === 0);
+  const frem = [{ x: 0, y: 0 }, { x: 100, y: 10 }, { x: 200, y: 5 }, { x: 150, y: 40 }, { x: 300, y: 45 }];
+  const rFrem = Pdf.tilHoyder(frem, [{ pdfX: 0, pdfY: 0, s: 0, z: 100 }, { pdfX: 200, pdfY: 40, s: 400, z: 140 }], 50);
+  paastand('en bane som går fram og tilbake, gir ingen høyder – og sier hvorfor', !!rFrem && rFrem.punkt.length === 0 && !!rFrem.feil);
 }
 
 /* ------------------------------------------------------------------ */
 (async () => {
+  console.log('\n6g. PDF-strømmene: lengden, filteret, sidene og skjemaobjektene');
+  {
+    const zlib = require('zlib');
+    const Pdf = require(path.join(__dirname, '..', 'public', 'js', 'pdfimport.js'));
+    /* En PDF uten hode-tabell er nok: avlesningen leter etter «stream», ikke
+       etter xref. Hvert objekt: { nr, ordbok, data } – data er strømmen. */
+    const lagPdf = objekter => {
+      const deler = [Buffer.from('%PDF-1.4\n', 'latin1')];
+      for (const o of objekter) {
+        if (o.data == null) { deler.push(Buffer.from(`${o.nr} 0 obj\n${o.ordbok}\nendobj\n`, 'latin1')); continue; }
+        const data = Buffer.isBuffer(o.data) ? o.data : Buffer.from(o.data, 'latin1');
+        deler.push(Buffer.from(`${o.nr} 0 obj\n<< ${o.ordbok.replace('LEN', data.length)} >>\nstream\n`, 'latin1'), data,
+          Buffer.from('\nendstream\nendobj\n', 'latin1'));
+      }
+      return new Uint8Array(Buffer.concat(deler));
+    };
+    const tegning = '0 0 m 100 10 l 200 0 l S';
+    const pakket = zlib.deflateSync(Buffer.from(tegning, 'latin1'));
+    /* /Length fra forrige objekt: den egne ordboken har /Length lenger ut enn
+       den forriges, og den forrige sto først i vinduet. */
+    const forrige = await Pdf.lesStrommer(lagPdf([
+      { nr: 4, ordbok: '/Length LEN', data: 'q Q' },
+      { nr: 5, ordbok: '/Filter /FlateDecode /Type /XObject /Subtype /Form /Length LEN', data: pakket }]));
+    paastand('lengden er strømmens egen, ikke forrige objekts', forrige.includes(tegning), JSON.stringify(forrige));
+    // /Length som henvisning: «12 0 R» ga 1
+    const henvist = await Pdf.lesStrommer(lagPdf([
+      { nr: 6, ordbok: '/Filter /FlateDecode /Length 12 0 R', data: pakket },
+      { nr: 12, ordbok: String(pakket.length) }]));
+    paastand('/Length som henvisning slås opp', henvist.includes(tegning), JSON.stringify(henvist));
+    // uten filter: ren tekst, ikke kastet
+    const ren = await Pdf.lesStrommer(lagPdf([{ nr: 7, ordbok: '/Length LEN', data: tegning }]));
+    paastand('en ukomprimert strøm leses som den er', ren.includes(tegning), JSON.stringify(ren));
+    // siste byte er 0x0a eller 0x0d: med eksakt lengde er den data, ikke et linjeskift
+    let sluttLf = null, tekst = '';
+    // siste byte er den laveste i Adler-summen – kommentaren varieres til den treffer
+    for (let i = 0; i < 4000 && !sluttLf; i++) {
+      tekst = `0 0 m 100 10 l 200 0 l S %${'A'.repeat(i % 40)}${String.fromCharCode(33 + (i % 90))}`;
+      const z = zlib.deflateSync(Buffer.from(tekst, 'latin1'));
+      if (z[z.length - 1] === 0x0a || z[z.length - 1] === 0x0d) sluttLf = z;
+    }
+    if (sluttLf) {
+      const lf = await Pdf.lesStrommer(lagPdf([{ nr: 8, ordbok: '/Filter /FlateDecode /Length LEN', data: sluttLf }]));
+      paastand('en strøm som slutter på et linjeskift-byte, mister det ikke', lf.includes(tekst), JSON.stringify(lf));
+    } else paastand('fant en strøm som slutter på 0x0a/0x0d å prøve med', false);
+    // en side delt i to strømmer: cm i den første gjelder strekene i den andre
+    const fil = b => ({ arrayBuffer: async () => b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) });
+    const delt = await Pdf.lesFil(fil(lagPdf([
+      { nr: 3, ordbok: '<< /Type /Page /Contents [8 0 R 9 0 R] >>' },
+      { nr: 8, ordbok: '/Length LEN', data: '2 0 0 2 0 0 cm' },
+      { nr: 9, ordbok: '/Length LEN', data: tegning }])));
+    paastand('en side i to strømmer er én tegning, med målestokken fra den første', delt.length === 1
+      && Math.abs(delt[0].maksX - 400) < 1e-9, JSON.stringify(delt.map(t => [t.baner.length, t.maksX])));
+    paastand('og den har bare én strek – en ren CAD-eksport har få', delt.length === 1 && delt[0].baner.length === 1);
+    // et skjemaobjekt (Do) legges inn der det brukes, med sin matrise
+    const skjema = await Pdf.lesFil(fil(lagPdf([
+      { nr: 3, ordbok: '<< /Type /Page /Resources << /XObject << /Fm0 10 0 R >> >> /Contents 11 0 R >>' },
+      { nr: 10, ordbok: '/Type /XObject /Subtype /Form /Matrix [1 0 0 1 10 0] /Length LEN', data: tegning },
+      { nr: 11, ordbok: '/Length LEN', data: 'q /Fm0 Do Q' }])));
+    paastand('et skjemaobjekt tegnes der det brukes, flyttet med sin matrise', skjema.length === 1
+      && Math.abs(skjema[0].minX - 10) < 1e-9 && Math.abs(skjema[0].maksX - 210) < 1e-9,
+    JSON.stringify(skjema.map(t => [t.minX, t.maksX])));
+  }
+
   console.log('\n7. Pakking av terrengfliser');
   {
     // Fram og tilbake gjennom flisformatet skal ikke endre høydene

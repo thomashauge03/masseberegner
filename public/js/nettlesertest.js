@@ -162,7 +162,7 @@ const Nettlesertest = {
     const proever = Array.isArray(bare) && bare.length ? bare : ['hoppTellesForSeg', 'modulene', 'lagring', 'tegneLinje', 'profilverktoy', 'hoyder',
       'veiklasser', 'tverrprofil', 'grenser', 'eksport', 'linjeredigering',
       'autolagring', 'overskriving', 'tverrsnittAvlesning', 'pdfrapport',
-      'pdfavlesning', 'rapport', 'paneler', 'flereAnlegg', 'tverrsnittEnsidig',
+      'pdfavlesning', 'pdfLerret', 'rapport', 'paneler', 'flereAnlegg', 'tverrsnittEnsidig',
       'snuplassBlirSynlig', 'naboOverlapping', 'anleggsrekkefolge', 'anleggsmerking', 'prosjektmasserOgRekkefolge', 'vegMellomToTomter',
       'automatiskeNaboer', 'skisseSkraaninger', 'arealdekkePaaModellen',
       'grensesnittbredder', 'panelhoder',
@@ -9811,6 +9811,35 @@ const Nettlesertest = {
     } finally {
       Rapport.visRapport = gammel;
       await this._rorTilbake(foer);
+    }
+  },
+
+  /**
+   * Lerretet i PDF-avlesningen holder størrelsen. Uten CSS-størrelse vokste
+   * det 1,25 × for hver musebevegelse ved skalering 1,25, og med et brøktall
+   * i sammenligningen ble visningen tilpasset på nytt hver gang.
+   */
+  async pdfLerret() {
+    const d = document.getElementById('pdfdialog');
+    const dpr = Object.getOwnPropertyDescriptor(window, 'devicePixelRatio');
+    const ekte = PdfUI.tilpassVisning, foer = PdfUI.gjeldende;
+    let tilpasset = 0;
+    try {
+      Object.defineProperty(window, 'devicePixelRatio', { value: 1.25, configurable: true });
+      d.classList.remove('skjult');
+      PdfUI.gjeldende = { baner: [[{ x: 0, y: 0 }, { x: 100, y: 50 }, { x: 200, y: 20 }]], minX: 0, maksX: 200, minY: 0, maksY: 50 };
+      PdfUI.kandidater = PdfImport.kandidater(PdfUI.gjeldende.baner);
+      PdfUI.ref = [];
+      PdfUI.tilpassVisning = function () { tilpasset++; return ekte.apply(this, arguments); };
+      const l = document.getElementById('pdflerret'), maal = [];
+      for (let i = 0; i < 5; i++) { PdfUI.tegn(); maal.push(l.width + '×' + l.height); }
+      this.sjekk('lerretet holder størrelsen ved skalering 1,25', new Set(maal).size === 1 && l.clientWidth > 300, maal.join(', '));
+      this.sjekk('og visningen tilpasses ikke på nytt for hver tegning', tilpasset <= 1, String(tilpasset));
+    } finally {
+      PdfUI.tilpassVisning = ekte;
+      PdfUI.gjeldende = foer;
+      d.classList.add('skjult');
+      if (dpr) Object.defineProperty(window, 'devicePixelRatio', dpr); else delete window.devicePixelRatio;
     }
   },
 

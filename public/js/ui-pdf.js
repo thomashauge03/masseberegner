@@ -172,14 +172,23 @@ const PdfUI = {
 
     const steg = Math.max(1, parseInt(document.getElementById('pdfSteglengde').value, 10) || 5);
     const r = PdfImport.tilHoyder(this.valgtLinje.bane, this.ref, steg);
-    if (!r || !r.punkt.length) { st.textContent = 'Klarte ikke regne om linjen. Sett referansepunktene lenger fra hverandre.'; return; }
+    if (!r || !r.punkt.length) {
+      st.textContent = (r && r.feil) || 'Klarte ikke regne om linjen. Sett referansepunktene lenger fra hverandre.';
+      return;
+    }
     this.resultat = r;
 
     const p = r.punkt;
     const zMin = Math.min(...p.map(q => q.z)), zMaks = Math.max(...p.map(q => q.z));
     const vise = p.filter((_, i) => i % Math.max(1, Math.floor(p.length / 6)) === 0).slice(0, 6);
+    /* MÅLESTOKKEN STÅR DER. To referansepunkt som ble satt feil, gir en
+       omregning som ser ut som tall – forholdet mellom aksene avslører det:
+       en lengdeprofil er overdrevet i høyden, typisk 5–20 ganger. */
+    const m = r.malestokk, overdriv = Math.abs(m.sPerX / m.zPerY);
     st.innerHTML = `<b>${p.length} punkt</b> fra profil ${r.fra.toFixed(0)} til ${r.til.toFixed(0)}, `
       + `høyde ${zMin.toFixed(2)} – ${zMaks.toFixed(2)} moh.<br>`
+      + `<span class="pdfsmak">Målestokk: ${Rapport.tall(Math.abs(m.sPerX), 3)} m per tegneenhet langs, `
+      + `${Rapport.tall(Math.abs(m.zPerY), 3)} m i høyden – høyden er ${Rapport.tall(overdriv, 1)} ganger overdrevet.</span><br>`
       + '<span class="pdfsmak">' + vise.map(q => `${q.s.toFixed(0)}: ${q.z.toFixed(2)}`).join(' &nbsp; ') + ' …</span>'
       + '<br><span class="merke-varsel">Kontroller noen av disse mot planen før du bruker dem.</span>';
     knapp.disabled = false;
@@ -196,6 +205,8 @@ const PdfUI = {
         + 'Sjekk at referansepunktene har riktig profilnummer.</span>';
       return;
     }
+    // høydene fra PDF-en erstatter tabellen – det kan angres
+    this.app.merk('høyder fra PDF');
     this.app.P.vip = innafor.map(p => ({ s: +Math.min(p.s, L).toFixed(2), z: p.z, k: 0, laast: true }));
     this.app.beregn();
     this.app.visHoydetabell();
@@ -209,8 +220,13 @@ const PdfUI = {
     const l = document.getElementById('pdflerret');
     if (!l || !this.gjeldende) return;
     const dpr = window.devicePixelRatio || 1;
-    if (l.width !== l.clientWidth * dpr || l.height !== l.clientHeight * dpr) {
-      l.width = l.clientWidth * dpr; l.height = l.clientHeight * dpr;
+    /* Avrundet: ved skalering 1,25 er clientWidth · dpr et brøktall, lerretet
+       lagrer et heltall, og sammenligningen slo til ved HVER tegning – visningen
+       ble tilpasset på nytt for hver musebevegelse, og zoom og flytting
+       forsvant. (Uten CSS-størrelse vokste lerretet i tillegg – se app.css.) */
+    const bw = Math.round(l.clientWidth * dpr), bh = Math.round(l.clientHeight * dpr);
+    if (l.width !== bw || l.height !== bh) {
+      l.width = bw; l.height = bh;
       this.tilpassVisning();
     }
     const c = l.getContext('2d');

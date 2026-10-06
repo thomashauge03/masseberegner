@@ -25,6 +25,31 @@ const PdfImport = {
    * avlesningen fant null kurver uten a si ifra om hvorfor.
    */
   async lesStrommer(bytes) {
+    return (await this.lesObjekter(bytes)).map(o => o.tekst);
+  },
+
+  /**
+   * Strømmene i fila, hver med objektet den står i: `{ nr, gen, ordbok, tekst }`.
+   *
+   * ORDBOKEN ER STRØMMENS EGEN. Her ble `/Length` lett etter i de 400 tegnene
+   * foran `stream`, og det første treffet vant – var den egne ordboken kort,
+   * var det lengden til FORRIGE objekt (målt: 22 der strømmen var 509), og
+   * strømmen ble kuttet. Nå er ordboken det som står mellom «N G obj» og
+   * `stream`.
+   *
+   * `/Length 12 0 R` er en henvisning til et annet objekt, og slås opp. Her
+   * ga regexet «4500 0 R» lengden 450 – det trakk ett siffer tilbake til
+   * henvisningen ikke lenger så ut som en henvisning.
+   *
+   * LINJESKIFT TRIMMES BARE NÅR LENGDEN IKKE ER KJENT. Med eksakt /Length er
+   * siste byte data – også når den er 0x0d eller 0x0a – og trimmingen kuttet
+   * omtrent én av hundre komprimerte strømmer.
+   *
+   * `/Filter` leses: uten filter er strømmen ren tekst og brukes som den er
+   * (her ble den sendt til dekomprimering og forkastet); med et annet filter
+   * enn Flate (bilder, LZW, ASCII85) er den ikke en tegning vi kan lese.
+   */
+  async lesObjekter(bytes) {
     const ut = [];
     const tekst = new TextDecoder('latin1').decode(bytes);
     let idx = 0;
@@ -40,20 +65,30 @@ const PdfImport = {
       if (e === -1) break;
       idx = e + 9;
 
-      /* /Length kan sta som et tall eller som en henvisning til et annet
-         objekt («/Length 12 0 R»). Bare tallformen kan brukes direkte; ellers
-         faller vi tilbake pa a trimme linjeskiftene bakerst. */
-      const hode = tekst.slice(Math.max(0, s - 400), s);
-      const lengdeTreff = /\/Length\s+(\d+)(?!\s+\d+\s+R)/.exec(hode);
-      let slutt = e;
-      if (lengdeTreff) {
-        const n = parseInt(lengdeTreff[1], 10);
-        if (n > 0 && start + n <= e) slutt = start + n;
-      }
-      while (slutt > start && (bytes[slutt - 1] === 0x0a || bytes[slutt - 1] === 0x0d)) slutt--;
+      // objektet strømmen står i: det siste «N G obj» foran den
+      const vindu = tekst.slice(Math.max(0, s - 8000), s);
+      let hode = null;
+      for (const m of vindu.matchAll(/(\d+)\s+(\d+)\s+obj\b/g)) hode = m;
+      const ordbok = hode ? vindu.slice(hode.index + hode[0].length) : vindu.slice(-400);
 
-      const pakket = await this.pakkUt(bytes.subarray(start, slutt));
-      if (pakket) ut.push(pakket);
+      let n = NaN;
+      const direkte = /\/Length\s+(\d+)\b(?!\s+\d+\s+R)/.exec(ordbok);
+      const henvist = /\/Length\s+(\d+)\s+(\d+)\s+R/.exec(ordbok);
+      if (direkte) n = parseInt(direkte[1], 10);
+      else if (henvist) {
+        const m = new RegExp(`(?:^|\\D)${henvist[1]}\\s+${henvist[2]}\\s+obj\\s*(\\d+)\\s*endobj`).exec(tekst);
+        if (m) n = parseInt(m[1], 10);
+      }
+      let slutt = e;
+      if (n > 0 && start + n <= e) slutt = start + n;
+      else while (slutt > start && (bytes[slutt - 1] === 0x0a || bytes[slutt - 1] === 0x0d)) slutt--;
+
+      const filter = /\/Filter\s*(\[[^\]]*\]|\/\w+)/.exec(ordbok);
+      const filtre = filter ? (filter[1].match(/\/\w+/g) || []) : [];
+      let innhold = null;
+      if (!filtre.length) innhold = new TextDecoder('latin1').decode(bytes.subarray(start, slutt));
+      else if (filtre.length === 1 && /^\/(FlateDecode|Fl)$/.test(filtre[0])) innhold = await this.pakkUt(bytes.subarray(start, slutt));
+      if (innhold) ut.push({ nr: hode ? +hode[1] : NaN, gen: hode ? +hode[2] : 0, ordbok, tekst: innhold });
     }
     return ut;
   },
@@ -154,15 +189,69 @@ const PdfImport = {
     return baner;
   },
 
+  /**
+   * Innholdet side for side – det som skal tolkes som én tegning.
+   *
+   * EN SIDE KAN HA FLERE STRØMMER. `/Contents [4 0 R 5 0 R]` er én tegning
+   * delt i biter, og tegnetilstanden går videre fra den ene til den neste: et
+   * `cm` i den første gjelder strekene i den andre. Her ble hver strøm tolket
+   * for seg, med enhetsmatrise, og profilen havnet i feil målestokk – eller
+   * delt i to tegninger. Nå settes bitene sammen i rekkefølge.
+   *
+   * SKJEMAOBJEKTER (`/Fm0 Do`) legges inn der de brukes, med sin `/Matrix`.
+   * Mange tegneprogram legger selve profilen i et slikt objekt.
+   *
+   * Finnes ingen `/Contents` (sidene ligger i en komprimert objektstrøm vi ikke
+   * leser), er hver strøm en tegning, som før.
+   */
+  innholdPerSide(objekter, tekst) {
+    const etterNr = new Map(objekter.filter(o => Number.isFinite(o.nr)).map(o => [o.nr, o]));
+    const kilder = [tekst].concat(objekter.map(o => o.tekst));
+    // skjemaobjektene: navn → objekt, fra hver /XObject-ordbok i fila
+    const skjema = new Map();
+    for (const k of kilder) {
+      for (const d of k.matchAll(/\/XObject\s*<<([^>]*)>>/g)) {
+        for (const m of d[1].matchAll(/\/([^\s/<>[\]()]+)\s+(\d+)\s+\d+\s+R/g)) {
+          const o = etterNr.get(+m[2]);
+          if (o && /\/Subtype\s*\/Form/.test(o.ordbok)) skjema.set(m[1], o);
+        }
+      }
+    }
+    const medSkjema = (t, dybde = 0) => (dybde > 3 || !skjema.size ? t
+      : t.replace(/\/([^\s/<>[\]()]+)\s+Do\b/g, (hele, navn) => {
+        const o = skjema.get(navn);
+        if (!o) return hele;
+        const mx = /\/Matrix\s*\[([^\]]*)\]/.exec(o.ordbok);
+        return ` q ${mx ? mx[1].trim() + ' cm ' : ''}${medSkjema(o.tekst, dybde + 1)} Q `;
+      }));
+    const sider = [];
+    const brukt = new Set();
+    for (const k of kilder) {
+      for (const m of k.matchAll(/\/Contents\s*(\[[^\]]*\]|\d+\s+\d+\s+R)/g)) {
+        const nr = [...m[1].matchAll(/(\d+)\s+\d+\s+R/g)].map(x => +x[1]);
+        const deler = nr.map(x => etterNr.get(x)).filter(Boolean);
+        if (!deler.length) continue;
+        const nokkel = nr.join(',');
+        if (brukt.has(nokkel)) continue;
+        brukt.add(nokkel);
+        sider.push(medSkjema(deler.map(o => o.tekst).join('\n')));
+      }
+    }
+    return sider.length ? sider : objekter.map(o => medSkjema(o.tekst));
+  },
+
   /** Leser hele filen og grupperer banene per tegning. */
   async lesFil(fil) {
     const bytes = new Uint8Array(await fil.arrayBuffer());
-    const strommer = await this.lesStrommer(bytes);
+    const objekter = await this.lesObjekter(bytes);
+    const tekst = new TextDecoder('latin1').decode(bytes);
     const tegninger = [];
-    for (const s of strommer) {
+    for (const s of this.innholdPerSide(objekter, tekst)) {
       if (!/(^|\s)(m|l|re)(\s|$)/.test(s)) continue;
       const baner = this.tolkBaner(s).filter(b => b.length > 1);
-      if (baner.length < 5) continue;
+      /* En tegning med én profil i er en tegning. Her måtte den ha fem streker,
+         og en ren CAD-eksport med terreng, veg og ramme har ofte tre. */
+      if (!baner.length || !this.kandidater(baner).length) continue;
       tegninger.push({ baner, ...this.omfang(baner) });
     }
     // største tegning først - den er som regel selve profilen
@@ -197,14 +286,24 @@ const PdfImport = {
          tegningen. Rammer og rutenett gar fram og tilbake, og faller pa
          framover-kravet under. */
       if (b.length < 3) continue;
-      let minX = Infinity, maksX = -Infinity, minY = Infinity, maksY = -Infinity, framover = 0;
+      /* EN VEI – HVILKEN SOM HELST, OG BARE STEG SOM FAKTISK GÅR. Her talte et
+         loddrett steg (`>=`) som framover, og en lukket flate – fyllingen
+         mellom terreng og veg, tegnet som én bane – slapp gjennom og ble
+         sortert foran veglinja; tilHoyder blandet så over- og underkanten.
+         Og en bane tegnet fra høyre mot venstre ble kastet, selv om
+         omregningen tar den fint. Nå telles bare steg som flytter seg
+         sidelengs, i den retningen banen går, og en lukket bane er en flate. */
+      let minX = Infinity, maksX = -Infinity, minY = Infinity, maksY = -Infinity, framover = 0, bakover = 0;
       for (let i = 0; i < b.length; i++) {
         if (b[i].x < minX) minX = b[i].x; if (b[i].x > maksX) maksX = b[i].x;
         if (b[i].y < minY) minY = b[i].y; if (b[i].y > maksY) maksY = b[i].y;
-        if (i && b[i].x >= b[i - 1].x) framover++;
+        if (!i) continue;
+        const dx = b[i].x - b[i - 1].x;
+        if (dx > 1e-6) framover++; else if (dx < -1e-6) bakover++;
       }
-      const andel = framover / (b.length - 1);
-      if (andel < 0.9 || maksX - minX < 50) continue;
+      const lukket = Math.hypot(b[0].x - b[b.length - 1].x, b[0].y - b[b.length - 1].y) < 1e-3;
+      const andel = Math.max(framover, bakover) / Math.max(1, framover + bakover);
+      if (lukket || andel < 0.9 || maksX - minX < 50) continue;
       /* En profillinje stiger og faller. En rutenettlinje, en ramme eller en
          understrekning gar rett bortover uten høydevariasjon i det hele tatt -
          og de er det mange av. Grensen er satt lavt med vilje: den skal skille
@@ -235,16 +334,27 @@ const PdfImport = {
   tilHoyder(bane, ref, steg) {
     const [a, b] = ref;
     const dx = b.pdfX - a.pdfX, dy = b.pdfY - a.pdfY;
-    if (Math.abs(dx) < 1e-6 || Math.abs(dy) < 1e-6) return null;
+    /* Referansepunktene må ligge et stykke fra hverandre i begge retninger.
+       Her var grensen en milliondel av en tegneenhet, og to nesten like klikk
+       ga høyder på hundre millioner meter. Ett punkt i tegningen (1/72 tomme)
+       er det minste som kan være meningen. */
+    if (Math.abs(dx) < 1 || Math.abs(dy) < 1) return null;
     const sPerX = (b.s - a.s) / dx;
     const zPerY = (b.z - a.z) / dy;
     const tilS = px => a.s + (px - a.pdfX) * sPerX;
     const tilZ = py => a.z + (py - a.pdfY) * zPerY;
 
-    const punkt = bane.map(p => ({ s: tilS(p.x), z: tilZ(p.y) }))
-      .filter(p => isFinite(p.s) && isFinite(p.z))
-      .sort((p, q) => p.s - q.s);
+    let punkt = bane.map(p => ({ s: tilS(p.x), z: tilZ(p.y) }))
+      .filter(p => isFinite(p.s) && isFinite(p.z));
     if (punkt.length < 2) return null;
+    /* BANEN SKAL GÅ ÉN VEI. Den kan være tegnet baklengs – da snus den – men
+       går den fram og tilbake, er den ikke en profillinje (en flate, eller to
+       linjer i én bane), og å sortere den ville blandet dem. Her ble den
+       sortert uansett, og slutthøyden ble 90 der riktig var 98,9. */
+    if (punkt[punkt.length - 1].s < punkt[0].s) punkt = punkt.reverse();
+    if (punkt.some((p, i) => i && p.s < punkt[i - 1].s - 1e-6)) {
+      return { punkt: [], feil: 'Linja du valgte går fram og tilbake – den er en flate eller to linjer i én. Velg en annen.' };
+    }
 
     const fra = punkt[0].s, til = punkt[punkt.length - 1].s;
     const ut = [];
