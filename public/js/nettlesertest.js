@@ -8875,6 +8875,18 @@ const Nettlesertest = {
       await this.ventPaBeregning(30000);
       const alle = await Pdfrapport.lagProsjekt(false);
       this.sjekk('prosjekt-PDF med veg og rør ble laget', !!alle && alle.length > 5000, alle ? alle.length + ' byte' : 'ingen');
+      // og fila som lastes ned, er den PDF-en – ikke teksten «[object Promise]»
+      const ekteUrl = URL.createObjectURL, ekteKlikk = HTMLAnchorElement.prototype.click;
+      let blob = null;
+      URL.createObjectURL = b => { blob = b; return 'blob:prove'; };
+      HTMLAnchorElement.prototype.click = function () {};
+      try { await Pdfrapport.lagProsjekt(true); } finally {
+        URL.createObjectURL = ekteUrl; HTMLAnchorElement.prototype.click = ekteKlikk;
+      }
+      const hode = blob ? await blob.slice(0, 8).text() : '';
+      const status = document.getElementById('statuslinje').textContent;
+      this.sjekk('PDF-en for hele prosjektet som lastes ned, er en PDF', hode.startsWith('%PDF-1.') && blob.size > 5000
+        && !/NaN/.test(status), `«${hode}» ${blob ? blob.size : 0} byte · ${status}`);
     } finally {
       await this._rorTilbake(foer);
     }

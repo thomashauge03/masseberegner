@@ -106,3 +106,33 @@ N26–N28 (prøver som ikke kan feile), N29 (modulkontrollen), N30–N32 (bakkef
 rampen, Bruckner), N33 (talregresjon på ekte terreng uten nett), B20 (seksjon 8),
 B21 (Kartverket forbi mellomlageret), L35 (`paastand` skriver detaljen) og L36
 (`console.error` under nettlesertesten).
+
+## 10. Pulje 9 – det den siste gjennomgangen fant
+
+Gjennomgangen av pulje 6–8 og rettelsene fant ingen kritiske feil, men disse
+viktige:
+- LandXML kunne skrive linjeslutt to ganger eller baklengs.
+- `GET //` tok ned utviklingstjeneren.
+- `merk` + `slippMerke` var ikke uten virkning: «Gjør om» ble tømt, og med
+  full liste forsvant den eldste posten.
+- En prøve for navnet i angrelista kunne ikke feile.
+- 41 rettelser hadde ingen prøve som feilet når rettelsen ble tatt bort.
+
+Småfunnene er også tatt:
+- tekst i PDF-ordbøker;
+- den nyeste utgaven i objektstrømmer;
+- `h`/`s` i baner;
+- tilbakesteg mot det lengste linja har nådd;
+- plassdelingen lineær i praksis;
+- hjørneradien ved siden av en kurve;
+- halve søketreff;
+- etiketter uten id;
+- ventede konsollfeil per prøve.
+
+Valg:
+- Et skarpt hjørne regnes fortsatt med den største kurven som får plass. Det
+  er en øvre grense, og merknaden ber om at det legges inn en kurve. Å bruke
+  klassens minste radius i stedet ville gjort hvert hjørne så strengt som
+  normalen tillater, også der det er plass til en slak kurve.
+- Et kort bratt strekk mellom profilene vurderes med alle profilene rundt,
+  ikke bare naboene.

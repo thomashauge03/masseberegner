@@ -144,7 +144,11 @@ const Pdfrapport = {
       }
       this._sammendragsside(app, P, delt.tilstand, innmarg, rader, hoppet);
       this._bunn(P, innmarg);
-      const bytes = P.bygg();
+      /* `bygg` er asynkron. Her sto den uten `await`: fila som ble lastet ned,
+         inneholdt teksten «[object Promise]», og statuslinja sa «NaN kB». Prøven
+         ba bare om bytene, og et løfte som returneres fra en async-funksjon blir
+         til bytene – så den så ingenting. */
+      const bytes = await P.bygg();
       if (lastNed) {
         const navn = Lager.filnavn(app.P.navn) + '_prosjekt.pdf';
         const blob = new Blob([bytes], { type: 'application/pdf' });
