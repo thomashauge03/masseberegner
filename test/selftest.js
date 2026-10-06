@@ -3829,6 +3829,55 @@ console.log('\n6c. Avlesning av PDF');
       && Math.abs(tabell[0].maksX - 400) < 1e-9, JSON.stringify(tabell.map(t => [t.baner.length, t.maksX])));
   }
 
+  console.log('\n6i. Tjeneren og flisene (veg, pulje 7)');
+  {
+    const lagRes = () => {
+      const r = { kode: 0, hoder: {}, kropp: '' };
+      r.writeHead = (k, h) => { r.kode = k; r.hoder = h || {}; };
+      r.end = b => { r.kropp = b ? String(b) : ''; };
+      r.headersSent = false;
+      return r;
+    };
+    // flisa er hel bare med riktig hode og riktig lengde
+    const flis = H.pakkFlis(new Float32Array(16 * 16).fill(100), 16);
+    paastand('en hel flis er hel', H.flisErHel(flis, 16));
+    paastand('en kuttet flis er ikke hel', !H.flisErHel(flis.slice(0, flis.length - 2), 16));
+    paastand('en flis med et annet antall punkt er ikke hel', !H.flisErHel(flis, 32));
+    // oppløsningen er 1, 2, 4 eller 8 – ikke klemt i stillhet
+    const flisApi = require(path.join(__dirname, '..', 'api', 'dtm', 'flis.js'));
+    const r3 = lagRes();
+    await flisApi({ query: { sr: '25832', tx: '1', ty: '1', res: '3' } }, r3);
+    paastand('res=3 gir 400, ikke en flis på 85 punkt lest som 256', r3.kode === 400 && r3.hoder['Cache-Control'] === 'no-store');
+    // et feilsvar mellomlagres ikke
+    const punktApi = require(path.join(__dirname, '..', 'api', 'punkt.js'));
+    const rp = lagRes();
+    await punktApi({ query: {} }, rp);
+    paastand('et feilsvar fra punkt-API-et mellomlagres ikke', rp.kode === 400 && rp.hoder['Cache-Control'] === 'no-store');
+    // søket: feiler begge oppslagene, er det en feil, ikke «ingen treff»
+    const hd = require(path.join(__dirname, '..', 'lib', 'hoydedata.js'));
+    const ekteJson = hd.hentJson;
+    hd.hentJson = async () => { throw new Error('prøvefeil'); };
+    const sokSti = require.resolve(path.join(__dirname, '..', 'api', 'sok.js'));
+    delete require.cache[sokSti];
+    try {
+      const rs = lagRes();
+      await require(sokSti)({ query: { q: 'Ydestad' } }, rs);
+      paastand('søket uten svar fra noen av tjenestene gir 502, og mellomlagres ikke',
+        rs.kode === 502 && rs.hoder['Cache-Control'] === 'no-store', `${rs.kode} ${rs.hoder['Cache-Control']}`);
+    } finally { hd.hentJson = ekteJson; delete require.cache[sokSti]; }
+    // tjeneren: en søskenmappe med samme prefiks er ikke innenfor public
+    const server = require(path.join(__dirname, '..', 'server.js'));
+    await new Promise(r => server.listen(0, '127.0.0.1', r));
+    const port = server.address().port;
+    const hent = sti => new Promise(r => require('http').get({ host: '127.0.0.1', port, path: sti }, s => { s.resume(); r(s.statusCode); }));
+    const utenfor = await hent('/..%2Fpublic-gammel%2Findex.html');
+    const opp = await hent('/..%2Fpackage.json');
+    const inne = await hent('/index.html');
+    server.close();
+    paastand('tjeneren nekter en søskenmappe med samme prefiks, og mappa over', utenfor === 403 && opp === 403 && inne === 200,
+      `${utenfor} / ${opp} / ${inne}`);
+  }
+
   console.log('\n7. Pakking av terrengfliser');
   {
     // Fram og tilbake gjennom flisformatet skal ikke endre høydene

@@ -14,11 +14,14 @@ module.exports = async (req, res) => {
   const sr = parseInt(q.sr, 10);
   const tx = parseInt(q.tx, 10);
   const ty = parseInt(q.ty, 10);
-  const oppløsning = Math.max(1, Math.min(8, parseInt(q.res || '1', 10)));
+  /* OPPLØSNINGEN ER 1, 2, 4 ELLER 8 – det som går opp i 256. Her ble alt
+     klemt til 1–8 i stillhet, og res=3 ga en flis på 85 punkt som klienten
+     leste som 256 × 256. */
+  const oppløsning = q.res == null || q.res === '' ? 1 : Number(q.res);
   const modell = q.modell === 'dom' ? 'dom' : 'dtm';
 
-  if (!DTM_TJENESTE[sr] || !Number.isFinite(tx) || !Number.isFinite(ty)) {
-    res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+  if (!DTM_TJENESTE[sr] || !Number.isFinite(tx) || !Number.isFinite(ty) || ![1, 2, 4, 8].includes(oppløsning)) {
+    res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
     return res.end(JSON.stringify({ feil: 'Ugyldige parametre' }));
   }
 
@@ -33,7 +36,7 @@ module.exports = async (req, res) => {
     });
     res.end(buf);
   } catch (err) {
-    res.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
     res.end(JSON.stringify({ feil: 'Fikk ikke terrengdata: ' + err.message }));
   }
 };

@@ -12,8 +12,11 @@ module.exports = async (req, res) => {
   const q = req.query || {};
   const sr = parseInt(q.sr || '25833', 10);
   const punkter = q.punkter;
+  /* Bare et svar som er et svar, mellomlagres. Her fikk også 400 og 502 et
+     døgn i kantnettet – en kort feil hos Kartverket ble stående i et døgn. */
   const svar = (kode, data) => {
-    res.writeHead(kode, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'public, max-age=86400' });
+    res.writeHead(kode, { 'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': kode === 200 ? 'public, max-age=86400' : 'no-store' });
     res.end(JSON.stringify(data));
   };
 

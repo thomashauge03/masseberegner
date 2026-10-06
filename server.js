@@ -12,7 +12,6 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const url = require('url');
 
 const PORT = parseInt(process.env.PORT || '5178', 10);
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -35,12 +34,14 @@ const MIME = {
 };
 
 const server = http.createServer(async (req, res) => {
-  const u = url.parse(req.url, true);
-  const sti = decodeURIComponent(u.pathname);
+  // WHATWG-URL: `url.parse` er foreldet og tolker stier ulikt fra nettleseren
+  const u = new URL(req.url, 'http://lokal');
+  let sti;
+  try { sti = decodeURIComponent(u.pathname); } catch (e) { res.writeHead(400); return res.end('Ugyldig sti'); }
 
   const handler = RUTER[sti];
   if (handler) {
-    req.query = u.query;                     // samme som Vercel gir funksjonene
+    req.query = Object.fromEntries(u.searchParams);   // samme som Vercel gir funksjonene
     try {
       await handler(req, res);
     } catch (err) {
@@ -52,7 +53,11 @@ const server = http.createServer(async (req, res) => {
   }
 
   const filsti = path.join(PUBLIC_DIR, sti === '/' ? 'index.html' : sti);
-  if (!path.resolve(filsti).startsWith(path.resolve(PUBLIC_DIR))) {
+  /* INNENFOR MAPPA, IKKE BARE MED SAMME BEGYNNELSE. `startsWith` slapp
+     gjennom en søskenmappe med samme prefiks – «public-gammel» begynner med
+     «public». Den relative stien sier om fila ligger under mappa. */
+  const rel = path.relative(path.resolve(PUBLIC_DIR), path.resolve(filsti));
+  if (rel.startsWith('..') || path.isAbsolute(rel)) {
     res.writeHead(403); return res.end('Nei');
   }
   if (fs.existsSync(filsti) && fs.statSync(filsti).isFile()) {
@@ -65,7 +70,10 @@ const server = http.createServer(async (req, res) => {
 });
 
 if (require.main === module) {
-  server.listen(PORT, () => {
+  /* Utviklingstjeneren lytter bare på maskinen selv. Uten vertsnavn lyttet
+     den på alle nettverkskort, og hvem som helst på samme nett kunne hente
+     fra den. MASSEKALK_VERT=0.0.0.0 åpner den når det er meningen. */
+  server.listen(PORT, process.env.MASSEKALK_VERT || '127.0.0.1', () => {
     console.log('');
     console.log('  Massekalk kjører');
     console.log('  Åpne:  http://localhost:' + PORT);

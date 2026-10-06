@@ -44,11 +44,18 @@ const FLIS_VERSJON = 5;
  * Format 2: rå float32. Brukes nar høydeforskjellen innenfor flisen er for
  *           stor for et 16-bits tall.
  */
-function pakkOppFlis(arrayBuffer) {
+function pakkOppFlis(arrayBuffer, P) {
   const b = new DataView(arrayBuffer);
   const magi = String.fromCharCode(b.getUint8(0), b.getUint8(1), b.getUint8(2), b.getUint8(3));
   if (magi !== 'MKT1') throw new Error('Ukjent flisformat');
   const format = b.getUint8(4);
+  /* HODET SIER HVOR MANGE PUNKT FLISEN HAR, og det skal stemme. Her ble det
+     ikke lest: en flis på 128 × 128 lest som 256 × 256 legger hver høyde på
+     feil sted, og en kuttet flis gir høyder fra neste rad. Da er det bedre å
+     si at flisen mangler. */
+  const px = b.getUint16(6, true);
+  if (P && px !== P) throw new Error(`Flisen har ${px} punkt på hver side, ventet ${P}`);
+  if (arrayBuffer.byteLength !== 16 + px * px * (format === 2 ? 4 : 2)) throw new Error('Flisen har feil lengde');
   const base = b.getFloat32(8, true);
   if (format === 2) return new Float32Array(arrayBuffer, 16);
   const i16 = new Int16Array(arrayBuffer, 16);
@@ -218,7 +225,7 @@ class Terreng {
             const svar = await fetch(`api/dtm/flis?sr=${this.sr}&tx=${tx}&ty=${ty}&res=${this.res}`
               + `&modell=${this.modell}&v=${FLIS_VERSJON}`);
             if (!svar.ok) throw new Error('HTTP ' + svar.status);
-            this.fliser.set(k, pakkOppFlis(await svar.arrayBuffer()));
+            this.fliser.set(k, pakkOppFlis(await svar.arrayBuffer(), this.P));
             break;
           } catch (e) {
             if (forsok) { console.warn('Fikk ikke flis', k, e.message); this.mangler.add(k); }
