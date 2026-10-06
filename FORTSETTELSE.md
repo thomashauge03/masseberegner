@@ -24,10 +24,10 @@ med `Nettlesertest.kjor()`. Utviklingstjeneren startes med `node server.js`
 (port 5178). Programmet ligger også på https://masseberegner.vercel.app.
 
 Ved siste lagring: **894 prøver i selvtesten, 194 i rørprøven
-(`test/rorprove.js`), 197 i grøfteprøven (`test/groftprove.js`), 124 i
+(`test/rorprove.js`), 219 i grøfteprøven (`test/groftprove.js`), 124 i
 planprøven (`test/rorplanprove.js`), 63 i eksportprøven
 (`test/roreksportprove.js`), 77 i avviksprøven (`test/roravvikprove.js`), 53 i
-anleggsprøven og 258 i tomteprøven, alle grønne; 1433 av 1433 i nettlesertesten.** «Klikk i modellen flytter snittet
+anleggsprøven og 258 i tomteprøven, alle grønne; 1434 av 1434 i nettlesertesten.** «Klikk i modellen flytter snittet
 dit» i `veg3d` kan feile når vinduet emuleres 1440 × 900 i en mindre rute –
 klikket lander én rad ved siden av; det gjør den likt på `main`. «og merknaden
 sier det som gjelder nå» i `flereAnlegg` feilet én gang i hele runden og aldri
@@ -36,7 +36,9 @@ står, mens prøven sammenligner med hurtiglageret. `test/demo-ydestad.js` skriv
 demoen på nytt; den holder demoens bredde (4,5 m) fast, så fila blir lik. 3D-prøvene
 må ha fanen framme; i en bakgrunnsfane tegnes ingen rammer. Nettlesertesten
 må kjøres i et vindu som er minst 1000 px bredt – under det legger
-sidepanelet seg oppå, og tre panelprøver blir røde uten at noe er galt. Massene på demoen: 1 397 m³ skjæring, 1 397 m³ fjell og 778 m³ fylling,
+sidepanelet seg oppå, og tre panelprøver blir røde uten at noe er galt. Last
+siden på nytt før en ny runde: står resultatet fra forrige runde åpent, måler
+fingerprøven «Lukk»-knappen dets (54×29) og blir rød. Massene på demoen: 1 397 m³ skjæring, 1 397 m³ fjell og 778 m³ fylling,
 med masseutskifting. De er uendret gjennom veg-restfunnene.
 
 ## Det som skal gjøres nå
@@ -106,9 +108,40 @@ Av de mindre er disse rettet:
 - terskel 0;
 - navnene i profilen sto oppå hverandre.
 
-Mutasjonsprøvd to ganger: de 24 første mutantene og 12 nye for rettingene.
-Under prøvingen viste det seg at to grener i `brekk` aldri kunne nås, og de
-ble fjernet.
+En andre gjennomgang av rettingene fant at de holdt, og ingen kritiske feil.
+To nye alvorlige ble rettet med prøver:
+- Langs en akse fant ikke to rør 0,9 m fra hverandre hverandre. Kassa var bare
+  registrert med det den selv når, så grøfta og kassa ble talt to ganger.
+- Et annet rør gravde bak kasseveggen:
+  - enden av en T eller en grein fra en kum med kasse;
+  - et rør i samme grøft uten «felles grøft».
+
+  Nå avstives samme grøft som en felles grøft, og enden graver ikke bak veggen.
+
+Ellers rettet:
+- et stykke uten lengde i overgangen gjorde naboens retning avgjørende;
+- overlappende strekninger der den siste vant;
+- dialogen som klemte tall over grensen stille.
+
+En tredje gjennomgang fant at rettingene holdt og ikke var avhengige av
+rekkefølge eller retning, og to ting til, begge rettet:
+- Steg 4c prøvde hver meter mot alle kassene. Med 40 km rør og 40 kasser tok
+  det to minutter, og det regnes ved hver endring. Kassene ligger nå i et
+  rutenett på 30 m, og det tar 0,6 s.
+- Enden av en grein gravde fortsatt bak veggen i tre tilfeller:
+  - når den sluttet like utenfor kassa (nå: inne er der bunnen dens når
+    veggen);
+  - med et dobbeltpunkt i enden;
+  - på den flate bunnen i en felles grøft.
+
+En skjøt midt i naboens meter avgjøres nå uten å avhenge av retningen på
+kasserøret.
+
+Mutasjonsprøvd fire ganger: 24 mutanter, så 12, 12 og 9 for rettingene.
+- To grener i `brekk` kunne aldri nås, og de ble fjernet.
+- To mutanter står igjen, og begge er likeverdige med koden i praksis:
+  - den ene grenen i skjøtregelen, som bare nås ved avrunding;
+  - t-sjekken for en ende i naboens sone.
 
 ### Rør – oversiktskart
 

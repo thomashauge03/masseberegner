@@ -108,7 +108,7 @@ const Groft = (() => {
       fjell: f.fjell != null ? f.fjell : null, gruppe: f.gruppe, virtuell: !!f.virtuell, kum: f.kum || null,
       avst: f.avst || null, boksHel: f.boksHel != null ? f.boksHel : null,
       TA: NaN, TB: NaN, zbA: 0, zbB: 0, naa: 0, x0: 0, x1: 0, y0: 0, y1: 0,
-      kuttA: null, kuttB: null, partner: null, sone: null
+      kuttA: null, kuttB: null, partner: null, sone: null, endeA: null, endeB: null
     };
   }
 
@@ -176,6 +176,21 @@ const Groft = (() => {
   }
 
   /**
+   * Kassa der `n` (fra `naermest`) treffer røret `rr`. I en skjøt mellom et
+   * avstivet og et åpent segment gjelder det avstivede: her avgjorde
+   * rekkefølgen segmentene ble prøvd i, og naboens sone sluttet en halv meter
+   * før eller etter alt etter hvilken vei kasserøret var tegnet.
+   */
+  function kasseVed(rr, seg, n) {
+    const sg = seg[n.j];
+    if (sg.avst || sg.i < 0) return sg.avst;
+    const t = tPaa(sg, n.x, n.y), S = rr.segmenter;
+    if (t < 1e-6 && sg.i > 0) return seg[S[sg.i - 1]].avst;
+    if (t > 1 - 1e-6 && sg.i + 1 < S.length) return seg[S[sg.i + 1]].avst;
+    return null;
+  }
+
+  /**
    * Ligger (x, y) i avstivingssonen til et segment – se steg 5b i `forbered`?
    * Langs et rør er sonen et bånd som slutter rett av endene, rundt en kum en
    * sirkel; en skjøt der sonen går videre, er rund (`rundA`, `rundB`).
@@ -196,14 +211,16 @@ const Groft = (() => {
 
   /**
    * Avstivingen i (x, y), slått opp først når en skråning spør: svaret er en
-   * funksjon som sier om et segment hører til en grøft som er avstivet her –
-   * røret selv, og for en tverrstrek begge rørene den går mellom. Null der
-   * flisa ikke har noen sone.
+   * funksjon som sier om skråningen fra et segment er stoppet her. Det er den
+   * når grøfta segmentet hører til, er avstivet her – røret selv, og for en
+   * tverrstrek begge rørene den går mellom – og når (x, y) ligger forbi enden
+   * av et rør som ender inne i en annen avstivet grøft (`endeA`/`endeB`: lister
+   * over eierne, med `t0` uten kapping). Null der flisa ikke har noen sone.
    */
   function avstivet(M, fl, x, y, Tq, sondert) {
     if (!fl || !fl.boks) return null;
     let eiere = null;
-    return sg => {
+    return (sg, t0) => {
       if (!eiere) {
         eiere = [];
         const ut = { t: 0 };
@@ -212,7 +229,11 @@ const Groft = (() => {
           if (!eiere.includes(z.sone.eier) && iSone(z, x, y, Tq, sondert, ut)) eiere.push(z.sone.eier);
         }
       }
-      return sg.virtuell ? eiere.includes(sg.ra) || eiere.includes(sg.rb) : eiere.includes(sg.r);
+      if (!eiere.length) return false;
+      if (sg.virtuell ? eiere.includes(sg.ra) || eiere.includes(sg.rb) : eiere.includes(sg.r)) return true;
+      // et segment uten lengde i enden er bare ende – hele sirkelen rundt det
+      const ende = sg.L2 > 0 ? (t0 < 0 ? sg.endeA : t0 > 1 ? sg.endeB : null) : (sg.endeA || sg.endeB);
+      return !!ende && ende.some(e => eiere.includes(e));
     };
   }
 
@@ -298,9 +319,15 @@ const Groft = (() => {
           if (st.mal) strekMal = Object.assign(strekMal || {}, st.mal);
           if (Number.isFinite(st.fjell)) fjell = st.fjell;
           if (st.egen) egen = true;
+          /* Overlapper to strekninger, går spunt foran kasse, og den bredeste
+             kassa gjelder. Her vant den siste: kasse 0–100 m og spunt 30–60 m
+             ga noe annet enn de samme to lagt inn i motsatt rekkefølge. */
           if (AVSTIVING.includes(st.avstiving)) {
-            avst = st.avstiving;
-            kasse = avst === 'kasse' ? (Number.isFinite(st.kassebredde) && st.kassebredde > 0 ? st.kassebredde : KASSEBREDDE) : null;
+            if (st.avstiving === 'spunt' || avst === 'spunt') { avst = 'spunt'; kasse = null; }
+            else {
+              avst = 'kasse';
+              kasse = Math.max(kasse || 0, Number.isFinite(st.kassebredde) && st.kassebredde > 0 ? st.kassebredde : KASSEBREDDE);
+            }
           }
         }
         if (egen && !forrigeEgen) gruppe = grupper++;
@@ -336,6 +363,21 @@ const Groft = (() => {
       });
       rr.segmenter.forEach((j, i) => { seg[j].TA = Tv[i]; seg[j].TB = Tv[i + 1]; });
     });
+    /* Sonderingene slås opp for hver rute og hvert steg ut mot kanten, og hvert
+       oppslag går gjennom alle sonderingene: med 300 av dem tok grøfta 3 s.
+       Dybden endrer seg lite over en meter, så den slås opp én gang per meter.
+       (Lages her, før naboene langs kassa i steg 4c trenger den.) */
+    let sondert = null;
+    if (o.fjellSondert) {
+      const lager = new Map(), f = o.fjellSondert;
+      sondert = (x, y) => {
+        const i = Math.round(x), k = Math.round(y);
+        const n = (i + 4194304) * 16777216 + (k + 8388608);
+        let v = lager.get(n);
+        if (v === undefined) { v = f(i, k); lager.set(n, v); }
+        return v;
+      };
+    }
     /* 4. SAMMENSLÅINGENE: flat bunn mellom to rør der de går side om side.
        Fra hver stasjon på det ene røret trekkes en tverrstrek til nærmeste
        punkt på det andre, med gravebunnen lineært mellom dem – fra begge
@@ -356,6 +398,11 @@ const Groft = (() => {
        kassa 27 m unna. Står spunt og kasse mot samme nabo, gjelder spunten –
        svaret skal ikke avhenge av rekkefølgen. */
     const langsKassa = (sg, a, c, avst) => {
+      /* Et stykke uten lengde er ingenting: der kassa begynner i en skjøt på
+         naboen, fikk segmentet foran et stykke [1, 1] og dermed en rund skjøt –
+         og den åpne grøfta mistet skråningen sin i tre meter foran kassa, alt
+         etter hvilken vei naboen var tegnet. */
+      if (!(Math.abs(c - a) > 1e-9)) return;
       const p = sg.partner || (sg.partner = { fra: 1, til: 0, avst });
       p.fra = Math.max(0, Math.min(p.fra, a, c)); p.til = Math.min(1, Math.max(p.til, a, c));
       if (avst === 'spunt') p.avst = 'spunt';
@@ -393,7 +440,8 @@ const Groft = (() => {
               langsKassa(s2, tPaa(s2, s1.ax + s1.dx * q.t, s1.ay + s1.dy * q.t), tPaa(s2, s1.ax + s1.dx * t1, s1.ay + s1.dy * t1), s1.avst);
             } else if (!s1.avst && harAvst[r2]) {
               const tm = (q.t + t1) / 2, m = naermest(ror[r2], seg, s1.ax + s1.dx * tm, s1.ay + s1.dy * tm);
-              if (m && !m.forbi && m.d <= SAMMEN_MAKS && seg[m.j].avst) langsKassa(s1, q.t, t1, seg[m.j].avst);
+              const a = m && !m.forbi && m.d <= SAMMEN_MAKS ? kasseVed(ror[r2], seg, m) : null;
+              if (a) langsKassa(s1, q.t, t1, a);
             }
           }
           const zb1 = q.topp - s1.D - s1.fund, zb2 = n2.topp - s2.D - s2.fund;
@@ -444,6 +492,62 @@ const Groft = (() => {
       });
       sg.TA = sg.TB = T(K.x, K.y);
       seg.push(sg);
+    }
+    /* 4c. SAMME GRØFT UTEN «FELLES GRØFT». Et rør som går langs en kasse så
+       tett at den naturlige gropa til kassa når det, ligger i samme grøft –
+       slik `meterEier` teller meterne. Da avstives hele grøfta der, som i en
+       felles grøft, og naboen får sonen langs kassa. Her fikk bare de
+       sammenslåtte det, og et rør 0,9 m fra kassa skrånet inn bak veggen
+       mens kassa ble fakturert. Meteren avgjøres midt i den, som eieren. */
+    if (harAvst.some(Boolean)) {
+      /* Langs kassa er der kassa står – ikke rundt endene av den, så naboen
+         ikke får kasse en meter før og etter. I en skjøt midt i kassa er det
+         rundt, så yttersida av en knekk er med. */
+      /* Kassene i et rutenett på 30 m, så hver meter bare prøves mot kassene i
+         sin egen rute. Her ble hver meter prøvd mot alle kassene i prosjektet:
+         40 km rør med 40 kasser tok to minutter, og det regnes på nytt ved
+         hver endring. */
+      const RUTE = MAKS_UT, nett = new Map();
+      for (const rr of ror) {
+        const S = rr.segmenter.filter(j => seg[j].L2 > 0);
+        S.forEach((j, k) => {
+          const Z = seg[j];
+          if (!Z.avst) return;
+          const kasse = { Z, forran: k > 0 && !!seg[S[k - 1]].avst, etter: k + 1 < S.length && !!seg[S[k + 1]].avst };
+          for (let i = Math.floor((Math.min(Z.ax, Z.bx) - MAKS_UT) / RUTE); i <= Math.floor((Math.max(Z.ax, Z.bx) + MAKS_UT) / RUTE); i++) {
+            for (let n = Math.floor((Math.min(Z.ay, Z.by) - MAKS_UT) / RUTE); n <= Math.floor((Math.max(Z.ay, Z.by) + MAKS_UT) / RUTE); n++) {
+              const kk = nokkel(i, n);
+              if (!nett.has(kk)) nett.set(kk, []);
+              nett.get(kk).push(kasse);
+            }
+          }
+        });
+      }
+      const ut = { t: 0 };
+      ror.forEach((rr, r) => {
+        for (const q of stasjoner(rr, seg)) {
+          const s1 = seg[q.j];
+          if (s1.avst || !(s1.L2 > 0)) continue;
+          const t1 = Math.min(1, q.t + STEG / Math.sqrt(s1.L2)), tm = (q.t + t1) / 2;
+          if (!(t1 > q.t)) continue;
+          const mx = s1.ax + s1.dx * tm, my = s1.ay + s1.dy * tm, u = rr.retning[s1.i];
+          const kasser = nett.get(nokkel(Math.floor(mx / RUTE), Math.floor(my / RUTE)));
+          if (!kasser) continue;
+          let Tm;
+          for (const { Z, forran, etter } of kasser) {
+            if (Z.r === r || Z.gruppe !== s1.gruppe || avstandTil(Z, mx, my) > MAKS_UT) continue;
+            const t0 = ((mx - Z.ax) * Z.dx + (my - Z.ay) * Z.dy) / Z.L2;
+            if ((t0 < 0 && !forran) || (t0 > 1 && !etter)) continue;
+            const uz = ror[Z.r].retning[Z.i];
+            if (Math.abs(u.x * uz.x + u.y * uz.y) < LANGS) continue;
+            // over et hull i terrenget: stasjonens terreng, som `meterEier` bruker
+            if (Tm === undefined) { Tm = T(mx, my); if (!Number.isFinite(Tm)) Tm = T(q.x, q.y); }
+            if (!Number.isFinite(Tm)) break;
+            const sond = () => (sondert ? sondert(mx, my) : null);
+            if (grop(Z, mx, my, Tm, sond, ut, null, true) < Tm) langsKassa(s1, q.t, t1, Z.avst);
+          }
+        }
+      });
     }
     // 5. hvor langt hvert segment kan nå, og registeret over flisene
     let kappet = 0;
@@ -549,6 +653,49 @@ const Groft = (() => {
         }
       }
     }
+    /* ENDEN AV ET ANNET RØR INNE I DET SOM AVSTIVES – en T, eller en grein fra
+       en kum med kasse. Røret er sin egen grøft og beholder sidene sine, men
+       den runde enden går rundt på den andre siden av kassa og graver bak
+       veggen. Den delen – forbi enden – graver ikke i sonen til røret den står
+       i (se `avstivet`).
+       Inne er der bunnen til røret når veggen – ikke bare midt i kassa: en
+       grein som slutter 0,8 m fra aksen til en kasse på 1,2 m, gravde bak den.
+       Enden er også segmentene uten lengde ytterst (et dobbeltpunkt i enden,
+       vanlig i innmålte filer), og en ende på den flate bunnen i en felles
+       grøft hører til begge rørene der. Flisa enden står i, sier hvilke soner
+       og tverrstreker som kan nå den – her ble alle sonene prøvd for hver ende. */
+    for (let r = 0; r < ror.length; r++) {
+      const S = ror[r].segmenter;
+      if (!S.length) continue;
+      for (const [k0, steg, felt] of [[0, 1, 'endeA'], [S.length - 1, -1, 'endeB']]) {
+        // segmentene fra enden og inn til det første med lengde
+        const ende = [];
+        for (let k = k0; k >= 0 && k < S.length; k += steg) { ende.push(seg[S[k]]); if (seg[S[k]].L2 > 0) break; }
+        const inn = ende[ende.length - 1];
+        const x = steg > 0 ? seg[S[0]].ax : seg[S[S.length - 1]].bx, y = steg > 0 ? seg[S[0]].ay : seg[S[S.length - 1]].by;
+        const fl = register.get(nokkel(Math.floor(x / FLIS), Math.floor(y / FLIS)));
+        if (!fl || !fl.boks) continue;
+        const eiere = [];
+        for (const j of fl.boks) {
+          const Z = seg[j], z = Z.sone;
+          if (z.eier === r || Z.gruppe !== inn.gruppe || eiere.includes(z.eier)) continue;
+          if (Z.L2 > 0) {
+            const t = tPaa(Z, x, y);
+            if (t < z.fra - 1e-6 || t > z.til + 1e-6) continue;
+          }
+          if (avstandTil(Z, x, y) <= Z.w + inn.w + 1e-6) eiere.push(z.eier);
+        }
+        // på den flate bunnen mellom to rør i felles grøft: begge rørene der
+        for (const j of fl.segs) {
+          const V = seg[j];
+          if (!V.virtuell || V.gruppe !== inn.gruppe || V.ra === r || V.rb === r) continue;
+          const t = V.L2 > 0 ? ((x - V.ax) * V.dx + (y - V.ay) * V.dy) / V.L2 : 0;
+          if (t < 0 || t > 1 || avstandTil(V, x, y) > V.w + inn.w + 1e-6) continue;
+          for (const e of [V.ra, V.rb]) if (!eiere.includes(e)) eiere.push(e);
+        }
+        if (eiere.length) for (const sg of ende) sg[felt] = eiere;
+      }
+    }
     /* 6. DER RØRET GÅR INN I ELLER UT AV EN «EGEN GRØFT», fortsetter grøfta.
        Gruppene regnes hver for seg, og uten noe mer fikk begge gruppene sin
        runde ende der, den ene oppå den andre: 22 m³ for mye for en strekning
@@ -575,20 +722,6 @@ const Groft = (() => {
         }
       }
     }
-    /* Sonderingene slås opp for hver rute og hvert steg ut mot kanten, og hvert
-       oppslag går gjennom alle sonderingene: med 300 av dem tok grøfta 3 s.
-       Dybden endrer seg lite over en meter, så den slås opp én gang per meter. */
-    let sondert = null;
-    if (o.fjellSondert) {
-      const lager = new Map(), f = o.fjellSondert;
-      sondert = (x, y) => {
-        const i = Math.round(x), k = Math.round(y);
-        const n = (i + 4194304) * 16777216 + (k + 8388608);
-        let v = lager.get(n);
-        if (v === undefined) { v = f(i, k); lager.set(n, v); }
-        return v;
-      };
-    }
     return { ror, seg, register, rute, grupper, utenDimensjon, strekUtenTreff, sammenUtenTreff, sammenAldriNaer, kappet,
       sammenMed, terrengZ: T, sondert, mal: malFor(o.mal, null, null), faktorer: o.faktorer || {} };
   }
@@ -614,6 +747,7 @@ const Groft = (() => {
        yttersiden, og grøfta ble 3,4 % for stor. Utenfor er det rørenes egne
        groper som gjelder. */
     if (sg.virtuell && (t < 0 || t > 1)) return Infinity;
+    const t0 = t;   // uten kapping: forbi enden av røret, se `avstivet`
     if (t < 0) t = 0; else if (t > 1) t = 1;
     ut.t = t;
     const ex = x - sg.ax - sg.dx * t, ey = y - sg.ay - sg.dy * t;
@@ -624,7 +758,7 @@ const Groft = (() => {
     const nat = naturlig && sg.avst;
     const w = nat ? sg.wNat : sg.w, hel = nat ? sg.boksHel : sg.hel;
     if (d <= w) return zb;
-    if (!(hel > 0) || (!naturlig && boks && boks(sg))) return Infinity;
+    if (!(hel > 0) || (!naturlig && boks && boks(sg, t0))) return Infinity;
     let fd = sg.fjell;
     if (fd == null) fd = sondert();
     const zf = fd == null ? -Infinity : Tq - fd;
@@ -734,10 +868,15 @@ const Groft = (() => {
        til det andre, og kassa doblet grøftelengden. */
     const sammen = new Set(M.sammenMed[r]);
     const naar = new Set();
-    for (const j of fl ? fl.segs : []) {
+    /* Et avstivet segment er registrert med det kassa når, ikke med det den
+       naturlige gropa ville nådd – det står i sonen. Uten den fant ikke to rør
+       0,9 m fra hverandre langs en akse hverandre, og kassa og grøfta ble
+       talt to ganger. */
+    for (const j of fl ? (fl.boks ? fl.segs.concat(fl.boks) : fl.segs) : []) {
       const s2 = M.seg[j];
       if (s2.virtuell || s2.kum || s2.r === r || s2.gruppe !== sg.gruppe || sammen.has(s2.r) || naar.has(s2.r)) continue;
-      if (q.x < s2.x0 || q.x > s2.x1 || q.y < s2.y0 || q.y > s2.y1) continue;
+      const bb = s2.avst && s2.sone ? s2.sone : s2;
+      if (q.x < bb.x0 || q.x > bb.x1 || q.y < bb.y0 || q.y > bb.y1) continue;
       if (grop(s2, q.x, q.y, Tq, sondert, ut, null, true) < Tq) naar.add(s2.r);
     }
     const u = M.ror[r].retning[sg.i];

@@ -385,13 +385,14 @@ const GroftUI = {
     }
     innhold.querySelector('#gsLagre').onclick = () => {
       const les = (id, f) => Groft.klem(f, innhold.querySelector('#' + id).value);
-      /* Et tall som er skrevet, men ikke kan brukes, sies det fra om. Her ble
-         det byttet stille mot standarden: 0,2 m kassebredde ble 1,2 m. */
+      /* Et tall som er skrevet, men ikke kan brukes, sies det fra om – under
+         grensen og over den. Her ble det byttet stille: 0,2 m kassebredde ble
+         1,2 m, og 9 m ble 5. */
       const felt = [['gsHelning', 'helning'], ['gsBunntillegg', 'bunntillegg'], ['gsFundament', 'fundament'],
         ['gsOmfylling', 'omfylling'], ['gsFjell', 'fjell']].concat(avstiving.value === 'kasse' ? [['gsKassebredde', 'kassebredde']] : []);
       const feil = felt.find(([id, f]) => {
         const v = innhold.querySelector('#' + id).value.trim();
-        return v !== '' && Groft.klem(f, v) === null;
+        return v !== '' && (Groft.klem(f, v) === null || Number(v.replace(',', '.')) > Groft.GRENSER[f][1]);
       });
       if (feil) {
         const navn = innhold.querySelector(`label[for="${feil[0]}"]`).textContent;

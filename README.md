@@ -194,9 +194,12 @@ slik det var før graving.
   loddrett: kassa i kassebredden (standard 1,2 m innvendig, aldri smalere enn
   røret med arbeidsrom), spunten i bunnbredden. Ingen skråning fra samme grøft
   graver inn der den ellers ville skrånet – ikke enden av den åpne grøfta før
-  kassa, og ikke naboen i felles grøft; i felles grøft avstives hele grøfta.
-  Et rør som krysser eller ligger i en egen grøft ved siden av, er sin egen
-  grøft og beholder skråningen. Mengdene er meter grøft med kasse og
+  kassa, og ikke naboen i felles grøft; i felles grøft avstives hele grøfta,
+  og det gjør den også for et rør som går så tett langs kassa at det ligger i
+  samme grøft. Et rør som krysser eller ligger i en egen grøft ved siden av, er
+  sin egen grøft og beholder skråningen; ender det inne i kassa (en T, en grein
+  fra en kum med kasse), graver enden ikke bak veggen. Overlapper to
+  strekninger, går spunt foran kasse. Mengdene er meter grøft med kasse og
   spuntareal (to vegger fra terreng til gravebunn, eller til fjellet, der
   spunten stopper), telt én gang per meter grøft.
 * **Tallene:** kubikk per lag (graving løsmasse, sprengning, fundament,

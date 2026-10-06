@@ -11222,6 +11222,10 @@ const Nettlesertest = {
           && !document.getElementById('dialog').classList.contains('skjult')
           && /Ugyldig tall i «Kassebredde, innvendig»/.test(document.getElementById('statuslinje').textContent),
           document.getElementById('statuslinje').textContent);
+        document.getElementById('gsKassebredde').value = '9';
+        document.getElementById('gsLagre').click();
+        this.sjekk('  heller ikke en over grensen', App.P.ror.groft.strekninger.length === 0
+          && !document.getElementById('dialog').classList.contains('skjult'));
         document.getElementById('gsKassebredde').value = '1.4';
         document.getElementById('gsLagre').click();
         const st = () => App.P.ror.groft.strekninger[0];

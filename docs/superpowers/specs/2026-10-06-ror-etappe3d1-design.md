@@ -94,6 +94,13 @@ bunnbredden uten avstiving. I sonen graver ingen skråning fra samme grøft:
 ved siden av – er sin egen grøft og beholder skråningen. Skal den avstives,
 settes avstiving på den strekningen også.
 
+**Et rør som ender inne i det som avstives** – en T inn i kassa, eller en
+grein fra en kum med kasse – beholder sidene sine. Den runde enden graver
+likevel ikke rundt på den andre siden og bak veggen.
+- Inne er der bunnen til røret når veggen.
+- Enden tar med segmentene uten lengde ytterst, altså et dobbeltpunkt.
+- En ende på den flate bunnen i en felles grøft hører til begge rørene der.
+
 Formen på sonen:
 - langs strekningen er den et bånd som slutter rett av endene. Grøfta før
   kassa beholder dermed skråningen sin helt fram;
@@ -116,6 +123,14 @@ rekkevidde, så også yttersida dens står loddrett.
 - Har det ene røret kasse og det andre spunt, telles det som står på røret
   som har meteren.
 
+**Samme grøft uten «felles grøft»:** et rør som går langs kassa så tett at
+den naturlige gropa når det, ligger i samme grøft – slik meterne alt telles.
+Det avstives også, som i en felles grøft, og kassa telles én gang, på røret
+som har meteren.
+
+**Overlappende strekninger:** overlapper to strekninger, går spunt foran
+kasse, og den bredeste kassa gjelder – uansett rekkefølge.
+
 **Samme grøft eller ikke:** hvilke rør som ligger i samme grøft, avgjøres
 som om det ikke var noen avstiving. Kassa gjør veggene loddrette, men det er
 fortsatt den samme grøfta. Uten denne regelen nådde ingen av to rør side om
@@ -137,9 +152,9 @@ siden.
   den stopper;
 - står veggen i fjell hele veien opp, telles verken kasse eller spunt.
 
-**Dialogen** sier fra om et tall den ikke kan bruke, for eksempel en
-kassebredde under 0,3 m. Den lagrer ikke, og tallet byttes ikke stille mot
-standarden.
+**Dialogen** sier fra om et tall den ikke kan bruke – under eller over
+grensene, for eksempel en kassebredde under 0,3 m eller over 5 m. Den lagrer
+ikke, og tallet byttes ikke stille mot standarden eller grensen.
 
 **Mengdene står** i:
 - grøftesummen (`kasseLengde`, `spuntAreal`);
@@ -162,8 +177,16 @@ valideres i `_rettGroft`. Ukjente verdier faller bort.
   - en nabo i felles grøft står loddrett også på yttersida, og kassa telles
     én gang;
   - en nabo som bøyer av, får kassa bare der den går langs;
-  - to rør i samme grøft uten «felles grøft»: kassa på det grunne telles
-    der, og én gang også når begge har kasse;
+  - to rør i samme grøft uten «felles grøft»: kassa telles én gang, på det
+    som har meteren; det andre skråner ikke bak veggen; også langs en akse og
+    over en flisgrense;
+  - en T og en grein fra en kum med kasse graver ikke bak veggen – heller
+    ikke når greinen slutter like ved veggen, har et dobbeltpunkt i enden
+    eller slutter på bunnen i en felles grøft;
+  - naboen over en linje i rutenettet (30 m), begge retninger;
+  - en skjøt midt i naboens meter gir samme sone uansett retning;
+  - naboen tegnet den andre veien gir samme grøft;
+  - overlappende strekninger gir samme svar i begge rekkefølger;
   - yttersida av naboens hjørne er med i sonen;
   - det som ikke hører til grøfta, er urørt: en egen grøft ved siden av, og
     et rør som slutter like ved;
