@@ -44,18 +44,19 @@ const Rorlengde = (() => {
   function striper(p, flate) {
     const L = Math.max(p.lengde, 1);
     let N = LENGDESKALA.find(n => L * 1000 / n <= flate.b);
-    const deler = [];
-    if (N) deler.push([0, L]);
+    let deler;
+    if (N) deler = [[0, L]];
     else {
       N = LENGDESKALA[LENGDESKALA.length - 1];
-      const bit = flate.b * N / 1000;
-      for (let s = 0; s < L - 1e-6; s += bit) deler.push([s, Math.min(L, s + bit)]);
+      // like lange biter – ikke en full stripe og en stump på én meter
+      const n = Math.ceil(L / (flate.b * N / 1000)), bit = L / n;
+      deler = Array.from({ length: n }, (_, i) => [i * bit, i === n - 1 ? L : (i + 1) * bit]);
     }
     return deler.map(([fra, til]) => {
       let zMin = Infinity, zMaks = -Infinity;
       for (const liste of [p.terreng, p.topp, p.bunn]) {
-        for (const q of liste) {
-          if (q.s < fra - 1e-9 || q.s > til + 1e-9 || !Number.isFinite(q.z)) continue;
+        for (const q of medKant(liste, fra, til)) {
+          if (!Number.isFinite(q.z)) continue;
           zMin = Math.min(zMin, q.z); zMaks = Math.max(zMaks, q.z);
         }
       }
@@ -64,9 +65,52 @@ const Rorlengde = (() => {
       zMin -= 0.5; zMaks += 0.5;
       let i = HOYDESKALA.findIndex(n => n >= N / 10);
       if (i < 0) i = HOYDESKALA.length - 1;
-      while (i < HOYDESKALA.length - 1 && (zMaks - zMin) * 1000 / HOYDESKALA[i] > flate.h) i++;
-      return { fra, til, N, Nv: HOYDESKALA[i], zMin, zMaks };
+      /* ALDRI MINDRE MÅLESTOKK I HØYDEN ENN I LENGDEN: en bratt profil ble
+         «1:200, høyde 1:500 (0× overdrevet)». */
+      while (i < HOYDESKALA.length - 1 && HOYDESKALA[i + 1] <= N && (zMaks - zMin) * 1000 / HOYDESKALA[i] > flate.h) i++;
+      const Nv = HOYDESKALA[i];
+      /* Får høydeforskjellen likevel ikke plass, vises stykket rundt røret –
+         resten klippes, og aksen merker bare det som står i rammen. */
+      const plass = flate.h * Nv / 1000;
+      if (zMaks - zMin > plass) {
+        const ror = medKant(p.topp, fra, til).concat(medKant(p.bunn, fra, til)).map(q => q.z).filter(Number.isFinite);
+        const midt = ror.length ? (Math.min(...ror) + Math.max(...ror)) / 2 : (zMin + zMaks) / 2;
+        zMin = midt - plass / 2; zMaks = midt + plass / 2;
+      }
+      return { fra, til, N, Nv, zMin, zMaks };
     });
+  }
+
+  /**
+   * Punktene i lista som ligger i stripa – med et punkt lagt inn på hver kant.
+   * En stripe begynner og slutter gjerne midt mellom to punkt, og uten kantene
+   * manglet røret fra det siste punktet før kanten: et rør på 2 km med knekk
+   * hver 500. m sto uten rør i hele den andre stripa.
+   */
+  function medKant(liste, fra, til) {
+    const ut = liste.filter(q => q.s > fra + 1e-9 && q.s < til - 1e-9);
+    const a = verdiVed(liste, fra), b = verdiVed(liste, til);
+    if (Number.isFinite(a)) ut.unshift({ s: fra, z: a });
+    if (Number.isFinite(b)) ut.push({ s: til, z: b });
+    return ut;
+  }
+
+  // desimalene et steg trenger: 2,5 er ikke «3», og 0,25 ikke «0,3»
+  const desimaler = v => (Math.abs(v * 10 - Math.round(v * 10)) > 1e-9 ? 2 : Math.abs(v - Math.round(v)) > 1e-9 ? 1 : 0);
+
+  /**
+   * Stasjonene i tallbåndet. Endene og kummene først – det er der tallene
+   * trengs mest – og så stegene der det er plass til dem. Her vant stasjonen
+   * som kom først: ved 20 m sto 20, og kummen på 20,5 ble borte.
+   * @param {number} mmPerM  millimeter på papiret per meter langs røret
+   */
+  function bandstasjoner(p, st, sSteg, mmPerM, minst = 11) {
+    const ut = [];
+    const ledig = s => ut.every(x => Math.abs(x - s) * mmPerM >= minst);
+    const kummer = (p.kummer || []).map(k => k.s).filter(s => s >= st.fra - 1e-9 && s <= st.til + 1e-9);
+    for (const s of [st.fra, st.til].concat(kummer.sort((a, b) => a - b))) if (ledig(s)) ut.push(s);
+    for (let s = Math.ceil(st.fra / sSteg - 1e-9) * sSteg; s <= st.til + 1e-9; s += sSteg) if (ledig(s)) ut.push(s);
+    return ut.sort((a, b) => a - b);
   }
 
   /** Et rundt steg for et spenn: 1, 2, 2,5 eller 5 ganger en tierpotens, så det blir om lag `antall` steg. */
@@ -93,10 +137,12 @@ const Rorlengde = (() => {
     const del = o.deler > 1 ? ` · del ${o.del} av ${o.deler}` : '';
     const navn = `${p.kode} · ${p.nr}`;
     P.tekst(pt(boks.x), pt(boks.y + 5), navn, { storrelse: 10, fet: true });
-    const fall = p.fall ? ` · fall ${tall(p.fall.min, 1)}–${tall(p.fall.maks, 1)} ‰` : '';
+    // fallet i fallretningen – motfall står som minus, og sies
+    const fall = p.fall ? ` · fall ${tall(p.fall.min, 1)}–${tall(p.fall.maks, 1)} ‰${p.fall.min < 0 ? ' (motfall)' : ''}` : '';
+    const overdrevet = st.N / st.Nv > 1 + 1e-9 ? `${tall(st.N / st.Nv, desimaler(st.N / st.Nv))}× overdrevet` : 'ikke overdrevet';
     P.tekst(pt(boks.x) + P.bredteAv(navn, 10, true) + pt(3), pt(boks.y + 5),
       `${tall(p.lengde, 1)} m · ${p.kilde === 'planlagt' ? 'planlagt' : 'innmålt'}${fall}${del}`
-      + ` · lengde 1:${st.N}, høyde 1:${st.Nv} (${tall(st.N / st.Nv, 0)}× overdrevet)`, { storrelse: 7.5, farge: SVAK });
+      + ` · lengde 1:${st.N}, høyde 1:${st.Nv} (${overdrevet})`, { storrelse: 7.5, farge: SVAK });
     // ---- rutenettet: høydene til venstre, stasjonene langs bunnen
     const zSteg = steg(st.zMaks - st.zMin, 6);
     const sSteg = steg(Math.max(1, st.til - st.fra), Math.max(2, Math.floor(T.b / 18)));
@@ -108,7 +154,7 @@ const Rorlengde = (() => {
         P.linje(pt(xAv(s)), pt(T.y), pt(xAv(s)), pt(T.y + T.h), { farge: RUTE, tykkelse: pt(0.1) });
       }
       // ---- røret: fylt mellom topp og bunn innvendig, i sin farge
-      const bit = liste => liste.filter(q => q.s >= st.fra - 1e-9 && q.s <= st.til + 1e-9 && Number.isFinite(q.z));
+      const bit = liste => medKant(liste, st.fra, st.til).filter(q => Number.isFinite(q.z));
       const t = bit(p.topp), b = bit(p.bunn);
       if (t.length > 1 && b.length > 1) {
         const lys = p.farge.map(v => v + (1 - v) * 0.6);
@@ -118,8 +164,7 @@ const Rorlengde = (() => {
       // ---- terrenget, med brudd der modellen mangler data
       let bue = [];
       const tegnBue = () => { if (bue.length > 1) P.sti(bue, { farge: TERRENG, tykkelse: pt(0.35) }); bue = []; };
-      for (const q of p.terreng) {
-        if (q.s < st.fra - 1e-9 || q.s > st.til + 1e-9) continue;
+      for (const q of medKant(p.terreng, st.fra, st.til)) {
         if (!Number.isFinite(q.z)) { tegnBue(); continue; }
         bue.push([pt(xAv(q.s)), pt(yAv(q.z))]);
       }
@@ -134,8 +179,10 @@ const Rorlengde = (() => {
       }
     });
     P.rektangel(pt(T.x), pt(T.y), pt(T.b), pt(T.h), { strek: SVAK, tykkelse: pt(0.2) });
+    // bare høydene som står i rammen
     for (let z = Math.ceil(st.zMin / zSteg) * zSteg; z <= st.zMaks + 1e-9; z += zSteg) {
-      P.tekst(pt(T.x - 1.5), pt(yAv(z) + 1), tall(z, zSteg < 1 ? 1 : 0), { storrelse: 6.5, farge: SVAK, juster: 'h' });
+      if (yAv(z) < T.y - 0.1 || yAv(z) > T.y + T.h + 0.1) continue;
+      P.tekst(pt(T.x - 1.5), pt(yAv(z) + 1), tall(z, desimaler(zSteg)), { storrelse: 6.5, farge: SVAK, juster: 'h' });
     }
     // ---- tallbåndet: profil, terreng, topp, bunn, overdekning
     const raderNavn = ['Profil', 'Terreng', 'Topp rør', 'Bunn innv.', 'Overdekning'];
@@ -144,16 +191,7 @@ const Rorlengde = (() => {
       P.tekst(pt(boks.x), pt(by + rad * i + 3.6), n, { storrelse: 6.5, fet: i === 0, farge: i === 0 ? SVART : SVAK });
       P.linje(pt(boks.x), pt(by + rad * (i + 1)), pt(T.x + T.b), pt(by + rad * (i + 1)), { farge: RUTE, tykkelse: pt(0.1) });
     });
-    /* Stasjonene i båndet: stegene, endene og kummene – men aldri så tett at
-       tallene går i hverandre. En stasjon for nær den forrige hoppes over. */
-    const kandidater = [st.fra, st.til].concat((p.kummer || []).map(k => k.s).filter(s => s >= st.fra && s <= st.til));
-    for (let s = Math.ceil(st.fra / sSteg) * sSteg; s <= st.til + 1e-9; s += sSteg) kandidater.push(s);
-    const stasjoner = [];
-    for (const s of kandidater.sort((a, c) => a - c)) {
-      if (stasjoner.length && (xAv(s) - xAv(stasjoner[stasjoner.length - 1])) < 11) continue;
-      stasjoner.push(s);
-    }
-    for (const s of stasjoner) {
+    for (const s of bandstasjoner(p, st, sSteg, 1000 / st.N)) {
       const zt = verdiVed(p.terreng, s), zo = verdiVed(p.topp, s), zb = verdiVed(p.bunn, s);
       const x = pt(xAv(s));
       const verdier = [tall(s, s % 1 ? 1 : 0), tall(zt), tall(zo), tall(zb), tall(zt - zo)];
@@ -176,7 +214,7 @@ const Rorlengde = (() => {
   /** Tegneflaten i en boks – det `striper` skal få plass i. */
   const flateI = boks => ({ b: boks.b - 26, h: boks.h - 41 });
 
-  return { striper, tegnStripe, bokser, flateI, verdiVed, steg, LENGDESKALA, HOYDESKALA };
+  return { striper, tegnStripe, bokser, flateI, verdiVed, steg, medKant, bandstasjoner, LENGDESKALA, HOYDESKALA };
 })();
 
 if (typeof module !== 'undefined') module.exports = Rorlengde;

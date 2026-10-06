@@ -68,6 +68,31 @@ trenger begge deler.
     «Avbryt».
   - Prøver terrenget langs hvert rør og legger lengdeprofilene til.
 
+## Etter gjennomgangen
+
+- **Tallbåndet:**
+  - Endene og kummene settes først, og så stegene der det er plass,
+    minst 11 mm mellom dem.
+  - Står en kum nærmere enden enn det, vinner enden.
+- **Striper:**
+  - Et langt rør deles i like lange striper, og hver stripe har et punkt på
+    begge kantene. Røret, terrenget og høydene går dermed helt ut.
+  - Høyden står aldri i mindre målestokk enn lengden.
+  - Får høydeforskjellen ikke plass, vises stykket rundt røret, og aksen
+    merker bare det som står i rammen.
+  - Aksens desimaler følger steget.
+- **Terrengflisene langs rørene** tas med et rektangel per bit på høyst
+  16 m, så en flis røret bare snitter i hjørnet, også kommer med.
+- **Tak og avbryt:**
+  - Et kart som trenger mer enn 100 fliser (256 × 256 m), får ingen koter,
+    og det står i kartet.
+  - Lengdeprofilene til sammen har et tak på 400 fliser.
+  - «Avbryt» og framdriften per flis gjelder også terrenget.
+- **Nummer** får bare rørene som har høyder, altså de som får en profil.
+- **Fallet** på et tegnet selvfallsrør står i fallretningen. Motfall er
+  minus og sies.
+- **Statuslinja** sier hvor mange terrengfliser som manglet.
+
 ## Prøver
 
 - **Koter (selvtesten):**

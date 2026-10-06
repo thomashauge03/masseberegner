@@ -4404,6 +4404,31 @@ console.log('\n6c. Avlesning av PDF');
       paastand('kotene for et utsnitt: ekvidistanse og linjer', !!lk && lk.ekvidistanse === 1 && lk.linjer.length >= 4,
         lk ? `${lk.ekvidistanse} m, ${lk.linjer.length} linjer` : 'ingen');
       paastand('uten terreng: ingen koter', Rorkart.lagKoter({ N: 1000, x0: 0, y0: 0, x1: 100, y1: 80 }, () => NaN) === null);
+      /* Sadelen: to høye hjørner på skrå. Over midten (nivå 0,4) henger de høye
+         sammen, og kota går rundt de lave hjørnene: fra bunnkanten ved 0,6 til
+         høyrekanten ved 0,4 – ikke til venstrekanten. */
+      const sadel = Rorkart.koter({ x0: 0, y0: 0, steg: 1, nx: 2, ny: 2, z: [1, 0, 0, 1] }, 0.4);
+      const nær = (p, x, y) => Math.abs(p[0] - x) < 1e-4 && Math.abs(p[1] - y) < 1e-4;
+      const bit = sadel.find(k => k.punkter.some(p => nær(p, 0.6, 0)));
+      paastand('en sadel løses ved midten: kota fra bunnkanten går til høyrekanten', !!bit && bit.punkter.some(p => nær(p, 1, 0.4))
+        && !bit.punkter.some(p => nær(p, 0, 0.6)), JSON.stringify(sadel.map(k => k.punkter)));
+      // en U: kjedingen går begge veier fra der den begynner, så hver kote er én linje
+      const u = Rorkart.koter(rutenett((x, y) => y - (x - 30) * (x - 30) / 20, 61, 1), 2);
+      const perNiva = new Map();
+      for (const k of u) perNiva.set(k.niva, (perNiva.get(k.niva) || 0) + 1);
+      // nivå under 0 går ut gjennom bunnen av rutenettet og er to buer – fra 0 og opp ligger hele U-en inne
+      paastand('en U-formet kote er én linje, ikke to', [...perNiva].filter(([n]) => n >= 0).every(([, a]) => a === 1), JSON.stringify([...perNiva]));
+    }
+    // terrengflisene langs et rør: også den det bare snitter i hjørnet
+    paastand('flisene langs et rør tar med en flis det bare snitter i hjørnet',
+      Rorkart.flisnokler([{ xy: [{ x: 512250, y: 6600422 }, { x: 512262, y: 6600454 }] }]).has('2001_25782'));
+    sjekk('fliser for et utsnitt: 600 × 300 m gir 3 × 2', Rorkart.fliserFor({ x0: 512000, y0: 6600000, x1: 512600, y1: 6600300 }), 6, 0);
+    // nummer bare på rørene som slipper gjennom
+    {
+      const d = { koder: { A: { system: 'vann', dim: 110 } }, linjer: [{ kode: 'A', lengde: 50 }, { kode: 'A', lengde: 80, uten: true }, { kode: 'A', lengde: 20 }] };
+      const n = Rorkart.nummerer(d, ['A'], l => !l.uten);
+      paastand('numrene går bare til rørene med høyder', n === 2 && d.linjer[0].nr === 1 && d.linjer[1].nr == null && d.linjer[2].nr === 2,
+        JSON.stringify(d.linjer.map(l => l.nr)));
     }
 
     /* LENGDEPROFILENE. Målestokken fra rekka, et langt rør delt, og tallbåndet
@@ -4421,6 +4446,22 @@ console.log('\n6c. Avlesning av PDF');
         && sl[0].fra === 0 && Math.abs(sl[0].til - sl[1].fra) < 1e-9 && sl[1].til === 3000, JSON.stringify(sl.map(x => [x.fra, x.til])));
       const bratt = Object.assign({}, kort, { terreng: [{ s: 0, z: 40 }, { s: 100, z: 22 }] });
       paastand('stor høydeforskjell: mindre overdrevet, så den får plass', Rorlengde.striper(bratt, flate)[0].Nv > 50);
+      // aldri mindre målestokk i høyden enn i lengden – «0× overdrevet»
+      const stup = { lengde: 60, terreng: [{ s: 0, z: 100 }, { s: 60, z: 160 }], topp: [{ s: 0, z: 98 }, { s: 60, z: 158 }], bunn: [{ s: 0, z: 97.9 }, { s: 60, z: 157.9 }] };
+      const ss = Rorlengde.striper(stup, flate)[0];
+      paastand('en bratt profil: høyden aldri i mindre målestokk enn lengden', ss.Nv <= ss.N, `1:${ss.N} / 1:${ss.Nv}`);
+      // et langt rør delt der stripa begynner midt mellom to punkt: røret står i begge stripene
+      const toKm = { lengde: 2400, terreng: [{ s: 0, z: 22 }, { s: 2400, z: 22 }], topp: [{ s: 0, z: 20 }, { s: 1000, z: 19 }, { s: 2400, z: 18 }],
+        bunn: [{ s: 0, z: 19.9 }, { s: 1000, z: 18.9 }, { s: 2400, z: 17.9 }] };
+      const s2 = Rorlengde.striper(toKm, flate);
+      paastand('et langt rør deles i like lange striper', s2.length === 2 && Math.abs((s2[0].til - s2[0].fra) - (s2[1].til - s2[1].fra)) < 1e-9);
+      paastand('  og røret står i begge – med et punkt på kanten der stripa begynner', s2.every(x => Rorlengde.medKant(toKm.topp, x.fra, x.til).length >= 2)
+        && Math.abs(Rorlengde.medKant(toKm.topp, s2[1].fra, s2[1].til)[0].z - (19 - (s2[1].fra - 1000) / 1400)) < 1e-9);
+      // tallbåndet: endene og kummene først, så stegene der det er plass – aldri tettere enn 11 mm
+      // en kum 3 m fra enden får ikke plass ved siden av den i 1:500 (6 mm) – enden vinner; 6 m (12 mm) holder
+      const bs = Rorlengde.bandstasjoner({ kummer: [{ s: 20.5 }, { s: 94 }] }, { fra: 0, til: 100 }, 10, 2);
+      paastand('båndet har endene og kummene, også der et steg står nær', [0, 20.5, 94, 100].every(s => bs.includes(s))
+        && bs.every((s, i) => !i || (s - bs[i - 1]) * 2 >= 11 - 1e-9), JSON.stringify(bs));
       // en hel PDF med kart, koter, nummer og to profiler
       const dataP = JSON.parse(JSON.stringify(data));
       const n = Rorkart.nummerer(dataP, ['SP 160PE', 'VL 110PE']);
@@ -4450,6 +4491,23 @@ console.log('\n6c. Avlesning av PDF');
         .every(t => prof.includes(t)));
       paastand('  overdekningen er terreng minus topp: 2,00 i start, 3,00 i slutten', prof.includes('(2,00)') && prof.includes('(3,00)'));
       paastand('kummen står i profilen', prof.includes('(Kum k1)'));
+      // hver femte kote er tykk – de andre tynne
+      const kt = sidene[0].koter, femte = kt.linjer.filter(k => Math.abs(Math.round(k.niva / kt.ekvidistanse)) % 5 === 0).length;
+      const tykke = (kartdel(sP[0]).match(/0\.6 0\.42 0\.24 RG 0\.71 w/g) || []).length;
+      const tynne = (kartdel(sP[0]).match(/0\.6 0\.42 0\.24 RG 0\.34 w/g) || []).length;
+      paastand('hver femte kote er tykkere', femte > 0 && tykke === femte && tynne === kt.linjer.length - femte,
+        `${tykke} tykke, ${tynne} tynne, ${femte} av ${kt.linjer.length} er femte`);
+      // høydeaksen: et steg på 2,5 m skrives med desimalen, ikke rundet til 103
+      const hoy = { nr: 1, kode: 'SP 160PE', kilde: 'innmalt', dim: 160, lengde: 100, farge: [0, 0, 0], kummer: [], fall: null,
+        terreng: [{ s: 0, z: 100 }, { s: 100, z: 110 }], topp: [{ s: 0, z: 98 }, { s: 100, z: 108 }], bunn: [{ s: 0, z: 97.9 }, { s: 100, z: 107.9 }] };
+      const Pa = new (require(path.join(__dirname, '..', 'public', 'js', 'pdfeksport.js')).PdfSkriver)();
+      Pa.nySide();
+      const stH = Rorlengde.striper(hoy, flate)[0];
+      Rorlengde.tegnStripe(Pa, hoy, stH, boks);
+      const akse = Pa.side.deler.join('\n');
+      // 102,5 rundet til en heltallsetikett ble «103»
+      paastand('høydeaksen med 2,5 m steg har desimalen', /\(\d+,5\) Tj/.test(akse) && !/\((103|108)\) Tj/.test(akse),
+        (akse.match(/\(\d+(,\d+)?\) Tj/g) || []).slice(0, 8).join(' '));
       paastand('sidetallet teller profilsidene med', prof.includes('side 2 av 2') && sP[0].includes('side 1 av 2'));
     }
 

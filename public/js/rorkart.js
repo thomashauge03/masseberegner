@@ -329,6 +329,39 @@ const Rorkart = (() => {
     return { ekvidistanse: ekv, linjer: koter(r, ekv, { toleranse: 0.2 * u.N / 1000 }) };
   }
 
+  /**
+   * Terrengflisene langs rørene: for hver bit på høyst 16 m tas alle flisene
+   * i rektangelet rundt biten, med `marg` meter til hver side. Prøvepunkt hver
+   * 50. meter gikk glipp av en flis et rør bare snitter i hjørnet – samme feil
+   * som `korridorFliser` i terreng.js beskriver – og røret fikk et hull uten
+   * terreng der.
+   * @returns {Set<string>} nøkler «tx_ty», som Terreng.nøkkel
+   */
+  function flisnokler(linjer, flisM = 256, marg = 3) {
+    const ut = new Set();
+    for (const l of linjer) {
+      for (let i = 0; i + 1 < l.xy.length; i++) {
+        const a = l.xy[i], b = l.xy[i + 1];
+        const n = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / 16));
+        for (let k = 0; k < n; k++) {
+          const p = { x: a.x + (b.x - a.x) * k / n, y: a.y + (b.y - a.y) * k / n };
+          const q = { x: a.x + (b.x - a.x) * (k + 1) / n, y: a.y + (b.y - a.y) * (k + 1) / n };
+          for (let tx = Math.floor((Math.min(p.x, q.x) - marg) / flisM); tx <= Math.floor((Math.max(p.x, q.x) + marg) / flisM); tx++) {
+            for (let ty = Math.floor((Math.min(p.y, q.y) - marg) / flisM); ty <= Math.floor((Math.max(p.y, q.y) + marg) / flisM); ty++) {
+              ut.add(tx + '_' + ty);
+            }
+          }
+        }
+      }
+    }
+    return ut;
+  }
+
+  /** Antall terrengfliser et utsnitt trenger – kotene tegnes ikke når det er flere enn taket. */
+  function fliserFor(u, flisM = 256) {
+    return (Math.floor(u.x1 / flisM) - Math.floor(u.x0 / flisM) + 1) * (Math.floor(u.y1 / flisM) - Math.floor(u.y0 / flisM) + 1);
+  }
+
   /* ---------------- sidene ---------------- */
 
   const PAPIR = {
@@ -495,8 +528,8 @@ const Rorkart = (() => {
     /* Det som mangler, står i kartet – også når bare noen fliser ble borte.
        Hvite ruter i bakgrunnen uten et ord ser ut som et kart med hull i
        terrenget. */
-    const notis = !bakgrunn ? o.merknad
-      : bakgrunn.mangler ? `${bakgrunn.mangler} av ${bakgrunn.av} fliser i bakgrunnskartet manglet` : null;
+    const notis = [!bakgrunn ? o.merknad : bakgrunn.mangler ? `${bakgrunn.mangler} av ${bakgrunn.av} fliser i bakgrunnskartet manglet` : null,
+      side.koterMerknad || null].filter(Boolean).join(' · ') || null;
     if (notis) {
       P.rektangel(pt(K.x + 1.5), pt(K.y + K.h - 6.2), P.bredteAv(notis, 7) + pt(3), pt(4.6), { fyll: [1, 1, 1] });
       P.tekst(pt(K.x + 3), pt(K.y + K.h - 3), notis, { storrelse: 7, farge: SVAK });
@@ -656,11 +689,11 @@ const Rorkart = (() => {
    * tegnforklaringens rekkefølge, det lengste røret først innenfor hver.
    * Setter `nr` på linjene og gir antallet.
    */
-  function nummerer(data, koder) {
+  function nummerer(data, koder, med = () => true) {
     const farger = fargetabell(kodeinfo(data));
     const orden = k => { const f = farger.get(k); return f ? [Object.keys(FAMILIER).indexOf(f.system), f.nr] : [99, 0]; };
     const valgte = new Set(koder || []);
-    const liste = data.linjer.filter(l => valgte.has(l.kode)).sort((a, b) => {
+    const liste = data.linjer.filter(l => valgte.has(l.kode) && med(l)).sort((a, b) => {
       const oa = orden(a.kode), ob = orden(b.kode);
       return oa[0] - ob[0] || oa[1] - ob[1] || (b.lengde || 0) - (a.lengde || 0);
     });
@@ -681,7 +714,8 @@ const Rorkart = (() => {
   }
 
   return { MM, FAMILIER, MALESTOKKER, EKVIDISTANSER, fargetabell, utsnitt, tilPapir, flisplan, oppsett, sider, tegnSide, lagPdf,
-    kodeinfo, omKode, rundtTall, tykkelse, velgEkvidistanse, terrengOpplosning, koter, forenkle, lagKoter, nummerer, midtpaa };
+    kodeinfo, omKode, rundtTall, tykkelse, velgEkvidistanse, terrengOpplosning, koter, forenkle, lagKoter, nummerer, midtpaa,
+    flisnokler, fliserFor };
 })();
 
 if (typeof module !== 'undefined') module.exports = Rorkart;

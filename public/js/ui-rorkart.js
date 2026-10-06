@@ -9,6 +9,9 @@
  */
 const RorkartUI = {
   app: null,
+  /** Flest terrengfliser (256 × 256 m) et kart får koter for, og alle profilene til sammen. */
+  KOTETAK: 100,
+  PROFILTAK: 400,
 
   init(app) {
     this.app = app;
@@ -74,7 +77,7 @@ const RorkartUI = {
         const linje = { kode: l.kode, kilde: plan ? 'planlagt' : 'innmalt', xy: l.xy,
           lengde: Number.isFinite(l.lengde) ? l.lengde : lengdeAv(l.xy), dim: +k.dim || 0, anlegg: a.id, ror: l.id,
           // høydene (topp rør) og det som trengs til bunnen – til lengdeprofilene
-          punkter: l.punkter || null, kodeinfo: k, regel: l.plan ? l.plan.regel : null };
+          punkter: l.punkter || null, kodeinfo: k, regel: l.plan ? l.plan.regel : null, motsatt: !!(l.plan && l.plan.motsatt) };
         linjer.push(linje);
         egne.push(linje);
         if (!koder[l.kode]) koder[l.kode] = { system: k.system || '', dim: +k.dim || 0 };
@@ -283,22 +286,6 @@ const RorkartUI = {
     }
   },
 
-  /** Terrengflisene langs rørene – hver 50. meter og tre meter til hver side. */
-  _flisnoklerLangs(linjer, m) {
-    const ut = new Set();
-    for (const l of linjer) {
-      for (let i = 0; i + 1 < l.xy.length; i++) {
-        const a = l.xy[i], b = l.xy[i + 1];
-        const n = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / 50));
-        for (let k = 0; k <= n; k++) {
-          const x = a.x + (b.x - a.x) * k / n, y = a.y + (b.y - a.y) * k / n;
-          for (const dx of [-3, 3]) for (const dy of [-3, 3]) ut.add(m.nøkkel(Math.floor((x + dx) / FLIS_M), Math.floor((y + dy) / FLIS_M)));
-        }
-      }
-    }
-    return ut;
-  },
-
   /**
    * Lengdeprofilene: for hvert nummererte rør med høyder – stasjonene, topp og
    * bunn innvendig i punktene, terrenget prøvd langs røret, og kummene der de
@@ -326,7 +313,8 @@ const RorkartUI = {
         return { x: l.xy[i - 1].x + (l.xy[i].x - l.xy[i - 1].x) * u, y: l.xy[i - 1].y + (l.xy[i].y - l.xy[i - 1].y) * u };
       };
       const terreng = [];
-      const dS = Math.max(0.5, L / 600);
+      // hver halve til annenhver meter – en lang ledning får ikke fem meter mellom prøvene
+      const dS = Math.max(0.5, Math.min(2, L / 600));
       for (let sv = 0; sv < L; sv += dS) { const q = ved(sv); terreng.push({ s: sv, z: m.z(q.x, q.y) }); }
       const qL = ved(L);
       terreng.push({ s: L, z: m.z(qL.x, qL.y) });
@@ -341,13 +329,16 @@ const RorkartUI = {
         }
         return { s: best, navn: k.navn || '' };
       });
-      // fallet på et tegnet selvfallsrør, mellom punktene langs røret
+      /* Fallet på et tegnet selvfallsrør, mellom punktene langs røret, I
+         FALLRETNINGEN: et stykke som går oppover, er motfall og står som minus.
+         Her sto tallverdien, og 98 → 98,3 ble «fall 10–20 ‰». */
       let fall = null;
       if (l.kilde === 'planlagt' && l.regel === 'selvfall') {
         const f = [];
         for (let i = 1; i < bunn.length; i++) {
           const d = bunn[i].s - bunn[i - 1].s;
-          if (d > 0.5) f.push(1000 * Math.abs(bunn[i - 1].z - bunn[i].z) / d);
+          const ned = (bunn[i - 1].z - bunn[i].z) * (l.motsatt ? -1 : 1);
+          if (d > 0.5) f.push(1000 * ned / d);
         }
         if (f.length) fall = { min: Math.min(...f), maks: Math.max(...f) };
       }
@@ -375,8 +366,9 @@ const RorkartUI = {
       const sidene = Rorkart.sider(data, valg);
       const bakgrunner = new Map();
       let mangler = 0, feilet = false;
+      // «Avbryt» når noe hentes over nettet – bakgrunnen eller terrenget
+      if (knapp && (valg.bakgrunn || valg.koter || valg.profiler)) { knapp.classList.remove('skjult'); knapp.onclick = () => avbryt.abort(); }
       if (valg.bakgrunn) {
-        if (knapp) { knapp.classList.remove('skjult'); knapp.onclick = () => avbryt.abort(); }
         for (let i = 0; i < sidene.length && !avbryt.signal.aborted; i++) {
           /* KOM IKKE BAKGRUNNEN FOR ÉN SIDE, PRØVES IKKE DE NESTE. Nettet som
              sviktet der, svikter for dem også, og hver side ville ventet hele
@@ -391,26 +383,50 @@ const RorkartUI = {
       /* TERRENGET: kotene for hvert kart, og høydene langs rørene til
          lengdeprofilene. Det hentes i egne terrengmodeller – appens egen røres
          ikke. */
-      let utenProfil = 0;
+      /* TERRENGET: kotene for hvert kart, og høydene langs rørene til
+         lengdeprofilene – i egne terrengmodeller; appens egen røres ikke.
+         MED TAK, FRAMDRIFT OG AVBRYT. To anlegg tretti kilometer fra
+         hverandre ga et samlekart i 1:100 000 og nesten 29 000 fliser med
+         programmet sperret bak framdriftsboksen. Et kart som trenger flere
+         fliser enn taket, får ingen koter, og det står i kartet. */
+      let utenProfil = 0, terrengHull = 0, utenKoter = 0, forLangt = false;
+      const stopp = new Error('avbrutt');
+      const teller = (tekst, fra, til) => (ferdig, totalt) => {
+        if (avbryt.signal.aborted) throw stopp;
+        app.framdrift(true, tekst, fra + (til - fra) * (totalt ? ferdig / totalt : 1));
+      };
       if ((valg.koter || valg.profiler) && !avbryt.signal.aborted) {
         const modeller = new Map();
         const modell = res => { if (!modeller.has(res)) modeller.set(res, new Terreng(data.sone, res)); return modeller.get(res); };
         if (valg.koter) {
           for (let i = 0; i < sidene.length && !avbryt.signal.aborted; i++) {
-            app.framdrift(true, `Henter terrenget til kart ${i + 1} av ${sidene.length}…`, 0.6 + 0.15 * i / sidene.length);
-            const u = sidene[i].utsnitt, res = Rorkart.terrengOpplosning(u.N), m = modell(res);
-            await m.lastOmraade([{ x: u.x0, y: u.y0 }, { x: u.x1, y: u.y0 }, { x: u.x1, y: u.y1 }, { x: u.x0, y: u.y1 }], 0);
+            const u = sidene[i].utsnitt;
+            if (Rorkart.fliserFor(u) > this.KOTETAK) {
+              sidene[i].koterMerknad = 'Høydekotene er ikke tegnet – kartet dekker et for stort område';
+              utenKoter++;
+              continue;
+            }
+            const res = Rorkart.terrengOpplosning(u.N), m = modell(res);
+            await m.lastOmraade([{ x: u.x0, y: u.y0 }, { x: u.x1, y: u.y0 }, { x: u.x1, y: u.y1 }, { x: u.x0, y: u.y1 }], 0,
+              teller(`Henter terrenget til kart ${i + 1} av ${sidene.length}…`, 0.6 + 0.15 * i / sidene.length, 0.6 + 0.15 * (i + 1) / sidene.length));
+            terrengHull += m.mangler.size;
             sidene[i].koter = Rorkart.lagKoter(u, (x, y) => m.z(x, y), { res });
           }
         }
         if (valg.profiler && !avbryt.signal.aborted) {
-          app.framdrift(true, 'Henter terrenget langs rørene…', 0.78);
-          const m = modell(1);
-          await m._lastFliser(this._flisnoklerLangs(data.linjer.filter(l => valg.koder.includes(l.kode)), m));
-          data = this.samle({ terreng: m });
-          const n = Rorkart.nummerer(data, valg.koder);
-          data.profiler = this.profiler(data, m);
-          utenProfil = n - data.profiler.length;
+          const nokler = Rorkart.flisnokler(data.linjer.filter(l => valg.koder.includes(l.kode)));
+          if (nokler.size > this.PROFILTAK) forLangt = true;
+          else {
+            const m = modell(1);
+            await m._lastFliser(nokler, teller('Henter terrenget langs rørene…', 0.76, 0.9));
+            terrengHull += m.mangler.size;
+            data = this.samle({ terreng: m });
+            // nummer bare på rørene som får en profil – de med høyder
+            const harHoyder = l => Array.isArray(l.punkter) && l.punkter.filter(p => Number.isFinite(p.z)).length >= 2;
+            Rorkart.nummerer(data, valg.koder, harHoyder);
+            data.profiler = this.profiler(data, m);
+            utenProfil = data.linjer.filter(l => valg.koder.includes(l.kode) && !harHoyder(l)).length;
+          }
         }
       }
       if (avbryt.signal.aborted) { app.status('Oversiktskartet ble avbrutt – ingen fil er laget'); return null; }
@@ -433,9 +449,13 @@ const RorkartUI = {
         + (mangler ? ` · bakgrunnskartet kunne ikke hentes for ${mangler} av ${sidene.length}` : '')
         + (hull ? ` · ${hull} fliser manglet i bakgrunnskartet` : '')
         + (data.profiler ? ` · ${data.profiler.length} lengdeprofiler` : '')
-        + (utenProfil ? ` · ${utenProfil} rør har ingen høyder og ingen profil` : ''));
+        + (utenProfil ? ` · ${utenProfil} rør har ingen høyder og ingen profil` : '')
+        + (utenKoter ? ` · ${utenKoter} kart dekker for mye til høydekoter` : '')
+        + (forLangt ? ' · rørene er for lange til lengdeprofiler i én fil – velg færre typer' : '')
+        + (terrengHull ? ` · ${terrengHull} terrengfliser manglet` : ''));
       return bytes;
     } catch (e) {
+      if (avbryt.signal.aborted) { app.status('Oversiktskartet ble avbrutt – ingen fil er laget'); return null; }
       app.status('Klarte ikke å lage oversiktskartet: ' + e.message);
       console.error(e);
       return null;

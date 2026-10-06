@@ -9276,6 +9276,19 @@ const Nettlesertest = {
           this.sjekk('profilen har tallbåndet med overdekningen', sT[1] && sT[1].includes('(Overdekning)') && sT[1].includes('(Terreng)'));
           this.sjekk('statuslinja teller profilene', /3 lengdeprofiler/.test(status), status);
           this.sjekk('appens terrengmodell er urørt', App.terreng === appTerreng);
+          // «Avbryt» også mens terrenget hentes – ikke bare bakgrunnskartet
+          Terreng.prototype._lastFliser = async function (trengs, framdrift) {
+            for (let i = 0; i < 400; i++) { await new Promise(r => setTimeout(r, 10)); if (framdrift) framdrift(i, 400); }
+            return { hentet: 0, mangler: 0 };
+          };
+          const igangT = RorkartUI.lag(Object.assign({}, valg, { bakgrunn: '', koter: false, profiler: true, perType: false }), false, RorkartUI.samle());
+          await this.vent(80);
+          const knappT = document.getElementById('framdriftAvbryt');
+          this.sjekk('«Avbryt» står der også når bare terrenget hentes', !knappT.classList.contains('skjult'));
+          knappT.click();
+          const svarT = await igangT;
+          this.sjekk('  og stopper terrenghentingen: ingen fil', svarT === null
+            && /avbrutt/.test(document.getElementById('statuslinje').textContent), document.getElementById('statuslinje').textContent);
         } finally {
           Terreng.prototype.lastOmraade = ekteOmraade; Terreng.prototype._lastFliser = ekteFliser; Terreng.prototype.z = flatZ;
         }
