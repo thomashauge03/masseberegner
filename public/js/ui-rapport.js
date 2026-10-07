@@ -2078,6 +2078,10 @@ ${tatt.map(x => x.bit.html).join('\n')}`;
       let sosiId = 1;
       const sosiOmr = { minN: Infinity, maksN: -Infinity, minO: Infinity, maksO: -Infinity };
       let sosiNiva = 2;
+      /* ÉN ENHET PER FIL. Innmålte rør gis ut i millimeter, slik de står i
+         innmålingsfila; er et innmålt røranlegg med, skrives hele fila i
+         millimeter, ellers i centimeter som før. */
+      const sosiEnhet = app.P.anlegg.some(a => a.type === 'ror' && a.ror && !a.ror.plan) ? 0.001 : 0.01;
 
       /* ÉN SONE PER FIL. Hodet sier ett koordinatsystem, så hvert anlegg må stå
          i det. Med bare rør i prosjektet følger regnesonen det aktive anlegget,
@@ -2119,9 +2123,9 @@ ${tatt.map(x => x.bit.html).join('\n')}`;
         }
         if (format === 'sosi') {
           const d = tomt
-            ? Eksport.sosiDelerTomt(a2, res, sosiId, anleggsnavn)
-            : ror ? RorEksport.sosiDeler(a2, res, sosiId, anleggsnavn)
-              : Eksport.sosiDelerVeg(a2, res, sosiId, anleggsnavn);
+            ? Eksport.sosiDelerTomt(a2, res, sosiId, anleggsnavn, sosiEnhet)
+            : ror ? RorEksport.sosiDeler(a2, res, sosiId, anleggsnavn, undefined, sosiEnhet)
+              : Eksport.sosiDelerVeg(a2, res, sosiId, anleggsnavn, sosiEnhet);
           sosiId = d.nesteId;
           sosiNiva = Math.max(sosiNiva, d.niva);
           sosiOmr.minN = Math.min(sosiOmr.minN, d.omr.minN);
@@ -2183,7 +2187,7 @@ ${tatt.map(x => x.bit.html).join('\n')}`;
         if (pkt.length) kropp.push(`  <CgPoints name="Kummer">\n${pkt.join('\n')}\n  </CgPoints>`);
         innhold = Eksport.landxmlDokument(hode, RorEksport.xmlKommentarer(notater) + kropp.join('\n'));
       } else if (format === 'sosi') {
-        const rader = Eksport.sosiHode(hode, sosiOmr, sosiNiva).concat(RorEksport.sosiKommentarer(notater));
+        const rader = Eksport.sosiHode(hode, sosiOmr, sosiNiva, sosiEnhet).concat(RorEksport.sosiKommentarer(notater));
         for (const t of tatt) for (const r of t.bit.rader) rader.push(r);
         rader.push('.SLUTT');
         innhold = rader.join('\r\n') + '\r\n';

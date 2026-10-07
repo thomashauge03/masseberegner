@@ -300,19 +300,24 @@ const RorEksport = (() => {
    * SOSI: en kurve per rør og høyde, og et punkt per kum. Katalogen er
    * programmets egen, som for veg og tomt – navnene later ikke som de er FKB.
    *
-   * INNMÅLTE RØR GIS UT SOM DE KOM INN. For et innmålt anlegg er SOSI-fila
-   * punktene fra innmålingen, rør for rør – koordinatene og høydene fra fila –
-   * og ikke noe programmet har regnet: ingen bunn innvendig (den kommer av
-   * dimensjonen), ingen gravebunn og ingen merknad om terrenget (de kommer av
-   * Kartverkets terreng). Det er innmålingen som leveres videre i SOSI; bunnen
-   * og gravebunnen er planlegging, og står i KOF, LandXML og DXF.
+   * INNMÅLTE RØR GIS UT MED BARE DET SOM KOM INN MED FILA. Én kurve per rør
+   * med punktene fra innmålingen, koordinatene og høydene i millimeter slik de
+   * står i fila, og koden som navn – og ikke noe programmet har regnet eller
+   * antatt: ingen bunn innvendig (den kommer av dimensjonen), ingen gravebunn
+   * og ingen merknad om terrenget (de kommer av Kartverkets terreng), og heller
+   * ingen diameter (tolket ut av koden), høydereferanse (antatt) eller
+   * anleggsnavn. Det er innmålingen som leveres videre i SOSI; bunnen og
+   * gravebunnen er planlegging, og står i KOF, LandXML og DXF.
+   *
+   * @param {number} [enhet]  koordinatenheten: millimeter for innmålte rør, ellers
+   *   centimeter – en samlefil gir sin, felles for alle anleggene i den
    */
-  function sosiDeler(app, res, idFra = 1, anleggsnavn = null, d = punkter(app, res)) {
-    /* CENTIMETER RUNDET RIKTIG: en halv bort fra null, med en milliondels
-       centimeter i slingring – 8,045 er 8,04499… i maskinen. Her ble 8,045 til
-       804 og −0,125 til −12. (Først til millimeter, så til centimeter, er å
-       runde to ganger: 7,8545 ble 7,855 og så 7,86.) */
-    const E = _eks(), cm = v => Math.sign(v) * Math.floor(Math.abs(v) * 100 + 0.5 + 1e-6);
+  function sosiDeler(app, res, idFra = 1, anleggsnavn = null, d = punkter(app, res), enhet = res.plan ? 0.01 : 0.001) {
+    /* RUNDET RIKTIG: en halv bort fra null, med en milliondels enhet i
+       slingring – 8,045 er 8,04499… i maskinen. Her ble −0,125 til −12 cm.
+       (Først til millimeter, så til centimeter, er å runde to ganger: 7,8545
+       ble 7,855 og så 7,86.) */
+    const E = _eks(), f = Math.round(1 / enhet), cm = v => Math.sign(v) * Math.floor(Math.abs(v) * f + 0.5 + 1e-6);
     let minN = Infinity, maksN = -Infinity, minO = Infinity, maksO = -Infinity;
     const omr = q => {
       minN = Math.min(minN, q.y); maksN = Math.max(maksN, q.y);
@@ -320,10 +325,11 @@ const RorEksport = (() => {
     };
     const rader = [];
     let id = idFra;
+    const innmalt = !res.plan;
     const kurve = (objtype, p, hoyde, pts) => {
       /* To like rader etter hverandre er ett punkt: to målinger på samme sted
-         og høyde, eller to som blir like på centimeteren. En kurve med et
-         strekk uten lengde blir flagget av sjekkverktøyene. */
+         og høyde, eller to som blir like i enheten. En kurve med et strekk uten
+         lengde blir flagget av sjekkverktøyene. */
       const noh = [];
       for (const q of pts) {
         const rad = `${cm(q.y)} ${cm(q.x)} ${cm(q.z)}`;
@@ -331,15 +337,18 @@ const RorEksport = (() => {
       }
       if (noh.length < 2) return;
       pts.forEach(omr);
-      rader.push(`.KURVE ${id++}:`, '..OBJTYPE ' + objtype, '..NAVN ' + E.sosiTekst(p.kode), '..HØYDEREF ' + E.sosiTekst(hoyde));
-      if (p.k.dim > 0) rader.push('..DIAMETER ' + Math.round(p.k.dim));
-      if (anleggsnavn) rader.push('..ANLEGG ' + E.sosiTekst(anleggsnavn));
+      rader.push(`.KURVE ${id++}:`, '..OBJTYPE ' + objtype, '..NAVN ' + E.sosiTekst(p.kode));
+      // det innmålte har bare det fila hadde: koden og punktene
+      if (!innmalt) {
+        rader.push('..HØYDEREF ' + E.sosiTekst(hoyde));
+        if (p.k.dim > 0) rader.push('..DIAMETER ' + Math.round(p.k.dim));
+        if (anleggsnavn) rader.push('..ANLEGG ' + E.sosiTekst(anleggsnavn));
+      }
       rader.push('..NØH');
       for (const rad of noh) rader.push(rad);
     };
-    const innmalt = !res.plan;
     for (const p of d) {
-      if (innmalt) { kurve('Rørledning', p, 'topp rør', p.linjer.topp); continue; }
+      if (innmalt) { kurve('Rørledning', p, null, p.linjer.topp); continue; }
       kurve('Rørledning', p, 'bunn innvendig', p.linjer.bunn);
       kurve('Rørledning', p, 'topp rør', p.linjer.topp);
       for (const b of p.linjer.gravebunn) kurve('Grøftebunn', p, 'gravebunn', b);
@@ -352,27 +361,23 @@ const RorEksport = (() => {
       rader.push('..NØH', `${cm(km.y)} ${cm(km.x)} ${cm(km.bunnlop)}`);
     }
     if (!Number.isFinite(minN)) throw new Error('Ingen rør å skrive');
-    return { rader, omr: { minN, maksN, minO, maksO }, niva: 2, nesteId: id };
+    return { rader, omr: { minN, maksN, minO, maksO }, niva: 2, nesteId: id, enhet };
   }
   /** SOSI-kommentarer: «!» til linjeslutt. */
   const sosiKommentarer = merk => merk.map(m => '! ' + String(m).replace(/[\r\n]+/g, ' '));
 
   /**
    * Det SOSI-fila sier fra om. Et tegnet anlegg: det som mangler, som i de
-   * andre formatene. Et innmålt: bare de enslige punktene – målt med en
-   * rørkode, men uten nabo, så de ble ikke del av noe rør. Gravebunnen og
-   * terrenget er ikke med i fila, og da er det ikke noe å melde om dem.
+   * andre formatene. Et innmålt: ingenting – fila har bare det som kom inn med
+   * innmålingsfila, og en merknad er programmets.
    */
   function sosiMerknader(app, res, d) {
-    if (res.plan) return mangler(app, res, d);
-    const n = ((res.bygg && res.bygg.enslige) || []).length;
-    return n === 1 ? ['1 enslig punkt med rørkode er ikke med – det ble ikke del av noe rør']
-      : n ? [`${n} enslige punkt med rørkode er ikke med – de ble ikke del av noe rør`] : [];
+    return res.plan ? mangler(app, res, d) : [];
   }
 
   function sosi(app, res) {
     const E = _eks(), d = sosiDeler(app, res, 1);
-    const rader = E.sosiHode(app, d.omr, d.niva).concat(sosiKommentarer(sosiMerknader(app, res)), d.rader);
+    const rader = E.sosiHode(app, d.omr, d.niva, d.enhet).concat(sosiKommentarer(sosiMerknader(app, res)), d.rader);
     rader.push('.SLUTT');
     return rader.join('\r\n') + '\r\n';
   }

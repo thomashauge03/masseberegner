@@ -10071,6 +10071,14 @@ const Nettlesertest = {
           && lag.every(l => l.length <= 31), lag.filter(l => l.length > 31).join(', ') || [...new Set(lag)].slice(0, 6).join(', '));
         this.sjekk('SOSI-samlefila har rørledningene fra begge', /\.\.ANLEGG "Planlagte rør"/.test(inn('.sos'))
           && (inn('.sos').match(/^\.\.OBJTYPE Rørledning$/gm) || []).length > 4);
+        /* Det innmålte står i millimeter, som i innmålingsfila, og med bare koden og punktene – så hele fila
+           står i millimeter. Kurvene uten høydereferanse er de innmålte. */
+        const sosRader = inn('.sos').split('\r\n'), kurver = [];
+        sosRader.forEach((r, i) => { if (r.startsWith('.KURVE')) kurver.push(sosRader.slice(i + 1, sosRader.indexOf('..NØH', i))); });
+        const innmalte = kurver.filter(k => !k.some(r => r.startsWith('..HØYDEREF')));
+        this.sjekk('  i millimeter, og de innmålte med bare objekttypen og koden', sosRader.includes('...ENHET 0.001') && innmalte.length > 0
+          && innmalte.every(k => k.length === 2 && k[0] === '..OBJTYPE Rørledning' && k[1].startsWith('..NAVN ')),
+        JSON.stringify(innmalte.slice(0, 2)));
       });
     } finally {
       Rapport.lastNed = gammelNed;

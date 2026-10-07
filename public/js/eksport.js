@@ -388,11 +388,13 @@ ${this.landxmlAlignment(app, res, navn)}
    * kandidater. Nummereringen kommer derfor utenfra og telles opp gjennom hele
    * filen.
    *
+   * @param {number} [enhet]  koordinatenheten i fila – 0.01 (centimeter), eller 0.001 i en
+   *   samlefil med innmålte rør, som står i millimeter som i innmålingsfila
    * @returns {{rader:Array<string>, omr:Object, niva:number, nesteId:number}}
    */
-  sosiDelerVeg(app, res, idFra = 1, navn = null) {
+  sosiDelerVeg(app, res, idFra = 1, navn = null, enhet = 0.01) {
     const punkter = this.punkter(app, res);
-    const cm = v => Math.round(v * 100);
+    const f = Math.round(1 / enhet), cm = v => Math.round(v * f);
     // omradet ma dekke alt som faktisk star i filen, ikke bare senterlinjen
     let minN = Infinity, maksN = -Infinity, minO = Infinity, maksO = -Infinity;
     for (const p of punkter) {
@@ -438,8 +440,11 @@ ${this.landxmlAlignment(app, res, navn)}
    * gjelder koordinatene, ikke ..OMRÅDE. Et område hundre ganger for stort
    * dekker riktignok alt som står i filen, så ingen leser klager; det er
    * kommunen som ser en tomt på 200 km² i innsynsløsningen.
+   *
+   * @param {number} [enhet]  0.01 – centimeter; 0.001 for innmålte rør, som gis ut i
+   *   millimeter slik de står i innmålingsfila
    */
-  sosiHode(app, omr, niva) {
+  sosiHode(app, omr, niva, enhet = 0.01) {
     const ks = KSYS[app.sone];
     if (!ks) throw new Error('Ukjent UTM-sone ' + app.sone
       + ' – SOSI kan ikke skrives uten koordinatsystemkode');
@@ -456,7 +461,7 @@ ${this.landxmlAlignment(app, res, navn)}
          et par desimeter uten at noen ser det. */
       '...VERT-DATUM NN2000',
       '...ORIGO-NØ 0 0',
-      '...ENHET 0.01',
+      '...ENHET ' + enhet,
       '..OMRÅDE',
       `...MIN-NØ ${Math.floor(omr.minN)} ${Math.floor(omr.minO)}`,
       `...MAX-NØ ${Math.ceil(omr.maksN)} ${Math.ceil(omr.maksO)}`,
@@ -705,10 +710,10 @@ ${this.landxmlAlignment(app, res, navn)}
     return ut;
   },
 
-  /** SOSI for en tomt: en flate med grenser, ikke tre kurver. */
-  sosiDelerTomt(app, res, idFra = 1, navn = null) {
+  /** SOSI for en tomt: en flate med grenser, ikke tre kurver. `enhet` som for vegen. */
+  sosiDelerTomt(app, res, idFra = 1, navn = null, enhet = 0.01) {
     const d = this.tomtpunkter(app, res);
-    const cm = v => Math.round(v * 100);
+    const f = Math.round(1 / enhet), cm = v => Math.round(v * f);
     let minN = Infinity, maksN = -Infinity, minO = Infinity, maksO = -Infinity;
     const sett = q => {
       minN = Math.min(minN, q.y); maksN = Math.max(maksN, q.y);

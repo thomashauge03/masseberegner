@@ -165,15 +165,18 @@ console.log('\n4b. SOSI for innmålte rør: bare det som kom inn med fila');
   paastand('én kurve per rør – den innmålte', telle(/^\.KURVE /gm) === 1 && telle(/^\.\.OBJTYPE Rørledning$/gm) === 1, String(telle(/^\.KURVE /gm)));
   paastand('  ingen bunn innvendig, ingen grøftebunn, ingen kummer', !sos.includes('bunn innvendig') && !sos.includes('Grøftebunn')
     && telle(/^\.PUNKT /gm) === 0);
+  /* BARE DET SOM KOM INN MED FILA: punktene i millimeter, som i innmålingen,
+     og koden. Ingen diameter (tolket ut av koden), høydereferanse (antatt),
+     anleggsnavn eller merknad – heller ikke om de enslige punktene. */
   const rader = sos.split('\r\n'), i = rader.indexOf('..NØH');
-  paastand('  koordinatene og høydene fra fila, i centimeter', rader.slice(i + 1, i + 4).join(' | ')
-    === [`${(Y0 + 5) * 100} ${X0 * 100} 812`, `${(Y0 + 5) * 100} ${(X0 + 20) * 100} 804`, `${(Y0 + 5) * 100} ${(X0 + 40) * 100} 799`].join(' | '),
-  rader.slice(i + 1, i + 4).join(' | '));
-  paastand('  med koden, høydereferansen og dimensjonen', sos.includes('..NAVN "SP 160PE"') && sos.includes('..HØYDEREF "topp rør"')
-    && sos.includes('..DIAMETER 160'));
-  paastand('  ingen merknad om terreng eller grøft – men de enslige punktene sies', !/^!.*(gravebunn|[Tt]erreng|grøft)/m.test(sos)
-    && /^! 2 enslige punkt med rørkode er ikke med/m.test(sos), sos.split('\r\n').filter(r => r.startsWith('!')).join(' | '));
-  paastand('  merknadene for SOSI er bare de enslige', RorEksport.sosiMerknader(app, rM).length === 1);
+  paastand('  koordinatene og høydene fra fila, i millimeter', rader.slice(i + 1, i + 4).join(' | ')
+    === [`${(Y0 + 5) * 1000} ${X0 * 1000} 8123`, `${(Y0 + 5) * 1000} ${(X0 + 20) * 1000} 8041`, `${(Y0 + 5) * 1000} ${(X0 + 40) * 1000} 7987`].join(' | ')
+    && rader.includes('...ENHET 0.001'), rader.slice(i + 1, i + 4).join(' | '));
+  const kurven = rader.slice(rader.findIndex(r => r.startsWith('.KURVE')), i);
+  paastand('  kurven har bare objekttypen og koden', JSON.stringify(kurven) === JSON.stringify(['.KURVE 1:', '..OBJTYPE Rørledning', '..NAVN "SP 160PE"']),
+    JSON.stringify(kurven));
+  paastand('  og fila ingen merknader', !/^!/m.test(sos) && RorEksport.sosiMerknader(app, rM).length === 0,
+    sos.split('\r\n').filter(r => r.startsWith('!')).join(' | '));
   // uten terreng: ingen gravebunn – og det er ikke noe SOSI-fila skal si fra om
   const utenT = Object.assign({}, rM, { groft: Groft.beregn({ linjer: [malt], koder, terrengZ: () => NaN }), bygg: { linjer: [malt], enslige: [] } });
   paastand('uten terreng: SOSI-fila er den samme, uten et ord om gravebunnen', RorEksport.sosiMerknader(app, utenT).length === 0
@@ -181,19 +184,23 @@ console.log('\n4b. SOSI for innmålte rør: bare det som kom inn med fila');
   // de andre formatene er uendret: til maskinstyringen trengs bunnen og gravebunnen
   const kof = RorEksport.kof(app, rM);
   paastand('KOF-en har fortsatt bunn, topp og gravebunn', /RORBUNN/.test(kof) && /RORTOPP/.test(kof) && /GRAVBUNN/.test(kof));
-  /* CENTIMETER RUNDET RIKTIG, og to like punkt er ett. Et punkt i −0,125 ble
-     −12 (Math.round runder en halv mot pluss); to målinger på samme sted og
-     høyde ga et strekk uten lengde, som sjekkverktøyene flagger. */
+  /* ET MILLIMETERTALL STÅR SOM DET STÅR, og to like punkt er ett: to
+     målinger på samme sted og høyde ga et strekk uten lengde, som
+     sjekkverktøyene flagger. */
   const lav = { id: 'l', kode: 'SP 160PE', xy: [0, 10, 10, 20].map(x => ({ x: X0 + x, y: Y0 + 9 })),
     punkter: [-0.125, 0.125, 0.125, 1].map((z, i) => ({ id: 'l' + i, z })) };
   const rL = Object.assign({}, rM, { linjer: [lav], groft: Groft.beregn({ linjer: [lav], koder, terrengZ: T }),
-    profiler: new Map([['l', Ror.profil(lav, T, 160)]]), kummer: [], bygg: { linjer: [lav], enslige: [{ id: 'e1' }] } });
+    profiler: new Map([['l', Ror.profil(lav, T, 160)]]), kummer: [], bygg: { linjer: [lav], enslige: [] } });
   const sL = RorEksport.sosi(app, rL).split('\r\n'), j = sL.indexOf('..NØH');
-  paastand('en halv centimeter rundes bort fra null, og to like punkt er ett', sL.slice(j + 1, j + 4).join(' | ')
-    === [`${(Y0 + 9) * 100} ${X0 * 100} -13`, `${(Y0 + 9) * 100} ${(X0 + 10) * 100} 13`, `${(Y0 + 9) * 100} ${(X0 + 20) * 100} 100`].join(' | ')
+  paastand('millimeterne fra fila står som de er, og to like punkt er ett', sL.slice(j + 1, j + 4).join(' | ')
+    === [`${(Y0 + 9) * 1000} ${X0 * 1000} -125`, `${(Y0 + 9) * 1000} ${(X0 + 10) * 1000} 125`, `${(Y0 + 9) * 1000} ${(X0 + 20) * 1000} 1000`].join(' | ')
     && sL[j + 4] === '.SLUTT', sL.slice(j + 1, j + 5).join(' | '));
-  paastand('ett enslig punkt sies i entall', sL.includes('! 1 enslig punkt med rørkode er ikke med – det ble ikke del av noe rør'),
-    sL.filter(r => r.startsWith('!')).join(' | '));
+  /* ET TEGNET ANLEGG står i centimeter, rundet en halv bort fra null: −0,125
+     ble −12 (Math.round runder en halv mot pluss). */
+  const sT = RorEksport.sosi(app, Object.assign({}, rL, { plan: true })).split('\r\n'), jT = sT.indexOf('..NØH', sT.indexOf('..HØYDEREF "topp rør"'));
+  paastand('et tegnet anlegg i centimeter, en halv bort fra null', sT.includes('...ENHET 0.01') && sT.slice(jT + 1, jT + 4).join(' | ')
+    === [`${(Y0 + 9) * 100} ${X0 * 100} -13`, `${(Y0 + 9) * 100} ${(X0 + 10) * 100} 13`, `${(Y0 + 9) * 100} ${(X0 + 20) * 100} 100`].join(' | '),
+  sT.slice(jT + 1, jT + 4).join(' | '));
 }
 
 console.log('\n5. DXF');
