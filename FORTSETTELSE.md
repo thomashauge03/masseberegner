@@ -27,9 +27,9 @@ Ved siste lagring: **895 prøver i selvtesten, 194 i rørprøven
 (`test/rorprove.js`), 219 i grøfteprøven (`test/groftprove.js`), 175 i
 planprøven (`test/rorplanprove.js`), 63 i eksportprøven
 (`test/roreksportprove.js`), 77 i avviksprøven (`test/roravvikprove.js`), 45 i
-traseprøven (`test/traseimportprove.js`), 58 i stikkrenneprøven
-(`test/stikkrenneprove.js`), 57 i anleggsprøven og 258 i tomteprøven, alle
-grønne; 1490 av 1490 i nettlesertesten.** «Klikk i modellen flytter snittet
+traseprøven (`test/traseimportprove.js`), 68 i stikkrenneprøven
+(`test/stikkrenneprove.js`), 61 i anleggsprøven og 258 i tomteprøven, alle
+grønne; 1499 av 1499 i nettlesertesten.** «Klikk i modellen flytter snittet
 dit» i `veg3d` kan feile når vinduet emuleres 1440 × 900 i en mindre rute –
 klikket lander én rad ved siden av; det gjør den likt på `main`. «og merknaden
 sier det som gjelder nå» i `flereAnlegg` feilet én gang i hele runden og aldri
@@ -70,8 +70,9 @@ Plan: `docs/superpowers/plans/2026-10-07-stikkrenner.md`.
   `ekstraStasjoner`; ved en kolle mellom to profiler ga det 10 % mer fylling.)
   - Endene: fyllingsfoten pluss `stikkrenneTillegg`, med bakken lest der enden
     ligger (minus rensken innenfor renskebredden); eller midt i grøftebunnen i
-    skjæring, flyttet med vegens stigning for en skjev renne. Lengden er
-    `(tV + tH) / cos(vinkel)`.
+    skjæring. En skjev renne leses i snittet der den krysser foten eller
+    grøfta (`o.snitt`, funnet med sekanter); uten et kryss rett på tvers, med
+    merknad. Lengden er `(tV + tH) / cos(vinkel)`.
   - Høydene: innløpet på overflaten, utløpet etter terrenget eller
     minstefallet; låst `bunnInn`/`bunnUt` står.
   - Overdekningen fra kant til kant: topp rør er bunn + innvendig + én vegg.
@@ -81,11 +82,15 @@ Plan: `docs/superpowers/plans/2026-10-07-stikkrenner.md`.
   i `nyttAnlegg`, så «+ Veg» har lista); malen har `stikkrenneDim`,
   `stikkrenneFall`, `stikkrenneOverdekning` og `stikkrenneTillegg` med grenser
   i `MALGRENSER`. `nr` kommer fra id-en `sr<n>`; `SR<nr>` er KOF-navnet.
+  `klargjor` gir en renne uten en god id en ledig, og `a.nesteStikkrenne` gjør
+  at et nummer aldri brukes om igjen i en veg.
 - **Skjermen:** «⊖ Stikkrenne» i kartet, lista under Vegmal (`stikkrennerTilSkjema`
   – skriver bare svaret inn etter en beregning; slår opp resultatet når det
   trengs; en låst høyde låser siden), streken og merket i kartet
   (`Kart.tegnStikkrenner`: merkene fra lista, strekene fra resultatet for vegen
-  som står oppe), tverrsnittet (rennas eget snitt) og lengdeprofilen.
+  som står oppe), tverrsnittet (rennas eget snitt; ◀ ▶ derfra går til
+  profilene ved siden av, og et profil like ved en renne er profilet) og
+  lengdeprofilen. Uten et svar låses ingen høyde før siden er valgt.
 - **Rapport, PDF og eksport:** tabellen «Stikkrenner»; KOF `STIKKINN`/`STIKKUT`
   med `SR<nr>I`/`SR<nr>U`; DXF-laget `STIKKRENNE` (`Eksport.stikkrennepunkter`).
   Vegens egne KOF-navn får to eller tre desimaler når to stasjoner ligger tett.

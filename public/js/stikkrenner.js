@@ -44,16 +44,17 @@ const Stikkrenner = (() => {
    * - I SKJÆRING er det midt i grøftebunnen: der renner vannet inn.
    */
   function ende(sd, tillegg) {
+    // `tBase` er foten eller grøftemidten – stedet renna krysser, før tillegget
     if (sd.type === 'fylling') {
       const sist = sd.knekk[sd.knekk.length - 1];
-      return { t: sd.tFot + tillegg, z: sist.z, type: 'fylling', truffet: sd.truffet !== false };
+      return { tBase: sd.tFot, t: sd.tFot + tillegg, z: sist.z, type: 'fylling', truffet: sd.truffet !== false };
     }
     // grøftebunnen er det laveste i skjæringen – skråningen går opp derfra
     let zMin = Infinity;
     for (const k of sd.knekk) zMin = Math.min(zMin, k.z);
     const bunn = sd.knekk.filter(k => k.z <= zMin + 1e-9);
     const t = (bunn[0].t + bunn[bunn.length - 1].t) / 2;
-    return { t, z: zMin, type: 'skjaering', truffet: sd.truffet !== false };
+    return { tBase: t, t, z: zMin, type: 'skjaering', truffet: sd.truffet !== false };
   }
 
   /**
@@ -62,8 +63,9 @@ const Stikkrenner = (() => {
    * @param {object} r  { id, navn, s, dim, vinkel, innlop, fall, bunnInn?, bunnUt? }
    * @param {object} pr tverrsnittet i stasjonen `r.s`, med sidene – `res.snittVed(r.s)`
    * @param {object} mal vegens mal
-   * @param {object} [o] { stigning, lengde, terreng } – vegens stigning i stasjonen, linjas
-   *   lengde, og terrenget (x, y) der endene ligger
+   * @param {object} [o] { stigning, lengde, terreng, snitt } – vegens stigning i stasjonen, linjas
+   *   lengde, terrenget (x, y) der endene ligger, og tverrsnittet i en vilkårlig stasjon
+   *   (`res.snittVed`) – der en skjev renne krysser foten
    * @returns {object} endene, lengden, høydene, overdekningen og merknadene – eller { feil }
    */
   function beregn(r, pr, mal, o = {}) {
@@ -79,7 +81,41 @@ const Stikkrenner = (() => {
     const vinkel = klemt(r.vinkel, GRENSER.vinkel, 0), a = vinkel * Math.PI / 180, cos = Math.cos(a), tan = Math.tan(a);
     const minFall = klemt(r.fall, GRENSER.fall, krav.fall);
     const stig = Number.isFinite(o.stigning) ? o.stigning : 0;
-    const V = ende(pr.sider[-1], krav.tillegg), H = ende(pr.sider[1], krav.tillegg);
+    /* EN SKJEV RENNE KRYSSER FOTEN ET ANNET STED ENN I SNITTET. Enden til
+       høyre ligger t · tan(vinkel) fram langs vegen og den til venstre like
+       langt tilbake, og der kan fyllingen være en helt annen. Her ble begge
+       lest av snittet rett på tvers: på terreng som faller 8 % langs vegen,
+       med renna 45° skjev, lå den ene enden 0,41 m inne i fyllingen. Foten –
+       eller grøftemidten – leses nå i snittet der renna krysser den. Hvor
+       langt fram det er, avhenger av hvor langt ut foten ligger: stedet er
+       der t = foten i snittet t · tan(vinkel) fram, og det finnes med
+       sekanter. Finnes det ikke – renna kommer ikke ut av fyllingen før vegen
+       slutter, eller foten går nesten langs renna – leses enden rett på
+       tvers, og merknaden sier at lengden er usikker. */
+    const langs = side => {
+      const E0 = ende(pr.sider[side], krav.tillegg);
+      const svar = (E, snitt, sE, uviss = '') => ({ E, snitt, sE, lest: snitt !== pr, uviss });
+      if (Math.abs(tan) < 1e-9 || typeof o.snitt !== 'function') return svar(E0, pr, pr.s);
+      // foten (eller grøftemidten) i snittet der renna ligger t ut på tvers
+      const fot = t => {
+        const s = pr.s + side * t * tan, snitt = o.snitt(s);
+        return snitt && snitt.sider && snitt.sider[side] ? { t, s, snitt, E: ende(snitt.sider[side], krav.tillegg) } : null;
+      };
+      let a0 = fot(E0.tBase), a1 = a0 && fot(a0.E.tBase);
+      for (let k = 0; k < 20 && a1; k++) {
+        const g0 = a0.t - a0.E.tBase, g1 = a1.t - a1.E.tBase;
+        if (Math.abs(g1) < 1e-4) return svar(a1.E, a1.snitt, a1.s);
+        // sekanten mot der t og foten møtes; et vanlig steg når den peker ut i det blå
+        let t2 = a1.E.tBase;
+        if (Math.abs(g1 - g0) > 1e-12) {
+          const ts = a1.t - g1 * (a1.t - a0.t) / (g1 - g0);
+          if (ts > 0 && Math.abs(ts - a1.t) < 50) t2 = ts;
+        }
+        a0 = a1; a1 = fot(t2);
+      }
+      return svar(E0, pr, pr.s, a1 ? 'foten går nesten langs renna' : 'renna kommer ikke ut før vegen slutter');
+    };
+    const LV = langs(-1), LH = langs(1), V = LV.E, H = LH.E;
     /* ENDENE I PLAN. Normalen til høyre er (sin r, −cos r); vinkelen dreier
        den framover i stasjoneringen. En ende som ligger t ut på tvers, ligger
        t / cos(vinkel) ut langs renna – og t · tan(vinkel) fram langs vegen. */
@@ -90,17 +126,17 @@ const Stikkrenner = (() => {
     /* OVERFLATEN DER ENDEN FAKTISK LIGGER. Her ble den lest av snittet, rett
        på tvers: på en veg som stiger 8 %, med renna 45° skjev, lå innløpet
        0,27 m over grøftebunnen det sto i, og ingen merknad sa det. Grøfta
-       følger vegens profil, så den flyttes med stigningen; i fylling leses
-       bakken der enden ligger – foten pluss tillegget – avtatt så langt
-       rensken går. */
-    const overflate = (E, t, p) => {
-      if (E.type === 'skjaering') return E.z + stig * t * tan;
+       står i snittet der enden ligger; uten det snittet flyttes den med
+       stigningen. I fylling leses bakken der enden ligger – foten pluss
+       tillegget – avtatt så langt rensken går. */
+    const overflate = (E, t, p, lest) => {
+      if (E.type === 'skjaering') return lest ? E.z : E.z + stig * t * tan;
       if (typeof o.terreng !== 'function') return E.z;
       const z = o.terreng(p.x, p.y);
       const rensk = Number.isFinite(mal && mal.renskDybde) && krav.tillegg <= ((mal && mal.renskUtenfor) ?? 1) ? mal.renskDybde : 0;
       return Number.isFinite(z) ? z - rensk : NaN;
     };
-    V.z = overflate(V, -V.t, pv); H.z = overflate(H, H.t, ph);
+    V.z = overflate(V, -V.t, pv, LV.lest); H.z = overflate(H, H.t, ph, LH.lest);
     if (!Number.isFinite(V.z) || !Number.isFinite(H.z)) return { id: r.id, navn: r.navn, feil: 'terrenget mangler der renna går ut' };
     const merknader = [];
     const merk = (type, tekst) => merknader.push({ type, tekst });
@@ -108,7 +144,8 @@ const Stikkrenner = (() => {
     if ((V.type === 'fylling' && !V.truffet) || (H.type === 'fylling' && !H.truffet)) {
       merk('terreng', 'fyllingen når ikke terrenget innenfor søkebredden – lengden er usikker');
     }
-    if (pr.manglerData) merk('terreng', 'terrenget har hull i profilet – høydene er usikre');
+    for (const L of [LV, LH]) if (L.uviss) merk('terreng', `${L.uviss} – enden er lest rett på tvers, og lengden er usikker`);
+    if ([pr, LV.snitt, LH.snitt].some(x => x.manglerData)) merk('terreng', 'terrenget har hull i profilet – høydene er usikre');
     // den tverrgående avstanden fra ende til ende, og langs renna
     const bredde = V.t + H.t, L = bredde / cos;
     const innlop = r.innlop === 'venstre' || r.innlop === 'hoyre' ? r.innlop : (V.z >= H.z ? 'venstre' : 'hoyre');
@@ -194,8 +231,9 @@ const Stikkrenner = (() => {
       bunnInn: zInn, bunnUt: zUt, laastInn, laastUt, senket, senketInn,
       overdekning: dek.min, overdekningVed: dek.ved, kravOverdekning: krav.overdekning, ytre, vegg,
       ender: {
-        venstre: { t: V.t, overflate: V.z, type: V.type, bunn: bunnV, x: pv.x, y: pv.y },
-        hoyre: { t: H.t, overflate: H.z, type: H.type, bunn: bunnH, x: ph.x, y: ph.y }
+        // `s`: stasjonen der renna krysser foten eller grøfta – snittet enden er lest av
+        venstre: { t: V.t, s: LV.sE, overflate: V.z, type: V.type, bunn: bunnV, x: pv.x, y: pv.y },
+        hoyre: { t: H.t, s: LH.sE, overflate: H.z, type: H.type, bunn: bunnH, x: ph.x, y: ph.y }
       },
       merknader
     };

@@ -116,7 +116,7 @@ console.log('\n7. Hvert felt i lista er et ekte vindu');
 
      Målt: uten `plasser` i koden fanger denne raden det; løkka alene gjorde det
      ikke. */
-  const MAA_FINNAST = ['ip', 'vip', 'mal', 'tomt', 'ror', 'tverrfall', 'plasser'];
+  const MAA_FINNAST = ['ip', 'vip', 'mal', 'tomt', 'ror', 'tverrfall', 'plasser', 'stikkrenner'];
   const har = new Set(Prosjektform.FELT || []);
   const mangler = MAA_FINNAST.filter(f => !har.has(f));
   sjekk('alle feltene programmet trenger er vinduer', mangler.length === 0,
@@ -153,6 +153,28 @@ console.log('\n7. Hvert felt i lista er et ekte vindu');
     sjekk(`  og «${felt}» står ikke på toppnivå i fila`,
       !new RegExp('^\\{[^{]*"' + felt + '"').test(tekst), tekst.slice(0, 70));
   }
+}
+
+/* ==================================================================
+   8. STIKKRENNENE: EN RENNE UTEN STASJON ER INGEN RENNE, OG HVER HAR SIN ID
+
+   Id-en gir nummeret i KOF-en (sr3 → SR3I/SR3U). En fil skrevet for hånd
+   kan mangle den, ha den to ganger eller ha noe annet: da fikk renna nummeret
+   etter plassen i lista, som kunne være en annens, og KOF-en feilet på to
+   punkt med samme navn.
+   ================================================================== */
+console.log('\n8. Stikkrennene');
+{
+  const P = klargjor({ navn: 'renner', aktivt: 'v1', anlegg: [{ id: 'v1', type: 'veg', navn: 'Veg', ip: [], vip: [], mal: {},
+    stikkrenner: [{ s: 10 }, { id: 'sr2', s: 20 }, { id: 'sr2', s: 30 }, { id: 'x', s: 40 }, { id: 'sr1', s: NaN }, { id: 'sr7', s: 50 },
+      { id: 'sr1', s: 60 }] }] });
+  const id = P.stikkrenner.map(r => r.id);
+  sjekk('en renne uten en stasjon faller bort', P.stikkrenner.length === 6, JSON.stringify(P.stikkrenner));
+  // også den siste: renna foran uten id tar ikke nummeret dens
+  sjekk('  de som har en god id, beholder den', id[1] === 'sr2' && id[4] === 'sr7' && id[5] === 'sr1', id.join(' '));
+  sjekk('  de andre får hver sin ledige', new Set(id).size === id.length && id.every(x => /^sr\d+$/.test(x)), id.join(' '));
+  sjekk('  og en id står fast når fila åpnes på nytt', JSON.stringify(klargjor(JSON.parse(JSON.stringify(P))).stikkrenner.map(r => r.id))
+    === JSON.stringify(id));
 }
 
 console.log('\n' + ok + ' ok, ' + feil + ' feil');

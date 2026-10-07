@@ -139,17 +139,30 @@ const Tverrprofil = {
     /* Bare en veg har en liste med profiler. En tomt har ingen, og pilene
        kastet en TypeError ved hvert trykk i tomtebildet. */
     if (!res || !Array.isArray(res.profiler) || !res.profiler.length) return;
-    let i = res.profiler.findIndex(p => Math.abs(p.s - this.app.tverrStasjon) < 1e-6);
-    if (i < 0) i = 0;
-    i = Math.max(0, Math.min(res.profiler.length - 1, i + retning));
-    this.app.settTverrStasjon(res.profiler[i].s);
+    const P = res.profiler, s0 = this.app.tverrStasjon;
+    let i = P.findIndex(p => Math.abs(p.s - s0) < 1e-6);
+    if (i >= 0) i += retning;
+    else {
+      /* ET SNITT MELLOM TO PROFILER – en stikkrennes eget. Her falt oppslaget
+         tilbake til det første profilet, og ▶ fra renna i 62,4 gikk til 5.
+         Første steg går til profilet ved siden av, i den retningen. */
+      const neste = P.findIndex(p => p.s > s0), forrige = (neste < 0 ? P.length : neste) - 1;
+      i = retning > 0 ? (neste < 0 ? P.length - 1 : neste + retning - 1) : forrige + retning + 1;
+    }
+    i = Math.max(0, Math.min(P.length - 1, i));
+    this.app.settTverrStasjon(P[i].s);
   },
 
   vis(profil) {
     this.profil = profil;
     const res = this.app.resultat;
     if (res && profil) {
-      const i = res.profiler.indexOf(profil);
+      // en stikkrennes eget snitt står mellom profilene – skyveren står ved det nærmeste
+      let i = res.profiler.indexOf(profil);
+      const renne = i < 0 ? (res.stikkrenner || []).find(x => x.snitt === profil) : null;
+      if (i < 0) {
+        res.profiler.forEach((p, j) => { if (i < 0 || Math.abs(p.s - profil.s) < Math.abs(res.profiler[i].s - profil.s)) i = j; });
+      }
       if (i >= 0) {
         const skyver = document.getElementById('tverrSkyver');
         skyver.max = String(Math.max(0, res.profiler.length - 1));
@@ -158,7 +171,7 @@ const Tverrprofil = {
       }
       const a = profil.areal;
       document.getElementById('tverrEtikett').innerHTML =
-        `Profil <b>${profil.s.toFixed(1)}</b> · veg ${profil.vegnivaa.toFixed(2)} · terr ${isFinite(profil.terrengSenter) ? profil.terrengSenter.toFixed(2) : '–'} · `
+        `Profil <b>${profil.s.toFixed(1)}</b>${renne ? ` · snittet til SR${renne.nr}` : ''} · veg ${profil.vegnivaa.toFixed(2)} · terr ${isFinite(profil.terrengSenter) ? profil.terrengSenter.toFixed(2) : '–'} · `
         + `<span class="merke-skjaering">skjær ${a.skjaering.toFixed(1)} m²</span> `
         + `(<span class="merke-fjell">fjell ${a.skjaeringFjell.toFixed(1)}</span>) · `
         + `<span class="merke-fylling">fyll ${a.fylling.toFixed(1)} m²</span>`
@@ -440,7 +453,8 @@ const Tverrprofil = {
       bane(bunn.concat(topp.slice().reverse()), true); c.stroke();
       c.restore();
       c.font = '10px system-ui'; c.textAlign = 'center'; c.textBaseline = 'top';
-      this._merkelapp(c, `${sv.navn} · Ø${sv.dim} · ${Rapport.tall(sv.lengde, 1)} m · `
+      // SR-nummeret som i kartet, lista og KOF-en – navnet på stikkingslista
+      this._merkelapp(c, `${sv.navn}${sv.nr ? ` · SR${sv.nr}` : ''} · Ø${sv.dim} · ${Rapport.tall(sv.lengde, 1)} m · `
         + `${Rapport.tall(sv.bunnInn, 2)} → ${Rapport.tall(sv.bunnUt, 2)}`,
       px(0), py(Math.min(V.bunn, H.bunn)) + 6);
     }

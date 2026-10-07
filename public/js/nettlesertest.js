@@ -2113,11 +2113,26 @@ const Nettlesertest = {
       clearTimeout(app._tidsavbrudd);
       await app.oppdater();
       this.sjekk('  og den står i det som er regnet', sv() && sv().bunnInn === 99.5 && sv().laastInn);
+      const valgAuto = () => document.querySelector('#stikkrenneliste .srrad .srinnlop option[value="auto"]');
+      this.sjekk('  og «auto» kan ikke velges så lenge en høyde er låst', !!valgAuto() && valgAuto().disabled);
       await app.angre();
       this.sjekk('  angre låser den opp igjen, og siden er auto igjen', app.P.stikkrenner[0] && app.P.stikkrenner[0].bunnInn === undefined
         && app.P.stikkrenner[0].innlop === 'auto', JSON.stringify(app.P.stikkrenner));
       clearTimeout(app._tidsavbrudd);
       await app.oppdater();
+      this.sjekk('  og da kan «auto» velges igjen', !!valgAuto() && !valgAuto().disabled);
+      /* UTEN ET SVAR ER SIDEN UKJENT. Da låses ingenting før siden er valgt –
+         her ble høyden låst og siden sto på auto, uten et ord. */
+      const lagret = app.resultat, poster2 = app.historikk.bakover.length;
+      const inn2 = document.querySelector('#stikkrenneliste .srrad .srinn');
+      app.resultat = null;
+      try {
+        inn2.value = '99.4';
+        inn2.dispatchEvent(new Event('change', { bubbles: true }));
+      } finally { app.resultat = lagret; }
+      this.sjekk('  en renne som ikke er regnet: høyden låses ikke før siden er valgt, og det sies', app.P.stikkrenner[0].bunnInn === undefined
+        && inn2.value === '' && app.historikk.bakover.length === poster2
+        && /Velg innløp/.test(document.getElementById('statuslinje').textContent), document.getElementById('statuslinje').textContent);
       // rapporten og KOF-en
       const html = Rapport.stikkrenneHtml(app.resultat);
       this.sjekk('rapporten har tabellen', /<h2>Stikkrenner<\/h2>/.test(html) && /Stikkrenne 1/.test(html));
@@ -2128,9 +2143,51 @@ const Nettlesertest = {
       // tverrsnittet i profilet til renna tegnes uten feil
       app.settTverrStasjon(app.P.stikkrenner[0].s);
       this.sjekk('tverrsnittet står i profilet til renna', Tverrprofil.profil && Math.abs(Tverrprofil.profil.s - app.P.stikkrenner[0].s) < 1e-6);
+      this.sjekk('  og etiketten sier at det er rennas snitt', /snittet til SR1/.test(document.getElementById('tverrEtikett').textContent),
+        document.getElementById('tverrEtikett').textContent);
+      /* ◀ ▶ FRA RENNAS SNITT går til profilene ved siden av. Snittet står mellom
+         to profiler, og oppslaget falt tilbake til det første: ▶ gikk til
+         starten av vegen. Skyveren sto der den sto. */
+      const sR = app.P.stikkrenner[0].s, profiler = app.resultat.profiler;
+      const etter = profiler.find(p => p.s > sR).s, foer = profiler.filter(p => p.s < sR).pop().s;
+      const naermest = profiler.reduce((b, p, j) => (Math.abs(p.s - sR) < Math.abs(profiler[b].s - sR) ? j : b), 0);
+      this.sjekk('  skyveren står ved det nærmeste profilet', +document.getElementById('tverrSkyver').value === naermest,
+        document.getElementById('tverrSkyver').value + ' mot ' + naermest);
+      Tverrprofil.flytt(1);
+      const tilEtter = app.tverrStasjon;
+      app.settTverrStasjon(sR);
+      Tverrprofil.flytt(-1);
+      this.sjekk('▶ og ◀ fra rennas snitt går til profilene ved siden av', Math.abs(tilEtter - etter) < 1e-6 && Math.abs(app.tverrStasjon - foer) < 1e-6,
+        `${tilEtter} og ${app.tverrStasjon}, ventet ${etter} og ${foer}`);
+      /* EN HØYDE SKREVET I RENNAS SNITT gjelder der. Den ble borte uten et ord:
+         snittet var ikke et profil. */
+      app.settTverrStasjon(sR);
+      const vkR = +document.getElementById('tp_venstre').value;
+      app.settPunkthoyde('venstre', vkR - 0.25);
+      this.sjekk('en høyde i feltene under rennas snitt gjelder der', app.P.tverrfall.some(t => Math.abs(t.s - sR) < 1e-6)
+        && Math.abs(+document.getElementById('tp_venstre').value - (vkR - 0.25)) < 0.01, document.getElementById('tp_venstre').value);
+      await app.angre();
+      clearTimeout(app._tidsavbrudd);
+      await app.oppdater();
+      /* ET PROFIL 4 MM FRA EN RENNE er profilet – renna tok det, og ◀ ▶ kom
+         aldri fram til profil 45. Rennas eget snitt står i rennas stasjon. */
+      app.P.stikkrenner[0].s = etter + 0.004;
+      clearTimeout(app._tidsavbrudd);
+      await app.oppdater();
+      app.settTverrStasjon(etter);
+      const varProfil = Tverrprofil.profil && Math.abs(Tverrprofil.profil.s - etter) < 1e-9;
+      app.settTverrStasjon(etter + 0.004);
+      this.sjekk('et profil like ved en renne er profilet; rennas stasjon er rennas', varProfil
+        && Tverrprofil.profil && Math.abs(Tverrprofil.profil.s - (etter + 0.004)) < 1e-9);
       // slett i lista
       document.querySelector('#stikkrenneliste .srrad .srslett').click();
       this.sjekk('× i lista sletter renna', app.P.stikkrenner.length === 0);
+      // og nummeret brukes ikke om igjen: den slettede kan stå i en stikkingsfil som er ute
+      Kart.settModus('stikkrenne');
+      Kart.klikk({ latlng: { lat: ll.lat, lng: ll.lon } });
+      clearTimeout(app._tidsavbrudd);
+      this.sjekk('  en ny renne får ikke nummeret til den som ble slettet', app.P.stikkrenner.length === 1 && app.P.stikkrenner[0].id === 'sr2',
+        JSON.stringify(app.P.stikkrenner));
       /* EN VEG LAGT TIL MED «+ VEG» har lista si fra start. Den ble bare satt
          når et prosjekt ble åpnet, og verktøyet kastet på første klikk. */
       app.leggTilAnlegg('veg');

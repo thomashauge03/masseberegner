@@ -3084,8 +3084,9 @@ const App = {
       let svar, snitt = null;
       try {
         snitt = res.snittVed(r.s);
+        // `snitt`: en skjev renne krysser foten et stykke fram eller tilbake langs vegen
         svar = Stikkrenner.beregn(r, snitt, res.mal, { stigning: this.vprofil ? this.vprofil.stigning(r.s) : 0,
-          lengde: this.linje.lengde, terreng: terreng ? (x, y) => terreng.z(x, y) : undefined });
+          lengde: this.linje.lengde, terreng: terreng ? (x, y) => terreng.z(x, y) : undefined, snitt: s => res.snittVed(s) });
       } catch (e) { svar = { id: r.id, feil: 'kunne ikke regnes – ' + e.message }; }
       const nr = +(/^sr(\d+)$/.exec(r.id || '') || [])[1] || i + 1;
       Object.defineProperty(svar, 'snitt', { value: svar.feil ? null : snitt, enumerable: false });
@@ -3329,8 +3330,10 @@ const App = {
       const d = Math.abs(p.s - s);
       if (d < bestD) { bestD = d; best = p; }
     }
-    // en stikkrenne har sitt eget snitt, utenfor profilene – se regnStikkrenner
-    const renne = (this.resultat.stikkrenner || []).find(x => x.snitt && Math.abs(x.s - s) < 0.01);
+    /* En stikkrenne har sitt eget snitt, utenfor profilene – se regnStikkrenner.
+       Det vises når stasjonen er rennas, ikke et profil som ligger like ved:
+       med renna 4 mm fra profil 45 kom man aldri til profil 45 med ◀ ▶. */
+    const renne = (this.resultat.stikkrenner || []).find(x => x.snitt && Math.abs(x.s - s) < 0.01 && Math.abs(x.s - s) < bestD);
     if (renne) best = renne.snitt;
     this.tverrStasjon = best.s;
     Tverrprofil.vis(best);
@@ -6680,14 +6683,17 @@ const App = {
       rad.dataset.id = r.id;
       const innlop = r.innlop === 'venstre' || r.innlop === 'hoyre' ? r.innlop : 'auto';
       const valgt = v => (innlop === v ? ' selected' : '');
+      // med en låst høyde står siden – «auto» kunne snudd den, og høyden fulgt med til den andre enden
+      const hoydeLaast = Number.isFinite(r.bunnInn) || Number.isFinite(r.bunnUt);
       const { tekst: svar, tittel } = svarFor(regnet(r));
       const tall = v => (typeof v === 'number' && Number.isFinite(v) ? v : '');
       rad.innerHTML = `<input type="text" class="srnavn" value="${escapeAttr(r.navn || 'Stikkrenne')}" spellcheck="false" aria-label="Navn">
         <label>prof</label><input type="number" step="1" class="srs" value="${tall(r.s)}">
         <label>Ø</label><input type="number" step="100" min="100" class="srdim" value="${tall(r.dim)}">
         <label>vinkel</label><input type="number" step="5" min="-60" max="60" class="srvinkel" value="${tall(r.vinkel) || 0}" title="Skjevhet mot vegen i grader – 0 er rett på tvers">
-        <select class="srinnlop" title="Siden vannet kommer fra – auto er siden som ligger høyest">
-          <option value="auto"${valgt('auto')}>innløp auto</option>
+        <select class="srinnlop" title="${hoydeLaast ? 'Siden vannet kommer fra – står fast så lenge en høyde er låst'
+          : 'Siden vannet kommer fra – auto er siden som ligger høyest'}">
+          <option value="auto"${valgt('auto')}${hoydeLaast ? ' disabled' : ''}>innløp auto</option>
           <option value="venstre"${valgt('venstre')}>innløp venstre</option>
           <option value="hoyre"${valgt('hoyre')}>innløp høyre</option></select>
         <label>fall</label><input type="number" step="1" min="0" class="srfall" value="${tall(r.fall)}">
@@ -6719,19 +6725,30 @@ const App = {
       /* Bunnen: tomt låser opp, et tall låser. De låste høydene er innløpets og
          utløpets – og står «innløp auto», kunne siden snu seg når vegen
          endret seg, og høyden flyttet seg til den andre enden. Låses en høyde,
-         låses siden med, i det samme angresteget. */
+         låses siden med, i det samme angresteget. Er renna ikke regnet, er
+         siden ukjent: da må den velges først – ellers ble høyden låst og
+         siden sto på auto, uten et ord. */
       for (const [velger, nokkel] of [['.srinn', 'bunnInn'], ['.srut', 'bunnUt']]) {
         const e = rad.querySelector(velger);
         e.onchange = () => {
           const tekst = String(e.value).trim();
           const v = parseFloat(tekst.replace(',', '.'));
           if (tekst && !Number.isFinite(v)) { e.value = tall(r[nokkel]); return; }
-          this.merk(tekst ? 'låste bunnen i en stikkrenne' : 'låste opp bunnen i en stikkrenne');
           if (tekst) {
-            r[nokkel] = Math.round(v * 1000) / 1000;
             const sv = regnet(r);
-            if (r.innlop !== 'venstre' && r.innlop !== 'hoyre' && sv && !sv.feil) r.innlop = sv.innlop;
-          } else delete r[nokkel];
+            const side = r.innlop === 'venstre' || r.innlop === 'hoyre' ? r.innlop : (sv && !sv.feil ? sv.innlop : null);
+            if (!side) {
+              e.value = tall(r[nokkel]);
+              this.status('Velg innløp venstre eller høyre først – renna er ikke regnet, og en låst høyde må vite hvilken ende den hører til');
+              return;
+            }
+            this.merk('låste bunnen i en stikkrenne');
+            r[nokkel] = Math.round(v * 1000) / 1000;
+            r.innlop = side;
+          } else {
+            this.merk('låste opp bunnen i en stikkrenne');
+            delete r[nokkel];
+          }
           endret();
         };
       }
@@ -7003,7 +7020,11 @@ const App = {
    * punktene i felt, skriv dem inn, og malen retter seg etter dem.
    */
   settPunkthoyde(hvor, verdi) {
-    const pr = this.resultat && this.resultat.profiler.find(p => Math.abs(p.s - this.tverrStasjon) < 1e-6);
+    /* Snittet som står: et profil, eller en stikkrennes eget. I rennas snitt
+       ble et tall skrevet i feltene borte uten et ord – det var ikke et profil. */
+    const her = p => p && Math.abs(p.s - this.tverrStasjon) < 1e-6;
+    const pr = this.resultat && (this.resultat.profiler.find(her)
+      || (this.resultat.stikkrenner || []).map(x => x.snitt).find(her));
     if (!pr || !isFinite(verdi)) return;
     this.merk(hvor === 'senter' ? 'høyde i senterlinja' : 'høyde på vegkanten');
 

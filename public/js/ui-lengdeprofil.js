@@ -338,7 +338,8 @@ const Lengdeprofil = {
     const renner = (app.resultat && Array.isArray(app.resultat.stikkrenner)) ? app.resultat.stikkrenner : [];
     for (const sv of renner) {
       if (sv.feil || !sv.ender) continue;
-      const p = this.tilSkjerm(sv.s, Stikkrenner.bunnISenter(sv) + sv.ytre / 2);
+      // midt i røret er bunn innvendig pluss den halve innvendige – den halve ytre er én vegg for høyt
+      const p = this.tilSkjerm(sv.s, Stikkrenner.bunnISenter(sv) + sv.dim / 2000);
       c.strokeStyle = Farger.ror('overvann'); c.fillStyle = Farger.flate; c.lineWidth = 2.2;
       c.beginPath(); c.arc(p.x, p.y, 5, 0, 7); c.fill(); c.stroke();
       c.beginPath(); c.moveTo(p.x - 5, p.y); c.lineTo(p.x + 5, p.y); c.stroke();

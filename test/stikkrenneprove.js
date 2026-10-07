@@ -40,7 +40,7 @@ function regn(T, z, renne, mal = {}, z1 = z) {
   const res = M.beregnMasser({ linje, profil: vp, terreng: { z: T }, mal: Object.assign({}, M.StandardMal, mal), fjell: null,
     profilAvstand: 5, bakkefaktor: 1 });
   return { res, svar: Stikkrenner.beregn(renne, res.snittVed(renne.s), res.mal,
-    { stigning: vp.stigning(renne.s), lengde: linje.lengde, terreng: T }) };
+    { stigning: vp.stigning(renne.s), lengde: linje.lengde, terreng: T, snitt: s => res.snittVed(s) }) };
 }
 const flatt = () => 100;
 
@@ -104,6 +104,42 @@ console.log('\n3. Skjev renne');
   sjekk('skjev renne i en stigning: grøfta i høyre ende er høyere', grov.ender.hoyre.overflate, 103.272, 0.002);
   sjekk('  og i venstre lavere', grov.ender.venstre.overflate, 102.728, 0.002);
   paastand('  innløpet er der grøfta ligger høyest', grov.innlop === 'hoyre');
+  /* TERRENGET FALLER 8 % LANGS VEGEN, RENNA 45° SKJEV. I snittet i x ligger
+     foten 4,40 + 0,12 (x − 42,5) ut: fyllingen er 0,08 høyere per meter fram,
+     og skråningen 1:1,5. Til høyre krysser renna foten t fram langs vegen:
+     t = 4,40 + 0,12 t gir 5,00, i 47,5, og enden 5,50 ut. Til venstre t
+     tilbake: t = 4,40 − 0,12 t gir 3,9286, og enden 4,4286. Lest rett på
+     tvers lå begge i 4,90 – enden fram 0,60 m inne i fyllingen. Bakken i
+     endene: 100 − 0,08 · 5,5 − 0,20 = 99,36 og 100 + 0,08 · 4,4286 − 0,20 =
+     100,1543. */
+  const lf = regn(x => 100 - 0.08 * (x - 42.5), 101.5, { id: 's2d', s: 42.5, vinkel: 45, innlop: 'auto' }).svar;
+  sjekk('terreng som faller langs vegen: enden fram er der renna krysser foten', lf.ender.hoyre.t, 5.50, 0.001);
+  sjekk('  lest i snittet der', lf.ender.hoyre.s, 47.5, 0.001);
+  sjekk('  og enden bak', lf.ender.venstre.t, 4.4286, 0.001);
+  sjekk('  lengden', lf.lengde, (5.5 + 4.4286) * Math.SQRT2, 0.002);
+  sjekk('  bakken i enden fram', lf.ender.hoyre.overflate, 99.36, 0.001);
+  sjekk('  og bak', lf.ender.venstre.overflate, 100.1543, 0.001);
+  /* KOMMER IKKE UT: 40 % fall langs vegen og renna 60° skjev – foten går
+     fortere ut enn renna, og de møtes aldri. Enden leses da rett på tvers,
+     og merknaden sier at lengden er usikker. */
+  const aldri = regn(x => 100 - 0.4 * (x - 42.5), 101.5, { id: 's2e', s: 42.5, vinkel: 60, innlop: 'auto' }).svar;
+  paastand('renna som ikke kommer ut av fyllingen: enden rett på tvers, og det sies', Math.abs(aldri.ender.hoyre.t - 4.90) < 0.001
+    && aldri.merknader.some(m => m.type === 'terreng' && /kommer ikke ut/.test(m.tekst)), JSON.stringify(aldri.merknader));
+  /* LØSEREN, MED SNITT LAGET FOR HÅND. Foten til høyre er 10 − 1,5 (s − 42,5)
+     ut: den kommer innover fortere enn renna går utover, og vanlige steg
+     svinger seg ut. Sekanten finner krysset – t = 10 − 1,5 t gir 4,00. */
+  const { res: r3 } = regn(flatt, 101.5, { id: 'l', s: 42.5 });
+  const A = r3.snittVed(42.5);
+  const medFot = tFot => Object.assign({}, A, { sider: Object.assign({}, A.sider, { 1: Object.assign({}, A.sider[1], { tFot }) }) });
+  const bratt = Stikkrenner.beregn({ id: 'l1', s: 42.5, vinkel: 45 }, A, r3.mal,
+    { lengde: 100, terreng: flatt, snitt: s => medFot(10 - 1.5 * (s - 42.5)) });
+  sjekk('løseren finner krysset der vanlige steg svinger seg ut', bratt.ender.hoyre.t, 4.50, 0.001);
+  /* Og der det ikke finnes et: foten hopper fra 8,0 til 4,4 ved 47, og renna
+     krysser den aldri. Enden leses rett på tvers, der foten er 6,0. */
+  const hopp = Stikkrenner.beregn({ id: 'l2', s: 42.5, vinkel: 45 }, medFot(6.0), r3.mal,
+    { lengde: 100, terreng: flatt, snitt: s => medFot(s < 47 ? 8.0 : 4.4) });
+  paastand('  og uten et kryss: enden rett på tvers, og det sies', Math.abs(hopp.ender.hoyre.t - 6.5) < 1e-9
+    && hopp.merknader.some(m => /nesten langs renna/.test(m.tekst)), JSON.stringify({ t: hopp.ender.hoyre.t, m: hopp.merknader }));
 }
 
 console.log('\n4. Sidebratt terreng: skjæring til venstre, fylling til høyre');
@@ -207,6 +243,11 @@ console.log('\n7. Det som ikke går');
   const hullUnder = regn((x, y) => (y > 0.8 && y < 1.2 ? NaN : 100), 101.5, { id: 's7c', s: 42.5 }).svar;
   paastand('et hull under vegen sies', hullUnder.merknader.some(m => m.type === 'terreng' && /hull i profilet/.test(m.tekst)),
     JSON.stringify(hullUnder.merknader));
+  // et hull bare i snittet der en skjev renne krysser foten – ikke i krysset
+  const hullFram = regn((x, y) => (x > 47 && x < 48 && Math.abs(y) < 0.5 ? NaN : 100 - 0.08 * (x - 42.5)), 101.5,
+    { id: 's7d', s: 42.5, vinkel: 45 }).svar;
+  paastand('  også i snittet der en skjev renne krysser foten', hullFram.merknader.some(m => /hull i profilet/.test(m.tekst)),
+    JSON.stringify(hullFram.merknader));
   // terrenget mangler der enden går ut: ingen høyder å gi – ikke tall som ser riktige ut
   const hull = regn((x, y) => (y < -3 ? NaN : 100), 101.5, { id: 's8', s: 42.5 }).svar;
   paastand('terrenget mangler der renna går ut: ingen høyder', /terrenget mangler/.test(hull.feil || ''), JSON.stringify(hull));

@@ -972,11 +972,16 @@ const Kart = {
       }
       const utm = Geo.tilUtm(e.latlng.lat, e.latlng.lng, this.app.sone);
       const tr = this.app.linje.projiser(utm.x, utm.y);
-      const liste = this.app.P.stikkrenner;
+      const liste = this.app.P.stikkrenner, anlegg = this.app.anlegg();
       const k = Stikkrenner.fraMal(this.app.P.mal);
-      let n = 1;
-      while (liste.some(r => r.id === 'sr' + n)) n++;
+      /* ET NUMMER BRUKES ALDRI OM IGJEN I EN VEG. Her fikk en ny renne det
+         minste ledige, og en slettet renne kunne stå i en stikkingsfil som alt
+         var ute – to renner med samme navn på to steder. Telleren står i
+         anlegget, så den følger med i fila og i angre. */
+      const hoyest = liste.reduce((m, r) => Math.max(m, +(/^sr(\d+)$/.exec(r.id || '') || [])[1] || 0), 0);
+      const n = Math.max(hoyest + 1, Number.isInteger(anlegg.nesteStikkrenne) ? anlegg.nesteStikkrenne : 1);
       this.app.merk('ny stikkrenne');
+      anlegg.nesteStikkrenne = n + 1;
       // navnet bærer nummeret i id-en, som KOF-punktene (SR3I/SR3U) – det endres ikke når en annen slettes
       liste.push({ id: 'sr' + n, navn: 'Stikkrenne ' + n, s: +tr.s.toFixed(2),
         dim: k.dim, vinkel: 0, innlop: 'auto', fall: k.fall });

@@ -455,6 +455,19 @@ function klargjor(P) {
   for (const a of P.anlegg) {
     a.stikkrenner = Array.isArray(a.stikkrenner)
       ? a.stikkrenner.filter(r => r && typeof r.s === 'number' && Number.isFinite(r.s)) : [];
+    /* HVER RENNE HAR SIN EGEN ID. Id-en gir nummeret (sr3 → SR3 i KOF-en) og
+       er nøkkelen svaret slås opp med. En renne uten – fra en fil skrevet for
+       hånd – fikk nummeret etter plassen i lista, som kunne være en annens,
+       og KOF-en feilet på to punkt med samme navn. */
+    const brukt = new Set();
+    for (const r of a.stikkrenner) {
+      if (typeof r.id !== 'string' || !/^sr\d+$/.test(r.id) || brukt.has(r.id)) {
+        let n = 1;
+        while (brukt.has('sr' + n) || a.stikkrenner.some(x => x.id === 'sr' + n)) n++;
+        r.id = 'sr' + n;
+      }
+      brukt.add(r.id);
+    }
   }
 
   const aktivt = () => P.anlegg.find(a => a.id === P.aktivt) || P.anlegg[0];

@@ -90,3 +90,12 @@
 - **Tverrsnittet:** renna tegnet fylt med mørk kant – den forsvant i utskiftingsbåndet.
 - **Lista:** en beregning skriver bare svaret inn, så feltet man står i, beholder markøren; vinkelen klemmes begge veier.
 - **Merknadene** er escapet i sammendraget og rapporten.
+
+### Andre gjennomgang
+
+- **◀ ▶ fra rennas snitt** gikk til starten av vegen: snittet står mellom profilene, og oppslaget falt tilbake til det første. Nå går første steg til profilet ved siden av; skyveren står ved det nærmeste; etiketten sier «snittet til SR1». Et profil like ved en renne er profilet – renna tok det, og ◀ ▶ kom aldri fram.
+- **Høydefeltene under tverrsnittet** virker i rennas snitt (`settPunkthoyde`); et tall forsvant uten et ord.
+- **Skjev renne:** endene leses i snittet der renna krysser foten eller grøfta (`o.snitt`, sekanter); uten et kryss rett på tvers, med merknad.
+- **Id-ene:** `klargjor` gir en renne uten en god id en ledig; numrene brukes aldri om igjen i en veg (`a.nesteStikkrenne`).
+- **Sidelåsen:** uten et svar låses ingenting før siden er valgt; «auto» kan ikke velges med en låst høyde.
+- **Lengdeprofilet:** merket midt i røret, ikke én vegg over; SR-nummeret i tverrsnittets merkelapp.

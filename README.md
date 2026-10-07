@@ -113,7 +113,9 @@ står i lista under **Vegmal**:
 * **Lengden** regnes av rennas eget tverrsnitt: fra fyllingsfoten – eller midt
   i grøftebunnen der vegen ligger i skjæring – på den ene siden til den andre,
   og et tillegg forbi foten (0,5 m). En skjev renne (vinkel mot normalen) blir
-  1 / cos lengre. Snittet står utenfor massene: en renne flytter ikke volumene.
+  1 / cos lengre, og endene leses der renna faktisk krysser foten – et stykke
+  fram eller tilbake langs vegen, der fyllingen kan være en annen. Snittet står
+  utenfor massene: en renne flytter ikke volumene.
 * **Høydene** er bunn innvendig. Innløpet ligger på bakken (renska, der enden
   ligger) eller i grøftebunnen på siden vannet kommer fra (auto: siden som
   ligger høyest). Utløpet følger terrenget når det faller minst minstefallet;
@@ -125,11 +127,13 @@ står i lista under **Vegmal**:
   sier hvor mye.
 * **Låste høyder:** skriver du bunnen i innløpet eller utløpet i lista, står den
   – den endres aldri av seg selv, og merknadene sier fra om overdekning, fall
-  og et utløp som henger over bakken. Står innløpet på auto, låses siden med.
+  og et utløp som henger over bakken. Står innløpet på auto, låses siden med,
+  og auto kan ikke velges igjen før høyden er låst opp.
 
 Hver renne har et nummer: `SR1`, `SR2` … er navnene i KOF-en (`SR1I` og `SR1U`
-for innløp og utløp), og nummeret står i lista, kartet og rapporten. Det endres
-ikke når en annen renne slettes.
+for innløp og utløp), og nummeret står i lista, kartet, tverrsnittet og
+rapporten. Det endres ikke når en annen renne slettes, og en ny renne får
+aldri nummeret til en som er slettet.
 
 Renna tegnes i kartet, i tverrsnittet i stasjonen sin («snitt» i lista, «Vis
 snittet» i kartet) og i lengdeprofilen, og står i rapporten, PDF-en, KOF-en
@@ -522,7 +526,8 @@ node test/stikkrenneprove.js
 
 Stikkrennene mot fasit regnet for hånd på en rett veg: fylling på flatt terreng
 (fot til fot pluss tillegget, minstefallet, overdekningen i vegkanten), massene
-uendret av en renne, en skjev renne (også i en stigning), sidebratt terreng med
+uendret av en renne, en skjev renne (også i en stigning, og på terreng som
+faller langs vegen, der endene leses der renna krysser foten), sidebratt terreng med
 innløpet i grøftebunnen og renna dreid om utløpet for overdekningen, senking
 uten og med fall å gi, låste høyder, og det som ikke går. `npm test` kjører
 alle åtte.

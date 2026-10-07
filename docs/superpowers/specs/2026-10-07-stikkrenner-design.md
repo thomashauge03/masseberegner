@@ -55,9 +55,16 @@ det 10 % mer fylling bare av at en renne ble satt ut.) Utenfor linja svarer
   er terrenget lest der enden faktisk ligger (`terreng(x, y)`), minus
   renskedybden når tillegget ligger innenfor rensken (`renskUtenfor`).
 - **I skjæring** er enden midt i grøftebunnen, og overflaten er
-  grøftebunnen. Der renner vannet inn. Er renna skjev, ligger enden
-  `t · tan(vinkel)` fram eller tilbake langs vegen, og grøfta følger vegens
-  stigning dit.
+  grøftebunnen. Der renner vannet inn.
+- **Skjev renne:** enden til høyre ligger `t · tan(vinkel)` fram langs vegen
+  og den til venstre like langt tilbake, og der kan fyllingen være en helt
+  annen. Foten eller grøftemidten leses derfor i snittet der renna krysser
+  den (`o.snitt(s)`, i appen `res.snittVed`). Stedet er der t er lik foten i
+  snittet `t · tan(vinkel)` fram, og det finnes med sekanter. Finnes det ikke –
+  renna kommer ikke ut av fyllingen før vegen slutter, eller foten går nesten
+  langs renna – leses enden rett på tvers, og merknaden sier at lengden er
+  usikker. Uten `o.snitt` leses begge ender rett på tvers, og grøfta flyttes
+  med vegens stigning.
 
 **Lengden** er avstanden mellom endene langs renna:
 `(tV + tH) / cos(vinkel)`.
@@ -108,8 +115,12 @@ Etter `beregnMasser` regner `App` hver renne i vegen som regnes, med
 merknadsliste med typen `stikkrenne`.
 
 **Nummeret** `nr` kommer fra id-en (`sr<n>`): `SR<nr>` er navnet punktene
-har i KOF-en, og det står i lista, rapporten og kartet. Det er fast – sletter
-man en renne, får ikke de andre nye nummer.
+har i KOF-en, og det står i lista, rapporten, kartet og tverrsnittet. Det er
+fast – sletter man en renne, får ikke de andre nye nummer – og det brukes
+aldri om igjen i en veg: telleren `a.nesteStikkrenne` står i anlegget, så en
+slettet renne som alt står i en stikkingsfil, ikke får en etterfølger med
+samme navn. `klargjor` gir en renne uten en god id (fra en fil skrevet for
+hånd) en ledig en.
 
 Snittet henger på svaret (ikke-tellbart, så det lagres ikke), og
 tverrsnittet viser det når det står i stasjonen til en renne.
@@ -128,11 +139,17 @@ tverrsnittet viser det når det står i stasjonen til en renne.
   lengden, bunn i innløp og utløp, overdekningen og ⚠ for en merknad.
   «snitt» viser tverrsnittet. Hver endring er ett angresteg. Låses en høyde
   med «innløp auto», låses siden med i det samme steget – ellers kunne siden
-  snu seg når vegen endret seg, og høyden flyttet seg til den andre enden.
+  snu seg når vegen endret seg, og høyden flyttet seg til den andre enden. Er
+  renna ikke regnet, er siden ukjent: da låses ingenting før den er valgt, og
+  statuslinja sier det. Så lenge en høyde er låst, kan «auto» ikke velges.
   Etter en beregning skrives bare svaret inn; feltet man står i, beholder
   markøren.
-- **Tverrsnittet** i stasjonen til en renne er rennas eget snitt, og renna
-  tegnes på tvers: fylt, med mørk kant, fra bunn minus veggen til topp rør.
+- **Tverrsnittet** i stasjonen til en renne er rennas eget snitt («snittet
+  til SR1» i etiketten), og renna tegnes på tvers: fylt, med mørk kant, fra
+  bunn minus veggen til topp rør. ◀ ▶ derfra går til profilene ved siden av,
+  skyveren står ved det nærmeste, og høydene i feltene under gjelder i rennas
+  stasjon. Et profil like ved en renne er profilet – rennas snitt vises i
+  rennas stasjon.
 - **Lengdeprofilet** har et merke for hver renne, i høyden der den krysser
   senterlinja.
 
@@ -157,8 +174,10 @@ tverrsnittet viser det når det står i stasjonen til en renne.
 
 ## Prøver
 
-- **test/stikkrenneprove.js** (ny, 58 prøver), mot fasit regnet for hånd på
+- **test/stikkrenneprove.js** (ny, 68 prøver), mot fasit regnet for hånd på
   en rett veg med `beregnMasser`:
+  - skjev renne på terreng som faller langs vegen: endene der renna krysser
+    foten; løseren med snitt laget for hånd, med og uten et kryss;
   - ren fylling på flatt terreng: fot til fot pluss tillegget, med høydene
     fra det renskede terrenget og minste fall;
   - massene er de samme med og uten en renne, også ved en kolle mellom to
@@ -175,7 +194,9 @@ tverrsnittet viser det når det står i stasjonen til en renne.
   - profilet utenfor linja, terrenget som mangler, fyllingen som ikke når
     bakken og hull under vegen.
 - **Selvtesten:** massene uten renner er uendret.
+- **Anleggsprøven:** en renne uten stasjon faller bort, og hver får en egen id.
 - **Nettleseren:** verktøyet setter en renne, også i en veg lagt til med
-  «+ Veg»; massene er de samme; lista endrer den med angre, og en låst høyde
-  låser siden; merknaden kommer; rapporten, KOF-en og DXF-en har den; og
-  tverrsnittet i stasjonen er rennas eget.
+  «+ Veg», og et nummer brukes ikke om igjen; massene er de samme; lista
+  endrer den med angre, en låst høyde låser siden, og uten et svar låses
+  ingenting; merknaden kommer; rapporten, KOF-en og DXF-en har den; og
+  tverrsnittet i stasjonen er rennas eget, med ◀ ▶, skyveren og høydefeltene.
