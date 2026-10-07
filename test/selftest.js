@@ -4460,18 +4460,60 @@ console.log('\n6c. Avlesning av PDF');
       paastand('  ikke over en skarp knekk', knekk.length === 1 && Math.abs(knekk[0].x / mm - 30) < 1e-6
         && knekk[0].y / mm - 5 >= 50 - 1e-6 && Math.abs(knekk[0].vinkel - Math.PI / 2) < 1e-9, JSON.stringify(knekk));
       // to rør i samme grøft, 0,3 mm fra hverandre på arket: ingen tekst oppå en annen, og begge får sine
-      const grofta = Rorkart.plasserTekster([bane([[0, 50], [200, 50]]), bane([[0, 50.3], [200, 50.3]])],
-        Object.assign({}, o, { forskyv: i => (i % 3) * 20 * mm }));
+      const grofta = Rorkart.plasserTekster([bane([[0, 50], [200, 50]]), bane([[0, 50.3], [200, 50.3]])], o);
       const bokser = grofta.map(t => Rorkart.boks(t.x, t.y, t.vinkel, 5 * mm, 1.25 * mm));
       paastand('to rør i samme grøft: begge får tekst, og ingen står oppå en annen', grofta.some(t => t.i === 0) && grofta.some(t => t.i === 1)
         && bokser.every((a, j) => bokser.every((b, k) => j === k || !Rorkart.overlapper(a, b))), JSON.stringify(grofta.map(t => [t.i, Math.round(t.x / mm)])));
-      // – det andre forskjøvet 20 mm, så de skrives på hver sine steder i stedet for å skyve hverandre
-      paastand('  det andre forskjøvet en tredjedel av avstanden', xer(grofta.filter(t => t.i === 1)) === '50,110,170'
+      // – plassen er tatt, så det andre skrives en tredjedel lenger fram: på hver sine steder, etter tur
+      paastand('  det andre en tredjedel av avstanden lenger fram', xer(grofta.filter(t => t.i === 1)) === '50,110,170'
         && xer(grofta.filter(t => t.i === 0)) === '30,90,150', JSON.stringify(grofta.map(t => [t.i, Math.round(t.x / mm)])));
-      // det som er opptatt – et nummer i 30 mm – og rammen ved 120 mm
+      /* TRE I SAMME GRØFT, nummer 0, 3 og 6 i lista. Her fikk de forskyvningen
+         etter nummeret, og med samme forskyvning tok det første alle plassene –
+         de to andre fikk én tekst hver. Er plassen tatt, prøves en tredjedel
+         lenger fram, så to – før de store flyttene, så de ikke klumper seg. */
+      const langtBorte = y => bane([[0, y], [200, y]]);
+      const tre = Rorkart.plasserTekster([bane([[0, 50], [200, 50]]), langtBorte(150), langtBorte(170), bane([[0, 50.3], [200, 50.3]]),
+        langtBorte(190), langtBorte(210), bane([[0, 49.7], [200, 49.7]])], o);
+      paastand('tre i samme grøft: hvert får sine, på hver sine steder etter tur', [0, 3, 6].map(i => xer(tre.filter(t => t.i === i))).join(' / ')
+        === '30,90,150 / 50,110,170 / 70,130,190', [0, 3, 6].map(i => xer(tre.filter(t => t.i === i))).join(' / '));
+      /* TRE I SAMME GRØFT MED KUMMER hver 24. mm: plassene mellom kummene er
+         få, og de faste flyttene bommet på dem – spillvannet fikk én tekst, de
+         andre resten. Nå søkes hele avstanden, og i hver runde velger det røret
+         som har færrest. */
+      // tekstene så brede som «OV 200PVC», «SP 160PE» og «VL 110PE» i kartet, og grøfta 226 mm
+      const kumBokser = Array.from({ length: 9 }, (_, k) => Rorkart.boks((7 + 24 * k) * mm, 50 * mm, 0, 0.9 * mm, 0.9 * mm));
+      const iGrofta = (y, b) => ({ punkter: [[0, y * mm], [226 * mm, y * mm]], bredde: b * mm, hoyde: 2.5 * mm });
+      const medKum = Rorkart.plasserTekster([iGrofta(50.3, 13.7), iGrofta(50, 11.8), iGrofta(49.7, 11.7)], Object.assign({}, o, { opptatt: kumBokser }));
+      const antall = [0, 1, 2].map(i => medKum.filter(t => t.i === i).length);
+      const bredder = [13.7, 11.8, 11.7];
+      paastand('tre i samme grøft med kummer: like mange tekster, mellom kummene', Math.min(...antall) >= 3 && Math.max(...antall) - Math.min(...antall) <= 1
+        && medKum.every(t => kumBokser.every(q => !Rorkart.overlapper(Rorkart.boks(t.x, t.y, t.vinkel, bredder[t.i] / 2 * mm, 1.25 * mm), q))),
+      antall.join(' / ') + ': ' + JSON.stringify(medKum.map(t => [t.i, Math.round(t.x / mm)])));
+      /* ET SMALT MELLOMROM VED MÅLET: mellom 30,5 og 41,5 mm er det fritt, og en
+         tekst på 10 mm får plass bare midt i, i 36. Ingen av de faste flyttene
+         (4, 8, 12 mm, tredjedelene) treffer det – søket over avstanden gjør. */
+      const smalt = Rorkart.plasserTekster([bane([[0, 50], [200, 50]])], Object.assign({}, o, {
+        opptatt: [Rorkart.boks(20 * mm, 50 * mm, 0, 10.5 * mm, 3 * mm), Rorkart.boks(75.75 * mm, 50 * mm, 0, 34.25 * mm, 3 * mm)] }));
+      paastand('et smalt mellomrom ved målet: søket finner det', xer(smalt) === '36,118,150', xer(smalt));
+      // et rør som går fram og tilbake: korda er null, avviket NaN – ingen tekst tvers over
+      paastand('et rør som går fram og tilbake får ikke tekst tvers over', Rorkart.plasserTekster([bane([[0, 50], [6, 50], [0, 50]])], o).length === 0);
+      /* En stikkledning med en knekk: teksten ved siden av krysser ikke røret
+         selv – her la den seg over begge beina. */
+      const knekkStikk = Rorkart.plasserTekster([bane([[0, 50], [6, 50], [6, 44]])], Object.assign({}, o, { siden: 2 * mm }));
+      const beina = [Rorkart.boks(3 * mm, 50 * mm, 0, 3 * mm, 0), Rorkart.boks(6 * mm, 47 * mm, Math.PI / 2, 3 * mm, 0)];
+      paastand('  en stikkledning med knekk: teksten ved siden av krysser ikke røret', knekkStikk.length === 1
+        && beina.every(S => !Rorkart.overlapper(Rorkart.boks(knekkStikk[0].x, knekkStikk[0].y, knekkStikk[0].vinkel, 5 * mm, 1.25 * mm), S)),
+      JSON.stringify(knekkStikk.map(t => [t.x / mm, t.y / mm, t.vinkel])));
+      /* Det som er opptatt – et bredt nummer i 30 mm – og rammen ved 120 mm. 4
+         og 8 mm til siden er ikke nok forbi nummeret, så teksten går en
+         tredjedel av avstanden fram, til 50; den i 150 får ikke plass i rammen. */
       const fri = Rorkart.plasserTekster([bane([[0, 50], [200, 50]])], Object.assign({}, o, {
         opptatt: [Rorkart.boks(30 * mm, 50 * mm, 0, 3 * mm, 2 * mm)], ramme: { x0: 0, y0: 0, x1: 120 * mm, y1: 100 * mm } }));
-      paastand('  utenom nummeret som står der, og inne i rammen', xer(fri) === '42,90', xer(fri));
+      paastand('  utenom nummeret som står der, og inne i rammen', xer(fri) === '50,90', xer(fri));
+      // et lite nummer: 4 mm til siden holder
+      const lite = Rorkart.plasserTekster([bane([[0, 50], [200, 50]])], Object.assign({}, o, {
+        opptatt: [Rorkart.boks(25 * mm, 50 * mm, 0, 1 * mm, 1.5 * mm)] }));
+      paastand('  et lite nummer i kanten av målet: teksten flyttes bare litt', xer(lite) === '34,90,150', xer(lite));
       // skrå bokser: to tekster på skrå tett i tett regnes ikke som kollisjon når de ikke rører hverandre
       const v = Math.PI / 4, A = Rorkart.boks(0, 0, v, 5, 1), B = Rorkart.boks(3, 3, v, 5, 1);
       paastand('  skrå bokser ved siden av hverandre kolliderer ikke', !Rorkart.overlapper(A, B) && Rorkart.overlapper(A, Rorkart.boks(1, -1, v, 5, 1)));
@@ -4539,6 +4581,21 @@ console.log('\n6c. Avlesning av PDF');
         finally { proto.tekst = gT; proto.rektangel = gR; }
         paastand('  heller ikke oppå kotetallene eller merknaden nederst i kartet', hvite.length >= 4 && tekster2.length >= 6
           && tekster2.every(t => hvite.every(q => !Rorkart.overlapper(t, q))), `${tekster2.length} tekster, ${hvite.length} hvite felt`);
+
+        /* OG IKKE OPPÅ KUMMENE. En kum står på røret, der teksten står – og den
+           hvite kanten skjulte den. Et rett rør med en kum hver 50. meter. */
+        const medKummer = { prosjekt: 'P', sone: 32, dato: '', koder: { 'SP 160PE': { system: 'spill', dim: 160 } },
+          linjer: [{ kode: 'SP 160PE', kilde: 'planlagt', dim: 160, lengde: 300, xy: [{ x: X1, y: Y1 }, { x: X1 + 300, y: Y1 }] }],
+          kummer: Array.from({ length: 7 }, (_, k) => ({ x: X1 + 50 * k, y: Y1, d: 1, kode: 'SP 160PE' })) };
+        const tekster3 = [], kummer3 = [], gS = proto.sirkel;
+        proto.tekst = function (x, y, s, o2 = {}) {
+          if (o2.glorie) tekster3.push(Rorkart.boks(x, y, o2.vinkel || 0, this.bredteAv(s, o2.storrelse, o2.fet) / 2, (o2.storrelse || 9) * 0.4));
+          return gT.call(this, x, y, s, o2);
+        };
+        proto.sirkel = function (x, y, r, o2 = {}) { kummer3.push(Rorkart.boks(x, y, 0, r, r)); return gS.call(this, x, y, r, o2); };
+        try { Rorkart.lagPdf(medKummer, { koder: ['SP 160PE'], papir: 'A3' }); } finally { proto.tekst = gT; proto.sirkel = gS; }
+        paastand('  og ikke oppå kummene', kummer3.length >= 7 && tekster3.length >= 2 && tekster3.every(t => kummer3.every(q => !Rorkart.overlapper(t, q))),
+          `${tekster3.length} tekster, ${kummer3.length} kummer`);
       }
     }
     /* HØYDEKOTENE. En kjegle gir én lukket ring per nivå, et skrått plan rette

@@ -187,10 +187,10 @@ Eksport) lager kartet som skal ut på plassen. Det er én PDF:
   sirkler.
 * **Rørtypen står skrevet langs rørene**, mange steder – omtrent hver 6. cm på
   arket, i rørets farge med hvit kant, aldri opp ned. Hvert rør får typen minst
-  én gang: en stikkledning for kort til teksten langs streken får den ved
-  siden av. Der rør i samme grøft ligger oppå hverandre, skrives de på hver
-  sine steder, og ingen tekst står oppå en annen, et nummer eller et
-  kotetall. Kan slås av i valget.
+  én gang der det er plass: en stikkledning for kort til teksten langs streken
+  får den ved siden av. Der rør i samme grøft ligger oppå hverandre, skrives de
+  på hver sine steder etter tur, og ingen tekst står oppå en annen, et nummer,
+  en kum eller et kotetall. Kan slås av i valget.
 * Med «Ett kart per type» følger én side per type, med de andre rørene i grått
   under.
 

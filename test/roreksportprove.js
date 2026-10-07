@@ -181,9 +181,19 @@ console.log('\n4b. SOSI for innmålte rør: bare det som kom inn med fila');
   // de andre formatene er uendret: til maskinstyringen trengs bunnen og gravebunnen
   const kof = RorEksport.kof(app, rM);
   paastand('KOF-en har fortsatt bunn, topp og gravebunn', /RORBUNN/.test(kof) && /RORTOPP/.test(kof) && /GRAVBUNN/.test(kof));
-  // et tegnet anlegg har alle tre i SOSI-en, som før
-  paastand('et tegnet anlegg: SOSI-merknadene er de samme som før', JSON.stringify(RorEksport.sosiMerknader(app, res))
-    === JSON.stringify(RorEksport.mangler(app, res)));
+  /* CENTIMETER RUNDET RIKTIG, og to like punkt er ett. Et punkt i −0,125 ble
+     −12 (Math.round runder en halv mot pluss); to målinger på samme sted og
+     høyde ga et strekk uten lengde, som sjekkverktøyene flagger. */
+  const lav = { id: 'l', kode: 'SP 160PE', xy: [0, 10, 10, 20].map(x => ({ x: X0 + x, y: Y0 + 9 })),
+    punkter: [-0.125, 0.125, 0.125, 1].map((z, i) => ({ id: 'l' + i, z })) };
+  const rL = Object.assign({}, rM, { linjer: [lav], groft: Groft.beregn({ linjer: [lav], koder, terrengZ: T }),
+    profiler: new Map([['l', Ror.profil(lav, T, 160)]]), kummer: [], bygg: { linjer: [lav], enslige: [{ id: 'e1' }] } });
+  const sL = RorEksport.sosi(app, rL).split('\r\n'), j = sL.indexOf('..NØH');
+  paastand('en halv centimeter rundes bort fra null, og to like punkt er ett', sL.slice(j + 1, j + 4).join(' | ')
+    === [`${(Y0 + 9) * 100} ${X0 * 100} -13`, `${(Y0 + 9) * 100} ${(X0 + 10) * 100} 13`, `${(Y0 + 9) * 100} ${(X0 + 20) * 100} 100`].join(' | ')
+    && sL[j + 4] === '.SLUTT', sL.slice(j + 1, j + 5).join(' | '));
+  paastand('ett enslig punkt sies i entall', sL.includes('! 1 enslig punkt med rørkode er ikke med – det ble ikke del av noe rør'),
+    sL.filter(r => r.startsWith('!')).join(' | '));
 }
 
 console.log('\n5. DXF');
@@ -229,6 +239,9 @@ console.log('\n6b. Det som ikke kommer med, sies det fra om');
   paastand('LandXML, SOSI og DXF sier det i en kommentar', /<!-- Ikke med: DRENS/.test(RorEksport.landxml(a2, r2))
     && /^! Ikke med: DRENS/m.test(RorEksport.sosi(a2, r2)) && /\r\n999\r\nIkke med: DRENS/.test(RorEksport.dxf(a2, r2)));
   paastand('stikningslista sier det', RorEksport.stikningRader(a2, r2, (v, d) => v.toFixed(d)).foran.some(f => /DRENS/.test(f)));
+  // SOSI-fila for et tegnet anlegg sier fra om det samme som de andre – det er bare det innmålte som har sine egne
+  paastand('et tegnet anlegg: SOSI-merknadene er de samme som de andres', RorEksport.sosiMerknader(a2, r2).length > 0
+    && JSON.stringify(RorEksport.sosiMerknader(a2, r2)) === JSON.stringify(RorEksport.mangler(a2, r2)));
   paastand('og et komplett anlegg har ingenting å melde', RorEksport.mangler(app, res).length === 0, JSON.stringify(RorEksport.mangler(app, res)));
   // et innmålt anlegg der terrenget mangler: gravebunnen er borte, og massene kan ikke regnes
   const innm = { id: 'a', kode: 'SP 160PE', xy: [0, 20, 40].map(x => ({ x: X0 + x, y: Y0 })), punkter: [8, 8, 8].map((z, i) => ({ id: 'a' + i, z })) };

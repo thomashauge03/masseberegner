@@ -23,9 +23,9 @@ Nettlesertesten kjøres ved å åpne programmet med `?test=1`, eller fra konsoll
 med `Nettlesertest.kjor()`. Utviklingstjeneren startes med `node server.js`
 (port 5178). Programmet ligger også på https://masseberegner.vercel.app.
 
-Ved siste lagring: **921 prøver i selvtesten, 194 i rørprøven
+Ved siste lagring: **928 prøver i selvtesten, 194 i rørprøven
 (`test/rorprove.js`), 219 i grøfteprøven (`test/groftprove.js`), 175 i
-planprøven (`test/rorplanprove.js`), 73 i eksportprøven
+planprøven (`test/rorplanprove.js`), 75 i eksportprøven
 (`test/roreksportprove.js`), 77 i avviksprøven (`test/roravvikprove.js`), 45 i
 traseprøven (`test/traseimportprove.js`), 68 i stikkrenneprøven
 (`test/stikkrenneprove.js`), 61 i anleggsprøven og 258 i tomteprøven, alle
@@ -63,9 +63,11 @@ resten av «Utenfor 3a».
 Spec: `docs/superpowers/specs/2026-10-07-rorkart-tekst-sosi-design.md`.
 
 - **Oversiktskartet** skriver rørtypen langs rørene, mange steder
-  (`Rorkart.plasserTekster`: hver 60. mm, rett nok, ingen kollisjon, hvert rør
-  minst én gang – de korteste først, en stikkledning ved siden av). PDF-skriveren
-  har skrå tekst med hvit kant. Avkrysning i dialogen, på fra start.
+  (`Rorkart.plasserTekster`: hver 60. mm, rett nok, ingen kollisjon med tekster,
+  numre, kummer eller kotetall; tatt plass → en tredjedel lenger fram, så søk;
+  hvert rør minst én gang der det er plass – de korteste først, så etter tur
+  med færrest først; en stikkledning ved siden av). PDF-skriveren har skrå
+  tekst med hvit kant. Avkrysning i dialogen, på fra start.
 - **SOSI for et innmålt anlegg** er bare innmålingen: én kurve per rør med
   punktene fra fila – ingen bunn innvendig, gravebunn, kummer eller merknader om
   terrenget (`RorEksport.sosiMerknader`). Planlagte rør og de andre formatene er

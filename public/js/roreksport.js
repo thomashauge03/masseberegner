@@ -308,7 +308,11 @@ const RorEksport = (() => {
    * og gravebunnen er planlegging, og står i KOF, LandXML og DXF.
    */
   function sosiDeler(app, res, idFra = 1, anleggsnavn = null, d = punkter(app, res)) {
-    const E = _eks(), cm = v => Math.round(v * 100);
+    /* CENTIMETER RUNDET RIKTIG: en halv bort fra null, med en milliondels
+       centimeter i slingring – 8,045 er 8,04499… i maskinen. Her ble 8,045 til
+       804 og −0,125 til −12. (Først til millimeter, så til centimeter, er å
+       runde to ganger: 7,8545 ble 7,855 og så 7,86.) */
+    const E = _eks(), cm = v => Math.sign(v) * Math.floor(Math.abs(v) * 100 + 0.5 + 1e-6);
     let minN = Infinity, maksN = -Infinity, minO = Infinity, maksO = -Infinity;
     const omr = q => {
       minN = Math.min(minN, q.y); maksN = Math.max(maksN, q.y);
@@ -317,12 +321,21 @@ const RorEksport = (() => {
     const rader = [];
     let id = idFra;
     const kurve = (objtype, p, hoyde, pts) => {
-      if (pts.length < 2) return;
+      /* To like rader etter hverandre er ett punkt: to målinger på samme sted
+         og høyde, eller to som blir like på centimeteren. En kurve med et
+         strekk uten lengde blir flagget av sjekkverktøyene. */
+      const noh = [];
+      for (const q of pts) {
+        const rad = `${cm(q.y)} ${cm(q.x)} ${cm(q.z)}`;
+        if (rad !== noh[noh.length - 1]) noh.push(rad);
+      }
+      if (noh.length < 2) return;
+      pts.forEach(omr);
       rader.push(`.KURVE ${id++}:`, '..OBJTYPE ' + objtype, '..NAVN ' + E.sosiTekst(p.kode), '..HØYDEREF ' + E.sosiTekst(hoyde));
       if (p.k.dim > 0) rader.push('..DIAMETER ' + Math.round(p.k.dim));
       if (anleggsnavn) rader.push('..ANLEGG ' + E.sosiTekst(anleggsnavn));
       rader.push('..NØH');
-      for (const q of pts) { omr(q); rader.push(`${cm(q.y)} ${cm(q.x)} ${cm(q.z)}`); }
+      for (const rad of noh) rader.push(rad);
     };
     const innmalt = !res.plan;
     for (const p of d) {
@@ -353,7 +366,8 @@ const RorEksport = (() => {
   function sosiMerknader(app, res, d) {
     if (res.plan) return mangler(app, res, d);
     const n = ((res.bygg && res.bygg.enslige) || []).length;
-    return n ? [`${n} enslige punkt med rørkode er ikke med – de ble ikke del av noe rør`] : [];
+    return n === 1 ? ['1 enslig punkt med rørkode er ikke med – det ble ikke del av noe rør']
+      : n ? [`${n} enslige punkt med rørkode er ikke med – de ble ikke del av noe rør`] : [];
   }
 
   function sosi(app, res) {

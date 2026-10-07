@@ -86,9 +86,9 @@ const Rorkart = (() => {
    *   streken under teksten, flyttes den litt langs røret, eller sløyfes der.
    * - Aldri opp ned: den leses fra venstre, eller nedenfra.
    * - Ingen tekst oppå en annen, eller oppå det som står i `opptatt` (numrene,
-   *   kotetallene): rør i samme grøft ligger oppå hverandre på arket, og der får
-   *   bare ett av dem tekst. `forskyv(i)` flytter starten for hvert rør, så rørene
-   *   i en grøft skrives på hver sine steder i stedet for at det første tar alle.
+   *   kotetallene, kummene). Rør i samme grøft ligger oppå hverandre på arket:
+   *   er plassen tatt, prøves en tredjedel av avstanden lenger fram, så rørene i
+   *   en grøft skrives på hver sine steder etter tur.
    * - Inne i rammen.
    * - Et rør som ikke fikk noen tekst langs seg – en stikkledning med nummeret
    *   midt på, eller et rør i en grøft der de andre tok plassene – får den ved
@@ -97,18 +97,34 @@ const Rorkart = (() => {
    *
    * @param {Array<{punkter: Array<[number, number]>, bredde: number, hoyde: number}>} baner
    *   rørene på arket (punkt, y nedover), i den rekkefølgen de skal få plass
-   * @param {{avstand, flytt, rett, siden?, ramme?, opptatt?, forskyv?}} o  mål i punkt – `siden`
+   * @param {{avstand, flytt, rett, siden?, ramme?, opptatt?}} o  mål i punkt – `siden`
    *   er luften mellom streken og en tekst ved siden av
    * @returns {Array<{i, x, y, vinkel}>} midtpunktet og vinkelen (mot klokka) for hver tekst
    */
   function plasserTekster(baner, o) {
-    const ut = [], opptatt = (o.opptatt || []).slice();
+    const ut = [];
     const R = o.ramme;
+    // halve bredden og høyden av boksen rett mot arket
+    const ytre = b => [b.hb * Math.abs(b.ux) + b.hh * Math.abs(b.uy), b.hb * Math.abs(b.uy) + b.hh * Math.abs(b.ux)];
     const iRamme = b => {
       if (!R) return true;
-      const ex = b.hb * Math.abs(b.ux) + b.hh * Math.abs(b.uy), ey = b.hb * Math.abs(b.uy) + b.hh * Math.abs(b.ux);
+      const [ex, ey] = ytre(b);
       return b.cx - ex >= R.x0 && b.cx + ex <= R.x1 && b.cy - ey >= R.y0 && b.cy + ey <= R.y1;
     };
+    /* DET SOM ER OPPTATT, I ET RUTENETT. Hver kandidat sjekkes mot boksene i
+       rutene den dekker, ikke mot alle: med søket over hele avstanden i trange
+       grøfter ble det ellers kvadratisk i antall tekster. */
+    const RUTE = 60, rutenett = new Map();
+    const ruter = (b, f) => {
+      const [ex, ey] = ytre(b);
+      for (let i = Math.floor((b.cx - ex) / RUTE); i <= Math.floor((b.cx + ex) / RUTE); i++) {
+        for (let j = Math.floor((b.cy - ey) / RUTE); j <= Math.floor((b.cy + ey) / RUTE); j++) if (f(i + ',' + j)) return true;
+      }
+      return false;
+    };
+    const opptaFor = b => ruter(b, k => { let l = rutenett.get(k); if (!l) rutenett.set(k, (l = [])); l.push(b); return false; });
+    const kolliderer = b => ruter(b, k => (rutenett.get(k) || []).some(Q => overlapper(b, Q)));
+    for (const b of o.opptatt || []) opptaFor(b);
     // vinkelen på arket, mot klokka – y er nedover her – og aldri opp ned
     const vinkelAv = (dx, dy) => {
       const v = Math.atan2(-dy, dx);
@@ -130,52 +146,84 @@ const Rorkart = (() => {
       // målene langs røret, omtrent hver `avstand` – bare der teksten får plass langs streken
       const maal = [];
       if (L >= w * 1.1) {
-        const A = o.avstand, start = ((A / 2 + (o.forskyv ? o.forskyv(i) : 0)) % A + A) % A;
-        for (let s = start; s <= L - w / 2; s += A) if (s >= w / 2) maal.push(s);
+        for (let s = o.avstand / 2; s <= L - w / 2; s += o.avstand) if (s >= w / 2) maal.push(s);
         if (!maal.length) maal.push(L / 2);
       }
-      return { i, p, w, h, L, lengs, forste, ved, maal, brukt: -1 };
+      return { i, p, w, h, L, lengs, forste, ved, maal, brukt: -1, antall: 0 };
     }).filter(Boolean);
     const legg = (r, cx, cy, v) => {
       const B = boks(cx, cy, v, r.w / 2, r.h / 2);
-      if (!iRamme(B) || opptatt.some(Q => overlapper(B, Q))) return false;
-      opptatt.push(B);
+      if (!iRamme(B) || kolliderer(B)) return false;
+      opptaFor(B);
       ut.push({ i: r.i, x: cx, y: cy, vinkel: v });
+      r.antall++;
       return true;
     };
-    // én tekst langs røret ved mål nummer k: der, eller flyttet litt, der streken er rett nok
+    /* Én tekst langs røret ved mål nummer k: der, eller flyttet litt, der
+       streken er rett nok. Er plassen tatt av et annet rør – rør i samme grøft
+       ligger oppå hverandre på arket – prøves en tredjedel av avstanden lenger
+       fram, så to, før teksten flyttes lenger. Her tok det første røret i
+       grøfta alle plassene når to rør fikk samme forskyvning, og de andre fikk
+       én tekst hver; eller de klumpet seg rundt hvert mål. De små flyttene
+       (4 og 8 mm) er for det som er lite: et nummer, en kum, et kotetall. */
+    const FORSOK = [];
+    for (const t of [0, 1, 2]) for (const d of [0, 1, -1, 2, -2]) FORSOK.push([t, d]);
+    for (const t of [0, 1, 2]) for (const d of [3, -3]) FORSOK.push([t, d]);
+    /* Til sist hele avstanden rundt målet, hver halve flytt: langs en grøft med
+       kummer er plassene mellom kummene få, og de faste flyttene bommet på dem –
+       spillvannet med kummene fikk én tekst. */
+    for (let m = 1; m * o.flytt / 2 <= o.avstand / 2 + 1e-9; m++) {
+      for (const d of [m / 2, -m / 2]) if (!(Number.isInteger(d) && Math.abs(d) <= 3)) FORSOK.push([0, d]);
+    }
     const langs = (r, k) => {
       const { p, w, L, lengs, forste, ved } = r;
-      for (const d of [0, 1, -1, 2, -2, 3, -3]) {
-        const s = r.maal[k] + d * o.flytt;
+      for (const [tredjedel, d] of FORSOK) {
+        const s = r.maal[k] + tredjedel * o.avstand / 3 + d * o.flytt;
         if (s < w / 2 - 1e-9 || s > L - w / 2 + 1e-9) continue;
-        // rett nok: ingen del av røret under teksten går mer enn `rett` ut fra korda – det fanger hver knekk
         const a = ved(s - w / 2), b = ved(s + w / 2);
         const dx = b[0] - a[0], dy = b[1] - a[1], kord = Math.hypot(dx, dy);
+        // en knekk, eller et rør som går fram og tilbake: korda er kortere enn teksten
+        if (!(kord >= w * 0.9)) continue;
+        // rett nok: ingen del av røret under teksten går mer enn `rett` ut fra korda
         let avvik = 0;
         for (let q = forste(s - w / 2); q < p.length && lengs[q] < s + w / 2; q++) {
           avvik = Math.max(avvik, Math.abs((p[q][0] - a[0]) * dy - (p[q][1] - a[1]) * dx) / kord);
         }
-        if (avvik > o.rett) continue;
+        if (!(avvik <= o.rett)) continue;
         if (legg(r, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2, vinkelAv(dx, dy))) return true;
       }
       return false;
     };
     /* Ved siden av, midt på og parallelt – over streken, ellers under. Er det
        trangt, litt lenger ut: nummeret midt på et skrått rør står rett mot
-       arket, og hjørnet stikker lenger ut fra streken enn på et vannrett. */
+       arket, og hjørnet stikker lenger ut fra streken enn på et vannrett.
+       Aldri tvers over røret selv: en stikkledning med en knekk fikk teksten
+       over begge beina. */
     const vedSiden = r => {
-      const { w, h, L, ved } = r, c = Math.min(w, L) / 2;
+      const { p, w, h, L, lengs, forste, ved } = r, c = Math.min(w, L) / 2;
+      // rørets egne strekk der teksten kan nå, som bokser uten høyde
+      const strekk = s => {
+        const ut2 = [];
+        for (let q = Math.max(1, forste(s - w)); q < p.length && lengs[q - 1] <= s + w; q++) {
+          const dx = p[q][0] - p[q - 1][0], dy = p[q][1] - p[q - 1][1], l = Math.hypot(dx, dy);
+          if (l > 1e-9) ut2.push(boks((p[q][0] + p[q - 1][0]) / 2, (p[q][1] + p[q - 1][1]) / 2, Math.atan2(-dy, dx), l / 2, 0));
+        }
+        return ut2;
+      };
       for (const s of [L / 2, L / 2 + o.flytt, L / 2 - o.flytt]) {
         if (s - c < -1e-9 || s + c > L + 1e-9) continue;
         const a = ved(s - c), b = ved(s + c), dx = b[0] - a[0], dy = b[1] - a[1];
         if (Math.hypot(dx, dy) < c) continue;      // en skarp knekk midt på
-        const v = vinkelAv(dx, dy), m = ved(s);
+        const v = vinkelAv(dx, dy), m = ved(s), egne = strekk(s);
         // opp fra teksten, på arket med y nedover
         const nx = -Math.sin(v), ny = -Math.cos(v);
         for (const f of [1, 1.5, 2]) {
           const avstand = h / 2 + f * (o.siden || 0);
-          for (const side of [1, -1]) if (legg(r, m[0] + side * avstand * nx, m[1] + side * avstand * ny, v)) return true;
+          for (const side of [1, -1]) {
+            const cx = m[0] + side * avstand * nx, cy = m[1] + side * avstand * ny;
+            if (egne.some(S => overlapper(boks(cx, cy, v, w / 2, h / 2), S))) continue;
+            if (legg(r, cx, cy, v)) return true;
+          }
         }
       }
       return false;
@@ -187,7 +235,14 @@ const Rorkart = (() => {
       for (let k = 0; k < r.maal.length && r.brukt < 0; k++) if (langs(r, k)) r.brukt = k;
       if (r.brukt < 0) vedSiden(r);
     }
-    for (const r of rorene) for (let k = 0; k < r.maal.length; k++) if (k !== r.brukt) langs(r, k);
+    /* Så resten, etter tur: mål nummer k for hvert rør før nummer k + 1, og i
+       hver runde det røret som har færrest først. Her tok det første røret i
+       lista alle sine før det neste fikk et – langs en grøft med kummer, der
+       plassene mellom kummene er få, fikk spillvannet én. */
+    const flest = rorene.reduce((m, r) => Math.max(m, r.maal.length), 0);
+    for (let k = 0; k < flest; k++) {
+      for (const r of rorene.slice().sort((a, b) => a.antall - b.antall)) if (k < r.maal.length && k !== r.brukt) langs(r, k);
+    }
     return ut;
   }
 
@@ -659,6 +714,8 @@ const Rorkart = (() => {
         // kummen i målestokk, men aldri mindre enn at den synes
         const r = Math.max(pt(0.9), pt(((+k.d || 1) / 2) * 1000 / u.N));
         P.sirkel(x, y, r, { fyll: [1, 1, 1], strek: SVART, tykkelse: pt(0.25) });
+        // kummen står på røret, der teksten også står – og den hvite kanten skjulte den
+        opptatt.push(boks(x, y, 0, r, r));
       }
       // numrene: det samme tallet står over lengdeprofilen til røret
       for (const l of linjer) {
@@ -678,8 +735,7 @@ const Rorkart = (() => {
         const baner = linjer.map(l => ({ punkter: l.xy.map(q => iKart(q.x, q.y)),
           bredde: P.bredteAv(l.kode, ST, true) + pt(1.2), hoyde: ST * 0.8 + pt(0.8) }));
         const plassert = plasserTekster(baner, { avstand: pt(TEKSTAVSTAND), flytt: pt(4), rett: pt(0.6), siden: pt(2),
-          ramme: { x0: pt(K.x + 1), y0: pt(K.y + 1), x1: pt(K.x + K.b - 1), y1: pt(K.y + K.h - 1) },
-          opptatt, forskyv: i => (i % 3) * pt(TEKSTAVSTAND) / 3 });
+          ramme: { x0: pt(K.x + 1), y0: pt(K.y + 1), x1: pt(K.x + K.b - 1), y1: pt(K.y + K.h - 1) }, opptatt });
         for (const t of plassert) {
           const l = linjer[t.i], f = farger.get(l.kode);
           P.tekst(t.x, t.y, l.kode, { storrelse: ST, fet: true, farge: f ? f.rgb : SVART, juster: 'm', loddrett: 'm',
