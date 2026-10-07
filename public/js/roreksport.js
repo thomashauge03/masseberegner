@@ -299,6 +299,13 @@ const RorEksport = (() => {
   /**
    * SOSI: en kurve per rør og høyde, og et punkt per kum. Katalogen er
    * programmets egen, som for veg og tomt – navnene later ikke som de er FKB.
+   *
+   * INNMÅLTE RØR GIS UT SOM DE KOM INN. For et innmålt anlegg er SOSI-fila
+   * punktene fra innmålingen, rør for rør – koordinatene og høydene fra fila –
+   * og ikke noe programmet har regnet: ingen bunn innvendig (den kommer av
+   * dimensjonen), ingen gravebunn og ingen merknad om terrenget (de kommer av
+   * Kartverkets terreng). Det er innmålingen som leveres videre i SOSI; bunnen
+   * og gravebunnen er planlegging, og står i KOF, LandXML og DXF.
    */
   function sosiDeler(app, res, idFra = 1, anleggsnavn = null, d = punkter(app, res)) {
     const E = _eks(), cm = v => Math.round(v * 100);
@@ -317,12 +324,14 @@ const RorEksport = (() => {
       rader.push('..NØH');
       for (const q of pts) { omr(q); rader.push(`${cm(q.y)} ${cm(q.x)} ${cm(q.z)}`); }
     };
+    const innmalt = !res.plan;
     for (const p of d) {
+      if (innmalt) { kurve('Rørledning', p, 'topp rør', p.linjer.topp); continue; }
       kurve('Rørledning', p, 'bunn innvendig', p.linjer.bunn);
       kurve('Rørledning', p, 'topp rør', p.linjer.topp);
       for (const b of p.linjer.gravebunn) kurve('Grøftebunn', p, 'gravebunn', b);
     }
-    for (const km of res.kummer || []) {
+    for (const km of innmalt ? [] : res.kummer || []) {
       omr(km);
       rader.push(`.PUNKT ${id++}:`, '..OBJTYPE Kum', '..NAVN ' + E.sosiTekst(km.id));
       if (km.diameter > 0) rader.push('..DIAMETER ' + Math.round(km.diameter));
@@ -335,9 +344,21 @@ const RorEksport = (() => {
   /** SOSI-kommentarer: «!» til linjeslutt. */
   const sosiKommentarer = merk => merk.map(m => '! ' + String(m).replace(/[\r\n]+/g, ' '));
 
+  /**
+   * Det SOSI-fila sier fra om. Et tegnet anlegg: det som mangler, som i de
+   * andre formatene. Et innmålt: bare de enslige punktene – målt med en
+   * rørkode, men uten nabo, så de ble ikke del av noe rør. Gravebunnen og
+   * terrenget er ikke med i fila, og da er det ikke noe å melde om dem.
+   */
+  function sosiMerknader(app, res, d) {
+    if (res.plan) return mangler(app, res, d);
+    const n = ((res.bygg && res.bygg.enslige) || []).length;
+    return n ? [`${n} enslige punkt med rørkode er ikke med – de ble ikke del av noe rør`] : [];
+  }
+
   function sosi(app, res) {
     const E = _eks(), d = sosiDeler(app, res, 1);
-    const rader = E.sosiHode(app, d.omr, d.niva).concat(sosiKommentarer(mangler(app, res)), d.rader);
+    const rader = E.sosiHode(app, d.omr, d.niva).concat(sosiKommentarer(sosiMerknader(app, res)), d.rader);
     rader.push('.SLUTT');
     return rader.join('\r\n') + '\r\n';
   }
@@ -406,7 +427,7 @@ const RorEksport = (() => {
   }
 
   return { STIKK, stasjonering, ved, kumNr, punkter, mangler, csvTekst, stikningRader, masseRader,
-    kofMerknader, kofKropp, kof, landxmlDeler, landxml, xmlKommentarer, sosiDeler, sosi, sosiKommentarer,
+    kofMerknader, kofKropp, kof, landxmlDeler, landxml, xmlKommentarer, sosiDeler, sosi, sosiKommentarer, sosiMerknader,
     dxfKropp, dxf, dxfKommentarer, geojson };
 })();
 

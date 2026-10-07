@@ -146,6 +146,46 @@ console.log('\n4. SOSI');
     && rader.includes(`...MAX-NØ ${Y0 + 41} ${X0 + 70}`), rader.filter(r => /^\.\.\.M(IN|AX)-NØ/.test(r)).join(' | '));
 }
 
+console.log('\n4b. SOSI for innmålte rør: bare det som kom inn med fila');
+{
+  /* ET INNMÅLT ANLEGG gis ut som det kom inn: punktene fra innmålingen, rør
+     for rør, med koordinatene og høydene fra fila. Bunn innvendig (regnet av
+     dimensjonen), gravebunnen og merknadene om terrenget (regnet av
+     Kartverkets terreng) hører til planleggingen, ikke til innmålingen. */
+  const malt = { id: 'm', kode: 'SP 160PE', xy: [0, 20, 40].map(x => ({ x: X0 + x, y: Y0 + 5 })),
+    punkter: [8.123, 8.041, 7.987].map((z, i) => ({ id: 'm' + i, z })) };
+  const gM = Groft.beregn({ linjer: [malt], koder, terrengZ: T });
+  // en kum i resultatet: SOSI-fila for et innmålt anlegg er rørene, og kummen står ikke der
+  const rM = { type: 'ror', sone: 32, linjer: [malt], groft: gM, profiler: new Map([['m', Ror.profil(malt, T, 160)]]),
+    kummer: [{ id: 'k9', ror: 'm', x: X0 + 20, y: Y0 + 5, bunnlop: 7, diameter: 1000 }], bakkefaktor: 1, plan: false,
+    bygg: { linjer: [malt], enslige: [{ id: 'e1' }, { id: 'e2' }] } };
+  paastand('fiksturen har en gravebunn å la være', RorEksport.punkter(app, rM)[0].linjer.gravebunn.length === 1);
+  const sos = RorEksport.sosi(app, rM);
+  const telle = re => (sos.match(re) || []).length;
+  paastand('én kurve per rør – den innmålte', telle(/^\.KURVE /gm) === 1 && telle(/^\.\.OBJTYPE Rørledning$/gm) === 1, String(telle(/^\.KURVE /gm)));
+  paastand('  ingen bunn innvendig, ingen grøftebunn, ingen kummer', !sos.includes('bunn innvendig') && !sos.includes('Grøftebunn')
+    && telle(/^\.PUNKT /gm) === 0);
+  const rader = sos.split('\r\n'), i = rader.indexOf('..NØH');
+  paastand('  koordinatene og høydene fra fila, i centimeter', rader.slice(i + 1, i + 4).join(' | ')
+    === [`${(Y0 + 5) * 100} ${X0 * 100} 812`, `${(Y0 + 5) * 100} ${(X0 + 20) * 100} 804`, `${(Y0 + 5) * 100} ${(X0 + 40) * 100} 799`].join(' | '),
+  rader.slice(i + 1, i + 4).join(' | '));
+  paastand('  med koden, høydereferansen og dimensjonen', sos.includes('..NAVN "SP 160PE"') && sos.includes('..HØYDEREF "topp rør"')
+    && sos.includes('..DIAMETER 160'));
+  paastand('  ingen merknad om terreng eller grøft – men de enslige punktene sies', !/^!.*(gravebunn|[Tt]erreng|grøft)/m.test(sos)
+    && /^! 2 enslige punkt med rørkode er ikke med/m.test(sos), sos.split('\r\n').filter(r => r.startsWith('!')).join(' | '));
+  paastand('  merknadene for SOSI er bare de enslige', RorEksport.sosiMerknader(app, rM).length === 1);
+  // uten terreng: ingen gravebunn – og det er ikke noe SOSI-fila skal si fra om
+  const utenT = Object.assign({}, rM, { groft: Groft.beregn({ linjer: [malt], koder, terrengZ: () => NaN }), bygg: { linjer: [malt], enslige: [] } });
+  paastand('uten terreng: SOSI-fila er den samme, uten et ord om gravebunnen', RorEksport.sosiMerknader(app, utenT).length === 0
+    && RorEksport.mangler(app, utenT).some(m => /gravebunn/.test(m)) && !/^!/m.test(RorEksport.sosi(app, utenT)));
+  // de andre formatene er uendret: til maskinstyringen trengs bunnen og gravebunnen
+  const kof = RorEksport.kof(app, rM);
+  paastand('KOF-en har fortsatt bunn, topp og gravebunn', /RORBUNN/.test(kof) && /RORTOPP/.test(kof) && /GRAVBUNN/.test(kof));
+  // et tegnet anlegg har alle tre i SOSI-en, som før
+  paastand('et tegnet anlegg: SOSI-merknadene er de samme som før', JSON.stringify(RorEksport.sosiMerknader(app, res))
+    === JSON.stringify(RorEksport.mangler(app, res)));
+}
+
 console.log('\n5. DXF');
 {
   const dxf = RorEksport.dxf(app, res);

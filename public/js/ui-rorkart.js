@@ -140,9 +140,9 @@ const RorkartUI = {
   },
 
   /**
-   * Valget: hvilke rørtyper, om hver type skal ha sin egen side, bakgrunn og
-   * papir.
-   * @returns {Promise<?{koder:string[], perType:boolean, bakgrunn:string, papir:string}>}
+   * Valget: hvilke rørtyper, om typen skal stå skrevet langs rørene, om hver
+   * type skal ha sin egen side, bakgrunn og papir.
+   * @returns {Promise<?{koder:string[], tekst:boolean, perType:boolean, bakgrunn:string, papir:string}>}
    */
   dialog(data) {
     return new Promise(los => {
@@ -172,6 +172,7 @@ const RorkartUI = {
           <tbody>${rader}</tbody></table>
         <div class="knapperad"><button class="knapp" id="rkAlle" aria-label="Kryss av alle rørtypene">Alle</button>
           <button class="knapp" id="rkIngen" aria-label="Fjern krysset for alle rørtypene">Ingen</button></div>
+        <div class="rorinnstilling"><label><input type="checkbox" id="rkTekst" checked> Rørtypen skrevet langs rørene, mange steder</label></div>
         <div class="rorinnstilling"><label><input type="checkbox" id="rkPerType" checked> Ett kart per type i tillegg</label></div>
         <div class="rorinnstilling"><label><input type="checkbox" id="rkKoter" checked> Høydekoter fra terrengmodellen</label></div>
         <div class="rorinnstilling"><label><input type="checkbox" id="rkProfiler" checked> Lengdeprofil for hvert rør – terrenget og dybden</label></div>
@@ -209,7 +210,7 @@ const RorkartUI = {
         const koder = bokser().filter(b => b.checked).map(b => b.closest('tr').dataset.kode);
         // ingen valgt er ikke et kart – det sies her, i dialogen, der det kan rettes
         if (!koder.length) { innhold.querySelector('#rkSvar').textContent = 'Kryss av minst én rørtype.'; return; }
-        lukk({ koder, perType: innhold.querySelector('#rkPerType').checked,
+        lukk({ koder, tekst: innhold.querySelector('#rkTekst').checked, perType: innhold.querySelector('#rkPerType').checked,
           koter: innhold.querySelector('#rkKoter').checked, profiler: innhold.querySelector('#rkProfiler').checked,
           bakgrunn: innhold.querySelector('#rkBakgrunn').value, papir: innhold.querySelector('#rkPapir').value });
       };

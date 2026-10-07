@@ -1328,8 +1328,14 @@ ${profiler || '<p class="liten">Ingen rør over 20 m.</p>'}`);
     this.app.status((feil ? '⚠ ' : '') + tekst);
   },
 
-  /** Kjører en eksport med vakt, feilmelding og logging på plass. */
-  kjorEksport(navn, lag) {
+  /**
+   * Kjører en eksport med vakt, feilmelding og logging på plass.
+   * @param {string} navn  formatet, til svaret
+   * @param {(form: string) => void} lag
+   * @param {Function} [merknader]  det fila sier fra om, for rør – SOSI-fila for et
+   *   innmålt anlegg har bare innmålingen, og sier ingenting om gravebunnen
+   */
+  kjorEksport(navn, lag, merknader = RorEksport.mangler) {
     const kan = this.kanEksportere();
     if (!kan.ok) { this.eksportsvar(kan.grunn, true); return false; }
     /* Hver eksport velger etter `form` – veg, tomt eller rør. Her sto en sperre
@@ -1340,7 +1346,7 @@ ${profiler || '<p class="liten">Ingen rør over 20 m.</p>'}`);
       /* Fila sier selv hva som ikke kom med; svaret under knappene skal si
          det samme – et «Eksporterte …» uten forbehold ser komplett ut. */
       if (kan.form === 'ror') {
-        const mangler = RorEksport.mangler(this.app, this.app.resultat);
+        const mangler = merknader(this.app, this.app.resultat);
         if (mangler.length) this.eksportsvar((this._sistSvar || navn) + ' · ' + mangler.join(' · '), true);
       }
       return true;
@@ -1667,7 +1673,7 @@ ${profiler || '<p class="liten">Ingen rør over 20 m.</p>'}`);
       this.lastNed(this.filnavn(endelse), innhold, type);
       this.eksportsvar('Eksporterte ' + this.filnavn(endelse)
         + ' (' + Math.round(innhold.length / 1024) + ' kB)');
-    });
+    }, format === 'sosi' ? RorEksport.sosiMerknader : RorEksport.mangler);
   },
 
   eksportGeojson() {
@@ -2087,7 +2093,8 @@ ${tatt.map(x => x.bit.html).join('\n')}`;
         const anleggsnavn = anl.navn || (tomt ? 'Tomt' : ror ? 'Rør' : 'Veg');
         if (!filsone) filsone = a2.sone;
         if (a2.sone !== filsone) throw new Error(`annen UTM-sone (${a2.sone}) enn fila (${filsone})`);
-        if (ror) for (const m of RorEksport.mangler(a2, res)) notater.push(anleggsnavn + ': ' + m);
+        // SOSI-fila har bare innmålingen fra et innmålt anlegg – og sier da ingenting om gravebunnen
+        if (ror) for (const m of (format === 'sosi' ? RorEksport.sosiMerknader : RorEksport.mangler)(a2, res)) notater.push(anleggsnavn + ': ' + m);
         if (format === 'kof') {
           const pre = merke;
           if (ror) {

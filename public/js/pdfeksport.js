@@ -152,19 +152,34 @@ class PdfSkriver {
   /**
    * @param {number} x venstrekant (eller høyrekant/midte, se justering)
    * @param {number} y avstand fra toppen av siden til grunnlinjen
-   * @param {object} [o] storrelse, fet, farge [r,g,b] 0-1, juster 'v'|'h'|'m'
+   * @param {object} [o] storrelse, fet, farge [r,g,b] 0-1, juster 'v'|'h'|'m' (langs
+   *   grunnlinja), vinkel (radianer, mot klokka på arket), loddrett 'm' (y er midt i
+   *   bokstavhøyden, ikke grunnlinja), glorie { farge, tykkelse } – en kant rundt
+   *   bokstavene, så teksten leses over en strek eller et kart
    */
   tekst(x, y, streng, o = {}) {
     const st = o.storrelse || 9;
     const fet = !!o.fet;
     const farge = o.farge || [0, 0, 0];
-    let xx = x;
-    if (o.juster === 'h') xx = x - this.bredteAv(streng, st, fet);
-    else if (o.juster === 'm') xx = x - this.bredteAv(streng, st, fet) / 2;
+    const b = this.bredteAv(streng, st, fet);
+    const a = o.vinkel || 0, c = Math.cos(a), s = Math.sin(a);
+    // forskyvningen i tekstens eget rom: langs grunnlinja og opp fra den
+    const fx = o.juster === 'h' ? -b : o.juster === 'm' ? -b / 2 : 0;
+    const fy = o.loddrett === 'm' ? -0.35 * st : 0;
+    const X = x + fx * c - fy * s, Y = this._y(y) + fx * s + fy * c;
+    // dreiningen med fire desimaler – med to ble en skrå tekst skjev og et par prosent for stor
+    const r = v => (Math.round(v * 1e4) / 1e4).toString();
+    const tm = `${r(c)} ${r(s)} ${r(-s)} ${r(c)} ${this._n(X)} ${this._n(Y)} Tm`;
+    const font = `/${fet ? 'F2' : 'F1'} ${this._n(st)} Tf`, ord = `(${this._pdfstreng(streng)}) Tj`;
+    if (o.glorie) {
+      // bokstavene strøket bredt i glorien først (Tr 1), så fylt oppå – q/Q tar med seg strøket
+      const g = o.glorie.farge || [1, 1, 1];
+      this.side.deler.push(`q 1 j 1 J ${this._n(g[0])} ${this._n(g[1])} ${this._n(g[2])} RG ${this._n(o.glorie.tykkelse || 1.5)} w `
+        + `BT ${font} 1 Tr ${tm} ${ord} ET Q`);
+    }
     this.side.deler.push(
-      `BT /${fet ? 'F2' : 'F1'} ${this._n(st)} Tf ${this._n(farge[0])} ${this._n(farge[1])} ${this._n(farge[2])} rg `
-      + `1 0 0 1 ${this._n(xx)} ${this._n(this._y(y))} Tm (${this._pdfstreng(streng)}) Tj ET`);
-    return this.bredteAv(streng, st, fet);
+      `BT ${font} ${this._n(farge[0])} ${this._n(farge[1])} ${this._n(farge[2])} rg ${tm} ${ord} ET`);
+    return b;
   }
 
   linje(x1, y1, x2, y2, o = {}) {

@@ -185,6 +185,12 @@ Eksport) lager kartet som skal ut på plassen. Det er én PDF:
 * Tegnforklaringen i siden har lengden, antall rør og om de er innmålt eller
   planlagt. Innmålte rør er heltrukne, planlagte stiplet, og kummene er
   sirkler.
+* **Rørtypen står skrevet langs rørene**, mange steder – omtrent hver 6. cm på
+  arket, i rørets farge med hvit kant, aldri opp ned. Hvert rør får typen minst
+  én gang: en stikkledning for kort til teksten langs streken får den ved
+  siden av. Der rør i samme grøft ligger oppå hverandre, skrives de på hver
+  sine steder, og ingen tekst står oppå en annen, et nummer eller et
+  kotetall. Kan slås av i valget.
 * Med «Ett kart per type» følger én side per type, med de andre rørene i grått
   under.
 
@@ -425,7 +431,7 @@ der det ikke graves). Den som setter opp maskina, velger laget.
 |---|---|
 | **KOF** | Stikningspunkt i hvert knekkpunkt, hver 10. meter og enden: `RORBUNN`, `RORTOPP`, `GRAVBUNN`; kummene `KUMBUNN` (bunnløp) og `KUMTOPP` (lokk). Hodet sier hva rørnumrene er |
 | **LandXML** | En 3D-linje (`PlanFeature`) per rør og høyde, og kummene som punkt (`CgPoint`) |
-| **SOSI** | `Rørledning` (bunn og topp) og `Grøftebunn` som kurver, med høydereferanse og diameter; kummene som `Kum` |
+| **SOSI** | Innmålte rør: bare innmålingen – én `Rørledning` per rør med punktene slik de kom inn med fila, koden og diameteren; ingen bunn innvendig, gravebunn eller terreng. Planlagte rør: `Rørledning` (bunn og topp) og `Grøftebunn` som kurver, med høydereferanse og diameter; kummene som `Kum` |
 | **DXF** | 3D-polylinjer på lagene `<KODE>_BUNN`, `_TOPP` og `_GRAVEBUNN`; kummene som sirkler på bunnløpet |
 | **CSV** | Stikningsliste med alle tre høydene, terreng og overdekning per punkt; grøftemassene per kode |
 | **GeoJSON** | Rørene som linjer med egenskapene, kummene som punkt |
@@ -499,7 +505,7 @@ node test/roreksportprove.js
 Eksporten av rør: stikningspunktene (knekk, hver 10. meter, enden og kummene),
 de tre høydene mot grøftemotoren – også bruddet der røret ligger over terrenget –
 og hvert format: KOF-navn og koder, LandXML-linjer og kummer, SOSI-kurver i
-centimeter, DXF-lag og GeoJSON.
+centimeter – for innmålte rør bare innmålingen –, DXF-lag og GeoJSON.
 
 ```bash
 node test/roravvikprove.js

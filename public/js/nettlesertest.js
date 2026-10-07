@@ -8990,6 +8990,20 @@ const Nettlesertest = {
           === '.KOF,.xml,.sos,.dxf,_stikning.csv,_groftemasser.csv,.geojson', kastet || endelser.join(','));
         this.sjekk('og innholdet er rør, ikke en veg', filer.length === 7 && /RORTOPP/.test(filer[0].innhold)
           && !/SENTER/.test(filer[0].innhold) && /<PlanFeature /.test(filer[1].innhold) && !/<Alignment /.test(filer[1].innhold));
+        /* SOSI FOR ET INNMÅLT ANLEGG er innmålingen: én kurve per rør, med
+           punktene fra fila – ingen bunn innvendig, ingen gravebunn, og svaret
+           under knappene sier ingenting om dem. */
+        const sos = filer.length === 7 ? filer[2].innhold : '', nRor = App.resultat.linjer.length;
+        this.sjekk('SOSI for innmålte rør: én kurve per rør, bare innmålingen', (sos.match(/^\.KURVE /gm) || []).length === nRor
+          && !/bunn innvendig|Grøftebunn|gravebunn/.test(sos), `${(sos.match(/^\.KURVE /gm) || []).length} kurver for ${nRor} rør`);
+        // det de andre formatene melder, skal ikke stå under SOSI-knappen – her melder de noe med vilje
+        const gammelMangler = RorEksport.mangler;
+        RorEksport.mangler = () => ['1 SP 160PE: ingen gravebunn – grøfta er ikke regnet'];
+        Rapport.lastNed = () => {};
+        try { Rapport.eksporter('sosi'); } finally { Rapport.lastNed = gammelNed; RorEksport.mangler = gammelMangler; }
+        const svarSosi = document.getElementById('eksportsvar').textContent;
+        this.sjekk('  og svaret under knappen sier ingenting om gravebunnen', /Eksporterte/.test(svarSosi)
+          && !/gravebunn/.test(svarSosi), svarSosi);
         this.forventFeil(/Rutenettet finnes bare for en tomt/);
         Rapport.eksportRutenett();
         const linje = document.getElementById('statuslinje').textContent;
@@ -9348,6 +9362,7 @@ const Nettlesertest = {
         document.getElementById('rkPapir').value = 'A4';
         this.sjekk('kotene og lengdeprofilene er på fra start', document.getElementById('rkKoter').checked
           && document.getElementById('rkProfiler').checked);
+        this.sjekk('  og rørtypen skrevet langs rørene', !!document.getElementById('rkTekst') && document.getElementById('rkTekst').checked);
         // de prøves for seg lenger ned – her bare kartene
         document.getElementById('rkKoter').checked = false;
         document.getElementById('rkProfiler').checked = false;
@@ -9355,7 +9370,8 @@ const Nettlesertest = {
         const valg = await svar;
         this.sjekk('valget gir kodene, en side per type, bakgrunnen og papiret', !!valg
           && JSON.stringify(valg.koder.slice().sort()) === '["SP 160PE","VL 110PE"]' && valg.perType === true
-          && valg.bakgrunn === 'topograatone' && valg.papir === 'A4' && valg.koter === false && valg.profiler === false, JSON.stringify(valg));
+          && valg.bakgrunn === 'topograatone' && valg.papir === 'A4' && valg.koter === false && valg.profiler === false
+          && valg.tekst === true, JSON.stringify(valg));
 
         // bakgrunnen: en grå flis fra en stubbet fetch
         const flis = await new Promise(los => {
@@ -9380,7 +9396,9 @@ const Nettlesertest = {
         this.sjekk('  hentet fra Kartverkets UTM-fliser for sone 32 – de flisene sidene dekker', new Set(adresser).size === ventet.size
           && adresser.every(u => ventet.has(u)), `${new Set(adresser).size} av ${ventet.size}: ${adresser[0] || 'ingen'}`);
         const strommer = (await PdfImport.lesStrommer(bytes)).join('\n');
-        this.sjekk('tegnforklaringen har typene, og Kartverket er kreditert', strommer.includes('(SP 160PE)') && strommer.includes('(VL 110PE)')
+        // i forklaringen: fet, svart og vannrett – typene står også langs rørene i kartet, og de teller ikke her
+        const iForklaringen = kode => new RegExp(`/F2 (9|7\\.5) Tf 0 0 0 rg 1 0 0 1 [\\d.]+ [\\d.]+ Tm \\(${kode}\\) Tj`).test(strommer);
+        this.sjekk('tegnforklaringen har typene, og Kartverket er kreditert', iForklaringen('SP 160PE') && iForklaringen('VL 110PE')
           && !strommer.includes('(OV 200PVC)') && strommer.includes('Kartgrunnlag \\251 Kartverket'));
         // stiplingen i selve kartet – mellom klippet og dets Q – ikke bare i forklaringen
         const kartet = (await PdfImport.lesStrommer(bytes)).filter(s => s.includes(' re W n')).map(s => {
@@ -9391,6 +9409,9 @@ const Nettlesertest = {
         });
         this.sjekk('det tegnede er stiplet i kartet, og forklaringen sier hva som er hva',
           / 0 d /.test(kartet[0]) && strommer.includes('Heltrukken: innm\\345lt') && strommer.includes('Stiplet: planlagt'));
+        // rørtypen skrevet langs rørene i selve kartet, med hvit kant – ikke bare i forklaringen
+        this.sjekk('rørtypen står skrevet langs rørene i kartet', /\(SP 160PE\) Tj/.test(kartet[0]) && /\(VL 110PE\) Tj/.test(kartet[0])
+          && / 1 Tr /.test(kartet[0]), kartet[0].slice(0, 160));
 
         // flisene kommer ikke: PDF-en lages likevel, uten bakgrunn, og det sies
         window.fetch = async (url, o2) => (/cache\.kartverket\.no/.test(String(url))
@@ -10035,7 +10056,16 @@ const Nettlesertest = {
         // DXF og SOSI: rørlagene får anleggsbokstaven, og ingen lagnavn er lengre enn R12 tåler
         filer.length = 0;
         App.settEksportomfang('alle');
-        try { await Rapport.eksporterAlle('dxf'); await Rapport.eksporterAlle('sosi'); } finally { App.settEksportomfang('dette'); }
+        /* Det de andre formatene melder om et anlegg, skal ikke stå i SOSI-samlefila for det innmålte – her
+           melder de noe med vilje. Det tegnede melder sitt eget (en annen vei), og det står der. */
+        const gammelMangler = RorEksport.mangler;
+        try {
+          await Rapport.eksporterAlle('dxf');
+          RorEksport.mangler = () => ['1 SP 160PE: ingen gravebunn – prøvemelding'];
+          await Rapport.eksporterAlle('sosi');
+        } finally { App.settEksportomfang('dette'); RorEksport.mangler = gammelMangler; }
+        this.sjekk('SOSI-samlefila sier ingenting om gravebunnen til det innmålte', !/prøvemelding/.test(inn('.sos')),
+          inn('.sos').split('\r\n').filter(r => r.startsWith('!')).join(' | '));
         const dxf = inn('.dxf'), lag = [...dxf.matchAll(/\r\n8\r\n([^\r\n]+)/g)].map(m => m[1]);
         this.sjekk('DXF-samlefila: rørlagene med anleggsbokstav, ingen over 31 tegn', lag.some(l => /^[A-Z]_SP_160PE_BUNN$/.test(l))
           && lag.every(l => l.length <= 31), lag.filter(l => l.length > 31).join(', ') || [...new Set(lag)].slice(0, 6).join(', '));

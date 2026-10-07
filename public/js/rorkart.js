@@ -31,6 +31,8 @@ const Rorkart = (() => {
     kabel: ['#7d3c98', '#b05cc6', '#4a235a', '#c06fb0', '#8e5ea2'],
     annet: ['#e4572e', '#17a398', '#c2185b', '#f29e1f', '#2e4057', '#8bc34a', '#6d4c41', '#00897b']
   };
+  /** Hvor tett rørtypen skrives langs rørene, på arket (mm). */
+  const TEKSTAVSTAND = 60;
   const GRAA = [0.62, 0.62, 0.62];
   const SVART = [0.1, 0.1, 0.1];
   const SVAK = [0.38, 0.38, 0.38];
@@ -54,6 +56,139 @@ const Rorkart = (() => {
       igjen -= d;
     }
     return punkter.length ? { x: punkter[0][0], y: punkter[0][1], lengde: L } : null;
+  }
+
+  /**
+   * En boks på arket, gjerne dreid: midtpunktet, retningen langs (enhetsvektor,
+   * y nedover som på arket), og halve bredden og høyden.
+   */
+  const boks = (cx, cy, vinkel, hb, hh) => ({ cx, cy, ux: Math.cos(vinkel), uy: -Math.sin(vinkel), hb, hh });
+
+  /** Om to bokser overlapper – skillende akser, så to skrå tekster tett i tett ikke regnes som kollisjon. */
+  function overlapper(A, B) {
+    const dx = B.cx - A.cx, dy = B.cy - A.cy;
+    for (const [ax, ay] of [[A.ux, A.uy], [-A.uy, A.ux], [B.ux, B.uy], [-B.uy, B.ux]]) {
+      const r = Q => Q.hb * Math.abs(Q.ux * ax + Q.uy * ay) + Q.hh * Math.abs(-Q.uy * ax + Q.ux * ay);
+      if (Math.abs(dx * ax + dy * ay) > r(A) + r(B)) return false;
+    }
+    return true;
+  }
+
+  /**
+   * HVOR RØRTYPEN SKRIVES LANGS RØRENE.
+   *
+   * Fargen og tegnforklaringen alene holder ikke ute på plassen: to blå og tre
+   * brune nyanser skilles ikke i dagslys, og man skal slippe å lete i siden.
+   * Så står typen skrevet langs røret, mange steder – omtrent hver `avstand`
+   * på arket, og minst én gang på et rør teksten får plass langs.
+   *
+   * - Teksten står der røret er rett nok: knekker det mer enn `rett` ut fra
+   *   streken under teksten, flyttes den litt langs røret, eller sløyfes der.
+   * - Aldri opp ned: den leses fra venstre, eller nedenfra.
+   * - Ingen tekst oppå en annen, eller oppå det som står i `opptatt` (numrene,
+   *   kotetallene): rør i samme grøft ligger oppå hverandre på arket, og der får
+   *   bare ett av dem tekst. `forskyv(i)` flytter starten for hvert rør, så rørene
+   *   i en grøft skrives på hver sine steder i stedet for at det første tar alle.
+   * - Inne i rammen.
+   * - Et rør som ikke fikk noen tekst langs seg – en stikkledning med nummeret
+   *   midt på, eller et rør i en grøft der de andre tok plassene – får den ved
+   *   siden av, midt på og parallelt med røret. Ellers sto de korte rørene
+   *   uten type, og det er de man lettest tar feil av.
+   *
+   * @param {Array<{punkter: Array<[number, number]>, bredde: number, hoyde: number}>} baner
+   *   rørene på arket (punkt, y nedover), i den rekkefølgen de skal få plass
+   * @param {{avstand, flytt, rett, siden?, ramme?, opptatt?, forskyv?}} o  mål i punkt – `siden`
+   *   er luften mellom streken og en tekst ved siden av
+   * @returns {Array<{i, x, y, vinkel}>} midtpunktet og vinkelen (mot klokka) for hver tekst
+   */
+  function plasserTekster(baner, o) {
+    const ut = [], opptatt = (o.opptatt || []).slice();
+    const R = o.ramme;
+    const iRamme = b => {
+      if (!R) return true;
+      const ex = b.hb * Math.abs(b.ux) + b.hh * Math.abs(b.uy), ey = b.hb * Math.abs(b.uy) + b.hh * Math.abs(b.ux);
+      return b.cx - ex >= R.x0 && b.cx + ex <= R.x1 && b.cy - ey >= R.y0 && b.cy + ey <= R.y1;
+    };
+    // vinkelen på arket, mot klokka – y er nedover her – og aldri opp ned
+    const vinkelAv = (dx, dy) => {
+      const v = Math.atan2(-dy, dx);
+      return v > Math.PI / 2 + 1e-9 ? v - Math.PI : v < -Math.PI / 2 + 1e-9 ? v + Math.PI : v;
+    };
+    const rorene = baner.map((bn, i) => {
+      const p = bn.punkter, w = bn.bredde, h = bn.hoyde;
+      if (!p || p.length < 2) return null;
+      const lengs = [0];
+      for (let k = 1; k < p.length; k++) lengs.push(lengs[k - 1] + Math.hypot(p[k][0] - p[k - 1][0], p[k][1] - p[k - 1][1]));
+      const L = lengs[lengs.length - 1];
+      if (!(L >= w * 0.5)) return null;            // for kort til å kalle et rør på arket
+      // første punkt med lengs ≥ s, funnet ved halvering
+      const forste = s => { let lo = 0, hi = lengs.length - 1; while (lo < hi) { const m = (lo + hi) >> 1; if (lengs[m] < s) lo = m + 1; else hi = m; } return lo; };
+      const ved = s => {
+        const k = Math.max(1, forste(s)), d = lengs[k] - lengs[k - 1], t = d > 0 ? (s - lengs[k - 1]) / d : 0;
+        return [p[k - 1][0] + (p[k][0] - p[k - 1][0]) * t, p[k - 1][1] + (p[k][1] - p[k - 1][1]) * t];
+      };
+      // målene langs røret, omtrent hver `avstand` – bare der teksten får plass langs streken
+      const maal = [];
+      if (L >= w * 1.1) {
+        const A = o.avstand, start = ((A / 2 + (o.forskyv ? o.forskyv(i) : 0)) % A + A) % A;
+        for (let s = start; s <= L - w / 2; s += A) if (s >= w / 2) maal.push(s);
+        if (!maal.length) maal.push(L / 2);
+      }
+      return { i, p, w, h, L, lengs, forste, ved, maal, brukt: -1 };
+    }).filter(Boolean);
+    const legg = (r, cx, cy, v) => {
+      const B = boks(cx, cy, v, r.w / 2, r.h / 2);
+      if (!iRamme(B) || opptatt.some(Q => overlapper(B, Q))) return false;
+      opptatt.push(B);
+      ut.push({ i: r.i, x: cx, y: cy, vinkel: v });
+      return true;
+    };
+    // én tekst langs røret ved mål nummer k: der, eller flyttet litt, der streken er rett nok
+    const langs = (r, k) => {
+      const { p, w, L, lengs, forste, ved } = r;
+      for (const d of [0, 1, -1, 2, -2, 3, -3]) {
+        const s = r.maal[k] + d * o.flytt;
+        if (s < w / 2 - 1e-9 || s > L - w / 2 + 1e-9) continue;
+        // rett nok: ingen del av røret under teksten går mer enn `rett` ut fra korda – det fanger hver knekk
+        const a = ved(s - w / 2), b = ved(s + w / 2);
+        const dx = b[0] - a[0], dy = b[1] - a[1], kord = Math.hypot(dx, dy);
+        let avvik = 0;
+        for (let q = forste(s - w / 2); q < p.length && lengs[q] < s + w / 2; q++) {
+          avvik = Math.max(avvik, Math.abs((p[q][0] - a[0]) * dy - (p[q][1] - a[1]) * dx) / kord);
+        }
+        if (avvik > o.rett) continue;
+        if (legg(r, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2, vinkelAv(dx, dy))) return true;
+      }
+      return false;
+    };
+    /* Ved siden av, midt på og parallelt – over streken, ellers under. Er det
+       trangt, litt lenger ut: nummeret midt på et skrått rør står rett mot
+       arket, og hjørnet stikker lenger ut fra streken enn på et vannrett. */
+    const vedSiden = r => {
+      const { w, h, L, ved } = r, c = Math.min(w, L) / 2;
+      for (const s of [L / 2, L / 2 + o.flytt, L / 2 - o.flytt]) {
+        if (s - c < -1e-9 || s + c > L + 1e-9) continue;
+        const a = ved(s - c), b = ved(s + c), dx = b[0] - a[0], dy = b[1] - a[1];
+        if (Math.hypot(dx, dy) < c) continue;      // en skarp knekk midt på
+        const v = vinkelAv(dx, dy), m = ved(s);
+        // opp fra teksten, på arket med y nedover
+        const nx = -Math.sin(v), ny = -Math.cos(v);
+        for (const f of [1, 1.5, 2]) {
+          const avstand = h / 2 + f * (o.siden || 0);
+          for (const side of [1, -1]) if (legg(r, m[0] + side * avstand * nx, m[1] + side * avstand * ny, v)) return true;
+        }
+      }
+      return false;
+    };
+    /* FØRST ÉN TEKST PER RØR, så resten. Her tok de lange rørene i en grøft
+       plassene langs grøfta før stikkledningene kom til – hver stikkledning
+       har bare én plass, og den sto opptatt. De korteste velger først. */
+    for (const r of rorene.slice().sort((a, b) => a.L - b.L)) {
+      for (let k = 0; k < r.maal.length && r.brukt < 0; k++) if (langs(r, k)) r.brukt = k;
+      if (r.brukt < 0) vedSiden(r);
+    }
+    for (const r of rorene) for (let k = 0; k < r.maal.length; k++) if (k !== r.brukt) langs(r, k);
+    return ut;
   }
 
   const hexTilRgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255);
@@ -451,7 +586,7 @@ const Rorkart = (() => {
    * @param {object} data  {prosjekt, sone, dato, linjer, kummer}
    * @param {Map} farger  fra `fargetabell`
    * @param {?{bytes, bredde, hoyde}} bakgrunn  JPEG som dekker utsnittet
-   * @param {{nr, antall, papir, merknad?}} o
+   * @param {{nr, antall, papir, merknad?, tekst?}} o  `tekst: false` – rørtypen skrives ikke langs rørene
    */
   function tegnSide(P, side, data, farger, bakgrunn, o) {
     const opp = oppsett(o.papir);
@@ -470,6 +605,17 @@ const Rorkart = (() => {
       return s + '…';
     };
     P.nySide();
+    /* Det som mangler, står i kartet – også når bare noen fliser ble borte.
+       Hvite ruter i bakgrunnen uten et ord ser ut som et kart med hull i
+       terrenget. */
+    const notis = [!bakgrunn ? o.merknad : bakgrunn.mangler ? `${bakgrunn.mangler} av ${bakgrunn.av} fliser i bakgrunnskartet manglet` : null,
+      side.koterMerknad || null].filter(Boolean).join(' · ') || null;
+    // det tekstene langs rørene skal gå utenom: kotetallene, numrene og merknaden nederst
+    const opptatt = [];
+    if (notis) {
+      const bn = P.bredteAv(notis, 7) + pt(3);
+      opptatt.push(boks(pt(K.x + 1.5) + bn / 2, pt(K.y + K.h - 3.9), 0, bn / 2, pt(2.3)));
+    }
 
     // ---- kartflaten
     P.klipp(pt(K.x), pt(K.y), pt(K.b), pt(K.h), () => {
@@ -490,6 +636,7 @@ const Rorkart = (() => {
           const tekst = tall(kl.niva, desimaler(kt.ekvidistanse)), b = P.bredteAv(tekst, 6);
           P.rektangel(m.x - b / 2 - pt(0.6), m.y - pt(1.4), b + pt(1.2), pt(2.6), { fyll: HVIT });
           P.tekst(m.x, m.y + pt(0.9), tekst, { storrelse: 6, farge: KOTE, juster: 'm' });
+          opptatt.push(boks(m.x, m.y - pt(0.1), 0, b / 2 + pt(0.6), pt(1.3)));
         }
       }
       // de andre typene tynt i grått under, så man ser hvor dette røret ligger i forhold til dem
@@ -522,14 +669,25 @@ const Rorkart = (() => {
         const f = farger.get(l.kode);
         P.rektangel(m.x - b / 2 - pt(0.8), m.y - pt(1.6), b + pt(1.6), pt(3.2), { fyll: HVIT, strek: f ? f.rgb : SVART, tykkelse: pt(0.25) });
         P.tekst(m.x, m.y + pt(1.0), tekst, { storrelse: 6.5, fet: true, juster: 'm' });
+        opptatt.push(boks(m.x, m.y, 0, b / 2 + pt(0.8), pt(1.6)));
+      }
+      /* RØRTYPEN SKREVET LANGS RØRENE, mange steder – se plasserTekster. I
+         rørets farge, med hvit kant så den leses over kartet og streken. */
+      if (o.tekst !== false) {
+        const ST = 6.5;
+        const baner = linjer.map(l => ({ punkter: l.xy.map(q => iKart(q.x, q.y)),
+          bredde: P.bredteAv(l.kode, ST, true) + pt(1.2), hoyde: ST * 0.8 + pt(0.8) }));
+        const plassert = plasserTekster(baner, { avstand: pt(TEKSTAVSTAND), flytt: pt(4), rett: pt(0.6), siden: pt(2),
+          ramme: { x0: pt(K.x + 1), y0: pt(K.y + 1), x1: pt(K.x + K.b - 1), y1: pt(K.y + K.h - 1) },
+          opptatt, forskyv: i => (i % 3) * pt(TEKSTAVSTAND) / 3 });
+        for (const t of plassert) {
+          const l = linjer[t.i], f = farger.get(l.kode);
+          P.tekst(t.x, t.y, l.kode, { storrelse: ST, fet: true, farge: f ? f.rgb : SVART, juster: 'm', loddrett: 'm',
+            vinkel: t.vinkel, glorie: { farge: HVIT, tykkelse: 1.8 } });
+        }
       }
     });
     P.rektangel(pt(K.x), pt(K.y), pt(K.b), pt(K.h), { strek: SVART, tykkelse: pt(0.3) });
-    /* Det som mangler, står i kartet – også når bare noen fliser ble borte.
-       Hvite ruter i bakgrunnen uten et ord ser ut som et kart med hull i
-       terrenget. */
-    const notis = [!bakgrunn ? o.merknad : bakgrunn.mangler ? `${bakgrunn.mangler} av ${bakgrunn.av} fliser i bakgrunnskartet manglet` : null,
-      side.koterMerknad || null].filter(Boolean).join(' · ') || null;
     if (notis) {
       P.rektangel(pt(K.x + 1.5), pt(K.y + K.h - 6.2), P.bredteAv(notis, 7) + pt(3), pt(4.6), { fyll: [1, 1, 1] });
       P.tekst(pt(K.x + 3), pt(K.y + K.h - 3), notis, { storrelse: 7, farge: SVAK });
@@ -641,7 +799,7 @@ const Rorkart = (() => {
   /**
    * Hele PDF-en, ikke bygd: `await P.bygg()` gir bytene.
    * @param {object} data  se `tegnSide`
-   * @param {object} valg  se `sider`
+   * @param {object} valg  se `sider`; `tekst: false` – ingen rørtype langs rørene (på uten)
    * @param {Array} [sidene]  fra `sider` – bakgrunnen hentes for dem først
    * @param {Map<number, object>} [bakgrunner]  sidenummer (0…) → JPEG
    * @param {string} [merknad]  står i kartet når bakgrunnen mangler
@@ -668,7 +826,7 @@ const Rorkart = (() => {
     }
     const antall = s.length + Math.ceil(striper.length / plassene.length);
     s.forEach((side, i) => tegnSide(P, side, data, farger, bakgrunner ? bakgrunner.get(i) || null : null,
-      { nr: i + 1, antall, papir: valg.papir, merknad }));
+      { nr: i + 1, antall, papir: valg.papir, merknad, tekst: valg.tekst !== false }));
     let nr = s.length;
     striper.forEach((x, i) => {
       const plass = i % plassene.length;
@@ -713,9 +871,9 @@ const Rorkart = (() => {
     return ut;
   }
 
-  return { MM, FAMILIER, MALESTOKKER, EKVIDISTANSER, fargetabell, utsnitt, tilPapir, flisplan, oppsett, sider, tegnSide, lagPdf,
+  return { MM, FAMILIER, MALESTOKKER, EKVIDISTANSER, TEKSTAVSTAND, fargetabell, utsnitt, tilPapir, flisplan, oppsett, sider, tegnSide, lagPdf,
     kodeinfo, omKode, rundtTall, tykkelse, velgEkvidistanse, terrengOpplosning, koter, forenkle, lagKoter, nummerer, midtpaa,
-    flisnokler, fliserFor };
+    flisnokler, fliserFor, boks, overlapper, plasserTekster };
 })();
 
 if (typeof module !== 'undefined') module.exports = Rorkart;

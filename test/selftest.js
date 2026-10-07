@@ -4216,6 +4216,20 @@ console.log('\n6c. Avlesning av PDF');
     paastand('en sirkel er fire kurver, fylt og strøket', (sirkel.match(/ c/g) || []).length === 4 && / b Q$/.test(sirkel), sirkel);
     paastand('klippet slutter med Q også når tegningen kaster', kastet && / re W n$/.test(klippStart) && klippSlutt === 'Q',
       JSON.stringify(P.side.deler.slice(2)));
+    /* SKRÅ TEKST, langs et rør: dreid med fire desimaler, midt i høyden og
+       midt på, med en hvit kant strøket først. Vannrett tekst er som før. */
+    {
+      const T = new PdfSkriver();
+      T.nySide();
+      T.tekst(10, 20, 'x');
+      T.tekst(100, 200, 'AB', { storrelse: 10, vinkel: Math.PI / 2, juster: 'm', loddrett: 'm', glorie: { farge: [1, 1, 1], tykkelse: 2 } });
+      const [vannrett, glorie, fylt] = T.side.deler, n = v => (Math.round(v * 100) / 100).toString();
+      paastand('vannrett tekst skrives som før', vannrett === `BT /F1 9 Tf 0 0 0 rg 1 0 0 1 10 ${n(T._y(20))} Tm (x) Tj ET`, vannrett);
+      // 90°: grunnlinja går oppover arket; midten i (100, 200) – starten b/2 lenger ned, og grunnlinja 3,5 pt til høyre for midten
+      const Tm = `0 1 -1 0 103.5 ${n(T._y(200) - T.bredteAv('AB', 10) / 2)} Tm`;
+      paastand('skrå tekst: dreid, midt på og midt i høyden', fylt === `BT /F1 10 Tf 0 0 0 rg ${Tm} (AB) Tj ET`, fylt);
+      paastand('  med den hvite kanten strøket først, mellom q og Q', glorie === `q 1 j 1 J 1 1 1 RG 2 w BT /F1 10 Tf 1 Tr ${Tm} (AB) Tj ET Q`, glorie);
+    }
     /* Krysstabellen leses der `startxref` sier den står – «xref» står også inne
        i «startxref», og den første utgaven av prøven leste null rader. */
     const gyldigXref = tekst => {
@@ -4312,7 +4326,9 @@ console.log('\n6c. Avlesning av PDF');
     const tekst = new TextDecoder('latin1').decode(bytes);
     paastand('PDF-en har tre sider, liggende A3', /\/Count 3\b/.test(tekst) && /\/MediaBox \[0 0 1190\.55 841\.89\]/.test(tekst));
     const strommer = (await Pdf.lesStrommer(bytes)).join('\n');
-    paastand('tegnforklaringen har kodene, lengden og antallet', strommer.includes('(SP 160PE)') && strommer.includes('(VL 110PE)')
+    // i forklaringen: fet, svart og vannrett – kodene står også langs rørene i kartet, og de teller ikke her
+    const iForklaringen = kode => new RegExp(`/F2 9 Tf 0 0 0 rg 1 0 0 1 [\\d.]+ [\\d.]+ Tm \\(${kode}\\) Tj`).test(strommer);
+    paastand('tegnforklaringen har kodene, lengden og antallet', iForklaringen('SP 160PE') && iForklaringen('VL 110PE')
       && /150 m \\267 2 r\\370r \\267 innm\\345lt/.test(strommer), strommer.slice(0, 200));
     // parentesene er escapet i PDF-strengen
     paastand('målestokken og koordinatsystemet står på siden', /M\\345lestokk 1:/.test(strommer)
@@ -4363,14 +4379,15 @@ console.log('\n6c. Avlesning av PDF');
       }
       return d;
     };
+    // uten kodene langs rørene: prøven gjelder forklaringen, og der skal hver kode stå
     const tolv = mangeKoder(12);
-    const s12 = (await Pdf.lesStrommer(await Rorkart.lagPdf(tolv, { koder: Object.keys(tolv.koder), papir: 'A4' }).bygg())).join('\n');
+    const s12 = (await Pdf.lesStrommer(await Rorkart.lagPdf(tolv, { koder: Object.keys(tolv.koder), papir: 'A4', tekst: false }).bygg())).join('\n');
     paastand('tolv koder på A4: alle tolv står i forklaringen', Object.keys(tolv.koder).every(k => s12.includes('(' + k + ')')),
       Object.keys(tolv.koder).filter(k => !s12.includes('(' + k + ')')).join(', '));
     // – på én linje hver, så de ikke renner ned over linjalen: lengden alene, uten «· 1 rør · innmålt»
     paastand('  på én linje hver', s12.includes('(10 m)') && !s12.includes('1 r\\370r \\267 innm\\345lt'));
     const forty = mangeKoder(40);
-    const s40 = (await Pdf.lesStrommer(await Rorkart.lagPdf(forty, { koder: Object.keys(forty.koder), papir: 'A4' }).bygg())).join('\n');
+    const s40 = (await Pdf.lesStrommer(await Rorkart.lagPdf(forty, { koder: Object.keys(forty.koder), papir: 'A4', tekst: false }).bygg())).join('\n');
     const viste = Object.keys(forty.koder).filter(k => s40.includes('(' + k + ')')).length;
     const resten = /\(\+ (\d+) r\\370rtyper til\)/.exec(s40);
     paastand('førti koder på A4: to kolonner, og resten står som «+ N rørtyper til»', viste >= 24 && (viste === 40
@@ -4384,6 +4401,146 @@ console.log('\n6c. Avlesning av PDF');
       new Map([[0, { bytes: jpeg, bredde: 10, hoyde: 10, mangler: 3, av: 40 }]]));
     paastand('fliser som manglet, står i kartet', (await Pdf.lesStrommer(await delvis.bygg())).join('\n')
       .includes('3 av 40 fliser i bakgrunnskartet manglet'));
+
+    /* RØRTYPEN SKREVET LANGS RØRENE – mange steder, så det står tydelig ute
+       på plassen hvilket rør som ligger hvor. */
+    {
+      const mm = Rorkart.MM;
+      const bane = pkt => ({ punkter: pkt.map(([x, y]) => [x * mm, y * mm]), bredde: 10 * mm, hoyde: 2.5 * mm });
+      const o = { avstand: 60 * mm, flytt: 4 * mm, rett: 0.6 * mm };
+      const xer = ts => ts.map(t => Math.round(t.x / mm)).join(',');
+      const rett = Rorkart.plasserTekster([bane([[0, 50], [200, 50]])], o);
+      paastand('et rett rør på 200 mm: tekst hver 60. mm fra 30, vannrett', xer(rett) === '30,90,150'
+        && rett.every(t => Math.abs(t.vinkel) < 1e-9), JSON.stringify(rett));
+      const baklengs = Rorkart.plasserTekster([bane([[200, 50], [0, 50]])], o);
+      paastand('  tegnet fra høyre: aldri opp ned', baklengs.length === 3 && baklengs.every(t => Math.abs(t.vinkel) < 1e-9));
+      const opp = Rorkart.plasserTekster([bane([[50, 200], [50, 0]])], o), ned = Rorkart.plasserTekster([bane([[50, 0], [50, 200]])], o);
+      paastand('  loddrett: leses nedenfra, hvilken vei røret enn er tegnet', opp.length === 3 && ned.length === 3
+        && [...opp, ...ned].every(t => Math.abs(t.vinkel - Math.PI / 2) < 1e-9), JSON.stringify([opp[0], ned[0]]));
+      // 30° opp mot høyre på arket – y er nedover, så røret går mot mindre y
+      const skraa = Rorkart.plasserTekster([bane([[0, 100], [150 * Math.cos(Math.PI / 6), 100 - 150 * Math.sin(Math.PI / 6)]])], o);
+      paastand('  skrått: langs røret', skraa.length === 2 && skraa.every(t => Math.abs(t.vinkel - Math.PI / 6) < 1e-9), JSON.stringify(skraa));
+      paastand('et rør under halve tekstlengden får ingen', Rorkart.plasserTekster([bane([[0, 50], [4, 50]])], o).length === 0);
+      const kort = Rorkart.plasserTekster([bane([[0, 50], [20, 50]])], o);
+      paastand('  et kort rør får én, midt på', kort.length === 1 && Math.abs(kort[0].x / mm - 10) < 1e-6 && Math.abs(kort[0].y / mm - 50) < 1e-6,
+        JSON.stringify(kort));
+      /* EN STIKKLEDNING MED NUMMERET MIDT PÅ: teksten får ikke plass langs
+         streken, og legges ved siden av – over, parallelt, 2 mm fri av streken.
+         Ellers sto de korte rørene uten type. */
+      const stikk = Rorkart.plasserTekster([bane([[0, 50], [14, 50]])], Object.assign({}, o, { siden: 2 * mm,
+        opptatt: [Rorkart.boks(7 * mm, 50 * mm, 0, 1.5 * mm, 1.6 * mm)] }));
+      paastand('en stikkledning med nummeret midt på: typen ved siden av, over streken', stikk.length === 1
+        && Math.abs(stikk[0].x / mm - 7) < 1e-6 && Math.abs(stikk[0].y / mm - (50 - 1.25 - 2)) < 1e-6 && Math.abs(stikk[0].vinkel) < 1e-9,
+      JSON.stringify(stikk.map(t => [t.x / mm, t.y / mm])));
+      // er det opptatt over, havner den under
+      const under = Rorkart.plasserTekster([bane([[0, 50], [14, 50]])], Object.assign({}, o, { siden: 2 * mm,
+        opptatt: [Rorkart.boks(7 * mm, 50 * mm, 0, 1.5 * mm, 1.6 * mm), Rorkart.boks(7 * mm, 44 * mm, 0, 20 * mm, 4 * mm)] }));
+      paastand('  og under, når det er opptatt over', under.length === 1 && Math.abs(under[0].y / mm - (50 + 1.25 + 2)) < 1e-6,
+        JSON.stringify(under.map(t => [t.x / mm, t.y / mm])));
+      const kortere = Rorkart.plasserTekster([bane([[0, 50], [8, 50]])], Object.assign({}, o, { siden: 2 * mm }));
+      paastand('  og et rør kortere enn teksten likeså', kortere.length === 1 && kortere[0].y / mm < 50 - 1.25 - 2 + 1e-6, JSON.stringify(kortere));
+      /* SKRÅ STIKKLEDNING: nummeret står rett mot arket, og hjørnet stikker
+         2,1 mm ut fra streken – teksten 2 mm fri traff det. Da går den litt
+         lenger ut: 3 mm fri, 4,25 mm fra streken til midten av teksten. */
+      const skraStikk = Rorkart.plasserTekster([bane([[0, 60], [10, 50]])], Object.assign({}, o, { siden: 2 * mm,
+        opptatt: [Rorkart.boks(5 * mm, 55 * mm, 0, 1.4 * mm, 1.6 * mm)] }));
+      const fraStreken = t => Math.abs((t.x / mm - 0) * -10 - (t.y / mm - 60) * 10) / Math.hypot(10, 10);
+      paastand('  en skrå stikkledning: lenger ut når nummeret er i veien', skraStikk.length === 1 && Math.abs(fraStreken(skraStikk[0]) - 4.25) < 1e-6,
+        JSON.stringify(skraStikk.map(t => [t.x / mm, t.y / mm, fraStreken(t)])));
+      /* DE KORTESTE VELGER FØRST. Et kort rør like over et langt har bare én
+         plass langs streken sin; tok det lange den først, havnet det korte ved
+         siden av – i en grøft med stikkledninger fikk de fleste ingen tekst. */
+      const rettferdig = Rorkart.plasserTekster([bane([[0, 50], [200, 50]]), bane([[24, 48], [36, 48]])], o);
+      const kortT = rettferdig.filter(t => t.i === 1), langT = rettferdig.filter(t => t.i === 0);
+      paastand('de korteste velger først: det korte røret får teksten på streken sin, og det lange alle sine', kortT.length === 1
+        && Math.abs(kortT[0].y / mm - 48) < 1e-6 && langT.length === 3,
+      JSON.stringify(rettferdig.map(t => [t.i, Math.round(t.x / mm), Math.round(t.y / mm * 10) / 10])));
+      // en knekk i 30 mm, målet for teksten: den flyttes ut på det loddrette strekket, ikke tvers over knekken
+      const knekk = Rorkart.plasserTekster([bane([[0, 50], [30, 50], [30, 80]])], o);
+      paastand('  ikke over en skarp knekk', knekk.length === 1 && Math.abs(knekk[0].x / mm - 30) < 1e-6
+        && knekk[0].y / mm - 5 >= 50 - 1e-6 && Math.abs(knekk[0].vinkel - Math.PI / 2) < 1e-9, JSON.stringify(knekk));
+      // to rør i samme grøft, 0,3 mm fra hverandre på arket: ingen tekst oppå en annen, og begge får sine
+      const grofta = Rorkart.plasserTekster([bane([[0, 50], [200, 50]]), bane([[0, 50.3], [200, 50.3]])],
+        Object.assign({}, o, { forskyv: i => (i % 3) * 20 * mm }));
+      const bokser = grofta.map(t => Rorkart.boks(t.x, t.y, t.vinkel, 5 * mm, 1.25 * mm));
+      paastand('to rør i samme grøft: begge får tekst, og ingen står oppå en annen', grofta.some(t => t.i === 0) && grofta.some(t => t.i === 1)
+        && bokser.every((a, j) => bokser.every((b, k) => j === k || !Rorkart.overlapper(a, b))), JSON.stringify(grofta.map(t => [t.i, Math.round(t.x / mm)])));
+      // – det andre forskjøvet 20 mm, så de skrives på hver sine steder i stedet for å skyve hverandre
+      paastand('  det andre forskjøvet en tredjedel av avstanden', xer(grofta.filter(t => t.i === 1)) === '50,110,170'
+        && xer(grofta.filter(t => t.i === 0)) === '30,90,150', JSON.stringify(grofta.map(t => [t.i, Math.round(t.x / mm)])));
+      // det som er opptatt – et nummer i 30 mm – og rammen ved 120 mm
+      const fri = Rorkart.plasserTekster([bane([[0, 50], [200, 50]])], Object.assign({}, o, {
+        opptatt: [Rorkart.boks(30 * mm, 50 * mm, 0, 3 * mm, 2 * mm)], ramme: { x0: 0, y0: 0, x1: 120 * mm, y1: 100 * mm } }));
+      paastand('  utenom nummeret som står der, og inne i rammen', xer(fri) === '42,90', xer(fri));
+      // skrå bokser: to tekster på skrå tett i tett regnes ikke som kollisjon når de ikke rører hverandre
+      const v = Math.PI / 4, A = Rorkart.boks(0, 0, v, 5, 1), B = Rorkart.boks(3, 3, v, 5, 1);
+      paastand('  skrå bokser ved siden av hverandre kolliderer ikke', !Rorkart.overlapper(A, B) && Rorkart.overlapper(A, Rorkart.boks(1, -1, v, 5, 1)));
+      // en tynn skrå boks forbi hjørnet av en rett: bare den skrå boksens akse skiller dem
+      paastand('  heller ikke en skrå forbi hjørnet av en rett', !Rorkart.overlapper(Rorkart.boks(0, 0, 0, 1, 1), Rorkart.boks(2.2, 2.2, v, 2, 0.2))
+        && Rorkart.overlapper(Rorkart.boks(0, 0, 0, 1, 1), Rorkart.boks(0.9, 0.9, v, 2, 0.2)));
+
+      // i PDF-en: i kartet, i rørets farge, med hvit kant – og uten når den er slått av
+      const kartMed = (await Pdf.lesStrommer(await Rorkart.lagPdf(data, Object.assign({}, valg, { perType: false })).bygg()))
+        .filter(s => s.includes(' re W n')).map(kartdel)[0] || '';
+      const kartUten = (await Pdf.lesStrommer(await Rorkart.lagPdf(data, Object.assign({}, valg, { perType: false, tekst: false })).bygg()))
+        .filter(s => s.includes(' re W n')).map(kartdel)[0] || '';
+      const fyll = h => Rorkart.fargetabell(data.koder).get(h).rgb.map(v2 => (Math.round(v2 * 100) / 100).toString()).join(' ') + ' rg';
+      const ganger = (s, re) => (s.match(re) || []).length;
+      paastand('rørtypen står langs rørene i kartet, mange steder', ganger(kartMed, /\(SP 160PE\) Tj/g) >= 6 && ganger(kartMed, /\(VL 110PE\) Tj/g) >= 2,
+        `${ganger(kartMed, /\(SP 160PE\) Tj/g)} og ${ganger(kartMed, /\(VL 110PE\) Tj/g)}`);
+      paastand('  i rørets farge, med hvit kant', kartMed.includes(fyll('SP 160PE') + ' 1 0 0 1') && /1 1 1 RG [\d.]+ w BT \/F2 6\.5 Tf 1 Tr/.test(kartMed));
+      paastand('  og langs det loddrette røret, dreid', /0 1 -1 0 [\d.]+ [\d.]+ Tm \(SP 160PE\) Tj/.test(kartMed));
+      paastand('  slått av: ingen tekst langs rørene', !/\(SP 160PE\) Tj/.test(kartUten) && !/ 1 Tr /.test(kartUten));
+      /* INGEN TEKST OPPÅ NUMRENE. Mange rør i ulike lengder, nummerert: hver
+         tekst langs et rør – den med hvit kant – sjekkes mot hver nummerboks. */
+      {
+        const mange = { prosjekt: 'P', sone: 32, dato: '', kummer: [], koder: { 'SP 160PE': { system: 'spill', dim: 160 } }, linjer: [] };
+        for (let i = 0; i < 12; i++) {
+          const L = 20 + 15 * i;
+          mange.linjer.push({ kode: 'SP 160PE', kilde: 'innmalt', dim: 160, lengde: L,
+            xy: [{ x: 500000, y: 6500000 + 12 * i }, { x: 500000 + L, y: 6500000 + 12 * i }] });
+        }
+        Rorkart.nummerer(mange, ['SP 160PE']);
+        const proto = PdfSkriver.prototype, gT = proto.tekst, gR = proto.rektangel, tekster = [], numre = [];
+        proto.tekst = function (x, y, s, o2 = {}) {
+          if (o2.glorie) tekster.push(Rorkart.boks(x, y, o2.vinkel || 0, this.bredteAv(s, o2.storrelse, o2.fet) / 2, (o2.storrelse || 9) * 0.4));
+          return gT.call(this, x, y, s, o2);
+        };
+        proto.rektangel = function (x, y, b, h, o2 = {}) {
+          if (o2.fyll && o2.strek && o2.fyll.every(v2 => v2 === 1)) numre.push(Rorkart.boks(x + b / 2, y + h / 2, 0, b / 2, h / 2));
+          return gR.call(this, x, y, b, h, o2);
+        };
+        try { Rorkart.lagPdf(mange, { koder: ['SP 160PE'], papir: 'A3' }); } finally { proto.tekst = gT; proto.rektangel = gR; }
+        paastand('ingen tekst langs rørene står oppå et nummer', numre.length >= 12 && tekster.length >= 12
+          && tekster.every(t => numre.every(q => !Rorkart.overlapper(t, q))), `${tekster.length} tekster, ${numre.length} numre`);
+
+        /* OG IKKE OPPÅ KOTETALLENE ELLER MERKNADEN NEDERST I KARTET. Utsnittet
+           er lagt så det ene røret går tvers gjennom merknaden, og det andre
+           midt gjennom kartet, der kotetallene står på loddrette koter. */
+        const K = Rorkart.oppsett('A3').kart, N = 1000, X1 = 500000, Y1 = 6500000;
+        const u = { N, x0: X1 - 5, x1: X1 - 5 + K.b, y1: Y1 + (K.h - 3.9), y0: Y1 + (K.h - 3.9) - K.h };
+        const ymidt = u.y1 - K.h / 2;
+        const to = { prosjekt: 'P', sone: 32, dato: '', kummer: [], koder: { 'SP 160PE': { system: 'spill', dim: 160 } }, linjer: [
+          { kode: 'SP 160PE', kilde: 'innmalt', dim: 160, lengde: 250, xy: [{ x: X1, y: Y1 }, { x: X1 + 250, y: Y1 }] },
+          { kode: 'SP 160PE', kilde: 'innmalt', dim: 160, lengde: 250, xy: [{ x: X1, y: ymidt }, { x: X1 + 250, y: ymidt }] }] };
+        const sidene2 = Rorkart.sider(to, { koder: ['SP 160PE'], papir: 'A3' });
+        sidene2[0].utsnitt = u;
+        sidene2[0].koter = Rorkart.lagKoter(u, x => 100 + (x - X1) * 0.15);
+        const tekster2 = [], hvite = [];
+        proto.tekst = function (x, y, s, o2 = {}) {
+          if (o2.glorie) tekster2.push(Rorkart.boks(x, y, o2.vinkel || 0, this.bredteAv(s, o2.storrelse, o2.fet) / 2, (o2.storrelse || 9) * 0.4));
+          return gT.call(this, x, y, s, o2);
+        };
+        proto.rektangel = function (x, y, b, h, o2 = {}) {
+          if (o2.fyll && !o2.strek && o2.fyll.every(v2 => v2 === 1)) hvite.push(Rorkart.boks(x + b / 2, y + h / 2, 0, b / 2, h / 2));
+          return gR.call(this, x, y, b, h, o2);
+        };
+        try { Rorkart.lagPdf(to, { koder: ['SP 160PE'], papir: 'A3' }, sidene2, null, 'Bakgrunnskartet kunne ikke hentes – prøve'); }
+        finally { proto.tekst = gT; proto.rektangel = gR; }
+        paastand('  heller ikke oppå kotetallene eller merknaden nederst i kartet', hvite.length >= 4 && tekster2.length >= 6
+          && tekster2.every(t => hvite.every(q => !Rorkart.overlapper(t, q))), `${tekster2.length} tekster, ${hvite.length} hvite felt`);
+      }
+    }
     /* HØYDEKOTENE. En kjegle gir én lukket ring per nivå, et skrått plan rette
        og parallelle koter, og et hull i terrenget et brudd – ikke en kote
        som finner på noe. */
