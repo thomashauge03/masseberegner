@@ -23,13 +23,13 @@ Nettlesertesten kjøres ved å åpne programmet med `?test=1`, eller fra konsoll
 med `Nettlesertest.kjor()`. Utviklingstjeneren startes med `node server.js`
 (port 5178). Programmet ligger også på https://masseberegner.vercel.app.
 
-Ved siste lagring: **945 prøver i selvtesten, 194 i rørprøven
+Ved siste lagring: **963 prøver i selvtesten, 194 i rørprøven
 (`test/rorprove.js`), 219 i grøfteprøven (`test/groftprove.js`), 175 i
-planprøven (`test/rorplanprove.js`), 74 i eksportprøven
+planprøven (`test/rorplanprove.js`), 77 i eksportprøven
 (`test/roreksportprove.js`), 77 i avviksprøven (`test/roravvikprove.js`), 45 i
 traseprøven (`test/traseimportprove.js`), 68 i stikkrenneprøven
 (`test/stikkrenneprove.js`), 61 i anleggsprøven og 258 i tomteprøven, alle
-grønne; 1510 av 1510 i nettlesertesten.** «Klikk i modellen flytter snittet
+grønne; 1516 av 1516 i nettlesertesten.** «Klikk i modellen flytter snittet
 dit» i `veg3d` kan feile når vinduet emuleres 1440 × 900 i en mindre rute –
 klikket lander én rad ved siden av; det gjør den likt på `main`. «og merknaden
 sier det som gjelder nå» i `flereAnlegg` feilet én gang i hele runden og aldri
@@ -65,12 +65,21 @@ Spec: `docs/superpowers/specs/2026-10-07-kartblad-sosi-mm-design.md`.
 - **SOSI for et innmålt anlegg** har bare det som kom inn med XML-fila: én
   kurve per rør (brukerens valg), punktene i millimeter (`ENHET 0.001`) og
   koden – ingen diameter, høydereferanse, anleggsnavn eller merknader.
-  Samlefila står i millimeter når et innmålt røranlegg er med
-  (`Eksport.sosiDelerVeg/Tomt/sosiHode(…, enhet)`).
+  Punktene er de lagrede (`p.n`, `p.o`, `p.z`), i fila sin sone
+  (`RorEksport.sosiSone`), også når regnesonen er en annen. Samlefila står i
+  millimeter når et innmålt røranlegg er med
+  (`Eksport.sosiDelerVeg/Tomt/sosiHode(…, enhet)`), og i sonen til anlegget
+  man står i – et innmålt i en annen sone står utenfor, og svaret sier det.
 - **Oversiktskartet deles i kartblad** (`Rorkart.kartblad`, `sider`):
   «auto» = 1:1000 når alt ikke får plass på ett ark; eller 1:500/1:1000/1:2000;
-  eller ett ark. Oversikten med nummererte ruter, så bladene med nabobladene i
-  kanten. Notis i dialogen med antall ark.
+  eller ett ark. Et blad blir med når et rør eller en kum er i *kjernen*
+  (ruta minus halve overlappen), og bare kjernene et strekk når, prøves –
+  raskt også for lange anlegg. Høyst 120 blad (`MAKS_BLAD`); «auto» går da ned
+  til 1:2000, og ellers sier notisen fra (og «Lag PDF» lukker ikke valget).
+  Oversikten med nummererte ruter (5–11 pt etter rutas størrelse, i tette
+  bokser så radene ikke sperrer for hverandre; annethvert når de ikke får
+  plass), så bladene med nabobladene *utenfor* kanten. Notis i dialogen med
+  antall ark.
 - **Typen langs rørene står i hvite tekstbokser** med kant og tekst i rørets
   farge.
 

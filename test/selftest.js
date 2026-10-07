@@ -4639,6 +4639,73 @@ console.log('\n6c. Avlesning av PDF');
       paastand('et L-formet anlegg: bare bladene der røret går', lb.length === 7
         && lb.every(b => L.linjer[0].xy.some((q, k) => k > 0 && Rorkart.strekkIRute(L.linjer[0].xy[k - 1], q, b.utsnitt))), String(lb.length));
       paastand('  nummerert rad for rad fra nord', lb.every((b, k) => k === 0 || b.rad > lb[k - 1].rad || (b.rad === lb[k - 1].rad && b.kol > lb[k - 1].kol)));
+      /* ET RØR SOM BARE KRYSSER OVERLAPPEN, gir ikke et nytt blad: naboen viser
+         det allerede. Hovedrøret langs y = 0 er rad 0 (ned til −163,85 m),
+         grenen nede til venstre gir rad 1 (fra −136,15 m). Stikket ved x = 900
+         ender på −145 m – i overlappen, men i rad 0 sin halvdel (grensa er −150):
+         før ble det et sjette blad med bare den biten. */
+      const gren = { koder: {}, kummer: [], linjer: [ror([[0, 0], [1000, 0]]), ror([[0, -300], [100, -300]]), ror([[900, 0], [900, -145]])] };
+      const gb = Rorkart.kartblad(gren, ['SP 160PE'], 1000, flate);
+      paastand('et stikk som bare krysser overlappen: ingen nytt blad', gb.length === 5 && gb.filter(b => b.rad === 1).length === 1
+        && gb.find(b => b.rad === 1).kol === 0, JSON.stringify(gb.map(b => [b.rad, b.kol])));
+      paastand('  og stikket står helt på bladet over', gb.some(b => b.rad === 0 && b.utsnitt.y0 < 6500000 - 145 && b.utsnitt.x0 < 500900 && b.utsnitt.x1 > 500900));
+      sjekk('  går det 5 m lenger ned, er det i neste blad sin halvdel: seks', Rorkart.kartblad({ koder: {}, kummer: [],
+        linjer: gren.linjer.slice(0, 2).concat([ror([[900, 0], [900, -155]])]) }, ['SP 160PE'], 1000, flate).length, 6, 0);
+      /* HELT YTTERST I RUTENETTET. Rutenettet har minst 4 % av et blad i luft på
+         hver side, men den ytterste kjernen ville begynt 5 % inn – derfor går de
+         ytterste kjernene til uendelig. Her er rutenettet så trangt det kan bli
+         (1081,88 m er nesten fire steg), og et loddrett rør står i kanten, alene
+         i sin rad. */
+      const kant = { koder: {}, kummer: [], linjer: [ror([[0, 0], [1081.88, 0]]), ror([[0, 400], [0, 500]])] };
+      const kb = Rorkart.kartblad(kant, ['SP 160PE'], 1000, flate);
+      paastand('  et rør helt ytterst i kanten av rutenettet er også med', kb.length === 5 && kb.some(b => b.rad === 0 && b.kol === 0
+        && b.utsnitt.x0 <= 500000 && b.utsnitt.y1 >= 6500500), JSON.stringify(kb.map(b => [b.rad, b.kol])));
+      // en kum for seg er med: røret slutter på 700 m, kummen står på 1000 – det fjerde bladet er dens
+      sjekk('  og en kum alene i et blad gir det bladet', Rorkart.kartblad({ koder: {}, linjer: [ror([[0, 0], [700, 0]])],
+        kummer: [{ x: 501000, y: 6500000, d: 1, kode: 'SP 160PE' }] }, ['SP 160PE'], 1000, flate).length, 4, 0);
+      /* HVERT BIT AV HVERT RØR STÅR PÅ ET BLAD, og det går fort. Et kronglete
+         anlegg på 3 × 2 km i 1:500 – et rutenett på over 400 ruter. Å prøve
+         hver rute mot hvert strekk tok sekunder i valget. */
+      {
+        let s0 = 7;
+        const tilf = () => { s0 = (s0 * 16807) % 2147483647; return s0 / 2147483647; };
+        const linjer = [];
+        for (let r = 0; r < 60; r++) {
+          let x = tilf() * 3000, y = tilf() * 2000, v = tilf() * 2 * Math.PI;
+          const xy = [];
+          for (let k = 0; k < 400; k++) { v += (tilf() - 0.5) * 0.3; x += Math.cos(v); y += Math.sin(v); xy.push([x, y]); }
+          linjer.push(ror(xy));
+        }
+        const mye = { koder: {}, kummer: [], linjer };
+        const t0 = Date.now(), bl = Rorkart.kartblad(mye, ['SP 160PE'], 500, flate), tid = Date.now() - t0;
+        let utenfor = 0;
+        for (const l of linjer) {
+          for (let k = 1; k < l.xy.length; k++) {
+            const a = l.xy[k - 1], b = l.xy[k];
+            for (const f of [0, 0.5, 1]) {
+              const x = a.x + (b.x - a.x) * f, y = a.y + (b.y - a.y) * f;
+              if (!bl.some(q => x >= q.utsnitt.x0 && x <= q.utsnitt.x1 && y >= q.utsnitt.y0 && y <= q.utsnitt.y1)) utenfor++;
+            }
+          }
+        }
+        paastand('60 kronglete rør på 3 × 2 km i 1:500: hvert bit på et blad', utenfor === 0 && bl.length > 20, `${utenfor} utenfor, ${bl.length} blad`);
+        paastand('  og bladene regnes fort', tid < 300, tid + ' ms');
+      }
+      // og et anlegg som gir for mange blad, sier det – før man venter på et søkk av bakgrunnsfliser
+      const langt = { koder: {}, kummer: [], linjer: [ror([[0, 0], [40000, 0]])] };
+      const feilFor = (data, m) => { try { Rorkart.sider(data, { koder: ['SP 160PE'], papir: 'A3', malestokk: m }); return null; } catch (e) { return e.message; } };
+      const forMange = feilFor(langt, '500');
+      paastand('40 km i 1:500: for mange blad, og det sies – med hva man kan gjøre',
+        /^\d+ kartblad i 1:500 er for mange – velg en mindre målestokk, færre rørtyper eller alt på ett ark$/.test(forMange || ''), String(forMange));
+      paastand('  i 1:2000 går det', Rorkart.sider(langt, { koder: ['SP 160PE'], papir: 'A3', malestokk: '2000' }).length > 60);
+      // «auto» går ned til 1:2000 når 1:1000 gir for mange – ikke en feil fra start
+      const auto40 = feilFor(langt, 'auto') ? null : Rorkart.sider(langt, { koder: ['SP 160PE'], papir: 'A3', malestokk: 'auto' });
+      paastand('  «auto» på 40 km: 1:2000, der det ikke blir for mange', !!auto40 && auto40[1].utsnitt.N === 2000 && auto40[0].blad.length <= 120
+        && /^\d+ kartblad i 1:1\s000 er for mange/.test(feilFor(langt, '1000') || ''), auto40 ? auto40[1].utsnitt.N + ' / ' + auto40[0].blad.length : feilFor(langt, 'auto'));
+      // og over det er det ingen mindre målestokk å foreslå
+      const sytti = { koder: {}, kummer: [], linjer: [ror([[0, 0], [70000, 0]])] };
+      paastand('  70 km: for mange også i 1:2000 – da er det færre typer eller ett ark', /^\d+ kartblad i 1:2\s000 er for mange – velg færre rørtyper eller alt på ett ark$/
+        .test(feilFor(sytti, 'auto') || '') && feilFor(sytti, '2000') === feilFor(sytti, 'auto') && feilFor(sytti, 'en') === null, String(feilFor(sytti, 'auto')));
       const s = Rorkart.sider(rett, { koder: ['SP 160PE'], papir: 'A3', malestokk: 'auto' });
       paastand('«auto» på 1 km: oversikten og fire blad i 1:1000', s.length === 5 && s[0].blad && s[0].blad.length === 4
         && s[1].tittel === 'Kartblad 1 av 4' && s[1].utsnitt.N === 1000 && /^Oversikt/.test(s[0].tittel), s.map(x => x.tittel).join(' | '));
@@ -4657,11 +4724,126 @@ console.log('\n6c. Avlesning av PDF');
       paastand('PDF-en: oversikten og fire blad', /\/Count 5\b/.test(new TextDecoder('latin1').decode(bytesB)) && kartB.length === 5);
       paastand('  oversikten har bladene som stiplede ruter, med nummer', (kartB[0].match(/\[[\d.]+ [\d.]+\] 0 d [^Q]* s Q/g) || []).length === 4
         && [1, 2, 3, 4].every(n => kartB[0].includes(`(${n}) Tj`)));
-      paastand('  et blad viser veien til naboene, og tittelen hvilket blad', /\(Kartblad 1\) Tj/.test(kartB[2]) && /\(Kartblad 3\) Tj/.test(kartB[2])
-        && !/\(Kartblad 4\) Tj/.test(kartB[2]) && sb.join('\n').includes('(Kartblad 2 av 4)'));
+      // naboene står utenfor kartet – i siden, ikke i kartdelen
+      const sideB = sb.filter(x => x.includes(' re W n'));
+      paastand('  et blad viser veien til naboene, og tittelen hvilket blad', /\(Kartblad 1\) Tj/.test(sideB[2]) && /\(Kartblad 3\) Tj/.test(sideB[2])
+        && !/\(Kartblad 4\) Tj/.test(sideB[2]) && !/\(Kartblad \d\) Tj/.test(kartB[2]) && sb.join('\n').includes('(Kartblad 2 av 4)'));
       paastand('  og typen langs røret på hvert blad', kartB.slice(1).every(k => /\(SP 160PE\) Tj/.test(k)));
       paastand('  tegnforklaringen sier at bladene følger, og hvor oversikten står', sb.join('\n').includes('(4 kartblad i 1:1 000 f\\370lger etter)')
         && sb.join('\n').includes('(Oversikten over bladene st\\345r p\\345 side 1)'));
+
+      /* NABOBLADENE STÅR UTENFOR KARTET. Inne i det dekket merket overlappen –
+         den samme stripa på begge bladene, så det som lå under, sto ingen
+         steder. Det vannrette røret har naboer til venstre og høyre, et
+         loddrett over og under. */
+      {
+        const opp = Rorkart.oppsett('A3'), K = opp.kart, F = opp.forklaring, M = Rorkart.MM;
+        const kartboks = Rorkart.boks((K.x + K.b / 2) * M, (K.y + K.h / 2) * M, 0, K.b / 2 * M, K.h / 2 * M);
+        const piler = [], spisser = [];
+        const merker = data => {
+          const proto = PdfSkriver.prototype, gT = proto.tekst, gN = proto.nySide, gS = proto.sti, ut = [];
+          let side = 0;
+          proto.nySide = function (...a) { side++; return gN.apply(this, a); };
+          proto.tekst = function (x, y, s, o2 = {}) {
+            if (/^Kartblad \d+$/.test(s)) {
+              ut.push({ side, s, x, y, v: o2.vinkel || 0,
+                b: Rorkart.boks(x, y, o2.vinkel || 0, this.bredteAv(s, o2.storrelse, o2.fet) / 2, 0.36 * (o2.storrelse || 9)) });
+            }
+            return gT.call(this, x, y, s, o2);
+          };
+          // pila: en fylt trekant utenfor kartet
+          proto.sti = function (pts, o2 = {}) {
+            if (pts.length === 3 && o2.fyll && o2.lukket && pts.every(([x, y]) => x < K.x * M || x > (K.x + K.b) * M || y < K.y * M || y > (K.y + K.h) * M)) {
+              piler.push(side);
+              /* PILA PEKER UT: spissen er det ene hjørnet som ligger lengst ut fra kartet, de to andre er
+                 grunnlinja. Ut er den siden av kartet pila står på. */
+              const mx = pts.reduce((s, p) => s + p[0], 0) / 3, my = pts.reduce((s, p) => s + p[1], 0) / 3;
+              const ut = mx < K.x * M ? [-1, 0] : mx > (K.x + K.b) * M ? [1, 0] : my < K.y * M ? [0, -1] : [0, 1];
+              const lengs = pts.map(([x, y]) => x * ut[0] + y * ut[1]).sort((a, b) => b - a);
+              spisser.push(lengs[0] - lengs[1] > 0.5 && Math.abs(lengs[1] - lengs[2]) < 1e-6);
+            }
+            return gS.call(this, pts, o2);
+          };
+          try { Rorkart.lagPdf(data, { koder: ['SP 160PE'], papir: 'A3', malestokk: 'auto' }); } finally { proto.tekst = gT; proto.nySide = gN; proto.sti = gS; }
+          return ut;
+        };
+        const vann = merker(rett), lodd = merker({ koder: {}, kummer: [], linjer: [ror([[0, 0], [0, 1000]])] });
+        const paArket = m => [[1, 1], [1, -1], [-1, 1], [-1, -1]].every(([a, b]) => {
+          const x = m.x + a * m.b.ux * m.b.hb + b * -m.b.uy * m.b.hh, y = m.y + a * m.b.uy * m.b.hb + b * m.b.ux * m.b.hh;
+          return x >= 4 * M && x <= (opp.papir.b - 4) * M && y >= 4 * M && y <= (opp.papir.h - 4) * M;
+        });
+        const p3 = vann.filter(m => m.side === 3), q3 = lodd.filter(m => m.side === 3);
+        paastand('nabobladene står utenfor kartet, på arket', vann.length === 6 && lodd.length === 6
+          && vann.concat(lodd).every(m => !Rorkart.overlapper(m.b, kartboks) && paArket(m)), JSON.stringify(vann.concat(lodd).map(m => [m.side, m.s, Math.round(m.x / M), Math.round(m.y / M)])));
+        const v1 = p3.find(m => m.s === 'Kartblad 1'), h3 = p3.find(m => m.s === 'Kartblad 3');
+        paastand('  til venstre i margen og til høyre før tegnforklaringen, lest nedenfra', !!v1 && !!h3
+          && v1.x < K.x * M && h3.x > (K.x + K.b) * M && h3.x + h3.b.hh < F.x * M && v1.v === Math.PI / 2 && h3.v === Math.PI / 2,
+        JSON.stringify(p3));
+        const o1 = q3.find(m => m.s === 'Kartblad 1'), n3 = q3.find(m => m.s === 'Kartblad 3');
+        paastand('  over og under kartet, vannrett', !!o1 && !!n3 && o1.y < K.y * M && n3.y > (K.y + K.h) * M && o1.v === 0 && n3.v === 0,
+          JSON.stringify(q3));
+        paastand('  med en pil ut ved hvert, og den peker ut fra kartet', piler.length === 12 && spisser.length === 12 && spisser.every(Boolean),
+          `${piler.length} piler, ${spisser.filter(Boolean).length} peker ut`);
+      }
+
+      /* NUMRENE PÅ OVERSIKTEN ER SÅ STORE SOM RUTA GIR PLASS TIL. 10 km i
+         1:500 er 75 blad på rad, og på oversikten er hvert tre millimeter: i
+         11 pt sto numrene oppå hverandre. Nå står de i 5 pt, og annethvert
+         når de ikke får plass. */
+      {
+        const ti = { prosjekt: 'P', sone: 32, dato: '', koder: { 'SP 160PE': { system: 'spill', dim: 160 } }, kummer: [],
+          linjer: [Object.assign(ror([[0, 0], [10000, 0]]), { lengde: 10000 })] };
+        const sid = Rorkart.sider(ti, { koder: ['SP 160PE'], papir: 'A3', malestokk: '500' });
+        const proto = PdfSkriver.prototype, gT = proto.tekst, gR = proto.rektangel, numre = [], storrelser = [];
+        proto.tekst = function (x, y, s, o2 = {}) { if (/^\d+$/.test(s) && o2.loddrett === 'm') storrelser.push(o2.storrelse); return gT.call(this, x, y, s, o2); };
+        const kantK = (Rorkart.oppsett('A3').kart.x + Rorkart.oppsett('A3').kart.b) * Rorkart.MM;
+        proto.rektangel = function (x, y, b, h, o2 = {}) {
+          // de hvite boksene med kant i kartet – målestokklinjalen i tegnforklaringen er også en
+          if (o2.fyll && o2.strek && o2.fyll.every(v2 => v2 === 1) && x < kantK) numre.push(Rorkart.boks(x + b / 2, y + h / 2, 0, b / 2, h / 2));
+          return gR.call(this, x, y, b, h, o2);
+        };
+        const P = new PdfSkriver({ bredde: 420 * Rorkart.MM, hoyde: 297 * Rorkart.MM });
+        try { Rorkart.tegnSide(P, sid[0], ti, Rorkart.fargetabell(Rorkart.kodeinfo(ti)), null, { nr: 1, antall: 1, papir: 'A3', tekst: false }); }
+        finally { proto.tekst = gT; proto.rektangel = gR; }
+        const ingenOppaa = numre.every((q, k) => numre.every((r, m) => m <= k || !Rorkart.overlapper(q, r)));
+        /* Boksene følger teksten: 5 pt er 2,4 mm høyt. Med boksene i 11 pt-størrelse
+           ble det 27 numre, i riktig størrelse over 40 – annethvert av de tosifrede. */
+        paastand('75 blad på oversikten: numrene står ikke oppå hverandre', sid[0].blad.length === 75 && ingenOppaa
+          && numre.length >= 35 && numre.length < 75 && storrelser.length === numre.length && storrelser.every(s => s === 5)
+          && numre.every(q => 2 * q.hh < 2.6 * Rorkart.MM),
+        `${sid[0].blad.length} blad, ${numre.length} numre, ${ingenOppaa ? '' : 'oppå hverandre, '}${[...new Set(storrelser)].join('/')} pt`);
+        // på 1 km er rutene store, og numrene står i 11 pt som før
+        const st1 = [];
+        proto.tekst = function (x, y, s, o2 = {}) { if (/^\d+$/.test(s) && o2.loddrett === 'm') st1.push(o2.storrelse); return gT.call(this, x, y, s, o2); };
+        try { Rorkart.tegnSide(new PdfSkriver({ bredde: 420 * Rorkart.MM, hoyde: 297 * Rorkart.MM }), s[0], Object.assign({ prosjekt: 'P', sone: 32, dato: '' }, rett),
+          Rorkart.fargetabell(Rorkart.kodeinfo(rett)), null, { nr: 1, antall: 1, papir: 'A3', tekst: false }); } finally { proto.tekst = gT; }
+        paastand('  på 1 km står alle fire i 11 pt', st1.length === 4 && st1.every(v2 => v2 === 11), st1.join(','));
+        /* TO RADER. Første rad fikk annethvert nummer, og raden under ingen: på A4 i 1:500 ligger
+           to parallelle rør på 5 km i hver sin rad, og radene står 1,7 mm fra hverandre på oversikten
+           – lavere enn en 5 pt-boks med luften fra 11 pt. Nå er boksen tett rundt et lite tall. */
+        {
+          const to = { prosjekt: 'P', sone: 32, dato: '', koder: { 'SP 160PE': { system: 'spill', dim: 160 } }, kummer: [],
+            linjer: [ror([[0, 0], [5000, 0]]), ror([[0, 150], [5000, 150]])] };
+          const sid2 = Rorkart.sider(to, { koder: ['SP 160PE'], papir: 'A4', malestokk: '500' });
+          const skrevet = new Set(), bokser2 = [], oppA4 = Rorkart.oppsett('A4');
+          const kantA4 = (oppA4.kart.x + oppA4.kart.b) * Rorkart.MM;
+          proto.tekst = function (x, y, s, o2 = {}) { if (/^\d+$/.test(s) && o2.loddrett === 'm') skrevet.add(+s); return gT.call(this, x, y, s, o2); };
+          proto.rektangel = function (x, y, b, h, o2 = {}) {
+            if (o2.fyll && o2.strek && o2.fyll.every(v2 => v2 === 1) && x < kantA4) bokser2.push(Rorkart.boks(x + b / 2, y + h / 2, 0, b / 2, h / 2));
+            return gR.call(this, x, y, b, h, o2);
+          };
+          try {
+            Rorkart.tegnSide(new PdfSkriver({ bredde: oppA4.papir.b * Rorkart.MM, hoyde: oppA4.papir.h * Rorkart.MM }), sid2[0], to,
+              Rorkart.fargetabell(Rorkart.kodeinfo(to)), null, { nr: 1, antall: 1, papir: 'A4', tekst: false });
+          } finally { proto.tekst = gT; proto.rektangel = gR; }
+          const rader = [0, 1].map(r => sid2[0].blad.filter(b => b.rad === r).sort((a, b) => a.kol - b.kol));
+          const lengstUten = bl => { let l = 0, n = 0; for (const b of bl) { n = skrevet.has(b.nr) ? 0 : n + 1; l = Math.max(l, n); } return l; };
+          paastand('  to rader på A4: begge får annethvert nummer', sid2[0].blad.length === rader[0].length + rader[1].length
+            && rader.every(bl => bl.length > 40 && bl.filter(b => skrevet.has(b.nr)).length >= bl.length / 3 && lengstUten(bl) <= 2)
+            && bokser2.every((q, k) => bokser2.every((r, m) => m <= k || !Rorkart.overlapper(q, r))),
+          rader.map(bl => `${bl.filter(b => skrevet.has(b.nr)).length}/${bl.length}, lengst uten ${lengstUten(bl)}`).join(' · '));
+        }
+      }
     }
     /* HØYDEKOTENE. En kjegle gir én lukket ring per nivå, et skrått plan rette
        og parallelle koter, og et hull i terrenget et brudd – ikke en kote

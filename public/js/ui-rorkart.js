@@ -173,7 +173,7 @@ const RorkartUI = {
         <div class="knapperad"><button class="knapp" id="rkAlle" aria-label="Kryss av alle rørtypene">Alle</button>
           <button class="knapp" id="rkIngen" aria-label="Fjern krysset for alle rørtypene">Ingen</button></div>
         <div class="rorinnstilling"><label for="rkMalestokk">Kartblad</label>
-          <select id="rkMalestokk" class="minivalg"><option value="auto">Delt i blad i 1:1000 når alt ikke får plass på ett ark</option>
+          <select id="rkMalestokk" class="minivalg"><option value="auto">Delt i blad i 1:1000 når alt ikke får plass på ett ark – 1:2000 når det blir for mange</option>
             <option value="500">Delt i blad i 1:500</option><option value="1000">Delt i blad i 1:1000</option>
             <option value="2000">Delt i blad i 1:2000</option><option value="en">Alt på ett ark</option></select></div>
         <p class="notis" id="rkBlad" aria-live="polite"></p>
@@ -204,7 +204,7 @@ const RorkartUI = {
           const n = s.filter(x => x.bladNr).length;
           ut.textContent = n ? `Oversikten og ${n} kartblad i 1:${Rapport.tall(s[1].utsnitt.N)}`
             : `Alt på ett ark, i 1:${Rapport.tall(s[0].utsnitt.N)}`;
-        } catch (e) { ut.textContent = ''; }
+        } catch (e) { ut.textContent = e.message; }
       };
       innhold.querySelector('#rkAlle').onclick = () => { bokser().forEach(b => { b.checked = true; }); visBlad(); };
       innhold.querySelector('#rkIngen').onclick = () => { bokser().forEach(b => { b.checked = false; }); visBlad(); };
@@ -231,6 +231,10 @@ const RorkartUI = {
         const koder = bokser().filter(b => b.checked).map(b => b.closest('tr').dataset.kode);
         // ingen valgt er ikke et kart – det sies her, i dialogen, der det kan rettes
         if (!koder.length) { innhold.querySelector('#rkSvar').textContent = 'Kryss av minst én rørtype.'; return; }
+        // for mange blad, likeså – ellers lukket valget seg, og feilen sto bare nederst på skjermen
+        try {
+          Rorkart.sider(data, { koder, papir: innhold.querySelector('#rkPapir').value, malestokk: innhold.querySelector('#rkMalestokk').value });
+        } catch (e) { innhold.querySelector('#rkSvar').textContent = e.message; return; }
         lukk({ koder, malestokk: innhold.querySelector('#rkMalestokk').value,
           tekst: innhold.querySelector('#rkTekst').checked, perType: innhold.querySelector('#rkPerType').checked,
           koter: innhold.querySelector('#rkKoter').checked, profiler: innhold.querySelector('#rkProfiler').checked,

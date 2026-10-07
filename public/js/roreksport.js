@@ -309,6 +309,11 @@ const RorEksport = (() => {
    * anleggsnavn. Det er innmålingen som leveres videre i SOSI; bunnen og
    * gravebunnen er planlegging, og står i KOF, LandXML og DXF.
    *
+   * OG I SONEN FILA HADDE. Programmet regner i sonen lengdegraden gir, og en
+   * fil i UTM 32 fra et sted øst for 12° Ø ble regnet om til UTM 33 – da sto
+   * ikke ett tall slik det kom inn. Punktene skrives som de er lagret, og
+   * hodet sier fila sin sone (`sone` i svaret).
+   *
    * @param {number} [enhet]  koordinatenheten: millimeter for innmålte rør, ellers
    *   centimeter – en samlefil gir sin, felles for alle anleggene i den
    */
@@ -348,7 +353,7 @@ const RorEksport = (() => {
       for (const rad of noh) rader.push(rad);
     };
     for (const p of d) {
-      if (innmalt) { kurve('Rørledning', p, null, p.linjer.topp); continue; }
+      if (innmalt) { kurve('Rørledning', p, null, p.linje.punkter.map(q => ({ x: q.o, y: q.n, z: q.z }))); continue; }
       kurve('Rørledning', p, 'bunn innvendig', p.linjer.bunn);
       kurve('Rørledning', p, 'topp rør', p.linjer.topp);
       for (const b of p.linjer.gravebunn) kurve('Grøftebunn', p, 'gravebunn', b);
@@ -361,7 +366,17 @@ const RorEksport = (() => {
       rader.push('..NØH', `${cm(km.y)} ${cm(km.x)} ${cm(km.bunnlop)}`);
     }
     if (!Number.isFinite(minN)) throw new Error('Ingen rør å skrive');
-    return { rader, omr: { minN, maksN, minO, maksO }, niva: 2, nesteId: id, enhet };
+    return { rader, omr: { minN, maksN, minO, maksO }, niva: 2, nesteId: id, enhet, sone: sosiSone(app, res) };
+  }
+
+  /**
+   * Sonen SOSI-fila for anlegget står i: fila sin for et innmålt, regnesonen
+   * for et tegnet. Et innmålt uten punkt har ingen fil, og sonen er bare
+   * forvalget – da regnesonen. Uten `res` er det anlegget man står i.
+   */
+  function sosiSone(app, res = { plan: !!(app.P.ror && app.P.ror.plan) }) {
+    const r = app.P.ror;
+    return !res.plan && r && r.sone && r.punkter && r.punkter.length ? r.sone : app.sone;
   }
   /** SOSI-kommentarer: «!» til linjeslutt. */
   const sosiKommentarer = merk => merk.map(m => '! ' + String(m).replace(/[\r\n]+/g, ' '));
@@ -377,7 +392,7 @@ const RorEksport = (() => {
 
   function sosi(app, res) {
     const E = _eks(), d = sosiDeler(app, res, 1);
-    const rader = E.sosiHode(app, d.omr, d.niva, d.enhet).concat(sosiKommentarer(sosiMerknader(app, res)), d.rader);
+    const rader = E.sosiHode({ sone: d.sone }, d.omr, d.niva, d.enhet).concat(sosiKommentarer(sosiMerknader(app, res)), d.rader);
     rader.push('.SLUTT');
     return rader.join('\r\n') + '\r\n';
   }
@@ -447,7 +462,7 @@ const RorEksport = (() => {
 
   return { STIKK, stasjonering, ved, kumNr, punkter, mangler, csvTekst, stikningRader, masseRader,
     kofMerknader, kofKropp, kof, landxmlDeler, landxml, xmlKommentarer, sosiDeler, sosi, sosiKommentarer, sosiMerknader,
-    dxfKropp, dxf, dxfKommentarer, geojson };
+    sosiSone, dxfKropp, dxf, dxfKommentarer, geojson };
 })();
 
 if (typeof module !== 'undefined') module.exports = RorEksport;

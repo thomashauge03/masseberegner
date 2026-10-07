@@ -594,13 +594,22 @@ const Rorkart = (() => {
     return true;
   }
 
+  /** Flest kartblad i én PDF – over det er det et søkk av bakgrunnsfliser, og en annen målestokk er svaret. */
+  const MAKS_BLAD = 120;
+
   /**
    * KARTBLADENE: rørene delt i ark i målestokk `N`, så de kan leses. På ett
    * ark i 1:5000 er en stikkledning et punkt og typen en flekk; i 1:1000 står
    * de lesbart. Et rutenett over rørene, sentrert, med 10 % overlapp – så et
-   * rør langs en kant står helt på minst ett av bladene – og bare rutene der
-   * et rør går: et L-formet anlegg gir ikke tomme ark i hjørnet. Nummerert som
-   * man leser, rad for rad fra nord.
+   * rør langs en kant står helt på minst ett av bladene. Nummerert som man
+   * leser, rad for rad fra nord.
+   *
+   * HVERT BLAD HAR EN KJERNE: ruta minus halve overlappen mot naboene, og
+   * kjernene dekker alt uten å overlappe. Et blad blir med når et rør eller en
+   * kum er i kjernen – ikke når røret bare krysser overlappen, som naboen
+   * allerede viser. Her ble hvert sjuende blad et ark uten noe nytt. Og bare
+   * kjernene et strekk faktisk kan nå, prøves: å prøve hver rute mot hvert
+   * strekk tok sekunder i valget for et langt anlegg.
    * @returns {Array<{utsnitt, rad, kol}>}
    */
   function kartblad(data, koder, N, flate, o = {}) {
@@ -612,18 +621,32 @@ const Rorkart = (() => {
     const bw = b.x1 - b.x0 + 0.08 * W, bh = b.y1 - b.y0 + 0.08 * H;
     const nx = Math.max(1, Math.ceil((bw - (W - sx)) / sx)), ny = Math.max(1, Math.ceil((bh - (H - sy)) / sy));
     const x0 = (b.x0 + b.x1) / 2 - (nx * sx + W - sx) / 2, y1 = (b.y0 + b.y1) / 2 + (ny * sy + H - sy) / 2;
-    const med = new Set(koder), linjer = data.linjer.filter(l => med.has(l.kode));
-    const kummer = (data.kummer || []).filter(k => med.has(k.kode));
-    const ut = [];
-    for (let j = 0; j < ny; j++) {
-      for (let i = 0; i < nx; i++) {
-        const u = { N, x0: x0 + i * sx, x1: x0 + i * sx + W, y1: y1 - j * sy, y0: y1 - j * sy - H };
-        const har = linjer.some(l => l.xy.some((q, k) => k > 0 && strekkIRute(l.xy[k - 1], q, u)))
-          || kummer.some(k => k.x >= u.x0 && k.x <= u.x1 && k.y >= u.y0 && k.y <= u.y1);
-        if (har) ut.push({ utsnitt: u, rad: j, kol: i });
+    // kjernene: et rutenett med steget, forskjøvet en halv overlapp inn – de ytterste går til uendelig
+    const kx = x0 + (W - sx) / 2, ky = y1 - (H - sy) / 2, STOR = 1e12;
+    const kol = x => Math.max(0, Math.min(nx - 1, Math.floor((x - kx) / sx)));
+    const rad = y => Math.max(0, Math.min(ny - 1, Math.floor((ky - y) / sy)));
+    const kjerne = (i, j) => ({ x0: i === 0 ? -STOR : kx + i * sx, x1: i === nx - 1 ? STOR : kx + (i + 1) * sx,
+      y1: j === 0 ? STOR : ky - j * sy, y0: j === ny - 1 ? -STOR : ky - (j + 1) * sy });
+    const med = new Set(koder), funnet = new Set();
+    for (const l of data.linjer) {
+      if (!med.has(l.kode)) continue;
+      for (let k = 1; k < l.xy.length; k++) {
+        const a = l.xy[k - 1], c = l.xy[k];
+        if (![a.x, a.y, c.x, c.y].every(Number.isFinite)) continue;
+        for (let i = kol(Math.min(a.x, c.x)); i <= kol(Math.max(a.x, c.x)); i++) {
+          for (let j = rad(Math.max(a.y, c.y)); j <= rad(Math.min(a.y, c.y)); j++) {
+            if (!funnet.has(j * nx + i) && strekkIRute(a, c, kjerne(i, j))) funnet.add(j * nx + i);
+          }
+        }
       }
     }
-    return ut;
+    for (const k of data.kummer || []) {
+      if (med.has(k.kode) && Number.isFinite(k.x) && Number.isFinite(k.y)) funnet.add(rad(k.y) * nx + kol(k.x));
+    }
+    return [...funnet].sort((p, q) => p - q).map(n => {
+      const i = n % nx, j = Math.floor(n / nx);
+      return { utsnitt: { N, x0: x0 + i * sx, x1: x0 + i * sx + W, y1: y1 - j * sy, y0: y1 - j * sy - H }, rad: j, kol: i };
+    });
   }
 
   /** Nabobladene til venstre, høyre, over og under – så man finner neste ark ute på plassen. */
@@ -660,8 +683,19 @@ const Rorkart = (() => {
     const valgte = (valg.koder || []).filter(k => finnes.has(k));
     if (!valgte.length) throw new Error('Velg minst én rørtype');
     const hel = utsnitt(boksFor(data, valgte), opp.kart);
-    const N = bladMalestokk(valg, hel);
-    const blad = N ? kartblad(data, valgte, N, opp.kart) : [];
+    let N = bladMalestokk(valg, hel);
+    let blad = N ? kartblad(data, valgte, N, opp.kart) : [];
+    /* «AUTO» GÅR ETT HAKK NED når 1:1000 gir for mange blad: et anlegg på
+       40 km ble 149 ark, og valget sto med en feil fra start. */
+    if (valg.malestokk === 'auto' && blad.length > MAKS_BLAD && hel.N > 2000) {
+      N = 2000;
+      blad = kartblad(data, valgte, N, opp.kart);
+    }
+    if (blad.length > MAKS_BLAD) {
+      // 1:2000 er den minste målestokken bladene har – da er det færre typer eller ett ark som hjelper
+      throw new Error(`${blad.length} kartblad i 1:${tall(N)} er for mange – velg `
+        + (N < 2000 ? 'en mindre målestokk, færre rørtyper eller alt på ett ark' : 'færre rørtyper eller alt på ett ark'));
+    }
     const ut = [{
       tittel: valgte.length === 1 ? valgte[0] : 'Alle valgte rør', koder: valgte, graa: [], samle: true, utsnitt: hel
     }];
@@ -807,37 +841,36 @@ const Rorkart = (() => {
         opptatt.push(boks(m.x, m.y, 0, b / 2 + pt(0.8), pt(1.6)));
       }
       /* KARTBLADENE PÅ OVERSIKTEN: ruta til hvert blad, stiplet, med nummeret
-         midt i – så man ser hvilket ark man skal ta fram. */
-      for (const b of side.blad || []) {
+         midt i – så man ser hvilket ark man skal ta fram. Nummeret er så stort
+         som ruta gir plass til, mellom 5 og 11 pt: i et langt anlegg er rutene
+         små, og 11 pt sto oppå hverandre. Et nummer som fortsatt ville dekket
+         et annet, står ikke – annethvert i raden er nok til å telle seg fram.
+         BOKSEN ER TETT RUNDT ET LITE TALL. Med luften fra 11 pt skalert ned var
+         en 5 pt-boks 2,4 mm høy, og radene står ned mot 1,7 mm fra hverandre på
+         oversikten: første rad fikk annethvert nummer, og raden under ingen. Med
+         0,2 mm luft er boksen 1,7 mm, og radene sperrer ikke for hverandre.
+         (Prøvd spredt – lengst fra dem som er prøvd, først – ble det ikke
+         bedre: i rekkefølge står annethvert, spredt ble det av og til to hull.) */
+      const ruter = (side.blad || []).map(b => {
         const ub = b.utsnitt;
         const hj = [[ub.x0, ub.y0], [ub.x1, ub.y0], [ub.x1, ub.y1], [ub.x0, ub.y1]].map(([x, y]) => iKart(x, y));
         P.sti(hj, { farge: SVART, tykkelse: pt(0.35), stiplet: [pt(2.5), pt(1.5)], lukket: true });
-        const cx = (hj[0][0] + hj[2][0]) / 2, cy = (hj[0][1] + hj[2][1]) / 2;
-        const tekst = String(b.nr), bb = P.bredteAv(tekst, 11, true) + pt(3);
-        P.rektangel(cx - bb / 2, cy - pt(2.6), bb, pt(5.2), { fyll: HVIT, strek: SVART, tykkelse: pt(0.4) });
-        P.tekst(cx, cy, tekst, { storrelse: 11, fet: true, juster: 'm', loddrett: 'm' });
-        opptatt.push(boks(cx, cy, 0, bb / 2, pt(2.6)));
-      }
-      /* NABOBLADENE i kanten av et blad – der kartet fortsetter, står hvilket
-         blad det fortsetter på, med en pil ut av kartet. */
-      if (side.naboer) {
-        const ST2 = 7.5, h = pt(5);
-        const x0 = pt(K.x), y0 = pt(K.y), x1 = pt(K.x + K.b), y1 = pt(K.y + K.h), s = pt(1.3);
-        for (const retning of ['venstre', 'hoyre', 'opp', 'ned']) {
-          const nr = side.naboer[retning];
-          if (!nr) continue;
-          const tekst = `Kartblad ${nr}`, b = P.bredteAv(tekst, ST2, true) + pt(8.5);
-          const [cx, cy] = { venstre: [x0 + pt(1.5) + b / 2, (y0 + y1) / 2], hoyre: [x1 - pt(1.5) - b / 2, (y0 + y1) / 2],
-            opp: [(x0 + x1) / 2, y0 + pt(1.5) + h / 2], ned: [(x0 + x1) / 2, y1 - pt(1.5) - h / 2] }[retning];
-          P.rektangel(cx - b / 2, cy - h / 2, b, h, { fyll: HVIT, strek: SVART, tykkelse: pt(0.3) });
-          // pila står ytterst i boksen: mot kanten for venstre og høyre, til venstre i boksen for opp og ned
-          const px = retning === 'hoyre' ? cx + b / 2 - pt(2.2) : cx - b / 2 + pt(2.2);
-          const pil = { venstre: [[px - s, cy], [px + s, cy - s], [px + s, cy + s]], hoyre: [[px + s, cy], [px - s, cy - s], [px - s, cy + s]],
-            opp: [[px, cy - s], [px - s, cy + s], [px + s, cy + s]], ned: [[px, cy + s], [px - s, cy - s], [px + s, cy - s]] }[retning];
-          P.sti(pil, { farge: SVART, fyll: SVART, tykkelse: pt(0.1), lukket: true });
-          P.tekst(retning === 'hoyre' ? cx - pt(1.6) : cx + pt(1.6), cy, tekst, { storrelse: ST2, fet: true, juster: 'm', loddrett: 'm' });
-          opptatt.push(boks(cx, cy, 0, b / 2, h / 2));
-        }
+        const rb = hj[1][0] - hj[0][0], rh = hj[0][1] - hj[2][1];
+        const tekst = String(b.nr), b11 = P.bredteAv(tekst, 11, true) + pt(3), h11 = pt(5.2);
+        const st = Math.max(5, 11 * Math.min(1, 0.8 * rb / b11, 0.5 * rh / h11));
+        // luften rundt tallet: 1,5 mm til sidene og 1,2 mm over og under i 11 pt, 0,4 og 0,2 mm i 5 pt
+        const t = (st - 5) / 6;
+        return { tekst, st, bb: P.bredteAv(tekst, st, true) + 2 * pt(0.4 + 1.1 * t), hh: 0.72 * st + 2 * pt(0.2 + t),
+          cx: (hj[0][0] + hj[2][0]) / 2, cy: (hj[0][1] + hj[2][1]) / 2 };
+      });
+      const numre = [];
+      for (const { tekst, st, bb, hh, cx, cy } of ruter) {
+        const her = boks(cx, cy, 0, bb / 2, hh / 2);
+        if (numre.some(q => overlapper(q, her))) continue;
+        P.rektangel(cx - bb / 2, cy - hh / 2, bb, hh, { fyll: HVIT, strek: SVART, tykkelse: pt(0.4 * st / 11) });
+        P.tekst(cx, cy, tekst, { storrelse: st, fet: true, juster: 'm', loddrett: 'm' });
+        numre.push(her);
+        opptatt.push(her);
       }
       /* RØRTYPEN SKREVET LANGS RØRENE, mange steder – se plasserTekster – i
          hvite tekstbokser med rørets farge, så den leses over kartet og streken. */
@@ -859,6 +892,30 @@ const Rorkart = (() => {
       }
     });
     P.rektangel(pt(K.x), pt(K.y), pt(K.b), pt(K.h), { strek: SVART, tykkelse: pt(0.3) });
+    /* NABOBLADENE utenfor kanten av et blad: der kartet fortsetter, står
+       hvilket blad det fortsetter på, med en pil ut. Inne i kartet dekket
+       merket overlappen – den samme stripa på begge bladene, så det som lå
+       under, sto ingen steder. Langs sidene leses det nedenfra, som tekstene
+       langs rørene; til høyre står det i mellomrommet før tegnforklaringen. */
+    if (side.naboer) {
+      const ST2 = 7.5, s = pt(1.1), luft = pt(1.2);
+      const x0 = pt(K.x), y0 = pt(K.y), x1 = pt(K.x + K.b), y1 = pt(K.y + K.h);
+      const plass = { venstre: [x0 - pt(3.5), (y0 + y1) / 2], hoyre: [x1 + pt(3), (y0 + y1) / 2],
+        opp: [(x0 + x1) / 2, y0 - pt(3.5)], ned: [(x0 + x1) / 2, y1 + pt(3.5)] };
+      for (const retning of ['venstre', 'hoyre', 'opp', 'ned']) {
+        const nr = side.naboer[retning];
+        if (!nr) continue;
+        const tekst = `Kartblad ${nr}`, b = P.bredteAv(tekst, ST2, true), hel = 2 * s + luft + b;
+        const [cx, cy] = plass[retning], loddrett = retning === 'venstre' || retning === 'hoyre';
+        // pila først, så teksten: fra venstre over og under kartet, nedenfra langs sidene
+        const [px, py] = loddrett ? [cx, cy + hel / 2 - s] : [cx - hel / 2 + s, cy];
+        const [tx, ty] = loddrett ? [cx, cy + hel / 2 - 2 * s - luft - b / 2] : [cx - hel / 2 + 2 * s + luft + b / 2, cy];
+        const pil = { venstre: [[px - s, py], [px + s, py - s], [px + s, py + s]], hoyre: [[px + s, py], [px - s, py - s], [px - s, py + s]],
+          opp: [[px, py - s], [px - s, py + s], [px + s, py + s]], ned: [[px, py + s], [px - s, py - s], [px + s, py - s]] }[retning];
+        P.sti(pil, { farge: SVART, fyll: SVART, tykkelse: pt(0.1), lukket: true });
+        P.tekst(tx, ty, tekst, { storrelse: ST2, fet: true, juster: 'm', loddrett: 'm', vinkel: loddrett ? Math.PI / 2 : 0 });
+      }
+    }
     if (notis) {
       P.rektangel(pt(K.x + 1.5), pt(K.y + K.h - 6.2), P.bredteAv(notis, 7) + pt(3), pt(4.6), { fyll: [1, 1, 1] });
       P.tekst(pt(K.x + 3), pt(K.y + K.h - 3), notis, { storrelse: 7, farge: SVAK });

@@ -2087,16 +2087,23 @@ ${tatt.map(x => x.bit.html).join('\n')}`;
          i det. Med bare rør i prosjektet følger regnesonen det aktive anlegget,
          og to røranlegg på hver side av en sonegrense ville ellers havnet under
          samme hode – det ene 300 km feil. Sonen er den man står i når man
-         trykker; et anlegg i en annen blir stående utenfor, og svaret sier det. */
-      let filsone = app.sone || null;
+         trykker; et anlegg i en annen blir stående utenfor, og svaret sier det.
+         I SOSI står et innmålt røranlegg i innmålingsfila sin sone, slik
+         tallene kom inn (RorEksport.sosiSone) – også når det er det man står i. */
+      let filsone = (format === 'sosi' ? RorEksport.sosiSone(app) : app.sone) || null;
       // det rørene ikke fikk med seg (uten høyder, uten grøft) – står i fila og i svaret
       const notater = [];
       const { tatt, hoppet } = await this.gjennomAlleAnlegg((a2, res, anl, i) => {
         const tomt = a2.erTomt(), ror = a2.erRor();
         const merke = this.anleggskode(i);
         const anleggsnavn = anl.navn || (tomt ? 'Tomt' : ror ? 'Rør' : 'Veg');
-        if (!filsone) filsone = a2.sone;
-        if (a2.sone !== filsone) throw new Error(`annen UTM-sone (${a2.sone}) enn fila (${filsone})`);
+        const sone = format === 'sosi' && ror ? RorEksport.sosiSone(a2, res) : a2.sone;
+        if (!filsone) filsone = sone;
+        if (sone !== filsone) {
+          throw new Error(format === 'sosi' && ror && !res.plan
+            ? `innmålingen er i UTM ${sone}, fila i UTM ${filsone} – eksporter anlegget for seg`
+            : `annen UTM-sone (${sone}) enn fila (${filsone})`);
+        }
         // SOSI-fila har bare innmålingen fra et innmålt anlegg – og sier da ingenting om gravebunnen
         if (ror) for (const m of (format === 'sosi' ? RorEksport.sosiMerknader : RorEksport.mangler)(a2, res)) notater.push(anleggsnavn + ': ' + m);
         if (format === 'kof') {

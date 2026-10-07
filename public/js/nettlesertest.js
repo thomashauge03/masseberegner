@@ -8732,6 +8732,44 @@ const Nettlesertest = {
       App.P.ror.sone = 33;
       await App.beregnRor();
       this.sjekk('med en veg i prosjektet er det vegen som bestemmer sonen', App.sone === 32, String(App.sone));
+      /* SOSI HAR TALLENE FRA FILA, OG FILA SIN SONE. Regnesonen er vegens
+         (32), fila er i 33: linjene står i 32, men SOSI-fila skal ha det som kom
+         inn. Hver rad i millimeter skal finnes som et punkt i fila. */
+      {
+        const xml = this._rorXml();
+        const meter = s => { const neg = s[0] === '-', t = (neg ? s.slice(1) : s).padStart(4, '0'); return (neg ? '-' : '') + t.slice(0, -3) + '.' + t.slice(-3); };
+        const iFila = rad => xml.includes('>' + rad.split(' ').map(meter).join(' ') + '</CgPoint>');
+        const noh = sos => {
+          const r = sos.split('\r\n'), ut = [];
+          r.forEach((x, i) => { if (x === '..NØH') for (let j = i + 1; j < r.length && /^-?\d+ -?\d+ -?\d+$/.test(r[j]); j++) ut.push(r[j]); });
+          return ut;
+        };
+        const sos = RorEksport.sosi(App, App.resultat), rader = noh(sos);
+        this.sjekk('SOSI: tallene fra fila og fila sin sone – ikke regnesonen', rader.length > 20 && rader.every(iFila)
+          && sos.includes('...KOORDSYS 23'), rader.filter(r => !iFila(r)).slice(0, 2).concat(sos.split('\r\n').filter(r => /KOORDSYS/.test(r))).join(' | '));
+        /* Samlefila står også i fila sin sone når man står i røranlegget. Rundgangen er bare dette
+           anlegget og to andre som ikke står i den – vegen (32) og et innmålt fra en fil i 32 – så
+           vegen ikke må regnes; de to skal stå utenfor, og svaret si hvorfor. */
+        const ekteGjennom = Rapport.gjennomAlleAnlegg, ekteNed = Rapport.lastNed, filer = [];
+        Rapport.lastNed = (navn, innhold) => { filer.push({ navn, innhold }); };
+        const andre = [
+          [{ erTomt: () => false, erRor: () => false, sone: 32, P: {} }, {}, { navn: 'Vegen', type: 'veg' }],
+          [{ erTomt: () => false, erRor: () => true, sone: 33, P: { ror: { sone: 32, punkter: [{ o: 1, n: 1, z: 1 }], plan: null } } },
+            { plan: false }, { navn: 'Et annet innmålt', type: 'ror' }]];
+        Rapport.gjennomAlleAnlegg = async hent => {
+          const a = App.P.anlegg.find(x => x.id === App.P.aktivt), tatt = [], hoppet = [];
+          for (const [a2, res, anl] of [[App, App.resultat, a]].concat(andre)) {
+            try { tatt.push({ anlegg: anl, bit: await hent(a2, res, anl, tatt.length) }); } catch (e) { hoppet.push({ anlegg: anl, grunn: e.message }); }
+          }
+          return { tatt, hoppet };
+        };
+        try { await Rapport.eksporterAlle('sosi'); } finally { Rapport.gjennomAlleAnlegg = ekteGjennom; Rapport.lastNed = ekteNed; }
+        const samle = filer.length ? filer[0].innhold : '', raderS = noh(samle), svarS = document.getElementById('eksportsvar').textContent;
+        this.sjekk('  og samlefila – i fila sin sone, med tallene fra fila', samle.includes('...KOORDSYS 23') && raderS.length === rader.length
+          && raderS.every(iFila), filer.length ? samle.split('\r\n').filter(r => /KOORDSYS|^!/.test(r)).join(' | ') : svarS);
+        this.sjekk('  og det som står i en annen sone, står utenfor – med hvorfor', svarS.includes('Vegen (annen UTM-sone (32) enn fila (33))')
+          && svarS.includes('Et annet innmålt (innmålingen er i UTM 32, fila i UTM 33 – eksporter anlegget for seg)'), svarS);
+      }
       /* Og rørfanen viser de samme lengdene som rapporten, også når fila er i en
          annen sone enn regnesonen. Fanen bygde linjene i filas sone: 0,1 m
          forskjell på 200 m her. */
@@ -9407,6 +9445,28 @@ const Nettlesertest = {
           this.sjekk('et anlegg på 1 km: oversikten og fire kartblad i 1:1000', /^Oversikten og 4 kartblad i 1:1\s?000$/.test(notis), notis);
           this.sjekk('  og i 1:500 flere – notisen følger valget', /^Oversikten og \d+ kartblad i 1:500$/.test(notis500)
             && +/(\d+) kartblad/.exec(notis500)[1] > 4, notis500);
+        }
+        /* Et anlegg på 40 km gir for mange blad i 1:1000. «Auto» går da ned til 1:2000; velger man
+           1:1000 selv, sier notisen hva man kan gjøre – og «Lag PDF» lukker ikke valget, men sier det samme. */
+        {
+          const langt = { sone: 32, kummer: [], vist: new Set(), koder: { 'SP 160PE': { system: 'spill', dim: 160 } },
+            linjer: [{ kode: 'SP 160PE', kilde: 'innmalt', dim: 160, lengde: 40000, xy: [{ x: o.x, y: o.y }, { x: o.x + 40000, y: o.y }] }] };
+          const svar3 = RorkartUI.dialog(langt);
+          const notisAuto = document.getElementById('rkBlad').textContent;
+          const valgL = document.getElementById('rkMalestokk');
+          valgL.value = '1000';
+          valgL.dispatchEvent(new Event('change'));
+          const notis1000 = document.getElementById('rkBlad').textContent;
+          document.getElementById('rkLag').click();
+          const stod = !document.getElementById('dialog').classList.contains('skjult');
+          const svarTekst = document.getElementById('rkSvar').textContent;
+          document.getElementById('rkAvbryt').click();
+          const valg3 = await svar3;
+          this.sjekk('40 km: «auto» går ned til 1:2000, der det ikke blir for mange', /^Oversikten og \d+ kartblad i 1:2\s?000$/.test(notisAuto), notisAuto);
+          this.sjekk('  i 1:1000 er det for mange, og notisen sier hva man kan gjøre',
+            /^\d+ kartblad i 1:1\s?000 er for mange – velg en mindre målestokk/.test(notis1000), notis1000);
+          this.sjekk('  og «Lag PDF» lukker ikke valget, men sier det samme', stod && svarTekst === notis1000 && valg3 === null,
+            JSON.stringify([stod, svarTekst, valg3]));
         }
 
         // bakgrunnen: en grå flis fra en stubbet fetch

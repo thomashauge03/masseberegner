@@ -153,7 +153,7 @@ console.log('\n4b. SOSI for innmålte rør: bare det som kom inn med fila');
      dimensjonen), gravebunnen og merknadene om terrenget (regnet av
      Kartverkets terreng) hører til planleggingen, ikke til innmålingen. */
   const malt = { id: 'm', kode: 'SP 160PE', xy: [0, 20, 40].map(x => ({ x: X0 + x, y: Y0 + 5 })),
-    punkter: [8.123, 8.041, 7.987].map((z, i) => ({ id: 'm' + i, z })) };
+    punkter: [8.123, 8.041, 7.987].map((z, i) => ({ id: 'm' + i, o: X0 + 20 * i, n: Y0 + 5, z })) };
   const gM = Groft.beregn({ linjer: [malt], koder, terrengZ: T });
   // en kum i resultatet: SOSI-fila for et innmålt anlegg er rørene, og kummen står ikke der
   const rM = { type: 'ror', sone: 32, linjer: [malt], groft: gM, profiler: new Map([['m', Ror.profil(malt, T, 160)]]),
@@ -188,7 +188,7 @@ console.log('\n4b. SOSI for innmålte rør: bare det som kom inn med fila');
      målinger på samme sted og høyde ga et strekk uten lengde, som
      sjekkverktøyene flagger. */
   const lav = { id: 'l', kode: 'SP 160PE', xy: [0, 10, 10, 20].map(x => ({ x: X0 + x, y: Y0 + 9 })),
-    punkter: [-0.125, 0.125, 0.125, 1].map((z, i) => ({ id: 'l' + i, z })) };
+    punkter: [-0.125, 0.125, 0.125, 1].map((z, i) => ({ id: 'l' + i, o: X0 + [0, 10, 10, 20][i], n: Y0 + 9, z })) };
   const rL = Object.assign({}, rM, { linjer: [lav], groft: Groft.beregn({ linjer: [lav], koder, terrengZ: T }),
     profiler: new Map([['l', Ror.profil(lav, T, 160)]]), kummer: [], bygg: { linjer: [lav], enslige: [] } });
   const sL = RorEksport.sosi(app, rL).split('\r\n'), j = sL.indexOf('..NØH');
@@ -201,6 +201,29 @@ console.log('\n4b. SOSI for innmålte rør: bare det som kom inn med fila');
   paastand('et tegnet anlegg i centimeter, en halv bort fra null', sT.includes('...ENHET 0.01') && sT.slice(jT + 1, jT + 4).join(' | ')
     === [`${(Y0 + 9) * 100} ${X0 * 100} -13`, `${(Y0 + 9) * 100} ${(X0 + 10) * 100} 13`, `${(Y0 + 9) * 100} ${(X0 + 20) * 100} 100`].join(' | '),
   sT.slice(jT + 1, jT + 4).join(' | '));
+  /* I SONEN FILA HADDE. Programmet regner i sonen lengdegraden gir; en fil i
+     UTM 32 fra et sted øst for 12° Ø regnes i UTM 33, og linjene (xy) står
+     der. SOSI-fila skal ha tallene fra fila – og hodet fila sin sone. Her er
+     xy flyttet, som en omregning ville gjort. */
+  const omregnet = { id: 'o', kode: 'SP 160PE', xy: [0, 20].map(x => ({ x: X0 + 700 + x, y: Y0 - 300 })),
+    punkter: [8.5, 8.4].map((z, k) => ({ id: 'o' + k, o: X0 + 20 * k, n: Y0 + 5, z })) };
+  const rO = Object.assign({}, rM, { sone: 33, linjer: [omregnet], groft: Groft.beregn({ linjer: [omregnet], koder, terrengZ: T }),
+    profiler: new Map([['o', Ror.profil(omregnet, T, 160)]]), kummer: [], bygg: { linjer: [omregnet], enslige: [] } });
+  const appFil = { P: { navn: 'Prøve', ror: { koder, sone: 32, punkter: omregnet.punkter } }, sone: 33 };
+  const sO = RorEksport.sosi(appFil, rO).split('\r\n'), jO = sO.indexOf('..NØH');
+  paastand('regnet i en annen sone: SOSI har tallene fra fila, og fila sin sone i hodet', sO.slice(jO + 1, jO + 3).join(' | ')
+    === [`${(Y0 + 5) * 1000} ${X0 * 1000} 8500`, `${(Y0 + 5) * 1000} ${(X0 + 20) * 1000} 8400`].join(' | ')
+    && sO.includes('...KOORDSYS 22') && sO.includes(`...MIN-NØ ${Y0 + 5} ${X0}`) && RorEksport.sosiSone(appFil, rO) === 32,
+  sO.slice(jO + 1, jO + 3).concat(sO.filter(r => /KOORDSYS|MIN-NØ/.test(r))).join(' | '));
+  // et tegnet anlegg har ingen fil: det står i regnesonen, som før
+  paastand('  et tegnet anlegg står i regnesonen', RorEksport.sosiSone(appFil, Object.assign({}, rO, { plan: true })) === 33
+    && RorEksport.sosi(appFil, Object.assign({}, rO, { plan: true })).includes('...KOORDSYS 23'));
+  /* Et nytt, tomt innmålt anlegg har ingen fil – sonen er bare forvalget (32). Står man i det når
+     samlefila lages, ville alt i sone 33 blitt stående utenfor, og ingen fil skrevet. */
+  paastand('  et innmålt anlegg uten punkt: regnesonen – og uten resultat er det anlegget man står i',
+    RorEksport.sosiSone({ P: { ror: { koder, sone: 32, punkter: [] } }, sone: 33 }) === 33 && RorEksport.sosiSone(appFil) === 32
+    && RorEksport.sosiSone({ P: { ror: { koder, sone: 32, punkter: omregnet.punkter, plan: { traseer: [] } } }, sone: 33 }) === 33
+    && RorEksport.sosiSone({ P: {}, sone: 33 }) === 33);
 }
 
 console.log('\n5. DXF');
@@ -288,7 +311,8 @@ console.log('\n6d. Tegn som må pakkes inn, og gravebunn i flere biter');
 {
   const kode = 'SP <160> "PE" & \'x\'';
   const koder3 = Ror.koderFra([{ kode }], {});
-  const l = { id: 'e', kode, xy: [0, 20, 40, 60, 80].map(x => ({ x: X0 + x, y: Y0 - 200 })), punkter: [8, 8, 12, 8, 8].map((z, i) => ({ id: 'e' + i, z })) };
+  const l = { id: 'e', kode, xy: [0, 20, 40, 60, 80].map(x => ({ x: X0 + x, y: Y0 - 200 })),
+    punkter: [8, 8, 12, 8, 8].map((z, i) => ({ id: 'e' + i, o: X0 + 20 * i, n: Y0 - 200, z })) };
   koder3[kode].dim = 160;
   const r4 = { linjer: [l], groft: Groft.beregn({ linjer: [l], koder: koder3, terrengZ: T }), profiler: new Map(), kummer: [], sone: 32 };
   const a4 = { P: { navn: 'A & B <«rør»>', ror: { koder: koder3 } }, sone: 32 };
