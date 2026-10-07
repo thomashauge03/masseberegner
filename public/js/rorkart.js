@@ -582,23 +582,101 @@ const Rorkart = (() => {
     return b;
   }
 
+  /** Om strekket a–b går gjennom ruta u (Liang–Barsky). */
+  function strekkIRute(a, b, u) {
+    const dx = b.x - a.x, dy = b.y - a.y;
+    let t0 = 0, t1 = 1;
+    for (const [p, q] of [[-dx, a.x - u.x0], [dx, u.x1 - a.x], [-dy, a.y - u.y0], [dy, u.y1 - a.y]]) {
+      if (p === 0) { if (q < 0) return false; continue; }
+      const r = q / p;
+      if (p < 0) { if (r > t1) return false; if (r > t0) t0 = r; } else { if (r < t0) return false; if (r < t1) t1 = r; }
+    }
+    return true;
+  }
+
+  /**
+   * KARTBLADENE: rørene delt i ark i målestokk `N`, så de kan leses. På ett
+   * ark i 1:5000 er en stikkledning et punkt og typen en flekk; i 1:1000 står
+   * de lesbart. Et rutenett over rørene, sentrert, med 10 % overlapp – så et
+   * rør langs en kant står helt på minst ett av bladene – og bare rutene der
+   * et rør går: et L-formet anlegg gir ikke tomme ark i hjørnet. Nummerert som
+   * man leser, rad for rad fra nord.
+   * @returns {Array<{utsnitt, rad, kol}>}
+   */
+  function kartblad(data, koder, N, flate, o = {}) {
+    const W = flate.b * N / 1000, H = flate.h * N / 1000, over = o.overlapp != null ? o.overlapp : 0.1;
+    const sx = W * (1 - over), sy = H * (1 - over);
+    const b = boksFor(data, koder);
+    if (!(b.x1 >= b.x0) || !(b.y1 >= b.y0)) return [];
+    // litt luft, så rørene ikke står i selve kanten av det ytterste bladet
+    const bw = b.x1 - b.x0 + 0.08 * W, bh = b.y1 - b.y0 + 0.08 * H;
+    const nx = Math.max(1, Math.ceil((bw - (W - sx)) / sx)), ny = Math.max(1, Math.ceil((bh - (H - sy)) / sy));
+    const x0 = (b.x0 + b.x1) / 2 - (nx * sx + W - sx) / 2, y1 = (b.y0 + b.y1) / 2 + (ny * sy + H - sy) / 2;
+    const med = new Set(koder), linjer = data.linjer.filter(l => med.has(l.kode));
+    const kummer = (data.kummer || []).filter(k => med.has(k.kode));
+    const ut = [];
+    for (let j = 0; j < ny; j++) {
+      for (let i = 0; i < nx; i++) {
+        const u = { N, x0: x0 + i * sx, x1: x0 + i * sx + W, y1: y1 - j * sy, y0: y1 - j * sy - H };
+        const har = linjer.some(l => l.xy.some((q, k) => k > 0 && strekkIRute(l.xy[k - 1], q, u)))
+          || kummer.some(k => k.x >= u.x0 && k.x <= u.x1 && k.y >= u.y0 && k.y <= u.y1);
+        if (har) ut.push({ utsnitt: u, rad: j, kol: i });
+      }
+    }
+    return ut;
+  }
+
+  /** Nabobladene til venstre, høyre, over og under – så man finner neste ark ute på plassen. */
+  function naboer(blad, b) {
+    const finn = (rad, kol) => { const x = blad.find(q => q.rad === rad && q.kol === kol); return x ? x.nr : null; };
+    return { venstre: finn(b.rad, b.kol - 1), hoyre: finn(b.rad, b.kol + 1), opp: finn(b.rad - 1, b.kol), ned: finn(b.rad + 1, b.kol) };
+  }
+
+  /**
+   * Målestokken kartbladene skal ha, eller null: ett ark. «auto» deler i
+   * 1:1000 når alt ikke får plass på ett ark i den målestokken; et tall deler
+   * i den når det trengs; «en» eller ingenting er alt på ett ark.
+   */
+  function bladMalestokk(valg, hel) {
+    const m = valg.malestokk;
+    const N = m === 'auto' ? 1000 : Number(m);
+    return Number.isFinite(N) && N > 0 && hel.N > N ? N : null;
+  }
+
   /**
    * Sidene PDF-en skal ha: samlekartet med alle de valgte typene, og – når
    * flere er valgt og brukeren vil – én side per type. Hver side har sitt
    * eget utsnitt, så en type som ligger i ett hjørne av prosjektet, ikke blir
    * en strek på et frimerke.
+   *
+   * MED KARTBLAD er samlekartet oversikten: alle rørene, og bladene som
+   * nummererte ruter. Bladene følger etter, hvert i målestokken det ble delt i.
    * @param {{linjer:Array, kummer?:Array}} data
-   * @param {{koder:string[], perType?:boolean, papir?:'A3'|'A4'}} valg
+   * @param {{koder:string[], perType?:boolean, papir?:'A3'|'A4', malestokk?:'auto'|'en'|number|string}} valg
    */
   function sider(data, valg) {
     const opp = oppsett(valg.papir);
     const finnes = new Set(data.linjer.map(l => l.kode));
     const valgte = (valg.koder || []).filter(k => finnes.has(k));
     if (!valgte.length) throw new Error('Velg minst én rørtype');
+    const hel = utsnitt(boksFor(data, valgte), opp.kart);
+    const N = bladMalestokk(valg, hel);
+    const blad = N ? kartblad(data, valgte, N, opp.kart) : [];
     const ut = [{
-      tittel: valgte.length === 1 ? valgte[0] : 'Alle valgte rør', koder: valgte, graa: [], samle: true,
-      utsnitt: utsnitt(boksFor(data, valgte), opp.kart)
+      tittel: valgte.length === 1 ? valgte[0] : 'Alle valgte rør', koder: valgte, graa: [], samle: true, utsnitt: hel
     }];
+    if (blad.length > 1) {
+      blad.forEach((b, k) => { b.nr = k + 1; });
+      ut[0].blad = blad;
+      ut[0].tittel = 'Oversikt – ' + (valgte.length === 1 ? valgte[0] : 'alle valgte rør');
+      for (const b of blad) {
+        ut.push({ tittel: `Kartblad ${b.nr} av ${blad.length}`, koder: valgte, graa: [], samle: true, utsnitt: b.utsnitt,
+          bladNr: b.nr, naboer: naboer(blad, b) });
+      }
+    } else if (blad.length === 1) {
+      // ett blad er hele anlegget i den målestokken – samlekartet selv
+      ut[0].utsnitt = blad[0].utsnitt;
+    }
     if (valg.perType && valgte.length > 1) {
       for (const k of valgte) {
         ut.push({ tittel: k, koder: [k], graa: valgte.filter(x => x !== k), utsnitt: utsnitt(boksFor(data, [k]), opp.kart) });
@@ -728,18 +806,55 @@ const Rorkart = (() => {
         P.tekst(m.x, m.y + pt(1.0), tekst, { storrelse: 6.5, fet: true, juster: 'm' });
         opptatt.push(boks(m.x, m.y, 0, b / 2 + pt(0.8), pt(1.6)));
       }
-      /* RØRTYPEN SKREVET LANGS RØRENE, mange steder – se plasserTekster. I
-         rørets farge, med hvit kant så den leses over kartet og streken. */
+      /* KARTBLADENE PÅ OVERSIKTEN: ruta til hvert blad, stiplet, med nummeret
+         midt i – så man ser hvilket ark man skal ta fram. */
+      for (const b of side.blad || []) {
+        const ub = b.utsnitt;
+        const hj = [[ub.x0, ub.y0], [ub.x1, ub.y0], [ub.x1, ub.y1], [ub.x0, ub.y1]].map(([x, y]) => iKart(x, y));
+        P.sti(hj, { farge: SVART, tykkelse: pt(0.35), stiplet: [pt(2.5), pt(1.5)], lukket: true });
+        const cx = (hj[0][0] + hj[2][0]) / 2, cy = (hj[0][1] + hj[2][1]) / 2;
+        const tekst = String(b.nr), bb = P.bredteAv(tekst, 11, true) + pt(3);
+        P.rektangel(cx - bb / 2, cy - pt(2.6), bb, pt(5.2), { fyll: HVIT, strek: SVART, tykkelse: pt(0.4) });
+        P.tekst(cx, cy, tekst, { storrelse: 11, fet: true, juster: 'm', loddrett: 'm' });
+        opptatt.push(boks(cx, cy, 0, bb / 2, pt(2.6)));
+      }
+      /* NABOBLADENE i kanten av et blad – der kartet fortsetter, står hvilket
+         blad det fortsetter på, med en pil ut av kartet. */
+      if (side.naboer) {
+        const ST2 = 7.5, h = pt(5);
+        const x0 = pt(K.x), y0 = pt(K.y), x1 = pt(K.x + K.b), y1 = pt(K.y + K.h), s = pt(1.3);
+        for (const retning of ['venstre', 'hoyre', 'opp', 'ned']) {
+          const nr = side.naboer[retning];
+          if (!nr) continue;
+          const tekst = `Kartblad ${nr}`, b = P.bredteAv(tekst, ST2, true) + pt(8.5);
+          const [cx, cy] = { venstre: [x0 + pt(1.5) + b / 2, (y0 + y1) / 2], hoyre: [x1 - pt(1.5) - b / 2, (y0 + y1) / 2],
+            opp: [(x0 + x1) / 2, y0 + pt(1.5) + h / 2], ned: [(x0 + x1) / 2, y1 - pt(1.5) - h / 2] }[retning];
+          P.rektangel(cx - b / 2, cy - h / 2, b, h, { fyll: HVIT, strek: SVART, tykkelse: pt(0.3) });
+          // pila står ytterst i boksen: mot kanten for venstre og høyre, til venstre i boksen for opp og ned
+          const px = retning === 'hoyre' ? cx + b / 2 - pt(2.2) : cx - b / 2 + pt(2.2);
+          const pil = { venstre: [[px - s, cy], [px + s, cy - s], [px + s, cy + s]], hoyre: [[px + s, cy], [px - s, cy - s], [px - s, cy + s]],
+            opp: [[px, cy - s], [px - s, cy + s], [px + s, cy + s]], ned: [[px, cy + s], [px - s, cy - s], [px + s, cy - s]] }[retning];
+          P.sti(pil, { farge: SVART, fyll: SVART, tykkelse: pt(0.1), lukket: true });
+          P.tekst(retning === 'hoyre' ? cx - pt(1.6) : cx + pt(1.6), cy, tekst, { storrelse: ST2, fet: true, juster: 'm', loddrett: 'm' });
+          opptatt.push(boks(cx, cy, 0, b / 2, h / 2));
+        }
+      }
+      /* RØRTYPEN SKREVET LANGS RØRENE, mange steder – se plasserTekster – i
+         hvite tekstbokser med rørets farge, så den leses over kartet og streken. */
       if (o.tekst !== false) {
         const ST = 6.5;
         const baner = linjer.map(l => ({ punkter: l.xy.map(q => iKart(q.x, q.y)),
-          bredde: P.bredteAv(l.kode, ST, true) + pt(1.2), hoyde: ST * 0.8 + pt(0.8) }));
+          bredde: P.bredteAv(l.kode, ST, true) + pt(1.8), hoyde: ST + pt(0.8) }));
         const plassert = plasserTekster(baner, { avstand: pt(TEKSTAVSTAND), flytt: pt(4), rett: pt(0.6), siden: pt(2),
           ramme: { x0: pt(K.x + 1), y0: pt(K.y + 1), x1: pt(K.x + K.b - 1), y1: pt(K.y + K.h - 1) }, opptatt });
         for (const t of plassert) {
-          const l = linjer[t.i], f = farger.get(l.kode);
-          P.tekst(t.x, t.y, l.kode, { storrelse: ST, fet: true, farge: f ? f.rgb : SVART, juster: 'm', loddrett: 'm',
-            vinkel: t.vinkel, glorie: { farge: HVIT, tykkelse: 1.8 } });
+          const l = linjer[t.i], f = farger.get(l.kode), farge = f ? f.rgb : SVART, bn = baner[t.i];
+          // boksen dreid med teksten: langs (cos v, −sin v) og på tvers (sin v, cos v) – y er nedover på arket
+          const lx = Math.cos(t.vinkel) * bn.bredde / 2, ly = -Math.sin(t.vinkel) * bn.bredde / 2;
+          const tx = Math.sin(t.vinkel) * bn.hoyde / 2, ty = Math.cos(t.vinkel) * bn.hoyde / 2;
+          P.sti([[t.x - lx - tx, t.y - ly - ty], [t.x + lx - tx, t.y + ly - ty], [t.x + lx + tx, t.y + ly + ty], [t.x - lx + tx, t.y - ly + ty]],
+            { farge, fyll: HVIT, tykkelse: pt(0.3), lukket: true });
+          P.tekst(t.x, t.y, l.kode, { storrelse: ST, fet: true, farge, juster: 'm', loddrett: 'm', vinkel: t.vinkel });
         }
       }
     });
@@ -761,6 +876,8 @@ const Rorkart = (() => {
     y += 3;
     linje(kort(side.tittel, 12, true, F.b), 12, true, SVART);
     linje(`Målestokk 1:${tall(u.N)} ved utskrift på ${opp.papir.navn}`, 8, false, SVAK);
+    if (side.blad) linje(`${side.blad.length} kartblad i 1:${tall(side.blad[0].utsnitt.N)} følger etter`, 8, false, SVAK);
+    if (side.bladNr) linje('Oversikten over bladene står på side 1', 8, false, SVAK);
     y += 5;
     linje('Tegnforklaring', 9, true, SVART);
     y += 1.5;
@@ -929,7 +1046,7 @@ const Rorkart = (() => {
 
   return { MM, FAMILIER, MALESTOKKER, EKVIDISTANSER, TEKSTAVSTAND, fargetabell, utsnitt, tilPapir, flisplan, oppsett, sider, tegnSide, lagPdf,
     kodeinfo, omKode, rundtTall, tykkelse, velgEkvidistanse, terrengOpplosning, koter, forenkle, lagKoter, nummerer, midtpaa,
-    flisnokler, fliserFor, boks, overlapper, plasserTekster };
+    flisnokler, fliserFor, boks, overlapper, plasserTekster, strekkIRute, kartblad, naboer, bladMalestokk };
 })();
 
 if (typeof module !== 'undefined') module.exports = Rorkart;

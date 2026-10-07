@@ -4921,6 +4921,13 @@ const Nettlesertest = {
         const m = /MIN-NØ (\d+) (\d+)/.exec(sos);
         return m && +m[1] > 6000000 && +m[1] < 8000000;
       })(), (/MIN-NØ .*/.exec(sos) || [''])[0]);
+      // i en samlefil med innmålte rør står alt i millimeter: tomtas koordinater er de samme, ganget med ti
+      {
+        const tall = d => d.rader.filter(l => /^-?\d+ -?\d+ -?\d+$/.test(l)).map(l => l.split(' ').map(Number));
+        const cm = tall(Eksport.sosiDelerTomt(App, App.resultat, 1, null)), mm = tall(Eksport.sosiDelerTomt(App, App.resultat, 1, null, 0.001));
+        this.sjekk('SOSI for tomt i millimeter: de samme koordinatene, ganget med ti', cm.length > 4 && mm.length === cm.length
+          && mm.every((k, i) => k.every((v, j) => Math.abs(v - cm[i][j] * 10) <= 5)), JSON.stringify([cm[0], mm[0]]));
+      }
 
       const dxf = hent('.dxf');
       this.sjekk('DXF har den ferdige flaten', dxf.includes('FERDIG_NIVAA'));
@@ -9363,6 +9370,19 @@ const Nettlesertest = {
         this.sjekk('kotene og lengdeprofilene er på fra start', document.getElementById('rkKoter').checked
           && document.getElementById('rkProfiler').checked);
         this.sjekk('  og rørtypen skrevet langs rørene', !!document.getElementById('rkTekst') && document.getElementById('rkTekst').checked);
+        /* KARTBLADENE: «auto» fra start, og notisen sier hvor mange ark det blir – før man trykker. Et lite
+           anlegg får plass på ett; i 1:500 deles det. */
+        const malestokk = document.getElementById('rkMalestokk'), bladNotis = () => document.getElementById('rkBlad').textContent;
+        this.sjekk('kartbladene står på «auto», og notisen sier hvor mange ark det blir', !!malestokk && malestokk.value === 'auto'
+          && /^Alt på ett ark, i 1:/.test(bladNotis()), bladNotis());
+        // notisen følger avkrysningen: ingen rørtype – ingen notis
+        const ovBoks = rader.find(r => r.dataset.kode === 'OV 200PVC').querySelector('input');
+        document.getElementById('rkIngen').click();
+        const utenTyper = bladNotis();
+        document.getElementById('rkAlle').click();
+        ovBoks.checked = false;
+        ovBoks.dispatchEvent(new Event('change'));
+        this.sjekk('  og den følger avkrysningen', utenTyper === '' && /^Alt på ett ark/.test(bladNotis()), JSON.stringify([utenTyper, bladNotis()]));
         // de prøves for seg lenger ned – her bare kartene
         document.getElementById('rkKoter').checked = false;
         document.getElementById('rkProfiler').checked = false;
@@ -9371,7 +9391,23 @@ const Nettlesertest = {
         this.sjekk('valget gir kodene, en side per type, bakgrunnen og papiret', !!valg
           && JSON.stringify(valg.koder.slice().sort()) === '["SP 160PE","VL 110PE"]' && valg.perType === true
           && valg.bakgrunn === 'topograatone' && valg.papir === 'A4' && valg.koter === false && valg.profiler === false
-          && valg.tekst === true, JSON.stringify(valg));
+          && valg.tekst === true && valg.malestokk === 'auto', JSON.stringify(valg));
+        // et anlegg på 1 km: notisen sier hvor mange kartblad det blir, før man trykker
+        {
+          const stort = { sone: 32, kummer: [], vist: new Set(), koder: { 'SP 160PE': { system: 'spill', dim: 160 } },
+            linjer: [{ kode: 'SP 160PE', kilde: 'innmalt', dim: 160, lengde: 1000, xy: [{ x: o.x, y: o.y }, { x: o.x + 1000, y: o.y }] }] };
+          const svar2 = RorkartUI.dialog(stort);
+          const notis = document.getElementById('rkBlad').textContent;
+          const valgM = document.getElementById('rkMalestokk');
+          valgM.value = '500';
+          valgM.dispatchEvent(new Event('change'));
+          const notis500 = document.getElementById('rkBlad').textContent;
+          document.getElementById('rkAvbryt').click();
+          await svar2;
+          this.sjekk('et anlegg på 1 km: oversikten og fire kartblad i 1:1000', /^Oversikten og 4 kartblad i 1:1\s?000$/.test(notis), notis);
+          this.sjekk('  og i 1:500 flere – notisen følger valget', /^Oversikten og \d+ kartblad i 1:500$/.test(notis500)
+            && +/(\d+) kartblad/.exec(notis500)[1] > 4, notis500);
+        }
 
         // bakgrunnen: en grå flis fra en stubbet fetch
         const flis = await new Promise(los => {
@@ -9409,9 +9445,9 @@ const Nettlesertest = {
         });
         this.sjekk('det tegnede er stiplet i kartet, og forklaringen sier hva som er hva',
           / 0 d /.test(kartet[0]) && strommer.includes('Heltrukken: innm\\345lt') && strommer.includes('Stiplet: planlagt'));
-        // rørtypen skrevet langs rørene i selve kartet, med hvit kant – ikke bare i forklaringen
+        // rørtypen skrevet langs rørene i selve kartet, i hvite tekstbokser – ikke bare i forklaringen
         this.sjekk('rørtypen står skrevet langs rørene i kartet', /\(SP 160PE\) Tj/.test(kartet[0]) && /\(VL 110PE\) Tj/.test(kartet[0])
-          && / 1 Tr /.test(kartet[0]), kartet[0].slice(0, 160));
+          && / 1 1 1 rg [^Q]* b Q/.test(kartet[0]), kartet[0].slice(0, 160));
 
         // flisene kommer ikke: PDF-en lages likevel, uten bakgrunn, og det sies
         window.fetch = async (url, o2) => (/cache\.kartverket\.no/.test(String(url))

@@ -2172,6 +2172,13 @@ console.log('\n4f. Eksportformatene');
     paastand('SOSI-området står i meter, ikke i enheter',
       +maks[1] - +min[1] < 100000 && +maks[1] > 6000000 && +maks[1] < 8000000,
       `${min[1]}–${maks[1]}`);
+    /* I MILLIMETER, når en samlefil har innmålte rør med: hodet sier
+       ...ENHET 0.001, og vegens og tomtas koordinater er de samme ganget med ti. */
+    const iMm = Eksport.sosiDelerVeg(app, res, 1, null, 0.001).rader.filter(l => /^-?\d+ -?\d+ -?\d+$/.test(l)).map(l => l.split(' ').map(Number));
+    paastand('SOSI i millimeter: vegens koordinater er de samme, ganget med ti', iMm.length === koord.length
+      && iMm.every((k, i) => k.every((v, j) => Math.abs(v - koord[i][j] * 10) <= 5)), JSON.stringify([iMm[0], koord[0]]));
+    paastand('  og hodet sier det', Eksport.sosiHode(app, { minN: 0, maksN: 1, minO: 0, maksO: 1 }, 2, 0.001).includes('...ENHET 0.001')
+      && Eksport.sosiHode(app, { minN: 0, maksN: 1, minO: 0, maksO: 1 }, 2).includes('...ENHET 0.01'));
   }
 
   const kof = Eksport.kof(app, res);
@@ -4217,18 +4224,17 @@ console.log('\n6c. Avlesning av PDF');
     paastand('klippet slutter med Q også når tegningen kaster', kastet && / re W n$/.test(klippStart) && klippSlutt === 'Q',
       JSON.stringify(P.side.deler.slice(2)));
     /* SKRÅ TEKST, langs et rør: dreid med fire desimaler, midt i høyden og
-       midt på, med en hvit kant strøket først. Vannrett tekst er som før. */
+       midt på. Vannrett tekst er som før. */
     {
       const T = new PdfSkriver();
       T.nySide();
       T.tekst(10, 20, 'x');
-      T.tekst(100, 200, 'AB', { storrelse: 10, vinkel: Math.PI / 2, juster: 'm', loddrett: 'm', glorie: { farge: [1, 1, 1], tykkelse: 2 } });
-      const [vannrett, glorie, fylt] = T.side.deler, n = v => (Math.round(v * 100) / 100).toString();
+      T.tekst(100, 200, 'AB', { storrelse: 10, vinkel: Math.PI / 2, juster: 'm', loddrett: 'm' });
+      const [vannrett, skra] = T.side.deler, n = v => (Math.round(v * 100) / 100).toString();
       paastand('vannrett tekst skrives som før', vannrett === `BT /F1 9 Tf 0 0 0 rg 1 0 0 1 10 ${n(T._y(20))} Tm (x) Tj ET`, vannrett);
       // 90°: grunnlinja går oppover arket; midten i (100, 200) – starten b/2 lenger ned, og grunnlinja 3,5 pt til høyre for midten
       const Tm = `0 1 -1 0 103.5 ${n(T._y(200) - T.bredteAv('AB', 10) / 2)} Tm`;
-      paastand('skrå tekst: dreid, midt på og midt i høyden', fylt === `BT /F1 10 Tf 0 0 0 rg ${Tm} (AB) Tj ET`, fylt);
-      paastand('  med den hvite kanten strøket først, mellom q og Q', glorie === `q 1 j 1 J 1 1 1 RG 2 w BT /F1 10 Tf 1 Tr ${Tm} (AB) Tj ET Q`, glorie);
+      paastand('skrå tekst: dreid, midt på og midt i høyden', skra === `BT /F1 10 Tf 0 0 0 rg ${Tm} (AB) Tj ET`, skra);
     }
     /* Krysstabellen leses der `startxref` sier den står – «xref» står også inne
        i «startxref», og den første utgaven av prøven leste null rader. */
@@ -4528,11 +4534,16 @@ console.log('\n6c. Avlesning av PDF');
         .filter(s => s.includes(' re W n')).map(kartdel)[0] || '';
       const fyll = h => Rorkart.fargetabell(data.koder).get(h).rgb.map(v2 => (Math.round(v2 * 100) / 100).toString()).join(' ') + ' rg';
       const ganger = (s, re) => (s.match(re) || []).length;
-      paastand('rørtypen står langs rørene i kartet, mange steder', ganger(kartMed, /\(SP 160PE\) Tj/g) >= 6 && ganger(kartMed, /\(VL 110PE\) Tj/g) >= 2,
+      // spillvannet 200 og 100 mm på arket: 3 + 2 tekster, hver 60. mm fra 30; vannet 160 mm: 3
+      paastand('rørtypen står langs rørene i kartet, mange steder', ganger(kartMed, /\(SP 160PE\) Tj/g) >= 5 && ganger(kartMed, /\(VL 110PE\) Tj/g) >= 3,
         `${ganger(kartMed, /\(SP 160PE\) Tj/g)} og ${ganger(kartMed, /\(VL 110PE\) Tj/g)}`);
-      paastand('  i rørets farge, med hvit kant', kartMed.includes(fyll('SP 160PE') + ' 1 0 0 1') && /1 1 1 RG [\d.]+ w BT \/F2 6\.5 Tf 1 Tr/.test(kartMed));
+      // i en hvit tekstboks med kanten i rørets farge: en lukket bane, fylt hvit og strøket – og teksten i samme farge
+      const strek = h => Rorkart.fargetabell(data.koder).get(h).rgb.map(v2 => (Math.round(v2 * 100) / 100).toString()).join(' ') + ' RG';
+      paastand('  i hvite tekstbokser med rørets farge', kartMed.includes(fyll('SP 160PE') + ' 1 0 0 1')
+        && new RegExp(`${strek('SP 160PE')} [\\d.]+ w 1 1 1 rg [^Q]* b Q`).test(kartMed), kartMed.slice(0, 200));
       paastand('  og langs det loddrette røret, dreid', /0 1 -1 0 [\d.]+ [\d.]+ Tm \(SP 160PE\) Tj/.test(kartMed));
-      paastand('  slått av: ingen tekst langs rørene', !/\(SP 160PE\) Tj/.test(kartUten) && !/ 1 Tr /.test(kartUten));
+      paastand('  slått av: ingen tekst langs rørene', !/\(SP 160PE\) Tj/.test(kartUten)
+        && !new RegExp(`${strek('SP 160PE')} [\\d.]+ w 1 1 1 rg`).test(kartUten));
       /* INGEN TEKST OPPÅ NUMRENE. Mange rør i ulike lengder, nummerert: hver
          tekst langs et rør – den med hvit kant – sjekkes mot hver nummerboks. */
       {
@@ -4545,7 +4556,7 @@ console.log('\n6c. Avlesning av PDF');
         Rorkart.nummerer(mange, ['SP 160PE']);
         const proto = PdfSkriver.prototype, gT = proto.tekst, gR = proto.rektangel, tekster = [], numre = [];
         proto.tekst = function (x, y, s, o2 = {}) {
-          if (o2.glorie) tekster.push(Rorkart.boks(x, y, o2.vinkel || 0, this.bredteAv(s, o2.storrelse, o2.fet) / 2, (o2.storrelse || 9) * 0.4));
+          if ('vinkel' in o2) tekster.push(Rorkart.boks(x, y, o2.vinkel, this.bredteAv(s, o2.storrelse, o2.fet) / 2 + 0.9 * Rorkart.MM, (o2.storrelse || 9) / 2 + 0.4 * Rorkart.MM));
           return gT.call(this, x, y, s, o2);
         };
         proto.rektangel = function (x, y, b, h, o2 = {}) {
@@ -4570,7 +4581,7 @@ console.log('\n6c. Avlesning av PDF');
         sidene2[0].koter = Rorkart.lagKoter(u, x => 100 + (x - X1) * 0.15);
         const tekster2 = [], hvite = [];
         proto.tekst = function (x, y, s, o2 = {}) {
-          if (o2.glorie) tekster2.push(Rorkart.boks(x, y, o2.vinkel || 0, this.bredteAv(s, o2.storrelse, o2.fet) / 2, (o2.storrelse || 9) * 0.4));
+          if ('vinkel' in o2) tekster2.push(Rorkart.boks(x, y, o2.vinkel, this.bredteAv(s, o2.storrelse, o2.fet) / 2 + 0.9 * Rorkart.MM, (o2.storrelse || 9) / 2 + 0.4 * Rorkart.MM));
           return gT.call(this, x, y, s, o2);
         };
         proto.rektangel = function (x, y, b, h, o2 = {}) {
@@ -4589,7 +4600,7 @@ console.log('\n6c. Avlesning av PDF');
           kummer: Array.from({ length: 7 }, (_, k) => ({ x: X1 + 50 * k, y: Y1, d: 1, kode: 'SP 160PE' })) };
         const tekster3 = [], kummer3 = [], gS = proto.sirkel;
         proto.tekst = function (x, y, s, o2 = {}) {
-          if (o2.glorie) tekster3.push(Rorkart.boks(x, y, o2.vinkel || 0, this.bredteAv(s, o2.storrelse, o2.fet) / 2, (o2.storrelse || 9) * 0.4));
+          if ('vinkel' in o2) tekster3.push(Rorkart.boks(x, y, o2.vinkel, this.bredteAv(s, o2.storrelse, o2.fet) / 2 + 0.9 * Rorkart.MM, (o2.storrelse || 9) / 2 + 0.4 * Rorkart.MM));
           return gT.call(this, x, y, s, o2);
         };
         proto.sirkel = function (x, y, r, o2 = {}) { kummer3.push(Rorkart.boks(x, y, 0, r, r)); return gS.call(this, x, y, r, o2); };
@@ -4597,6 +4608,60 @@ console.log('\n6c. Avlesning av PDF');
         paastand('  og ikke oppå kummene', kummer3.length >= 7 && tekster3.length >= 2 && tekster3.every(t => kummer3.every(q => !Rorkart.overlapper(t, q))),
           `${tekster3.length} tekster, ${kummer3.length} kummer`);
       }
+    }
+
+    /* KARTBLADENE: et stort anlegg delt i ark i en målestokk der det kan
+       leses – på ett ark i 1:5000 er en stikkledning et punkt og typen en
+       flekk. Et rutenett over rørene, med overlapp, og bare der det går et rør. */
+    {
+      const flate = Rorkart.oppsett('A3').kart;          // 299 × 277 mm
+      const ror = xy => ({ kode: 'SP 160PE', kilde: 'innmalt', dim: 160, lengde: 0, xy: xy.map(([x, y]) => ({ x: 500000 + x, y: 6500000 + y })) });
+      const u10 = { x0: 0, x1: 10, y0: 0, y1: 10 };
+      paastand('et strekk gjennom ruta, et forbi og et inni', Rorkart.strekkIRute({ x: -10, y: 5 }, { x: 20, y: 5 }, u10)
+        && !Rorkart.strekkIRute({ x: -10, y: 15 }, { x: 20, y: 15 }, u10) && Rorkart.strekkIRute({ x: 2, y: 2 }, { x: 3, y: 3 }, u10)
+        && !Rorkart.strekkIRute({ x: -5, y: 8 }, { x: 8, y: 21 }, u10));
+      // et rett rør på 1000 m i 1:1000: arket er 299 m, steget 269,1 m med 10 % overlapp – fire blad på rad
+      const rett = { koder: {}, kummer: [], linjer: [ror([[0, 0], [1000, 0]])] };
+      const rad = Rorkart.kartblad(rett, ['SP 160PE'], 1000, flate);
+      paastand('et rett rør på 1 km i 1:1000: fire blad på rad, med overlapp', rad.length === 4 && rad.every(b => b.rad === 0)
+        && rad.every((b, k) => k === 0 || Math.abs(b.utsnitt.x0 - rad[k - 1].utsnitt.x0 - 269.1) < 1e-6)
+        && Math.abs(rad[0].utsnitt.x1 - rad[0].utsnitt.x0 - 299) < 1e-6, JSON.stringify(rad.map(b => [b.kol, Math.round(b.utsnitt.x0 - 500000)])));
+      paastand('  og de dekker hele røret, med luft', rad[0].utsnitt.x0 < 500000 - 5 && rad[3].utsnitt.x1 > 501000 + 5);
+      /* 837 m er så vidt innenfor tre blad: 3 · 269,1 + 29,9 = 837,2. Uten luft
+         sto røret 0,1 m fra kanten av det første og det siste; med luft blir
+         det fire. */
+      const tett = Rorkart.kartblad({ koder: {}, kummer: [], linjer: [ror([[0, 0], [837, 0]])] }, ['SP 160PE'], 1000, flate);
+      paastand('  et rør som så vidt fyller tre blad, får luft: fire', tett.length === 4 && tett[0].utsnitt.x0 < 500000 - 5
+        && tett[3].utsnitt.x1 > 500837 + 5, String(tett.length));
+      // L-formet: bare rutene der røret går – det tomme hjørnet gir ikke ark
+      const L = { koder: {}, kummer: [], linjer: [ror([[0, 0], [1000, 0], [1000, 1000]])] };
+      const lb = Rorkart.kartblad(L, ['SP 160PE'], 1000, flate);
+      paastand('et L-formet anlegg: bare bladene der røret går', lb.length === 7
+        && lb.every(b => L.linjer[0].xy.some((q, k) => k > 0 && Rorkart.strekkIRute(L.linjer[0].xy[k - 1], q, b.utsnitt))), String(lb.length));
+      paastand('  nummerert rad for rad fra nord', lb.every((b, k) => k === 0 || b.rad > lb[k - 1].rad || (b.rad === lb[k - 1].rad && b.kol > lb[k - 1].kol)));
+      const s = Rorkart.sider(rett, { koder: ['SP 160PE'], papir: 'A3', malestokk: 'auto' });
+      paastand('«auto» på 1 km: oversikten og fire blad i 1:1000', s.length === 5 && s[0].blad && s[0].blad.length === 4
+        && s[1].tittel === 'Kartblad 1 av 4' && s[1].utsnitt.N === 1000 && /^Oversikt/.test(s[0].tittel), s.map(x => x.tittel).join(' | '));
+      paastand('  hvert med naboene', JSON.stringify(s[2].naboer) === JSON.stringify({ venstre: 1, hoyre: 3, opp: null, ned: null }), JSON.stringify(s[2].naboer));
+      paastand('  «en» og ingenting: alt på ett ark', Rorkart.sider(rett, { koder: ['SP 160PE'], papir: 'A3', malestokk: 'en' }).length === 1
+        && Rorkart.sider(rett, { koder: ['SP 160PE'], papir: 'A3' }).length === 1);
+      const lite = { koder: {}, kummer: [], linjer: [ror([[0, 0], [200, 0]])] };
+      paastand('  et anlegg som får plass i 1:1000: ett ark med «auto» – i 1:500 to blad', Rorkart.sider(lite, { koder: ['SP 160PE'], papir: 'A3', malestokk: 'auto' }).length === 1
+        && Rorkart.sider(lite, { koder: ['SP 160PE'], papir: 'A3', malestokk: '500' }).length === 3);
+      // og et lite anlegg står i sin egen målestokk, ikke i bladenes: 100 m er 1:500, ikke 1:1000
+      const hundre = { koder: {}, kummer: [], linjer: [ror([[0, 0], [100, 0]])] };
+      paastand('  et lite anlegg i sin egen målestokk, også med «auto»', Rorkart.sider(hundre, { koder: ['SP 160PE'], papir: 'A3', malestokk: 'auto' })[0].utsnitt.N === 500);
+      // i PDF-en: oversikten med bladene, så bladene med tittel og naboer
+      const bytesB = await Rorkart.lagPdf(rett, { koder: ['SP 160PE'], papir: 'A3', malestokk: 'auto' }).bygg();
+      const sb = await Pdf.lesStrommer(bytesB), kartB = sb.filter(x => x.includes(' re W n')).map(kartdel);
+      paastand('PDF-en: oversikten og fire blad', /\/Count 5\b/.test(new TextDecoder('latin1').decode(bytesB)) && kartB.length === 5);
+      paastand('  oversikten har bladene som stiplede ruter, med nummer', (kartB[0].match(/\[[\d.]+ [\d.]+\] 0 d [^Q]* s Q/g) || []).length === 4
+        && [1, 2, 3, 4].every(n => kartB[0].includes(`(${n}) Tj`)));
+      paastand('  et blad viser veien til naboene, og tittelen hvilket blad', /\(Kartblad 1\) Tj/.test(kartB[2]) && /\(Kartblad 3\) Tj/.test(kartB[2])
+        && !/\(Kartblad 4\) Tj/.test(kartB[2]) && sb.join('\n').includes('(Kartblad 2 av 4)'));
+      paastand('  og typen langs røret på hvert blad', kartB.slice(1).every(k => /\(SP 160PE\) Tj/.test(k)));
+      paastand('  tegnforklaringen sier at bladene følger, og hvor oversikten står', sb.join('\n').includes('(4 kartblad i 1:1 000 f\\370lger etter)')
+        && sb.join('\n').includes('(Oversikten over bladene st\\345r p\\345 side 1)'));
     }
     /* HØYDEKOTENE. En kjegle gir én lukket ring per nivå, et skrått plan rette
        og parallelle koter, og et hull i terrenget et brudd – ikke en kote

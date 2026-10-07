@@ -154,8 +154,7 @@ class PdfSkriver {
    * @param {number} y avstand fra toppen av siden til grunnlinjen
    * @param {object} [o] storrelse, fet, farge [r,g,b] 0-1, juster 'v'|'h'|'m' (langs
    *   grunnlinja), vinkel (radianer, mot klokka på arket), loddrett 'm' (y er midt i
-   *   bokstavhøyden, ikke grunnlinja), glorie { farge, tykkelse } – en kant rundt
-   *   bokstavene, så teksten leses over en strek eller et kart
+   *   bokstavhøyden, ikke grunnlinja)
    */
   tekst(x, y, streng, o = {}) {
     const st = o.storrelse || 9;
@@ -171,12 +170,6 @@ class PdfSkriver {
     const r = v => (Math.round(v * 1e4) / 1e4).toString();
     const tm = `${r(c)} ${r(s)} ${r(-s)} ${r(c)} ${this._n(X)} ${this._n(Y)} Tm`;
     const font = `/${fet ? 'F2' : 'F1'} ${this._n(st)} Tf`, ord = `(${this._pdfstreng(streng)}) Tj`;
-    if (o.glorie) {
-      // bokstavene strøket bredt i glorien først (Tr 1), så fylt oppå – q/Q tar med seg strøket
-      const g = o.glorie.farge || [1, 1, 1];
-      this.side.deler.push(`q 1 j 1 J ${this._n(g[0])} ${this._n(g[1])} ${this._n(g[2])} RG ${this._n(o.glorie.tykkelse || 1.5)} w `
-        + `BT ${font} 1 Tr ${tm} ${ord} ET Q`);
-    }
     this.side.deler.push(
       `BT ${font} ${this._n(farge[0])} ${this._n(farge[1])} ${this._n(farge[2])} rg ${tm} ${ord} ET`);
     return b;

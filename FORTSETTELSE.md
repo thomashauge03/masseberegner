@@ -23,13 +23,13 @@ Nettlesertesten kjøres ved å åpne programmet med `?test=1`, eller fra konsoll
 med `Nettlesertest.kjor()`. Utviklingstjeneren startes med `node server.js`
 (port 5178). Programmet ligger også på https://masseberegner.vercel.app.
 
-Ved siste lagring: **928 prøver i selvtesten, 194 i rørprøven
+Ved siste lagring: **945 prøver i selvtesten, 194 i rørprøven
 (`test/rorprove.js`), 219 i grøfteprøven (`test/groftprove.js`), 175 i
-planprøven (`test/rorplanprove.js`), 75 i eksportprøven
+planprøven (`test/rorplanprove.js`), 74 i eksportprøven
 (`test/roreksportprove.js`), 77 i avviksprøven (`test/roravvikprove.js`), 45 i
 traseprøven (`test/traseimportprove.js`), 68 i stikkrenneprøven
 (`test/stikkrenneprove.js`), 61 i anleggsprøven og 258 i tomteprøven, alle
-grønne; 1504 av 1504 i nettlesertesten.** «Klikk i modellen flytter snittet
+grønne; 1510 av 1510 i nettlesertesten.** «Klikk i modellen flytter snittet
 dit» i `veg3d` kan feile når vinduet emuleres 1440 × 900 i en mindre rute –
 klikket lander én rad ved siden av; det gjør den likt på `main`. «og merknaden
 sier det som gjelder nå» i `flereAnlegg` feilet én gang i hele runden og aldri
@@ -58,7 +58,23 @@ Underveis ba brukeren om et **oversiktskart for rørene** – ett kart med alle
 typene i hver sin farge og tegnforklaring, og ett kart per type. Det kom foran
 resten av «Utenfor 3a».
 
-### Etter programmet: tekst langs rørene, og SOSI med bare innmålingen
+### Etter programmet: kartblad, hvite tekstbokser, og SOSI med bare det fra fila
+
+Spec: `docs/superpowers/specs/2026-10-07-kartblad-sosi-mm-design.md`.
+
+- **SOSI for et innmålt anlegg** har bare det som kom inn med XML-fila: én
+  kurve per rør (brukerens valg), punktene i millimeter (`ENHET 0.001`) og
+  koden – ingen diameter, høydereferanse, anleggsnavn eller merknader.
+  Samlefila står i millimeter når et innmålt røranlegg er med
+  (`Eksport.sosiDelerVeg/Tomt/sosiHode(…, enhet)`).
+- **Oversiktskartet deles i kartblad** (`Rorkart.kartblad`, `sider`):
+  «auto» = 1:1000 når alt ikke får plass på ett ark; eller 1:500/1:1000/1:2000;
+  eller ett ark. Oversikten med nummererte ruter, så bladene med nabobladene i
+  kanten. Notis i dialogen med antall ark.
+- **Typen langs rørene står i hvite tekstbokser** med kant og tekst i rørets
+  farge.
+
+### Tekst langs rørene, og SOSI med bare innmålingen
 
 Spec: `docs/superpowers/specs/2026-10-07-rorkart-tekst-sosi-design.md`.
 

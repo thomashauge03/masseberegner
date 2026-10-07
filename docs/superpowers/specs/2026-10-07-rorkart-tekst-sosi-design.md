@@ -2,6 +2,11 @@
 
 Dato: 2026-10-07 · Gren: `rorkart-tekst-sosi`
 
+> **Endret senere samme dag** (`2026-10-07-kartblad-sosi-mm-design.md`): typen
+> står i hvite tekstbokser, ikke med hvit kant rundt bokstavene; SOSI for
+> innmålte rør har bare det fra fila, i millimeter, uten diameter,
+> høydereferanse eller merknader; kartet kan deles i kartblad.
+
 To ønsker fra brukeren etter at «gjør alt ferdig» var levert:
 
 - «kan vi og få ut pdf med alle på 1 oversiktskart så står d tydelig mange

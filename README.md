@@ -185,12 +185,18 @@ Eksport) lager kartet som skal ut på plassen. Det er én PDF:
 * Tegnforklaringen i siden har lengden, antall rør og om de er innmålt eller
   planlagt. Innmålte rør er heltrukne, planlagte stiplet, og kummene er
   sirkler.
-* **Rørtypen står skrevet langs rørene**, mange steder – omtrent hver 6. cm på
-  arket, i rørets farge med hvit kant, aldri opp ned. Hvert rør får typen minst
-  én gang der det er plass: en stikkledning for kort til teksten langs streken
-  får den ved siden av. Der rør i samme grøft ligger oppå hverandre, skrives de
-  på hver sine steder etter tur, og ingen tekst står oppå en annen, et nummer,
-  en kum eller et kotetall. Kan slås av i valget.
+* **Rørtypen står i hvite tekstbokser langs rørene**, mange steder – omtrent
+  hver 6. cm på arket, med kanten og teksten i rørets farge, aldri opp ned.
+  Hvert rør får typen minst én gang der det er plass: en stikkledning for kort
+  til teksten langs streken får den ved siden av. Der rør i samme grøft ligger
+  oppå hverandre, skrives de på hver sine steder etter tur, og ingen tekst står
+  oppå en annen, et nummer, en kum eller et kotetall. Kan slås av i valget.
+* **Kartblad.** Et stort anlegg deles i ark i en målestokk der det kan leses:
+  automatisk i 1:1000 når alt ikke får plass på ett ark, eller i 1:500, 1:1000
+  eller 1:2000 når du velger det. Først kommer oversikten med alle rørene og
+  hvert blad som en nummerert rute, så bladene – «Kartblad 3 av 9» – med
+  nabobladene skrevet i kanten der kartet fortsetter. Bare der det går rør,
+  blir det blad. Valget sier hvor mange ark det blir før du trykker.
 * Med «Ett kart per type» følger én side per type, med de andre rørene i grått
   under.
 
@@ -431,7 +437,7 @@ der det ikke graves). Den som setter opp maskina, velger laget.
 |---|---|
 | **KOF** | Stikningspunkt i hvert knekkpunkt, hver 10. meter og enden: `RORBUNN`, `RORTOPP`, `GRAVBUNN`; kummene `KUMBUNN` (bunnløp) og `KUMTOPP` (lokk). Hodet sier hva rørnumrene er |
 | **LandXML** | En 3D-linje (`PlanFeature`) per rør og høyde, og kummene som punkt (`CgPoint`) |
-| **SOSI** | Innmålte rør: bare innmålingen – én `Rørledning` per rør med punktene slik de kom inn med fila, koden og diameteren; ingen bunn innvendig, gravebunn eller terreng. Planlagte rør: `Rørledning` (bunn og topp) og `Grøftebunn` som kurver, med høydereferanse og diameter; kummene som `Kum` |
+| **SOSI** | Innmålte rør: bare det som kom inn med fila – én `Rørledning` per rør med punktene i millimeter (`ENHET 0.001`) slik de står i XML-fila, og koden som navn; ingen bunn innvendig, gravebunn, diameter, høydereferanse eller merknader. Planlagte rør: `Rørledning` (bunn og topp) og `Grøftebunn` som kurver i centimeter, med høydereferanse og diameter; kummene som `Kum` |
 | **DXF** | 3D-polylinjer på lagene `<KODE>_BUNN`, `_TOPP` og `_GRAVEBUNN`; kummene som sirkler på bunnløpet |
 | **CSV** | Stikningsliste med alle tre høydene, terreng og overdekning per punkt; grøftemassene per kode |
 | **GeoJSON** | Rørene som linjer med egenskapene, kummene som punkt |
@@ -505,7 +511,8 @@ node test/roreksportprove.js
 Eksporten av rør: stikningspunktene (knekk, hver 10. meter, enden og kummene),
 de tre høydene mot grøftemotoren – også bruddet der røret ligger over terrenget –
 og hvert format: KOF-navn og koder, LandXML-linjer og kummer, SOSI-kurver i
-centimeter – for innmålte rør bare innmålingen –, DXF-lag og GeoJSON.
+centimeter – for innmålte rør bare det fra fila, i millimeter –, DXF-lag og
+GeoJSON.
 
 ```bash
 node test/roravvikprove.js

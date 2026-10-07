@@ -140,9 +140,9 @@ const RorkartUI = {
   },
 
   /**
-   * Valget: hvilke rørtyper, om typen skal stå skrevet langs rørene, om hver
-   * type skal ha sin egen side, bakgrunn og papir.
-   * @returns {Promise<?{koder:string[], tekst:boolean, perType:boolean, bakgrunn:string, papir:string}>}
+   * Valget: hvilke rørtyper, om kartet deles i blad, om typen skal stå
+   * skrevet langs rørene, om hver type skal ha sin egen side, bakgrunn og papir.
+   * @returns {Promise<?{koder:string[], malestokk:string, tekst:boolean, perType:boolean, bakgrunn:string, papir:string}>}
    */
   dialog(data) {
     return new Promise(los => {
@@ -172,7 +172,12 @@ const RorkartUI = {
           <tbody>${rader}</tbody></table>
         <div class="knapperad"><button class="knapp" id="rkAlle" aria-label="Kryss av alle rørtypene">Alle</button>
           <button class="knapp" id="rkIngen" aria-label="Fjern krysset for alle rørtypene">Ingen</button></div>
-        <div class="rorinnstilling"><label><input type="checkbox" id="rkTekst" checked> Rørtypen skrevet langs rørene, mange steder</label></div>
+        <div class="rorinnstilling"><label for="rkMalestokk">Kartblad</label>
+          <select id="rkMalestokk" class="minivalg"><option value="auto">Delt i blad i 1:1000 når alt ikke får plass på ett ark</option>
+            <option value="500">Delt i blad i 1:500</option><option value="1000">Delt i blad i 1:1000</option>
+            <option value="2000">Delt i blad i 1:2000</option><option value="en">Alt på ett ark</option></select></div>
+        <p class="notis" id="rkBlad" aria-live="polite"></p>
+        <div class="rorinnstilling"><label><input type="checkbox" id="rkTekst" checked> Rørtypen i hvite tekstbokser langs rørene, mange steder</label></div>
         <div class="rorinnstilling"><label><input type="checkbox" id="rkPerType" checked> Ett kart per type i tillegg</label></div>
         <div class="rorinnstilling"><label><input type="checkbox" id="rkKoter" checked> Høydekoter fra terrengmodellen</label></div>
         <div class="rorinnstilling"><label><input type="checkbox" id="rkProfiler" checked> Lengdeprofil for hvert rør – terrenget og dybden</label></div>
@@ -187,8 +192,24 @@ const RorkartUI = {
           <button class="knapp primaer" id="rkLag">Lag PDF</button>
         </div>`;
       const bokser = () => [...innhold.querySelectorAll('tbody input[type=checkbox]')];
-      innhold.querySelector('#rkAlle').onclick = () => bokser().forEach(b => { b.checked = true; });
-      innhold.querySelector('#rkIngen').onclick = () => bokser().forEach(b => { b.checked = false; });
+      /* HVOR MANGE ARK DET BLIR, før man trykker: et anlegg på to kilometer i
+         1:500 er mange sider, og det skal man vite før de skrives ut. */
+      const visBlad = () => {
+        const koder = bokser().filter(b => b.checked).map(b => b.closest('tr').dataset.kode);
+        const ut = innhold.querySelector('#rkBlad');
+        if (!koder.length) { ut.textContent = ''; return; }
+        try {
+          const s = Rorkart.sider(data, { koder, papir: innhold.querySelector('#rkPapir').value,
+            malestokk: innhold.querySelector('#rkMalestokk').value });
+          const n = s.filter(x => x.bladNr).length;
+          ut.textContent = n ? `Oversikten og ${n} kartblad i 1:${Rapport.tall(s[1].utsnitt.N)}`
+            : `Alt på ett ark, i 1:${Rapport.tall(s[0].utsnitt.N)}`;
+        } catch (e) { ut.textContent = ''; }
+      };
+      innhold.querySelector('#rkAlle').onclick = () => { bokser().forEach(b => { b.checked = true; }); visBlad(); };
+      innhold.querySelector('#rkIngen').onclick = () => { bokser().forEach(b => { b.checked = false; }); visBlad(); };
+      for (const e of [...bokser(), innhold.querySelector('#rkMalestokk'), innhold.querySelector('#rkPapir')]) e.addEventListener('change', visBlad);
+      visBlad();
       let avgjort = false;
       const gammelLukk = lukkeknapp.onclick;
       // markøren tilbake dit den kom fra når valget lukkes – knappen som åpnet det
@@ -210,7 +231,8 @@ const RorkartUI = {
         const koder = bokser().filter(b => b.checked).map(b => b.closest('tr').dataset.kode);
         // ingen valgt er ikke et kart – det sies her, i dialogen, der det kan rettes
         if (!koder.length) { innhold.querySelector('#rkSvar').textContent = 'Kryss av minst én rørtype.'; return; }
-        lukk({ koder, tekst: innhold.querySelector('#rkTekst').checked, perType: innhold.querySelector('#rkPerType').checked,
+        lukk({ koder, malestokk: innhold.querySelector('#rkMalestokk').value,
+          tekst: innhold.querySelector('#rkTekst').checked, perType: innhold.querySelector('#rkPerType').checked,
           koter: innhold.querySelector('#rkKoter').checked, profiler: innhold.querySelector('#rkProfiler').checked,
           bakgrunn: innhold.querySelector('#rkBakgrunn').value, papir: innhold.querySelector('#rkPapir').value });
       };
@@ -381,9 +403,6 @@ const RorkartUI = {
           if (bilde) bakgrunner.set(i, bilde); else { mangler++; feilet = true; }
         }
       }
-      /* TERRENGET: kotene for hvert kart, og høydene langs rørene til
-         lengdeprofilene. Det hentes i egne terrengmodeller – appens egen røres
-         ikke. */
       /* TERRENGET: kotene for hvert kart, og høydene langs rørene til
          lengdeprofilene – i egne terrengmodeller; appens egen røres ikke.
          MED TAK, FRAMDRIFT OG AVBRYT. To anlegg tretti kilometer fra
