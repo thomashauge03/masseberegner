@@ -108,8 +108,13 @@ asynkront mens man beveger seg. Målt: dra 1,4 ms, gå 3,1 ms (prosessoren 88).
 `Tegner3d.brukGpu = false` slår skjermkortet av. (Den første utgaven, som bare
 tegnet mens man dro, er erstattet av denne.)
 
-**Etappe 2, lys og luft – neste:** himmel, dis, slagskygger fra sola,
-omgivelseslys. **Etappe 3, materialer og trær:** gress/skog/myr/vann fra
+**Etappe 2, lys og luft – ferdig.** Skyggekart fra sola (samme retning som
+lyset, fra nordvest), bygd bare når flatene endres, så kameraet koster
+ingenting ekstra; skygge fjerner bare det direkte lyset, så rødt og grønt
+leses like godt. Når man står i modellen: ekte himmel (fullskjermstrekant,
+blikkretning per piksel) og dis mot horisontfargen, `L = 2500 + 6·kamH` m.
+Ovenfra og rapportbildene uten himmel og dis. Gange ≈ 6 ms per bilde.
+**Etappe 3, materialer og trær – neste:** gress/skog/myr/vann fra
 arealdekket, asfalt, grus, fjell, naken jord, ekte trær i skogen; «Før» og
 «Etter» realistiske, massebildet beholder rødt og grønt.
 

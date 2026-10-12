@@ -3048,13 +3048,24 @@ const Tegner3d = {
     // nordpil
     const r = 22, nx = b - r - 16, ny = r + 14;
     const a = -this.yaw * Math.PI / 180;
-    k.strokeStyle = Farger.blekkSvak; k.lineWidth = 1.2;
+    // på himmelen: ringen og N i lyst, med en mørk kant – se nøkkeltallene under
+    const himmelPil = !!(this._gpuRamme && this._gpuRamme.himmel);
+    if (himmelPil) {
+      k.strokeStyle = 'rgba(12, 16, 22, 0.6)'; k.lineWidth = 3.5;
+      k.beginPath(); k.arc(nx, ny, r, 0, Math.PI * 2); k.stroke();
+    }
+    k.strokeStyle = himmelPil ? '#f2f5f8' : Farger.blekkSvak; k.lineWidth = 1.2;
     k.beginPath(); k.arc(nx, ny, r, 0, Math.PI * 2); k.stroke();
     k.beginPath();
     k.moveTo(nx + Math.sin(a) * r * 0.8, ny - Math.cos(a) * r * 0.8);
     k.lineTo(nx - Math.sin(a) * r * 0.5, ny + Math.cos(a) * r * 0.5);
     k.strokeStyle = Farger.skjaering; k.lineWidth = 2.4; k.stroke();
-    k.fillStyle = Farger.blekk; k.font = 'bold 10px system-ui, sans-serif'; k.textAlign = 'center';
+    k.fillStyle = himmelPil ? '#f2f5f8' : Farger.blekk;
+    k.font = 'bold 10px system-ui, sans-serif'; k.textAlign = 'center';
+    if (himmelPil) {
+      k.lineJoin = 'round'; k.lineWidth = 3; k.strokeStyle = 'rgba(12, 16, 22, 0.75)';
+      k.strokeText('N', nx + Math.sin(a) * r * 1.35, ny - Math.cos(a) * r * 1.35 + 3);
+    }
     k.fillText('N', nx + Math.sin(a) * r * 1.35, ny - Math.cos(a) * r * 1.35 + 3);
 
     // nøkkeltall og overdrivningsmerke
@@ -3094,8 +3105,19 @@ const Tegner3d = {
           : (this._hudLinjer ? this._hudLinjer(g) : []);
     k.textAlign = 'left';
     k.font = '11px system-ui, sans-serif';
+    /* PÅ HIMMELEN MÅ TEKSTEN HA EN KANT.
+       Temaets svake blekk er lys grå på mørk bakgrunn – og lys grå på en lys
+       blå himmel er borte. Himmelen er den samme i begge temaene, så her er
+       fargene faste: lys tekst med en mørk kant rundt hver bokstav. En kant og
+       ikke en boks bak, så overlegget dekker like lite av bildet som før. */
+    const paaHimmel = !!(this._gpuRamme && this._gpuRamme.himmel);
     linjer.forEach((s, i) => {
-      k.fillStyle = Farger.blekkSvak;
+      if (paaHimmel) {
+        k.lineJoin = 'round'; k.lineWidth = 3;
+        k.strokeStyle = 'rgba(12, 16, 22, 0.75)';
+        k.strokeText(s, 10, 16 + i * 14);
+        k.fillStyle = '#f2f5f8';
+      } else k.fillStyle = Farger.blekkSvak;
       k.fillText(s, 10, 16 + i * 14);
     });
     /* MERKET MÅ BRENNES INN, IKKE STÅ I ET SKJEMA VED SIDEN AV.

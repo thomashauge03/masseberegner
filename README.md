@@ -57,8 +57,9 @@ se «Videre arbeid» nederst.
 
 **3D-modellen** (veg, tomt og rør) tegnes av skjermkortet – ovenfra, når du
 flyr og når du går – i full oppløsning hele tiden, med myk skyggelegging og
-glatte kanter. Mens du drar tar et bilde om lag 1 ms, og når du går om lag 3 ms
-(prosessoren brukte 88 ms). Avlesning, klikk og rapportbilder kommer fra det
+glatte kanter og slagskygger fra sola. Står du i modellen (Fly og Gå), får
+du himmel og dis i det fjerne. Mens du drar tar et bilde om lag 1 ms, og når
+du går om lag 6 ms (prosessoren brukte 88 ms). Avlesning, klikk og rapportbilder kommer fra det
 samme bildet. Mangler nettleseren WebGL 2, eller mister den skjermkortet,
 tegnes det som før.
 
