@@ -2013,6 +2013,70 @@ const Tegner3d = {
   },
 
   /**
+   * Trærne i skogen rundt anlegget – bare skjermkortet tegner dem.
+   *
+   * HVOR: der arealdekket sier skog (AR5 30), med arealdekket slått på. Laget
+   * er bryteren for trærne også.
+   * IKKE PÅ ARBEIDET: ingen trær på gravflate, vegbane eller ferdig tomt, og
+   * ikke nærmere enn tre meter – et tre midt i en fylling er en løgn om hva
+   * som blir stående. I «Før» står skogen også der, for der står den i dag.
+   * FAST, IKKE TILFELDIG FRA GANG TIL GANG: plassen, høyden og sorten kommer
+   * av en hash av nodenummeret. Det samme treet står på samme sted hver gang
+   * modellen tegnes, og trærne flytter seg ikke når man slår om.
+   * Ett tre per ca. 30 m² skog, høyst 20 000 trær.
+   *
+   * @returns {{nokkel: string, data: number[]}|null} 8 tall per tre – se Gl3d.traer
+   */
+  _traer(g) {
+    const kart = Tegner3d._arealkart;
+    if (!this.lag || !this.lag.arealdekke || !kart || !g || !g.wx || !g.zT) return null;
+    if (kart.koder && !kart.koder.has(30)) return null;
+    const foer = this.visning === 'foer';
+    const nokkel = Gl3d._nr(g) + '|' + (foer ? 'foer' : 'etter') + '|' + (Tegner3d._arealnokkel || '');
+    if (this._traerFor === nokkel) return this._traerBuffer;
+    const nb = g.nb, nh = g.nh, ut = [];
+    const arbeid = foer ? [] : [g.harGrav, g.harVeg, g.harFerdig].filter(Boolean);
+    const hash = (k, s) => {
+      let x = Math.imul(k ^ 0x9e3779b9, 0x85ebca6b) ^ Math.imul(s, 0xc2b2ae35);
+      x = Math.imul(x ^ (x >>> 13), 0xc2b2ae35);
+      return ((x ^ (x >>> 16)) >>> 0) / 4294967296;
+    };
+    const avst = (a, b) => Math.hypot(g.wx[a] - g.wx[b], g.wy[a] - g.wy[b]);
+    const naerArbeid = (i, j, mi, mj) => {
+      for (let jj = Math.max(0, j - mj); jj <= Math.min(nh - 1, j + mj); jj++) {
+        for (let ii = Math.max(0, i - mi); ii <= Math.min(nb - 1, i + mi); ii++) {
+          const kk = jj * nb + ii;
+          for (const a of arbeid) if (a[kk]) return true;
+        }
+      }
+      return false;
+    };
+    ytre: for (let j = 0; j < nh - 1; j++) {
+      for (let i = 0; i < nb - 1; i++) {
+        const k = j * nb + i;
+        if (!g.finnes[k] || !g.finnes[k + 1] || !g.finnes[k + nb]) continue;
+        const di = avst(k, k + 1), dj = avst(k, k + nb);
+        if (!(di > 0 && dj > 0) || hash(k, 1) > di * dj / 30) continue;
+        const u = hash(k, 2), v = hash(k, 3);
+        const x = g.wx[k] + (g.wx[k + 1] - g.wx[k]) * u + (g.wx[k + nb] - g.wx[k]) * v;
+        const y = g.wy[k] + (g.wy[k + 1] - g.wy[k]) * u + (g.wy[k + nb] - g.wy[k]) * v;
+        if (kart.kodeVed(x, y) !== 30) continue;
+        if (arbeid.length && naerArbeid(i, j, Math.ceil(3 / di), Math.ceil(3 / dj))) continue;
+        const z = g.zT[k] + (g.zT[k + 1] - g.zT[k]) * u + (g.zT[k + nb] - g.zT[k]) * v;
+        if (!Number.isFinite(z)) continue;
+        const gran = hash(k, 4) < 0.7;
+        ut.push(x, y, z - 0.15, 9 + 11 * hash(k, 5),
+          (gran ? 0.85 : 1.0) + 0.35 * hash(k, 6), 0.8 + 0.4 * hash(k, 7),
+          hash(k, 8) * 2 * Math.PI, gran ? 0 : 1);
+        if (ut.length >= 8 * 20000) break ytre;
+      }
+    }
+    this._traerFor = nokkel;
+    this._traerBuffer = ut.length ? { nokkel, data: ut } : null;
+    return this._traerBuffer;
+  },
+
+  /**
    * Materialet på den ene flaten i «Før» og «Etter».
    *
    * «Før» er dagens mark: arealdekket overalt. «Etter» er det som blir bygd
@@ -2757,6 +2821,14 @@ const Tegner3d = {
     this._tegnBakgrunn(g, this._andreNa, rb, rh, kam, pal);
     /* Ugjennomsiktige lag skriver cellenummer; gjennomsiktige får hvert sitt
        dybdebuffer og blandes inn der de ligger foran – se `_flate`. */
+    /* Trærne foran flatene i lista: de er ugjennomsiktige, og det
+       halvgjennomsiktige terrenget skal kunne legge seg over et tre bak en
+       kolle – ikke omvendt. Bare skjermkortet tegner dem. */
+    if (gpu) {
+      const t = this._traer(g);
+      const tm = t && Gl3d.traer(t.nokkel, t.data);
+      if (tm && !tm.tom) R.liste.push({ m: tm, modus: 'opak', blanding: 0, id: false, traer: true });
+    }
     for (let i = 0; i < lagene.length; i++) {
       const lag = lagene[i];
       if (!lag) continue;

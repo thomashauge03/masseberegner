@@ -8339,7 +8339,13 @@ const Nettlesertest = {
         (Gl3d.bygget - b0) + ' bygg');
       const mB = Gl3d.mesh(g2, { hoyde: g2.z, farge: () => graa }, 1, 'prove-skogbunn');
       const Rt = ramme(g2, [opak(mB), { m: tm, modus: 'opak', blanding: 0, id: false, traer: true }], false);
-      const x0 = t.data[0], y0 = t.data[1], h0 = t.data[3];
+      // et tre som står i bildet (±30 m), ikke bare det første i lista
+      let ti = 0;
+      for (let i = 0; i < n; i++) {
+        const dx = Math.abs(t.data[i * 8] - g2.midtX), dy = Math.abs(t.data[i * 8 + 1] - g2.midtY);
+        if (Math.max(dx, dy) > 14 && Math.max(dx, dy) < 24) { ti = i; break; }
+      }
+      const x0 = t.data[ti * 8], y0 = t.data[ti * 8 + 1], h0 = t.data[ti * 8 + 3];
       const w = D - 0.6 * h0;
       const tre = px(Rt, rb / 2 + F * (x0 - g2.midtX) / w, rh / 2 - F * (y0 - g2.midtY) / w);
       this.sjekk('et tre sett ovenfra er grønt', tre[1] > tre[0] + 8 && tre[1] > tre[2] + 8, [...tre].join(','));

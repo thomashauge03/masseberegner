@@ -314,6 +314,69 @@ void main() { gl_Position = uLys * vec4(aPos, 1.0); }`,
 precision mediump float;
 void main() {}`,
 
+  /* TRÆRNE: én mesh per tretype, og én post per tre (instansiert). Hvert tre
+     har sin plass, høyde, bredde, fargetone og dreining. Trærne deler
+     fragmentdelen med flatene (_FS) – samme sol, skygge, dis og himmellys –
+     og har materiale 0, så fargen er treets egen.
+     OVERDRIVNINGEN gjelder bakken treet står på, ikke treet: med tre ganger
+     høyden ville en gran blitt seksti meter. */
+  _TRE_VS: `#version 300 es
+precision highp float;
+layout(location = 0) in vec3 aPos;
+layout(location = 1) in vec3 aNorm;
+layout(location = 2) in vec3 aFarge;
+layout(location = 3) in vec4 aId;
+layout(location = 4) in vec4 aI0;
+layout(location = 5) in vec4 aI1;
+uniform vec3 uOff;
+uniform float uOv;
+uniform vec4 uRot;
+uniform float uD;
+uniform vec4 uProj;
+uniform vec2 uNF;
+uniform mat4 uLys;
+uniform float uNormOff;
+out vec3 vNorm;
+out vec3 vVerden;
+out float vW;
+out vec4 vLys;
+out vec2 vMark;
+flat out vec3 vFarge;
+flat out vec4 vId;
+void main() {
+  float cr = cos(aI1.z), sr = sin(aI1.z);
+  vec3 l = aPos * vec3(aI0.w * aI1.x, aI0.w * aI1.x, aI0.w);
+  vec3 p = vec3(aI0.xy + vec2(cr * l.x - sr * l.y, sr * l.x + cr * l.y), aI0.z + l.z);
+  vec3 n = normalize(vec3(cr * aNorm.x - sr * aNorm.y, sr * aNorm.x + cr * aNorm.y, aNorm.z));
+  vec2 xy = p.xy + uOff.xy;
+  float z = (aI0.z - uOff.z) * uOv + l.z;
+  float rx = xy.x * uRot.x + xy.y * uRot.y;
+  float ry = xy.x * uRot.y - xy.y * uRot.x;
+  float w = uD - (ry * uRot.z + z * uRot.w);
+  float sy = ry * uRot.w - z * uRot.z;
+  float a = (uNF.y + uNF.x) / (uNF.y - uNF.x);
+  float b = -2.0 * uNF.y * uNF.x / (uNF.y - uNF.x);
+  gl_Position = vec4(uProj.x * rx + uProj.y * w, -uProj.z * sy + uProj.w * w, a * w + b, w);
+  vNorm = n;
+  vVerden = vec3(xy, p.z);
+  vW = w;
+  vFarge = aFarge * aI1.y;
+  vId = aId;
+  vMark = p.xy;
+  vLys = uLys * vec4(p + n * uNormOff, 1.0);
+}`,
+
+  _TRE_SKYGGE_VS: `#version 300 es
+layout(location = 0) in vec3 aPos;
+layout(location = 4) in vec4 aI0;
+layout(location = 5) in vec4 aI1;
+uniform mat4 uLys;
+void main() {
+  float cr = cos(aI1.z), sr = sin(aI1.z);
+  vec3 l = aPos * vec3(aI0.w * aI1.x, aI0.w * aI1.x, aI0.w);
+  gl_Position = uLys * vec4(aI0.xy + vec2(cr * l.x - sr * l.y, sr * l.x + cr * l.y), aI0.z + l.z, 1.0);
+}`,
+
   _program(vsKilde, fsKilde, uniformer) {
     const gl = this.gl;
     const lag = (type, kilde) => {
@@ -347,7 +410,11 @@ void main() {}`,
       'uSkyggeBias', 'uTake', 'uVirkelig']);
     const himmel = this._program(this._HIMMEL_VS, this._HIMMEL_FS, ['uRot', 'uProj']);
     const skygge = this._program(this._SKYGGE_VS, this._SKYGGE_FS, ['uLys']);
-    if (!hoved || !himmel || !skygge) return false;
+    const traer = this._program(this._TRE_VS, this._FS, Object.keys(hoved.u));
+    const traerSkygge = this._program(this._TRE_SKYGGE_VS, this._SKYGGE_FS, ['uLys']);
+    if (!hoved || !himmel || !skygge || !traer || !traerSkygge) return false;
+    this._traerProg = traer; this._traerSkygge = traerSkygge;
+    this._treGeo = null;
     this._p = hoved.p; this._u = hoved.u;
     this._himmel = himmel;
     this._skyggeP = skygge;
@@ -366,6 +433,8 @@ void main() {}`,
     gl.clearDepth(1);
     gl.clear(gl.DEPTH_BUFFER_BIT);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.useProgram(this._traerProg.p);
+    gl.uniform1i(this._traerProg.u.uSkygge, 1);
     gl.useProgram(this._p);
     gl.uniform1i(this._u.uSkygge, 1);
     gl.activeTexture(gl.TEXTURE1);
@@ -461,7 +530,14 @@ void main() {}`,
     gl.polygonOffset(1.5, 3);
     gl.useProgram(this._skyggeP.p);
     gl.uniformMatrix4fv(this._skyggeP.u.uLys, false, mat);
-    for (const d of kastere) this._tegnMesh(d.m);
+    if (kastere.some(d => d.m.traer)) {
+      gl.useProgram(this._traerSkygge.p);
+      gl.uniformMatrix4fv(this._traerSkygge.u.uLys, false, mat);
+      gl.useProgram(this._skyggeP.p);
+    }
+    for (const d of kastere) {
+      if (d.m.traer) this._tegnTraer(d.m, true); else this._tegnMesh(d.m);
+    }
     gl.disable(gl.POLYGON_OFFSET_FILL);
     gl.bindVertexArray(null);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -648,6 +724,10 @@ void main() {}`,
     if (!m || m.tom || m.slettet) return;
     m.slettet = true;
     if (!gl) return;
+    if (m.traer) {
+      for (const t of m.typer) { gl.deleteVertexArray(t.vao); gl.deleteBuffer(t.buf); }
+      return;
+    }
     gl.deleteVertexArray(m.vao);
     for (const b of m.bufre) gl.deleteBuffer(b);
   },
@@ -687,8 +767,8 @@ void main() {}`,
     }
   },
 
-  _kameraUniformer(R) {
-    const gl = this.gl, u = this._u, k = R.kam;
+  _kameraUniformer(R, u = this._u) {
+    const gl = this.gl, k = R.kam;
     gl.uniform3f(u.uOff, this.origo.x - k.ox, this.origo.y - k.oy, k.oz);
     gl.uniform1f(u.uOv, k.ov);
     gl.uniform4f(u.uRot, k.ca, k.sa, k.cp, k.sp);
@@ -701,9 +781,189 @@ void main() {}`,
 
   _tegnMesh(m) {
     if (!m || m.tom || m.slettet) return;
+    if (m.traer) { this._tegnTraer(m, false); return; }
     const gl = this.gl;
     gl.bindVertexArray(m.vao);
     gl.drawElements(gl.TRIANGLES, m.n, gl.UNSIGNED_INT, 0);
+  },
+
+  /**
+   * Trærne, med sitt eget program, og tilbake til det som var i bruk.
+   * Id-attributtet er av i treets VAO; verdien settes til null, så
+   * materialet er 0 og fargen treets egen.
+   */
+  _tegnTraer(m, skygge) {
+    const gl = this.gl;
+    gl.useProgram(skygge ? this._traerSkygge.p : this._traerProg.p);
+    gl.vertexAttrib4f(3, 0, 0, 0, 0);
+    for (const t of m.typer) {
+      gl.bindVertexArray(t.vao);
+      gl.drawArraysInstanced(gl.TRIANGLES, 0, t.n, t.antall);
+    }
+    gl.useProgram(skygge ? this._skyggeP.p : this._p);
+  },
+
+  /**
+   * Trærne for et sett med plasser, bygd bare når nøkkelen er ny.
+   *
+   * @param {string} nokkel det som bestemmer plassene – se Tegner3d._traer
+   * @param {ArrayLike<number>} data 8 tall per tre: x, y, z (verden), høyde,
+   *   bredde, fargetone, dreining, type (0 gran, 1 løvtre)
+   */
+  traer(nokkel, data) {
+    if (!this.gl || !this.origo || !data || !data.length) return null;
+    const full = 'traer|' + nokkel + '|' + this.origo.x + ',' + this.origo.y;
+    let m = this._mesher.get(full);
+    if (!m) {
+      m = this._byggTraer(data);
+      this._mesher.set(full, m);
+    }
+    m.sist = this._bildenr;
+    return m;
+  },
+
+  _byggTraer(data) {
+    const gl = this.gl, geo = this._treGeometri();
+    const ox = this.origo.x, oy = this.origo.y;
+    const per = [[], []];
+    const boks = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
+    for (let i = 0; i + 7 < data.length; i += 8) {
+      const x = data[i] - ox, y = data[i + 1] - oy, z = data[i + 2], h = data[i + 3];
+      per[data[i + 7] ? 1 : 0].push(x, y, z, h, data[i + 4], data[i + 5], data[i + 6], 0);
+      const r = h * 0.45;
+      if (x - r < boks[0]) boks[0] = x - r;
+      if (y - r < boks[1]) boks[1] = y - r;
+      if (z < boks[2]) boks[2] = z;
+      if (x + r > boks[3]) boks[3] = x + r;
+      if (y + r > boks[4]) boks[4] = y + r;
+      if (z + h > boks[5]) boks[5] = z + h;
+    }
+    const typer = [];
+    for (const t of [0, 1]) {
+      if (!per[t].length) continue;
+      const g = t ? geo.lov : geo.gran;
+      const vao = gl.createVertexArray();
+      gl.bindVertexArray(vao);
+      gl.bindBuffer(gl.ARRAY_BUFFER, g.buf);
+      for (const [loc, off] of [[0, 0], [1, 12], [2, 24]]) {
+        gl.enableVertexAttribArray(loc);
+        gl.vertexAttribPointer(loc, 3, gl.FLOAT, false, 36, off);
+        gl.vertexAttribDivisor(loc, 0);
+      }
+      const buf = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(per[t]), gl.STATIC_DRAW);
+      for (const [loc, off] of [[4, 0], [5, 16]]) {
+        gl.enableVertexAttribArray(loc);
+        gl.vertexAttribPointer(loc, 4, gl.FLOAT, false, 32, off);
+        gl.vertexAttribDivisor(loc, 1);
+      }
+      gl.bindVertexArray(null);
+      typer.push({ vao, buf, n: g.n, antall: per[t].length / 8 });
+    }
+    this.bygget++;
+    if (!typer.length) return { tom: true, n: 0 };
+    return { traer: true, typer, boks, nr: ++this._meshNr, sist: this._bildenr };
+  },
+
+  /**
+   * Ett tre av hver sort, høyde 1 og foten i origo.
+   *
+   * GRAN: stamme og tre kjegler oppå hverandre. LØVTRE: stamme og en
+   * ikosaederkule som er bulket litt, så kronene ikke blir perfekte baller.
+   * Fargen er flat per trekant (siste hjørne), og kronas trekanter veksler
+   * mellom to grønntoner.
+   */
+  _treGeometri() {
+    if (this._treGeo) return this._treGeo;
+    const gl = this.gl;
+    const STAMME = [0.33, 0.25, 0.17];
+    const GRAN = [[0.15, 0.27, 0.13], [0.12, 0.22, 0.11]];
+    const LOV = [[0.27, 0.41, 0.15], [0.22, 0.35, 0.12]];
+    const norm = v => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / l, v[1] / l, v[2] / l]; };
+    const tri = (ut, a, b, c, na, nb, nc, f) => {
+      for (const [p, n] of [[a, na], [b, nb], [c, nc]]) ut.push(p[0], p[1], p[2], n[0], n[1], n[2], f[0], f[1], f[2]);
+    };
+    const SEG = 9;
+    const prisme = (ut, z0, z1, r) => {
+      for (let i = 0; i < SEG; i++) {
+        const a0 = 2 * Math.PI * i / SEG, a1 = 2 * Math.PI * (i + 1) / SEG;
+        const p00 = [r * Math.cos(a0), r * Math.sin(a0), z0], p10 = [r * Math.cos(a1), r * Math.sin(a1), z0];
+        const p01 = [p00[0], p00[1], z1], p11 = [p10[0], p10[1], z1];
+        const n0 = [Math.cos(a0), Math.sin(a0), 0], n1 = [Math.cos(a1), Math.sin(a1), 0];
+        tri(ut, p00, p10, p11, n0, n1, n1, STAMME);
+        tri(ut, p00, p11, p01, n0, n1, n0, STAMME);
+      }
+    };
+    const kjegle = (ut, z0, z1, r, f) => {
+      const h = z1 - z0;
+      for (let i = 0; i < SEG; i++) {
+        const a0 = 2 * Math.PI * i / SEG, a1 = 2 * Math.PI * (i + 1) / SEG, am = (a0 + a1) / 2;
+        const b0 = [r * Math.cos(a0), r * Math.sin(a0), z0], b1 = [r * Math.cos(a1), r * Math.sin(a1), z0];
+        const n0 = norm([Math.cos(a0) * h, Math.sin(a0) * h, r]), n1 = norm([Math.cos(a1) * h, Math.sin(a1) * h, r]);
+        const nt = norm([Math.cos(am) * h, Math.sin(am) * h, r]);
+        tri(ut, b0, b1, [0, 0, z1], n0, n1, nt, f[i % 2]);
+        tri(ut, b1, b0, [0, 0, z0], [0, 0, -1], [0, 0, -1], [0, 0, -1], f[1]);
+      }
+    };
+    const kule = (ut, sentrum, radius, f) => {
+      const t = (1 + Math.sqrt(5)) / 2;
+      let hj = [[-1, t, 0], [1, t, 0], [-1, -t, 0], [1, -t, 0], [0, -1, t], [0, 1, t], [0, -1, -t], [0, 1, -t],
+        [t, 0, -1], [t, 0, 1], [-t, 0, -1], [-t, 0, 1]].map(norm);
+      let fl = [[0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11], [1, 5, 9], [5, 11, 4], [11, 10, 2],
+        [10, 7, 6], [7, 1, 8], [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9], [4, 9, 5], [2, 4, 11],
+        [6, 2, 10], [8, 6, 7], [9, 8, 1]];
+      const midt = new Map();
+      const mid = (a, b) => {
+        const k = a < b ? a + ',' + b : b + ',' + a;
+        if (!midt.has(k)) { hj.push(norm([(hj[a][0] + hj[b][0]) / 2, (hj[a][1] + hj[b][1]) / 2, (hj[a][2] + hj[b][2]) / 2])); midt.set(k, hj.length - 1); }
+        return midt.get(k);
+      };
+      const ny = [];
+      for (const [a, b, c] of fl) {
+        const ab = mid(a, b), bc = mid(b, c), ca = mid(c, a);
+        ny.push([a, ab, ca], [b, bc, ab], [c, ca, bc], [ab, bc, ca]);
+      }
+      fl = ny;
+      // bulker: fast mønster, så alle løvtrær ikke er like runde
+      const p = hj.map(d => {
+        const s = 1 + 0.13 * Math.sin(5 * d[0] + 3 * d[1]) * Math.cos(4 * d[2] + 2 * d[0]);
+        return [sentrum[0] + d[0] * radius[0] * s, sentrum[1] + d[1] * radius[1] * s, sentrum[2] + d[2] * radius[2] * s];
+      });
+      fl.forEach(([a, b, c], i) => tri(ut, p[a], p[b], p[c], hj[a], hj[b], hj[c], f[i % 2]));
+    };
+    const gran = [];
+    prisme(gran, 0, 0.2, 0.035);
+    kjegle(gran, 0.12, 0.56, 0.30, GRAN);
+    kjegle(gran, 0.34, 0.80, 0.23, GRAN);
+    kjegle(gran, 0.58, 1.0, 0.15, GRAN);
+    const lov = [];
+    prisme(lov, 0, 0.5, 0.045);
+    kule(lov, [0, 0, 0.66], [0.36, 0.36, 0.37], LOV);
+    const last = arr => {
+      const buf = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(arr), gl.STATIC_DRAW);
+      return { buf, n: arr.length / 9 };
+    };
+    this._treGeo = { gran: last(gran), lov: last(lov) };
+    return this._treGeo;
+  },
+
+  /* Uniformene et bilde trenger, på ett program – flatene og trærne får de samme. */
+  _bildeUniformer(R, S, u) {
+    const gl = this.gl;
+    this._kameraUniformer(R, u);
+    gl.uniform1f(u.uSkyggePa, S ? 1 : 0);
+    if (S) {
+      gl.uniformMatrix4fv(u.uLys, false, S.mat);
+      gl.uniform1f(u.uNormOff, 1.5 * S.teksel);
+      gl.uniform1f(u.uSkyggeTeksel, 1 / S.stor);
+      gl.uniform1f(u.uSkyggeBias, S.bias);
+    }
+    gl.uniform1f(u.uTake, R.take || 0);
+    gl.uniform1f(u.uVirkelig, R.virkelig ? 1 : 0);
+    gl.uniform1i(u.uPass, 0);
   },
 
   /**
@@ -730,21 +990,13 @@ void main() {}`,
     if (c.width !== R.rb || c.height !== R.rh) { c.width = R.rb; c.height = R.rh; }
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, R.rb, R.rh);
-    gl.useProgram(this._p);
-    this._kameraUniformer(R);
-    const u = this._u;
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, S ? S.tex : this._ingenSkygge);
     gl.activeTexture(gl.TEXTURE0);
-    gl.uniform1f(u.uSkyggePa, S ? 1 : 0);
-    if (S) {
-      gl.uniformMatrix4fv(u.uLys, false, S.mat);
-      gl.uniform1f(u.uNormOff, 1.5 * S.teksel);
-      gl.uniform1f(u.uSkyggeTeksel, 1 / S.stor);
-      gl.uniform1f(u.uSkyggeBias, S.bias);
-    }
-    gl.uniform1f(u.uTake, R.take || 0);
-    gl.uniform1f(u.uVirkelig, R.virkelig ? 1 : 0);
+    gl.useProgram(this._traerProg.p);
+    this._bildeUniformer(R, S, this._traerProg.u);
+    gl.useProgram(this._p);
+    this._bildeUniformer(R, S, this._u);
     gl.disable(gl.CULL_FACE); gl.disable(gl.BLEND);
     gl.disable(gl.STENCIL_TEST); gl.disable(gl.SCISSOR_TEST);
     gl.colorMask(true, true, true, true);
@@ -857,6 +1109,8 @@ void main() {}`,
     gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LESS);
     gl.uniform1i(this._u.uPass, pass);
     for (const d of R.dybde || []) {
+      // trærne er pynt: avlesningen og strekene svarer om bakken
+      if (d.m && d.m.traer) continue;
       gl.uniform1f(this._u.uIdPa, d.id ? 1 : 0);
       this._tegnMesh(d.m);
     }
