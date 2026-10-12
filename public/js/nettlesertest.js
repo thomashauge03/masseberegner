@@ -8089,11 +8089,28 @@ const Nettlesertest = {
       /* RAPPORTBILDENE: fra skjermkortet, og bare ett WebGL-lerret til sammen. */
       const lerreter0 = Gl3d.lerreter;
       const bilder = [];
-      for (let i = 0; i < 3; i++) bilder.push(await Rapport.lagTegninger());
-      const url = bilder[0] && (bilder[0].modell3d || (Array.isArray(bilder[0]) && bilder[0].find(b => /^data:image/.test(b && b.bilde || ''))));
+      for (let i = 0; i < 3; i++) bilder.push(Rapport.lagTegninger(App.resultat));
+      const url = bilder[0] && bilder[0].modell;
       this.sjekk('tre rapporter laget uten et eneste nytt WebGL-lerret', Gl3d.lerreter === lerreter0,
         (Gl3d.lerreter - lerreter0) + ' nye');
-      this.sjekk('og rapporten har en 3D-tegning', !!url);
+      this.sjekk('og rapporten har en 3D-tegning', typeof url === 'string' && /^data:image\/png/.test(url));
+      /* ... og den kom fra skjermkortet, med noe i: tegnet på et lerret og
+         målt. Over 1,5 % av pikslene skal skille seg fra bakgrunnen, samme
+         krav som rapportprøven stiller. */
+      if (typeof url === 'string') {
+        const bilde = new Image();
+        await new Promise(r => { bilde.onload = r; bilde.onerror = r; bilde.src = url; });
+        const l = document.createElement('canvas'); l.width = bilde.width; l.height = bilde.height;
+        const k = l.getContext('2d'); k.drawImage(bilde, 0, 0);
+        const d = k.getImageData(0, 0, l.width, l.height).data;
+        let malt = 0, tot = 0;
+        for (let i = 0; i < d.length; i += 4 * 9) {
+          tot++;
+          if (Math.abs(d[i] - d[0]) + Math.abs(d[i + 1] - d[1]) + Math.abs(d[i + 2] - d[2]) > 12) malt++;
+        }
+        this.sjekk('og 3D-tegningen i rapporten har innhold', malt / tot > 0.015,
+          (100 * malt / tot).toFixed(1) + ' %');
+      }
 
       /* MISTET KONTEKST: prosessoren tar over, uten et kast. */
       Veg3d.aktiver(true);
