@@ -92,19 +92,26 @@ fil. Rapporten og PDF-en har en kort skissedel (oversikt og tabell).
 
 2026-10-12: «har prøvd å dra i andre 3d modeller og dem på andre program går
 ofte mye mer smud … og er trege». Målt: rasteret i `ui-3d.js` bruker 20–38 ms
-per bilde i full skjerm på demoen, og faller i oppløsning mens man drar. Nå
-tegner `public/js/gl3d.js` (rå WebGL 2, ingen bibliotek) mens man drar, kniper
-eller ruller ovenfra: `_rasterOpptak` tar opp scenen som trekanter med ferdig
-farge (samme celler, krav og farger som `_raster`), og hvert bilde er bare et
-nytt kamera – målt under 1 ms. Gjennomsiktige lag følger rasterets regel via en
-egen lagramme og `gl_FragDepth`; alt i 24 bits dybde. Det skarpe bildet tegnes
-når man slipper (som før), og `_slaOpp` tegner det med en gang om siste bilde
-var skjermkortets. Musebevegelser samles til ett bilde per ramme
-(`_tegnIRammen`). Sammenlignet piksel for piksel mot rasteret: under 0,02 %
-ulike piksler (kanter) for veg, tomt med nabo og to gjennomsiktige lag på rad;
-0,2 % for rør med naboer. Bakkemodus (gå i modellen) tegnes fortsatt av
-rasteret – strekene skjules bak terrenget med rasterets dybde per piksel; det
-er neste steg om det trengs. `Tegner3d.glAv = true` slår skjermkortet av.
+per bilde i full skjerm på demoen, og faller i oppløsning mens man drar.
+Samme dag kom «jeg vil at alle disse skal bruke skjermkort … ikke hakkete og
+loade … som et spill», og det ble tre etapper (spec og plan i
+`docs/superpowers/`, `2026-10-12-gpu-3d-etappe1*`).
+
+**Etappe 1, motoren – ferdig.** `public/js/gl3d.js` (rå WebGL 2, ingen
+bibliotek) tegner Ovenfra, Fly og Gå. Hvert lag går gjennom `Tegner3d._flate`:
+på prosessoren som før, på skjermkortet som en mesh bygd én gang per nøkkel
+(gitter, høyde, maske, steg, fargestempel). Lyset regnes i shaderen av
+utjevnede normaler; fargen er flat per celle. Ett delt WebGL-lerret kopieres
+inn i visningens 2D-lerret, så rapportbilder og pikselprøver virker uendret.
+`_id` leses fra skjermkortet bare når noen spør; strekene leser dybden
+asynkront mens man beveger seg. Målt: dra 1,4 ms, gå 3,1 ms (prosessoren 88).
+`Tegner3d.brukGpu = false` slår skjermkortet av. (Den første utgaven, som bare
+tegnet mens man dro, er erstattet av denne.)
+
+**Etappe 2, lys og luft – neste:** himmel, dis, slagskygger fra sola,
+omgivelseslys. **Etappe 3, materialer og trær:** gress/skog/myr/vann fra
+arealdekket, asfalt, grus, fjell, naken jord, ekte trær i skogen; «Før» og
+«Etter» realistiske, massebildet beholder rødt og grønt.
 
 ### Forslagene om samme rør rett etter importen
 

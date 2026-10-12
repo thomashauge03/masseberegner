@@ -55,11 +55,12 @@ se «Videre arbeid» nederst.
    Observasjonene vektes med avstand og overstyrer standardverdien i nærheten.
 6. **Les massene** i sidepanelet, og trykk **Rapport** for et utskriftsklart sammendrag.
 
-**3D-modellen** (veg, tomt og rør) tegnes av skjermkortet mens du drar, ruller
-eller kniper – i full oppløsning, under ett millisekund per bilde. Når du
-slipper, tegnes det skarpe bildet som klikk, avlesning og rapport bygger på.
-De to er like til noen få piksler langs kantene. Mangler nettleseren WebGL 2,
-tegnes det som før. Når du går i modellen (bakkemodus), tegnes det som før.
+**3D-modellen** (veg, tomt og rør) tegnes av skjermkortet – ovenfra, når du
+flyr og når du går – i full oppløsning hele tiden, med myk skyggelegging og
+glatte kanter. Mens du drar tar et bilde om lag 1 ms, og når du går om lag 3 ms
+(prosessoren brukte 88 ms). Avlesning, klikk og rapportbilder kommer fra det
+samme bildet. Mangler nettleseren WebGL 2, eller mister den skjermkortet,
+tegnes det som før.
 
 ## Veiklasse som hurtigvalg
 
@@ -663,8 +664,8 @@ public/js/ui-rorplan.js  planlagte rør i skjermen: tegning, redigering, Rør-fa
 public/js/ui-groft.js    grøfta i skjermen: Rør-fanen, verktøyene i kartet, normalgrøfta
 public/js/farger.js      tegnefargene, hentet fra CSS-variablene
 public/js/nettlesertest.js  gjennomgang av grensesnittet (?test=1)
-public/js/ui-3d.js       3D-tegneren felles for veg, tomt og rør (egen rasterisering)
-public/js/gl3d.js        3D-bildet i bevegelse, tegnet av skjermkortet (WebGL 2)
+public/js/ui-3d.js       3D-tegneren felles for veg, tomt og rør (lag, kamera, mus; prosessoren som reserve)
+public/js/gl3d.js        skjermkortet bak 3D-bildet (WebGL 2): mesh, bilde, avlesning og dybde
 public/js/ui-*.js        kart, lengdeprofil, tverrprofil, rapport
 public/bilde/hm-logo.png HM-logoen (samme fil som i de andre appene)
 public/demo/             demoprosjekt som blir lagt inn første gangen

@@ -466,9 +466,6 @@ body {
 #tomt3dover, #veg3dover, #ror3dover { z-index: 2; cursor: grab; }
 #tomt3dover:active, #veg3dover:active, #ror3dover:active { cursor: grabbing; }
 #tomt3d.skjult, #tomt3dover.skjult, #veg3d.skjult, #veg3dover.skjult, #ror3d.skjult, #ror3dover.skjult { display: none; }
-/* Skjermkortets bilde mens man drar – rett over rasteret, under overlegget (gl3d.js). */
-canvas.gl3d { position: absolute; inset: 0; width: 100%; height: 100%; display: block; z-index: 1; pointer-events: none; }
-canvas.gl3d.skjult { display: none; }
 /* Tverrpanelet må ha ei ramme dei absolutt plasserte lerreta kan feste seg i. */
 /* Boksen lerretene måler fra. Uten den la 3D-lerretet seg over panelhodet. */
 .tverrinnhold { position: relative; flex: 1; min-height: 0; display: flex; }
