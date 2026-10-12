@@ -218,3 +218,33 @@ Prosessor-veien beholder alt dette.
 
 **Utenfor etappe 1:** himmel, dis, skygger og omgivelseslys (etappe 2);
 teksturer, vann og trær (etappe 3); Snitt; ny funksjonalitet i overlegget.
+
+## Endret i planlegging og bygging
+
+- **Ett delt WebGL-lerret, kopiert inn i 2D-lerretet.** Ikke en kontekst på
+  hver visnings lerret og ingen `_lesBilde()`. Skjermkortet tegner i
+  `Gl3d.lerret`, og bildet kopieres med `drawImage`. Pikselprøvene,
+  rapportbildene og `_tomMelding` virker uendret. Det finnes én kontekst i
+  hele programmet, også for rapportene, så det trengs ingen egen
+  `Gl3d.utskrift`.
+- **Steget på skjermkortet er 1.** Ingen ombygging når man zoomer. Det blir
+  grovere bare når gitteret passerer `Tegner3d.GPU_NODER` = 1 500 000 noder.
+  Steget huskes per resultat.
+- **`_dyp` er ikke en lat egenskap.** De to leserne, `_verdensstrek` og
+  `_dybdeUnder`, går gjennom `_dybdeOppslag()`. Ror3d slår prøven av med
+  `_utenDybdeprove`.
+- **Dybden er perspektivriktig.** Prosessoren interpolerer w rett over
+  skjermen. Over en fem meter lang celle like ved øyet gir det 4,5 m helt
+  nederst i bildet, der bakken er nærmest. Prøven måler derfor mot hjørnene
+  i cella, ikke mot prosessoren.
+- **Strekene leser dybden asynkront mens man beveger seg.** Synkron
+  utlesing kostet 11 av 12 ms per bilde når man gikk. Mens `_farer` eller
+  `_drar` står på, brukes forrige bildes dybde (`Gl3d.dybdeOppslagRask`).
+  Når man stopper, tegnes ett bilde med den eksakte.
+
+Målt i nettleserruta (median per bilde):
+
+| | Dra | Gå | Første bilde |
+|---|---|---|---|
+| Prosessoren | – | 88 ms | – |
+| Skjermkortet | 1,4 ms | 3,1 ms | 76 ms |

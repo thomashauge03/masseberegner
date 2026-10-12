@@ -7939,6 +7939,9 @@ const Nettlesertest = {
     }
     const foer = JSON.stringify(App.P);
     const gz = Terreng.prototype.z, gd = Terreng.prototype.dekning, gl = Terreng.prototype.lastOmraade;
+    // prøven gjelder skjermkortet, også når runden ellers kjører på prosessoren
+    const foerGpu = Tegner3d.brukGpu;
+    Tegner3d.brukGpu = null;
     try {
       App.P = App.nyttProsjekt();
       App.P.navn = '__test_glatt';
@@ -8056,6 +8059,7 @@ const Nettlesertest = {
       }
       Veg3d.aktiver(false);
     } finally {
+      Tegner3d.brukGpu = foerGpu;
       Terreng.prototype.z = gz; Terreng.prototype.dekning = gd; Terreng.prototype.lastOmraade = gl;
       App.P = JSON.parse(foer);
       App._terrengnokkel = null;
@@ -8070,6 +8074,9 @@ const Nettlesertest = {
     }
     const foer = JSON.stringify(App.P);
     const gz = Terreng.prototype.z, gd = Terreng.prototype.dekning, gl = Terreng.prototype.lastOmraade;
+    // prøven gjelder skjermkortet, også når runden ellers kjører på prosessoren
+    const foerGpu = Tegner3d.brukGpu;
+    Tegner3d.brukGpu = null;
     try {
       App.P = App.nyttProsjekt();
       App.P.navn = '__test_reserve';
@@ -8136,6 +8143,7 @@ const Nettlesertest = {
       this.sjekk('og tegner igjen', !!Veg3d._gpuRamme);
       Veg3d.aktiver(false);
     } finally {
+      Tegner3d.brukGpu = foerGpu;
       Terreng.prototype.z = gz; Terreng.prototype.dekning = gd; Terreng.prototype.lastOmraade = gl;
       App.P = JSON.parse(foer);
       App._terrengnokkel = null;
