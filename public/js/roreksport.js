@@ -117,6 +117,8 @@ const RorEksport = (() => {
    * utgangen av alle, for at noe mangler oppdages på plassen.
    */
   function mangler(app, res, d = punkter(app, res)) {
+    // en skisse mangler ingenting – den har ingen høyder med vilje, og fila sier det én gang
+    if (res.skisse) return skisseMerknader(app, res);
     const ut = [], sett = new Set();
     for (const u of (res.bygg && res.bygg.utenHoyde) || []) {
       const t = `Ikke med: ${u.kode}: ${u.grunn === 'dimensjon' ? 'uten dimensjon' : 'terrenget mangler'} – ingen høyder`;
@@ -129,6 +131,127 @@ const RorEksport = (() => {
       ut.push(`Terrengdata mangler for ${Math.round(res.groft.manglerTerreng)} m² av grøfta – gravebunnen er brutt der`);
     }
     return ut;
+  }
+
+  /* ---------------- rørskisse ---------------- */
+
+  /*
+   * EN RØRSKISSE ER BARE STREKER I PLAN. Hvor røret går og hva slags rør det
+   * er – ingen høyder, ingen kummer, ingen gravebunn. Hvert format får
+   * strekene i 2D, og fila sier at det er en skisse, så ingen leser en
+   * manglende høyde som null.
+   */
+
+  /** Strekene: nummer, kode, kodetolkning, knekkpunktene i regnesonen og lengden. */
+  function skisseLinjer(app, res) {
+    const koder = (app.P.ror && app.P.ror.koder) || {};
+    return (res.skisse || []).filter(l => l.xy && l.xy.length >= 2)
+      .map((l, i) => ({ nr: i + 1, kode: l.kode, k: _rp().kodeAv(koder, l.kode), xy: l.xy, lengde: l.lengde }));
+  }
+
+  /* KOF-koden er åtte tegn. «spillvann 160» ble «spillvan»; systemet som
+     forkortelse og dimensjonen etter får plass: «SP 160». */
+  const KOFSYSTEM = { vann: 'VL', spill: 'SP', overvann: 'OV', drens: 'DR', felles: 'AF', kabel: 'TR' };
+  function skisseKofKode(p) {
+    const fork = KOFSYSTEM[p.k.system];
+    if (!fork) return p.kode;
+    return p.k.dim > 0 ? `${fork} ${p.k.dim}` : fork;
+  }
+
+  /** Det fila sier om skissen: at den er det, og hva hvert nummer er. */
+  function skisseMerknader(app, res) {
+    const ut = ['Rørskisse: bare streker i plan – ingen høyder, ingen kummer, ingen grøft'];
+    for (const p of skisseLinjer(app, res)) {
+      const kk = skisseKofKode(p);
+      ut.push(`${p.nr} = ${p.kode}${p.k.dim > 0 ? ' (Ø' + p.k.dim + ')' : ''}${kk !== p.kode ? ' – KOF-kode ' + kk : ''}`);
+    }
+    return ut;
+  }
+
+  /**
+   * KOF: hvert rør som en linje (09_91 … 09_99) med knekkpunktene. Høydefeltet
+   * står tomt – ikke 0, som er havnivå, og ikke −500, som noen program leser
+   * som en ekte kote.
+   */
+  function skisseKof(app, res, navner) {
+    const E = _eks(), rader = [];
+    for (const p of skisseLinjer(app, res)) {
+      const kode = skisseKofKode(p);
+      rader.push(' 09_91');
+      p.xy.forEach((q, j) => {
+        rader.push(' 05 ' + E.tekst(navner(`${p.nr}-${String(j + 1).padStart(3, '0')}`), 10) + ' ' + E.tekst(kode, 8) + ' '
+          + q.y.toFixed(3).padStart(12) + ' ' + q.x.toFixed(3).padStart(11));
+      });
+      rader.push(' 09_99');
+    }
+    return rader;
+  }
+
+  /** LandXML: én `<PlanFeature>` per rør, strekkene som «nord øst» uten høyde. */
+  function skisseLandxml(app, res, pre) {
+    const E = _eks(), linjer = [];
+    const ne = q => `${q.y.toFixed(4)} ${q.x.toFixed(4)}`;
+    for (const p of skisseLinjer(app, res)) {
+      const seg = [];
+      for (let i = 0; i < p.xy.length - 1; i++) {
+        seg.push(`        <Line>\n          <Start>${ne(p.xy[i])}</Start>\n          <End>${ne(p.xy[i + 1])}</End>\n        </Line>`);
+      }
+      linjer.push(`      <PlanFeature name="${E.xml(`${pre}${p.nr} ${p.kode} – skisse`)}">\n      <CoordGeom>\n`
+        + `${seg.join('\n')}\n      </CoordGeom>\n      </PlanFeature>`);
+    }
+    return { linjer, punkter: [] };
+  }
+
+  /** SOSI: én `Rørledning` per rør med `..NØ` – nord og øst, ingen høyde. */
+  function skisseSosi(app, res, idFra, anleggsnavn, enhet) {
+    const E = _eks(), f = Math.round(1 / enhet), avr = v => Math.sign(v) * Math.floor(Math.abs(v) * f + 0.5 + 1e-6);
+    let minN = Infinity, maksN = -Infinity, minO = Infinity, maksO = -Infinity;
+    const rader = [];
+    let id = idFra;
+    for (const p of skisseLinjer(app, res)) {
+      const no = [];
+      for (const q of p.xy) {
+        const rad = `${avr(q.y)} ${avr(q.x)}`;
+        if (rad !== no[no.length - 1]) no.push(rad);
+      }
+      if (no.length < 2) continue;
+      for (const q of p.xy) {
+        minN = Math.min(minN, q.y); maksN = Math.max(maksN, q.y); minO = Math.min(minO, q.x); maksO = Math.max(maksO, q.x);
+      }
+      rader.push(`.KURVE ${id++}:`, '..OBJTYPE Rørledning', '..NAVN ' + E.sosiTekst(p.kode));
+      if (p.k.dim > 0) rader.push('..DIAMETER ' + Math.round(p.k.dim));
+      if (anleggsnavn) rader.push('..ANLEGG ' + E.sosiTekst(anleggsnavn));
+      rader.push('..NØ');
+      for (const rad of no) rader.push(rad);
+    }
+    if (!Number.isFinite(minN)) throw new Error('Ingen rør å skrive');
+    return { rader, omr: { minN, maksN, minO, maksO }, niva: 2, nesteId: id, enhet, sone: app.sone };
+  }
+
+  /* DXF-fargen per system (AutoCAD-fargenummer), så tegningen kan leses uten lagliste. */
+  const DXFFARGE = { vann: 5, spill: 30, overvann: 4, drens: 3, felles: 32, kabel: 6 };
+
+  /** DXF: én flat polylinje (LWPOLYLINE) per rør, på lag etter koden. */
+  function skisseDxf(app, res, lagpre) {
+    const E = _eks(), ut = [];
+    const par = (kode, verdi) => { ut.push(String(kode)); ut.push(String(verdi)); };
+    for (const p of skisseLinjer(app, res)) {
+      const lag = lagpre + (E.dxfLagpre(p.kode) || ('ROR' + p.nr + '_')) + 'SKISSE';
+      par(0, 'LWPOLYLINE'); par(8, lag); par(62, DXFFARGE[p.k.system] || 7);
+      par(90, p.xy.length); par(70, 0);
+      for (const q of p.xy) { par(10, q.x.toFixed(4)); par(20, q.y.toFixed(4)); }
+    }
+    return ut;
+  }
+
+  /** GeoJSON: rørene som linjer med kode, dimensjon og lengde – og `skisse: true`. */
+  function skisseGeojson(app, res) {
+    const G = _geo(), sone = res.sone || app.sone, bf = res.bakkefaktor || 1;
+    const ll = q => { const g = G.fraUtm(q.x, q.y, sone); return [+g.lon.toFixed(8), +g.lat.toFixed(8)]; };
+    return { type: 'FeatureCollection', features: skisseLinjer(app, res).map(p => ({ type: 'Feature',
+      properties: { type: 'ror', skisse: true, nr: p.nr, kode: p.kode, dim_mm: p.k.dim || null,
+        system: p.k.system || null, lengde_m: Number.isFinite(p.lengde) ? +(p.lengde * bf).toFixed(2) : null },
+      geometry: { type: 'LineString', coordinates: p.xy.map(ll) } })) };
   }
 
   /**
@@ -152,6 +275,10 @@ const RorEksport = (() => {
    * gir komma som desimaltegn.
    */
   function stikningRader(app, res, tall) {
+    /* Stikningsdata er høyder i hvert punkt. En skisse har ingen – en fil med
+       bare nord og øst ville sett ut som en stikning, men gitt ingenting å
+       sette ut etter i høyden. */
+    if (res.skisse) throw new Error('en rørskisse har ingen høyder å stikke ut – ta ut KOF, DXF eller SOSI for strekene');
     const d = punkter(app, res), rader = [];
     for (const p of d) {
       const b = Math.max(3, String(p.stikk.length).length);
@@ -181,6 +308,7 @@ const RorEksport = (() => {
    * dimensjon), skrives ingenting: en fil med nuller ser ut som et svar.
    */
   function masseRader(app, res, tall, klasse = klasseNavn) {
+    if (res.skisse) throw new Error('en rørskisse har ingen grøft, og dermed ingen masser');
     const g = res.groft;
     if (!g || !g.perKode || !g.perKode.size || !(g.sum && g.sum.lengde > 0)) {
       throw new Error('Ingen grøft er regnet – terrenget mangler, eller ingen av rørene har dimensjon');
@@ -226,6 +354,7 @@ const RorEksport = (() => {
    * nok til ti tegn også med samlefilens prefiks foran.
    */
   function kofKropp(app, res, navner, d = punkter(app, res)) {
+    if (res.skisse) return skisseKof(app, res, navner);
     const E = _eks(), rader = [];
     for (const p of d) {
       const b = Math.max(3, String(p.stikk.length).length);
@@ -245,6 +374,11 @@ const RorEksport = (() => {
   }
   function kof(app, res) {
     const E = _eks(), d = punkter(app, res);
+    if (res.skisse) {
+      const kropp = skisseKof(app, res, E.kofNavner());
+      if (!kropp.length) throw new Error('Ingen rør å skrive');
+      return E.kofHode(app, skisseMerknader(app, res)).concat(kropp).join('\r\n') + '\r\n';
+    }
     if (!d.length) throw new Error('Ingen rør å skrive');
     const rader = E.kofHode(app, kofMerknader(d).concat(mangler(app, res, d)));
     for (const r of kofKropp(app, res, E.kofNavner(), d)) rader.push(r);
@@ -258,6 +392,7 @@ const RorEksport = (() => {
    * hvert av dem. Få maskinstyringer leser det.
    */
   function landxmlDeler(app, res, pre = '', d = punkter(app, res)) {
+    if (res.skisse) return skisseLandxml(app, res, pre);
     const E = _eks();
     const nez = q => `${q.y.toFixed(4)} ${q.x.toFixed(4)} ${q.z.toFixed(4)}`;
     const linjer = [];
@@ -318,6 +453,7 @@ const RorEksport = (() => {
    *   centimeter – en samlefil gir sin, felles for alle anleggene i den
    */
   function sosiDeler(app, res, idFra = 1, anleggsnavn = null, d = punkter(app, res), enhet = res.plan ? 0.01 : 0.001) {
+    if (res.skisse) return skisseSosi(app, res, idFra, anleggsnavn, enhet);
     /* RUNDET RIKTIG: en halv bort fra null, med en milliondels enhet i
        slingring – 8,045 er 8,04499… i maskinen. Her ble −0,125 til −12 cm.
        (Først til millimeter, så til centimeter, er å runde to ganger: 7,8545
@@ -399,6 +535,7 @@ const RorEksport = (() => {
 
   /** DXF: 3D-polylinjer på lag per kode og høyde, og kummene som sirkler på bunnløpet. */
   function dxfKropp(app, res, lagpre = '', d = punkter(app, res)) {
+    if (res.skisse) return skisseDxf(app, res, lagpre);
     const E = _eks(), ut = [];
     const par = (kode, verdi) => { ut.push(String(kode)); ut.push(String(verdi)); };
     const polylinje = (lag, farge, pts) => {
@@ -432,12 +569,18 @@ const RorEksport = (() => {
 
   function dxf(app, res) {
     const d = punkter(app, res);
+    if (res.skisse) {
+      const kropp = skisseDxf(app, res, '');
+      if (!kropp.length) throw new Error('Ingen rør å skrive');
+      return _eks().dxfDokument(dxfKommentarer(skisseMerknader(app, res)).concat(kropp));
+    }
     if (!d.length) throw new Error('Ingen rør å skrive');
     return _eks().dxfDokument(dxfKommentarer(mangler(app, res, d)).concat(dxfKropp(app, res, '', d)));
   }
 
   /** GeoJSON til kartverktøy: rørene som linjer med egenskapene, kummene som punkt. */
   function geojson(app, res) {
+    if (res.skisse) return skisseGeojson(app, res);
     const G = _geo(), sone = res.sone || app.sone, bf = res.bakkefaktor || 1;
     const ll = q => { const g = G.fraUtm(q.x, q.y, sone); return [+g.lon.toFixed(8), +g.lat.toFixed(8)]; };
     const tall = (v, des) => (Number.isFinite(v) ? +v.toFixed(des) : null);
@@ -461,6 +604,7 @@ const RorEksport = (() => {
   }
 
   return { STIKK, stasjonering, ved, kumNr, punkter, mangler, csvTekst, stikningRader, masseRader,
+    skisseLinjer, skisseKofKode, skisseMerknader,
     kofMerknader, kofKropp, kof, landxmlDeler, landxml, xmlKommentarer, sosiDeler, sosi, sosiKommentarer, sosiMerknader,
     sosiSone, dxfKropp, dxf, dxfKommentarer, geojson };
 })();

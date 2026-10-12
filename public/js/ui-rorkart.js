@@ -77,7 +77,9 @@ const RorkartUI = {
         const linje = { kode: l.kode, kilde: plan ? 'planlagt' : 'innmalt', xy: l.xy,
           lengde: Number.isFinite(l.lengde) ? l.lengde : lengdeAv(l.xy), dim: +k.dim || 0, anlegg: a.id, ror: l.id,
           // høydene (topp rør) og det som trengs til bunnen – til lengdeprofilene
-          punkter: l.punkter || null, kodeinfo: k, regel: l.plan ? l.plan.regel : null, motsatt: !!(l.plan && l.plan.motsatt) };
+          punkter: l.punkter || null, kodeinfo: k, regel: l.plan ? l.plan.regel : null, motsatt: !!(l.plan && l.plan.motsatt),
+          // en rørskisse tegnes som planlagt (stiplet) – den er et omtrentlig forslag, ikke målt
+          skisse: l.grunn === 'skisse' };
         linjer.push(linje);
         egne.push(linje);
         if (!koder[l.kode]) koder[l.kode] = { system: k.system || '', dim: +k.dim || 0 };
@@ -449,7 +451,8 @@ const RorkartUI = {
             const harHoyder = l => Array.isArray(l.punkter) && l.punkter.filter(p => Number.isFinite(p.z)).length >= 2;
             Rorkart.nummerer(data, valg.koder, harHoyder);
             data.profiler = this.profiler(data, m);
-            utenProfil = data.linjer.filter(l => valg.koder.includes(l.kode) && !harHoyder(l)).length;
+            // en skisse har ingen høyder med vilje – den skal ikke telles som noe som mangler
+            utenProfil = data.linjer.filter(l => valg.koder.includes(l.kode) && !harHoyder(l) && !l.skisse).length;
           }
         }
       }

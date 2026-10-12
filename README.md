@@ -395,6 +395,24 @@ rapporten og PDF-en. Toleransene settes i fanen – standard 0,10 m i plan,
 0,03 m i høyde for selvfall og 0,10 m for trykk, søkebredde 1,0 m. Knappen
 endrer ingenting: verken planen eller de innmålte høydene.
 
+### Rørskisse
+
+**✎ Rørskisse** i førstevalget (eller «✎ Rørskisse (tegn)» i anleggslista) er
+de samme traseene, men bare streken: hvor røret går og hva slags rør det er.
+Ingen høyder, ingen kummer, ingen grøft – og ingen terreng hentes.
+
+* Når traseen er tegnet, velger du **type** (vann, spillvann, overvann, drens,
+  kabel/trekkerør eller egen kode) og eventuelt **dimensjon** per rør. Koden
+  lages av de to («spillvann 160»), så fargen og teksten langs røret blir
+  riktig. Sideavstanden fra traseen virker som for planlagte rør.
+* Strekene står heltrukne i kartet, i oversiktskartet (som planlagte) og i
+  rapporten og PDF-en med type, dimensjon og lengde.
+* Eksporten er 2D: KOF med hvert rør som linje (`09_91` … `09_99`) og tomt
+  høydefelt – koden forkortet til åtte tegn («SP 160») –, SOSI med `..NØ`, DXF
+  som flate polylinjer per kode, LandXML-linjer «nord øst» og GeoJSON med
+  `skisse: true`. Fila sier at det er en skisse. Stikningsdata og grøftemasser
+  finnes ikke for en skisse – det er ingen høyder å stikke ut.
+
 ## Hva «billigst» betyr
 
 Optimaliseringen vekter, i den rekkefølgen det gjør vondt:

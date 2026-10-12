@@ -367,6 +367,60 @@ if (process.env.ROR_FIL) {
   }
 }
 
+console.log('\n8. Rørskissen – strekene i 2D');
+{
+  /* Den samme traseen, men som skisse: «spillvann 160» midt i og «kabel» 1 m
+     til venstre. Ingen høyder noe sted, og fila sier at det er en skisse. */
+  const skplan = Object.assign(RorPlan.nyPlan(), {
+    skisse: true,
+    traseer: plan.traseer,
+    ror: [{ id: 'r1', trase: 't1', kode: 'spillvann 160', side: 0 }, { id: 'r2', trase: 't1', kode: 'kabel', side: -1 }]
+  });
+  const skkoder = Ror.koderFra([{ kode: 'spillvann 160' }, { kode: 'kabel' }], {});
+  const skb = RorPlan.bygg({ plan: skplan, koder: skkoder, tilSone: (lat, lon) => ({ o: lon, n: lat }), tilXY: p => ({ x: p.o, y: p.n }) });
+  const skres = { type: 'ror', sone: 32, bygg: skb, linjer: [], skisse: skb.utenHoyde, profiler: new Map(), groft: null,
+    kummer: [], bakkefaktor: 1, plan: true, merknader: [] };
+  const skapp = { P: { navn: 'Prøveskisse', ror: { koder: skkoder, plan: skplan } }, sone: 32 };
+
+  paastand('KOF-koden får plass i åtte tegn', RorEksport.skisseKofKode(RorEksport.skisseLinjer(skapp, skres)[0]) === 'SP 160'
+    && RorEksport.skisseKofKode(RorEksport.skisseLinjer(skapp, skres)[1]) === 'TR');
+  const kof = RorEksport.kof(skapp, skres);
+  const rader = kof.split('\r\n');
+  paastand('KOF: hvert rør er en linje (09_91 … 09_99)', rader.filter(x => x === ' 09_91').length === 2
+    && rader.filter(x => x === ' 09_99').length === 2);
+  const p05 = rader.filter(x => /^ 05 /.test(x));
+  // kolonnene: navn 10, kode 8, nord 12, øst 11 – og der høyden skulle stått, slutter linja
+  paastand('KOF: knekkpunktene uten høyde – feltet står tomt', p05.length === 6
+    && p05.every(x => x.length === 48 && /\d\.\d{3}$/.test(x)), JSON.stringify(p05[0]));
+  paastand('KOF: hodet sier at det er en skisse', /MERK: Rørskisse/.test(kof) && /1 = spillvann 160 \(Ø160\) – KOF-kode SP 160/.test(kof));
+  const TraseImport = require(js('traseimport.js'));
+  const tilbake = TraseImport.lesKof(kof);
+  paastand('KOF: leses inn igjen som to traseer uten høyde', tilbake.linjer.length === 2
+    && tilbake.linjer.every(l => l.punkter.length === 3 && l.punkter.every(q => !Number.isFinite(q.z))),
+  JSON.stringify(tilbake.linjer.map(l => l.punkter.length)));
+  sjekk('KOF: punktet står der det skal', tilbake.linjer[0].punkter[1].o, X0 + 40, 1e-3);
+
+  const sos = RorEksport.sosi(skapp, skres);
+  paastand('SOSI: ..NØ og ingen ..NØH', /\.\.NØ\r\n/.test(sos) && !/\.\.NØH/.test(sos));
+  paastand('SOSI: Rørledning med navn og diameter', /\.\.OBJTYPE Rørledning\r\n\.\.NAVN "spillvann 160"\r\n\.\.DIAMETER 160/.test(sos));
+  paastand('SOSI: i centimeter', /\.\.\.ENHET 0\.01/.test(sos) && /650000000 50004000/.test(sos));
+
+  const dxf = RorEksport.dxf(skapp, skres);
+  paastand('DXF: én flat polylinje per rør, på lag etter koden',
+    (dxf.match(/\nLWPOLYLINE\r?\n/g) || []).length === 2 && /SPILLVANN_160_SKISSE/.test(dxf) && !/\nVERTEX\r?\n/.test(dxf));
+  const lx = RorEksport.landxml(skapp, skres);
+  paastand('LandXML: strekkene som «nord øst» uten høyde', /<Start>6500000\.0000 500000\.0000<\/Start>/.test(lx)
+    && /skisse/.test(lx));
+  const gj = RorEksport.geojson(skapp, skres);
+  paastand('GeoJSON: to linjer merket som skisse, med lengden', gj.features.length === 2
+    && gj.features.every(f => f.properties.skisse === true && f.geometry.type === 'LineString')
+    && Math.abs(gj.features[0].properties.lengde_m - 90) < 1e-6, JSON.stringify(gj.features[0].properties));
+  let kastet = '';
+  try { RorEksport.stikningRader(skapp, skres, v => String(v)); } catch (e) { kastet = e.message; }
+  paastand('stikning: sier at en skisse ikke har høyder', /ingen høyder/.test(kastet), kastet);
+  paastand('det som mangler: bare at det er en skisse', RorEksport.mangler(skapp, skres)[0].startsWith('Rørskisse'));
+}
+
 /* ---------------- sluttsum ---------------- */
 console.log(`\n${ok} tester ok, ${feil} feil`);
 process.exit(feil ? 1 : 0);

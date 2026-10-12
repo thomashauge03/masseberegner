@@ -859,8 +859,10 @@ const RorUI = {
     else for (const p of r.punkter) antall[p.kode] = (antall[p.kode] || 0) + 1;
     e.innerHTML = `<p class="notis">Hva hver kode${r.plan ? '' : ' i fila'} betyr. Endringene gjelder med en gang, og kan angres.</p>`
       // tabellen er bredere enn sidepanelet – da ruller den, ikke hele panelet
-      + `<div class="tabellrull">${this.kodetabellHtml(r.koder, antall, r.plan ? 'Rør' : 'Punkt')}</div>` + GroftUI.kodeHtml(r.koder)
-      + (r.plan ? RorPlanUI.kodeHtml(r.koder) : '');
+      + `<div class="tabellrull">${this.kodetabellHtml(r.koder, antall, r.plan ? 'Rør' : 'Punkt')}</div>`
+      // grøfta og planreglene per kode betyr ingenting for en skisse, som ikke har høyder
+      + (r.plan && r.plan.skisse ? '' : GroftUI.kodeHtml(r.koder))
+      + (r.plan && !r.plan.skisse ? RorPlanUI.kodeHtml(r.koder) : '');
     e.onchange = ev => {
       const t = ev && ev.target && ev.target.closest ? ev.target : null;
       if (t && t.closest('table.groftkoder')) { GroftUI.endreKode(t); return; }

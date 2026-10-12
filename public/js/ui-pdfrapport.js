@@ -272,6 +272,8 @@ const Pdfrapport = {
     /** Undertittelen: hva slags arbeid dette er. Én linje, aldri to. */
     const undertittel = app.erTomt()
       ? (Tomt.Arbeidstyper[app.P.tomt.arbeidstype] || { navn: 'Tomt' }).navn
+      : app.erSkisse && app.erSkisse()
+        ? 'Rørskisse · ' + (app.anlegg().navn || 'Rørskisse')
       : app.erRor()
         ? 'Innmålte rør · ' + (app.anlegg().navn || 'Rør')
         /* «Veiklasse 5 – Klasse 5 – Sommerbilvei …» sa tallet to ganger. */
@@ -1007,6 +1009,33 @@ const Pdfrapport = {
     const plan = !!ror.plan;
     nySide();
     if (r.delt && r.delt.anleggsnavn) this._anleggstittel(P, tilstand, innmarg, r.delt.anleggsnavn);
+    /* EN RØRSKISSE: bare strekene – oversikten og tabellen med type og lengde.
+       Overdekning, fall, kummer og grøft hører til høydene, og en skisse har
+       ingen; et bånd med «–» i hver rute ville sett ut som noe som mangler. */
+    if (res.skisse) {
+      P.tekst(this.MARG, tilstand.y, `Rørskisse · EUREF89 UTM${app.sone} · bare strekene – ingen høyder, ingen grøft`,
+        { storrelse: 7.6, farge: this.GRA });
+      tilstand.y += 6;
+      band([['Rør', String(s.antall), ''], ['Lengde', t(s.lengde), 'm']]);
+      const tegS = Rapport.lagRortegninger(res);
+      const bilde = tegS.plan ? await this._tilJpeg(tegS.plan) : null;
+      if (bilde) {
+        const bredde = innmarg - this.MARG, hoyde = bredde * bilde.hoyde / bilde.bredde;
+        plass(hoyde + 46);
+        overskrift('Rørene ovenfra');
+        P.bilde(bilde.bytes, bilde.bredde, bilde.hoyde, this.MARG, tilstand.y - 6, bredde, hoyde);
+        P.rektangel(this.MARG, tilstand.y - 6, bredde, hoyde, { strek: this.LYSGRA, tykkelse: 0.5 });
+        tilstand.y += hoyde;
+      }
+      overskrift('Rørene');
+      tabell([{ tekst: '#', bredde: 18 }, { tekst: 'KODE', bredde: 160, venstre: true },
+        { tekst: 'DIM.', bredde: 50 }, { tekst: 'LENGDE M', bredde: 70 }],
+      res.skisse.map((l, i) => {
+        const k = ror.koder[l.kode] || Ror.tolkKode(l.kode);
+        return { celler: [String(i + 1), l.kode, k.dim ? 'Ø' + k.dim : '–', t((l.lengde || 0) * bf, 1)] };
+      }).concat([{ sum: true, celler: ['', 'Sum', '', t(s.lengde, 1)] }]));
+      return;
+    }
     P.tekst(this.MARG, tilstand.y, plan
       ? `Tegnede rør · EUREF89 UTM${app.sone} · høydene ved kummer og låste punkt er bunn innvendig (NN2000)`
       : `Innmålte punkt fra maskinstyringen · EUREF89 UTM${app.sone}`

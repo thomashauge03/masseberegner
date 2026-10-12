@@ -1224,7 +1224,10 @@ const Ror = (() => {
       if (pr && Number.isFinite(pr.minOverdekning)) minOd = Math.min(minOd, pr.minOverdekning);
       if (pr && Number.isFinite(pr.maksOverdekning)) maksOd = Math.max(maksOd, pr.maksOverdekning);
     }
-    return { antall: linjer.length, lengde,
+    // en rørskisse har strekene i `skisse` – lengden på kartet, uten overdekning
+    const skisse = (res && res.skisse) || [];
+    for (const l of skisse) lengde += (l.lengde || 0) * bf;
+    return { antall: linjer.length + skisse.length, lengde,
       minOd: Number.isFinite(minOd) ? minOd : NaN, maksOd: Number.isFinite(maksOd) ? maksOd : NaN };
   }
 

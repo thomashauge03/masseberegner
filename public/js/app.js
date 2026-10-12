@@ -203,12 +203,12 @@ const App = {
    */
 
   nyttAnlegg(type, navn, id) {
-    // et tegnet røranlegg ('rorplan') er et røranlegg med en plan – se RorPlan
-    const ror = type === 'ror' || type === 'rorplan';
+    // et tegnet røranlegg ('rorplan') er et røranlegg med en plan – se RorPlan; en rørskisse er en plan uten høyder
+    const ror = type === 'ror' || type === 'rorplan' || type === 'rorskisse';
     const a = {
       id: id || 'a' + Date.now().toString(36) + Math.floor(Math.random() * 1000).toString(36),
       type: type === 'tomt' ? 'tomt' : ror ? 'ror' : 'veg',
-      navn: navn || (type === 'tomt' ? 'Tomt' : type === 'rorplan' ? 'Planlagte rør' : ror ? 'Rør' : 'Veg')
+      navn: navn || (type === 'tomt' ? 'Tomt' : type === 'rorplan' ? 'Planlagte rør' : type === 'rorskisse' ? 'Rørskisse' : ror ? 'Rør' : 'Veg')
     };
     if (a.type === 'tomt') {
       a.tomt = nyTomt();
@@ -227,7 +227,8 @@ const App = {
       a.ror.groft = Groft.nyGroft();
       a.mal = Object.assign({}, Ror.StandardRormal, { groft: Object.assign({}, Groft.StandardGroftmal) });
       /* Et tegnet anlegg har en plan; et innmålt har punktene fra fila. */
-      if (type === 'rorplan') { a.ror.plan = RorPlan.nyPlan(); a.mal.plan = RorPlan.nyPlanmal(); }
+      if (type === 'rorplan' || type === 'rorskisse') { a.ror.plan = RorPlan.nyPlan(); a.mal.plan = RorPlan.nyPlanmal(); }
+      if (type === 'rorskisse') a.ror.plan.skisse = true;
       // tomme lister av samme grunn som for tomta over
       a.ip = [];
       a.vip = [];
@@ -325,6 +326,9 @@ const App = {
 
   /** Er det et tegnet røranlegg vi jobber med nå? */
   erPlan() { const a = this.anlegg(); return !!a && a.type === 'ror' && !!(a.ror && a.ror.plan); },
+
+  /** Er det en rørskisse – streker med type, uten høyder og grøft? Se RorPlan.bygg. */
+  erSkisse() { return this.erPlan() && !!this.anlegg().ror.plan.skisse; },
 
   /**
    * Har anlegget noe tegnet eller importert – en veg, en tomt, innmålte eller
@@ -1188,9 +1192,9 @@ const App = {
    * Et nytt tegnet røranlegg, rett i «Ny trase». Byttet er en del av det å
    * legge til – én angrepost, ikke to.
    */
-  leggTilPlan() {
+  leggTilPlan(type = 'rorplan') {
     this.merk('nytt anlegg');
-    const a = this.nyttAnlegg('rorplan', RorUI._ledigNavn('Planlagte rør'));
+    const a = this.nyttAnlegg(type, RorUI._ledigNavn(type === 'rorskisse' ? 'Rørskisse' : 'Planlagte rør'));
     this.P.anlegg.push(a);
     this._ikkeMerk = true;
     try { this.byttAnlegg(a.id); } finally { this._ikkeMerk = false; }
@@ -1260,7 +1264,8 @@ const App = {
       /* Anlegget er tomt – ingenting er tegnet ennå – så det byttes ut i stedet
          for å konverteres. En konvertering ville måttet flytte felt som ikke
          finnes, og etterlatt en tomt med en vegmal. */
-      const nytt = this.nyttAnlegg(type, type === 'tomt' ? 'Tomt' : type === 'rorplan' ? 'Planlagte rør' : 'Veg', a.id);
+      const nytt = this.nyttAnlegg(type, type === 'tomt' ? 'Tomt' : type === 'rorplan' ? 'Planlagte rør'
+        : type === 'rorskisse' ? 'Rørskisse' : 'Veg', a.id);
       this.P.anlegg[this.P.anlegg.indexOf(a)] = nytt;
       this.P.aktivt = nytt.id;
     } else if (a && a.type !== type && harNoe) {
@@ -1268,15 +1273,16 @@ const App = {
          anlegg – ikke at det gamle forsvinner. Resten av metoden kjøres
          etterpå som vanlig: den viser riktig skjema og setter kartmodus for
          den typen man nettopp ba om. */
-      if (type === 'rorplan') this.leggTilPlan(); else this.leggTilAnlegg(type);
+      if (type === 'rorplan' || type === 'rorskisse') this.leggTilPlan(type); else this.leggTilAnlegg(type);
     }
     this.visAnleggsvalg();
     this.visAnleggsvelger();
     this.malTilSkjema();
-    Kart.settModus(type === 'tomt' ? 'tegnTomt' : type === 'rorplan' ? 'tegnTrase' : 'tegn');
+    const trase = type === 'rorplan' || type === 'rorskisse';
+    Kart.settModus(type === 'tomt' ? 'tegnTomt' : trase ? 'tegnTrase' : 'tegn');
     this.tegnAlt();
     this.status(type === 'tomt' ? 'Klikk rundt tomta i kartet. Dobbeltklikk for å lukke den.'
-      : type === 'rorplan' ? 'Klikk punktene langs traseen. Dobbeltklikk eller Enter avslutter.'
+      : trase ? 'Klikk punktene langs traseen. Dobbeltklikk eller Enter avslutter.'
         : 'Klikk i kartet for å legge inn knekkpunkt. Dobbeltklikk for å avslutte.');
   },
 
@@ -1316,9 +1322,12 @@ const App = {
     /* Et tegnet anlegg har ingen fil å importere eller punkt å rette – det har
        traseene og kummene. Grøfteverktøyene gjelder begge. */
     const plan = this.erPlan();
+    // en rørskisse har bare strekene – ingen grøft, ingen kummer, ingen fallretning
+    const skisse = this.erSkisse();
     for (const id of ['verktoyRorImport', 'verktoyRorAv', 'verktoyRorBryt', 'verktoyRorKoble']) bytt(id, ror && !plan);
-    for (const id of ['verktoyGroftStrekning', 'verktoyGroftSammen']) bytt(id, ror);
-    for (const id of ['verktoyTrase', 'verktoyTraseFil', 'verktoyKum', 'verktoySnu']) bytt(id, plan);
+    for (const id of ['verktoyGroftStrekning', 'verktoyGroftSammen']) bytt(id, ror && !skisse);
+    for (const id of ['verktoyTrase', 'verktoyTraseFil']) bytt(id, plan);
+    for (const id of ['verktoyKum', 'verktoySnu']) bytt(id, plan && !skisse);
     // oversiktskartet: for innmålte og tegnede rør – det tegner alle røranleggene
     bytt('verktoyRorKart', ror);
     // et utsnitt av rørene til stikning – stikkpunkt, kummer og innmålte punkt med koordinater
@@ -1368,6 +1377,7 @@ const App = {
       + '<button class="kartknapp" data-nytt="tomt">⬟ Ny tomt</button>'
       + '<button class="kartknapp" data-nyttror="1" title="Velg én eller flere filer – hold Ctrl eller Shift for å merke flere">⌀ Nye rør (fra filer)</button>'
       + '<button class="kartknapp" data-nyttplan="1">⌀ Planlagte rør (tegn)</button>'
+      + '<button class="kartknapp" data-nyttplan="rorskisse" title="Bare streker med rørtype – ingen høyder, ingen grøft">✎ Rørskisse (tegn)</button>'
       + '</div>';
     for (const b of panel.querySelectorAll('[data-bytt]')) {
       b.onclick = () => { this.byttAnlegg(b.dataset.bytt); this._lukkAnleggspanel(); };
@@ -1383,7 +1393,8 @@ const App = {
          rørimporten gjør, i stedet for å bli liggende foran det nye. */
       b.onclick = () => {
         this._lukkAnleggspanel();
-        if (this.P.ubestemt) this.velgAnleggstype('rorplan'); else this.leggTilPlan();
+        const type = b.dataset.nyttplan === 'rorskisse' ? 'rorskisse' : 'rorplan';
+        if (this.P.ubestemt) this.velgAnleggstype(type); else this.leggTilPlan(type);
       };
     }
     for (const b of panel.querySelectorAll('[data-navn]')) {
@@ -3646,6 +3657,8 @@ const App = {
     const ut = [];
     for (const a of this.P.anlegg) {
       if (a.type !== 'ror' || a.id === this.P.aktivt || !a.ror || !a.ror.plan || !a.ror.plan.traseer.length) continue;
+      // en skisse har ingen høyder, og trenger ikke terrenget
+      if (a.ror.plan.skisse) continue;
       const hans = { x0: Infinity, x1: -Infinity, y0: Infinity, y1: -Infinity };
       for (const t of a.ror.plan.traseer) for (const p of t.punkter) ta(hans, Geo.tilUtm(p.lat, p.lon, this.sone));
       if (hans.x0 > boks.x1 + marg || boks.x0 > hans.x1 + marg || hans.y0 > boks.y1 + marg || boks.y0 > hans.y1 + marg) continue;
@@ -3706,6 +3719,17 @@ const App = {
     if (!r || (!r.punkter.length && !(r.plan && r.plan.traseer.length))) { this.resultat = null; vis(); return null; }
     this._settRorsone(r);
     let bygg = this.byggRor();
+    /* EN RØRSKISSE har ingen høyder og ingen grøft – det er hele poenget med
+       den. Ingen terreng hentes og ingenting regnes: streken er resultatet.
+       `linjer` er tom med vilje, så alt som regner med høyder (profiler,
+       grøft, stikning) ikke finner noe; streken står i `skisse`. */
+    if (r.plan && r.plan.skisse) {
+      this.resultat = { type: 'ror', bygg, linjer: [], skisse: bygg.utenHoyde, profiler: new Map(), sone: this.sone,
+        bakkefaktor: this.bakkefaktor(), merknader: [], groft: null, plan: true, kummer: [], kontroll: [], avvik: null };
+      this.merkResultat();
+      vis();
+      return this.resultat;
+    }
     if (!this.terreng || this.terreng.sone !== this.sone || this.terreng.res !== 1) {
       this.terreng = new Terreng(this.sone, 1);
       /* Nøkkelen sier hva som er lastet inn i det GAMLE terrenget. Sto den

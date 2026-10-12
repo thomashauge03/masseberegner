@@ -24,8 +24,8 @@ med `Nettlesertest.kjor()`. Utviklingstjeneren startes med `node server.js`
 (port 5178). Programmet ligger også på https://masseberegner.vercel.app.
 
 Ved siste lagring: **963 prøver i selvtesten, 280 i rørprøven
-(`test/rorprove.js`), 219 i grøfteprøven (`test/groftprove.js`), 175 i
-planprøven (`test/rorplanprove.js`), 77 i eksportprøven
+(`test/rorprove.js`), 219 i grøfteprøven (`test/groftprove.js`), 183 i
+planprøven (`test/rorplanprove.js`), 91 i eksportprøven
 (`test/roreksportprove.js`), 77 i avviksprøven (`test/roravvikprove.js`), 45 i
 traseprøven (`test/traseimportprove.js`), 68 i stikkrenneprøven
 (`test/stikkrenneprove.js`), 11 i utsnittprøven (`test/stikkutsnittprove.js`), 61 i anleggsprøven og 258 i tomteprøven, alle
@@ -71,6 +71,22 @@ bunn, gravebunn og merknad. Stikkpunktene (fra `RorEksport.punkter` for det
 åpne tegnede anlegget) har KOF-navnene; kummene bunnløp og lokk; de innmålte
 (alle innmålte røranlegg) står som i fila – i fila sin sone, sagt på raden om
 den er en annen enn kartets. Høyst 400 punkt.
+
+### Rørskisse – streker med type, uten høyder og grøft
+
+2026-10-12: «rørtegning … uten grøft beregning bare at vi omtrent tegner strek»
+– i kartet, i oversiktskart-PDF-en og i eksporten, med type og dimensjon.
+Et tegnet anlegg med `ror.plan.skisse = true` (type `rorskisse` i
+`nyttAnlegg`/`leggTilPlan`/`velgAnleggstype`, knapp i førstevalget og i
+anleggslista). `RorPlan.bygg` legger hvert rør i `utenHoyde` med
+`grunn: 'skisse'` og lengden, uten merknader; `App.beregnRor` gir et resultat
+med `linjer: []` og `skisse`, uten terreng, grøft og kontroller. Dialogen for
+rørene spør om type og dimensjon (`RorPlanUI.SKISSETYPER`, `_skissekode`),
+Rør-fanen er `_fyllSkisse`, Kum/Snu/grøfteverktøyene er skjult. Eksporten har
+egne 2D-grener i `roreksport.js` (`skisseKof` med `09_91`/`09_99` og tomt
+høydefelt, `skisseSosi` med `..NØ`, `skisseDxf`, `skisseLandxml`,
+`skisseGeojson`); stikning og grøftemasser sier fra i stedet for å lage en tom
+fil. Rapporten og PDF-en har en kort skissedel (oversikt og tabell).
 
 ### 3D i bevegelse tegnet av skjermkortet
 

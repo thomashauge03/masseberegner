@@ -447,13 +447,16 @@ const Rorprofil = {
     k.fillStyle = Farger.flate; k.fillRect(0, 0, B, H);
     const r = app.P.ror;
     const tilXY = Ror.lagTilXY(r.sone, res.sone);
+    // en rørskisse har strekene i `skisse`, ikke i `linjer` – se App.beregnRor
+    const linjer = res.linjer.concat(res.skisse || []);
+    const objekter = (res.bygg && res.bygg.objekter) || [];
     let minX = Infinity, maksX = -Infinity, minY = Infinity, maksY = -Infinity;
     const ta = q => {
       minX = Math.min(minX, q.x); maksX = Math.max(maksX, q.x);
       minY = Math.min(minY, q.y); maksY = Math.max(maksY, q.y);
     };
-    for (const l of res.linjer) l.xy.forEach(ta);
-    for (const p of res.bygg.objekter) ta(tilXY(p));
+    for (const l of linjer) l.xy.forEach(ta);
+    for (const p of objekter) ta(tilXY(p));
     if (!Number.isFinite(minX)) return;
     const marg = 48;
     const skala = Math.min((B - 2 * marg) / Math.max(1, maksX - minX), (H - 2 * marg) / Math.max(1, maksY - minY));
@@ -462,7 +465,7 @@ const Rorprofil = {
     const X = x => ox + (x - minX) * skala;
     const Y = y => H - oy - (y - minY) * skala;
     const skrift = Farger.hent('skrift');
-    for (const l of res.linjer) {
+    for (const l of linjer) {
       const kd = r.koder[l.kode] || Ror.tolkKode(l.kode);
       k.strokeStyle = Farger.ror(kd.farge);
       k.lineWidth = Math.max(2, Math.min(5, 1.5 + (kd.dim || 50) / 60));
@@ -471,11 +474,11 @@ const Rorprofil = {
       k.stroke();
     }
     k.fillStyle = Farger.blekk;
-    for (const p of res.bygg.objekter) { const q = tilXY(p); k.fillRect(X(q.x) - 3, Y(q.y) - 3, 6, 6); }
+    for (const p of objekter) { const q = tilXY(p); k.fillRect(X(q.x) - 3, Y(q.y) - 3, 6, 6); }
     // nummeret er raden i tabellen – bare ved rørene over 20 m, ellers blir det et kratt av tall
     const bf = res.bakkefaktor || 1;
     k.font = 'bold 15px ' + skrift; k.textAlign = 'center'; k.textBaseline = 'middle';
-    res.linjer.forEach((l, i) => {
+    linjer.forEach((l, i) => {
       if (l.lengde * bf < 20) return;
       /* SPREDT LANGS RØRET, IKKE MIDT PÅ. Rørene i samme grøft har samme midte,
          og der la nummeret til det ene seg over det andre. Det gylne snitt

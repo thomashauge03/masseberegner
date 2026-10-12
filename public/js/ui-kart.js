@@ -1933,6 +1933,17 @@ const Kart = {
     // før terrenget er hentet har ingen rør høyder – de tegnes stiplet
     for (const u of bygg.utenHoyde || []) {
       const k = r.koder[u.kode] || Ror.tolkKode(u.kode);
+      /* EN SKISSE ER FERDIG SOM STREK. Stiplet betyr «høydene kommer» – det
+         gjør de aldri her, og skal ikke se ut som om de mangler. Tykkelsen
+         følger dimensjonen, som for de innmålte. */
+      if (u.grunn === 'skisse') {
+        const bf = (res && res.bakkefaktor) || 1;
+        L.polyline(u.punkter.map(q => ll(q)), { color: Farger.ror(k.farge), weight: Math.max(3, Math.min(7, 2 + (k.dim || 60) / 50)),
+          opacity: 0.9, className: 'rorskisse' })
+          .bindTooltip(`${escapeHtml(u.kode)}${k.dim ? ' · ⌀' + k.dim : ''} · ${Rapport.tall((u.lengde || 0) * bf, 1)} m · skisse`, { sticky: true })
+          .addTo(lag);
+        continue;
+      }
       L.polyline(u.punkter.map(q => ll(q)), { color: Farger.ror(k.farge), weight: 3, opacity: 0.8, dashArray: '6 5' })
         .bindTooltip(`${escapeHtml(u.kode)} · ${u.grunn === 'dimensjon' ? 'mangler dimensjon – ingen høyder'
           : 'høydene kommer når terrenget er hentet'}`, { sticky: true })

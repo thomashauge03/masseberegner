@@ -832,6 +832,10 @@ ${merknader ? `<h2>Merknader</h2><table><thead><tr><th>Profil</th><th>Type</th><
         + 'frie punkt ligger med overdekningen under Kartverkets terrengmodell (DTM1), som viser terrenget '
         + 'slik det var da området ble skannet.');
     }
+    if (har('rorskisse')) {
+      midt.push('Rørskissen er tegnet i Massekalk: bare strekene, hvor rørene går og hva slags rør det er – '
+        + 'uten høyder og uten grøft.');
+    }
     return `<div class="bunn liten">
 <b>Hauge Maskin</b> · Beregnet i Massekalk.
 ${midt.join('\n')}
@@ -1125,6 +1129,7 @@ ${merknader ? `<h2>Merknader</h2><table><thead><tr><th>Type</th><th>Merknad</th>
 
   /** Rapporten for et røranlegg: kilde, plan, tabell, merknader, profiler. */
   apneRorrapport(app, res, valg) {
+    if (res.skisse) return this._skisserapport(app, res, valg);
     const t = (v, d = 0) => this.tall(v, d);
     const od = v => (Number.isFinite(v) ? t(v, 2) + ' m' : '–');
     const r = app.P.ror;
@@ -1262,6 +1267,43 @@ ${profiler || '<p class="liten">Ingen rør over 20 m.</p>'}`);
     this.visRapport(html, app);
   },
 
+  /**
+   * Rapporten for en rørskisse: oversikten og strekene med type og lengde.
+   * Fall, overdekning, kummer, grøft og profiler står ikke – de hører til
+   * høydene, og en skisse har ingen. Tomme kolonner ville sett ut som noe
+   * som mangler, ikke som noe som ikke er tegnet.
+   */
+  _skisserapport(app, res, valg) {
+    const t = (v, d = 0) => this.tall(v, d);
+    const r = app.P.ror, s = Ror.sammendrag(res), bf = res.bakkefaktor || 1;
+    const dato = new Date().toLocaleDateString('nb-NO', { day: '2-digit', month: 'long', year: 'numeric' });
+    const teg = this.lagRortegninger(res);
+    const rader = res.skisse.map((l, i) => {
+      const k = r.koder[l.kode] || Ror.tolkKode(l.kode);
+      return `<tr><td>${i + 1}</td><td>${escapeHtml(l.kode)}</td><td>${k.dim ? '⌀' + k.dim : '–'}</td>`
+        + `<td>${t((l.lengde || 0) * bf, 1)} m</td></tr>`;
+    }).join('');
+    const html = this.rapportskall(app, {
+      tittel: 'Rørskisse',
+      typer: 'rorskisse',
+      under: escapeHtml(app.P.navn) + ' · ' + escapeHtml(app.anlegg().navn || 'Rørskisse'),
+      hoyre: `${dato}<br>${s.antall} rør · ${t(s.lengde)} m<br>EUREF89 UTM${app.sone}`,
+      seksjon: valg && valg.seksjon
+    }, `
+<h2>Kilde</h2>
+<p class="liten">Tegnet i Massekalk som skisse · ${r.plan.traseer.length} ${r.plan.traseer.length === 1 ? 'trase' : 'traseer'}.
+Bare strekene – hvor rørene går og hva slags rør det er. Ingen høyder, ingen kummer og ingen grøft er regnet.
+Lengdene er langs bakken i kartet.</p>
+<h2>Oversikt</h2>
+<img class="rorplan" src="${teg.plan}" alt="Rørene sett ovenfra">
+<h2>Rørene</h2>
+<table><thead><tr><th>#</th><th>Kode</th><th>Dim.</th><th>Lengde</th></tr></thead><tbody>${rader}
+<tr class="sum"><td></td><td>Sum</td><td></td><td>${t(s.lengde, 1)} m</td></tr>
+</tbody></table>`);
+    if (valg && valg.seksjon) return html;
+    this.visRapport(html, app);
+  },
+
   /* ---------------- Eksport ---------------- */
 
   /**
@@ -1282,6 +1324,11 @@ ${profiler || '<p class="liten">Ingen rør over 20 m.</p>'}`);
     if (!app.sone) return { ok: false, grunn: 'Koordinatsonen er ikke satt – tegn anlegget i kartet først.' };
     if (app.erRor()) {
       if (res.type !== 'ror') return { ok: false, grunn: 'Rørene er ikke regnet ennå.' };
+      // en rørskisse har strekene i `skisse` og ingen linjer med høyder – se App.beregnRor
+      if (res.skisse) {
+        return res.skisse.length ? { ok: true, form: 'ror', skisse: true }
+          : { ok: false, grunn: 'Ingen streker å ta med – tegn en trase med «✎ Ny trase» i kartet.' };
+      }
       return res.linjer.length
         ? { ok: true, form: 'ror' }
         : { ok: false, grunn: 'Ingen rør å ta med – sjekk kodene og største avstand i Rør-fanen.' };
@@ -1345,7 +1392,8 @@ ${profiler || '<p class="liten">Ingen rør over 20 m.</p>'}`);
       lag(kan.form);
       /* Fila sier selv hva som ikke kom med; svaret under knappene skal si
          det samme – et «Eksporterte …» uten forbehold ser komplett ut. */
-      if (kan.form === 'ror') {
+      // en skisse mangler ingenting – at den er uten høyder, står i fila og er ikke et varsel
+      if (kan.form === 'ror' && !kan.skisse) {
         const mangler = merknader(this.app, this.app.resultat);
         if (mangler.length) this.eksportsvar((this._sistSvar || navn) + ' · ' + mangler.join(' · '), true);
       }
@@ -1917,7 +1965,7 @@ ${profiler || '<p class="liten">Ingen rør over 20 m.</p>'}`);
         if (!html) return null;
         const ror = anl.type === 'ror' ? Ror.sammendrag(res) : null;
         // planlagte rør står for seg – i tabellen og i bunnteksten om hva høydene er
-        const type = anl.type === 'ror' && anl.ror && anl.ror.plan ? 'rorplan' : anl.type;
+        const type = anl.type === 'ror' && anl.ror && anl.ror.plan ? (anl.ror.plan.skisse ? 'rorskisse' : 'rorplan') : anl.type;
         return { html, navn: anl.navn || anl.type, type, sum: res.sum,
           balanse: res.balanse || {}, kode: this.anleggskode(i),
           rorTekst: ror ? `${ror.antall} rør, ${t(ror.lengde)} m` + (res.groft
@@ -1932,8 +1980,8 @@ ${profiler || '<p class="liten">Ingen rør over 20 m.</p>'}`);
       const sum = app.prosjektsum(tatt.map(x => x.anlegg.id)) || {};
       const dato = new Date().toLocaleDateString('nb-NO',
         { day: '2-digit', month: 'long', year: 'numeric' });
-      const rad = b => b.type === 'ror' || b.type === 'rorplan'
-        ? `<tr><td>${b.kode} · ${escapeHtml(b.navn)}</td><td>${b.type === 'rorplan' ? 'planlagte rør' : 'rør'}</td>`
+      const rad = b => b.type === 'ror' || b.type === 'rorplan' || b.type === 'rorskisse'
+        ? `<tr><td>${b.kode} · ${escapeHtml(b.navn)}</td><td>${{ rorplan: 'planlagte rør', rorskisse: 'rørskisse' }[b.type] || 'rør'}</td>`
           + `<td colspan="3">${escapeHtml(b.rorTekst)}</td></tr>`
         : `<tr><td>${b.kode} · ${escapeHtml(b.navn)}</td><td>${b.type}</td>`
           + `<td>${t(b.sum.skjaering)}</td><td>${t(b.sum.skjaeringFjell)}</td>`
