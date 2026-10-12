@@ -186,7 +186,7 @@ const Nettlesertest = {
       'automatiskeNaboer', 'skisseSkraaninger', 'arealdekkePaaModellen',
       'grensesnittbredder', 'panelhoder',
       'tomt', 'tomteksport', 'tomterydding', 'tomtsnittOverbygning',
-      'tomt3d', 'veg3d', 'kartlag',
+      'gl3d', 'tomt3d', 'veg3d', 'gpuSammeBilde', 'gpuGlatt', 'gpuReserve', 'kartlag',
       'rorArbeidsbilde', 'rorBeregning', 'rorImport', 'rorSone', 'rorKart', 'rorFane', 'rorRetting',
       'rorProfil', 'ror3d', 'rorRapport', 'rorPdf', 'rorForklaring',
       'groftBeregning', 'groftFane', 'groftKoder', 'groftVerktoy', 'groftKnutepunkt', 'groftProfil', 'groft3d',
@@ -5624,6 +5624,49 @@ const Nettlesertest = {
       app._terrengnokkel = null;
       app.visAnleggsvelger();
     }
+  },
+
+  /* ---------------- skjermkortet ---------------- */
+  async gl3d() {
+    if (typeof Gl3d === 'undefined') { this.sjekk('gl3d.js er lastet', false); return; }
+    if (!Gl3d.klar()) { this.hoppOver('skjermkortet', 'WebGL2 finnes ikke i denne nettleseren'); return; }
+    const nb = 20, nh = 10, n = nb * nh;
+    const g = { nb, nh, wx: new Float64Array(n), wy: new Float64Array(n), finnes: new Uint8Array(n).fill(1),
+      midtX: 500009.5, midtY: 6600004.5, maksAvvik: 1 };
+    const z = new Float32Array(n);
+    for (let j = 0; j < nh; j++) for (let i = 0; i < nb; i++) {
+      const k = j * nb + i; g.wx[k] = 500000 + i; g.wy[k] = 6600000 + j; z[k] = 100;
+    }
+    const rodt = (255 << 24) | 255;
+    const lag = { hoyde: z, farge: () => rodt };
+    Gl3d.nyttBilde(g);
+    const foer = Gl3d.bygget;
+    const m = Gl3d.mesh(g, lag, 1, 'prøve');
+    const m2 = Gl3d.mesh(g, lag, 1, 'prøve');
+    this.sjekk('meshen bygges én gang per nøkkel', m === m2 && Gl3d.bygget === foer + 1,
+      (Gl3d.bygget - foer) + ' bygg');
+    this.sjekk('og har to trekanter per celle', m && m.n === (nb - 1) * (nh - 1) * 6, m && m.n);
+    // rett ovenfra: yaw 0, pitch 90 → rx = x, sy = -y (nord opp), w = D - z
+    const rb = 200, rh = 100;
+    const R = { rb, rh, bak: [0, 0, 0], horisont: null, fjern: 50000,
+      kam: { ox: g.midtX, oy: g.midtY, oz: 100, ov: 1, ca: 1, sa: 0, cp: 0, sp: 1,
+        D: 100, F: 100 * 9.5, cx: rb / 2, cy: rh / 2, naer: 1, oye: null },
+      liste: [{ m, modus: 'opak', blanding: 0, id: true }] };
+    Gl3d.tegn(R);
+    const l = document.createElement('canvas'); l.width = rb; l.height = rh;
+    const k2 = l.getContext('2d'); k2.drawImage(Gl3d.lerret, 0, 0);
+    const px = k2.getImageData(rb / 2, rh / 2, 1, 1).data;
+    this.sjekk('bildet midt i er rødt, lyst ovenfra', px[0] > 200 && px[1] < 40 && px[2] < 40, [...px].join(','));
+    const id = Gl3d.lesId(R);
+    const midt = id && id[(rh / 2) * rb + rb / 2];
+    this.sjekk('id-bufferet gir cella midt i', midt >= 0 && midt < n && g.finnes[midt],
+      String(midt));
+    const hjorne = id && id[0];
+    this.sjekk('og −1 utenfor flaten', hjorne === -1, String(hjorne));
+    const d = Gl3d.dybdeOppslag(R);
+    const w = d && d(rb / 2, rh / 2);
+    this.naer('dybden midt i er avstanden til flaten', Math.round((w || 0) * 10) / 10, 100, 0.05);
+    this.sjekk('og uendelig utenfor', d && d(0, 0) === Infinity);
   },
 
   async tomt3d() {
