@@ -186,7 +186,7 @@ const Nettlesertest = {
       'automatiskeNaboer', 'skisseSkraaninger', 'arealdekkePaaModellen',
       'grensesnittbredder', 'panelhoder',
       'tomt', 'tomteksport', 'tomterydding', 'tomtsnittOverbygning',
-      'gl3d', 'tomt3d', 'veg3d', 'gpuSammeBilde', 'gpuGlatt', 'gpuReserve', 'gpuLysOgLuft', 'kartlag',
+      'gl3d', 'tomt3d', 'veg3d', 'gpuSammeBilde', 'gpuGlatt', 'gpuReserve', 'gpuLysOgLuft', 'gpuMaterialer', 'kartlag',
       'rorArbeidsbilde', 'rorBeregning', 'rorImport', 'rorSone', 'rorKart', 'rorFane', 'rorRetting',
       'rorProfil', 'ror3d', 'rorRapport', 'rorPdf', 'rorForklaring',
       'groftBeregning', 'groftFane', 'groftKoder', 'groftVerktoy', 'groftKnutepunkt', 'groftProfil', 'groft3d',
@@ -8242,6 +8242,115 @@ const Nettlesertest = {
     for (let i = 0; i < 5; i++) { R.kam.ca = Math.cos(i / 5); R.kam.sa = Math.sin(i / 5); Gl3d.tegn(R); }
     this.sjekk('skyggekartet står når bare kameraet endres', Gl3d.skyggekartBygd === foer,
       (Gl3d.skyggekartBygd - foer) + ' bygg');
+  },
+
+  /* ---------------- materialer og trær ---------------- */
+  async gpuMaterialer() {
+    if (typeof Gl3d === 'undefined' || !Gl3d.klar()) { this.hoppOver('materialer og trær', 'WebGL2 finnes ikke'); return; }
+    const foerGpu = Tegner3d.brukGpu;
+    const foerKart = Tegner3d._arealkart, foerNokkel = Tegner3d._arealnokkel;
+    Tegner3d.brukGpu = null;
+    try {
+      const lagGitter = (nb, nh) => {
+        const n = nb * nh, g = { nb, nh, wx: new Float64Array(n), wy: new Float64Array(n),
+          finnes: new Uint8Array(n).fill(1), midtX: 500000, midtY: 6600000, maksAvvik: 1 };
+        g.z = new Float32Array(n).fill(100);
+        g.zT = g.z;
+        for (let j = 0; j < nh; j++) for (let i = 0; i < nb; i++) {
+          const k = j * nb + i;
+          g.wx[k] = 500000 + i - (nb - 1) / 2; g.wy[k] = 6600000 + j - (nh - 1) / 2;
+        }
+        return g;
+      };
+      const rb = 300, rh = 300, D = 100, F = 500;          // 5 px per meter på bakken
+      const kam = g => ({ ox: g.midtX, oy: g.midtY, oz: 100, ov: 1, ca: 1, sa: 0, cp: 0, sp: 1,
+        D, F, cx: rb / 2, cy: rh / 2, naer: 1, oye: null });
+      const px = (R, x, y) => {
+        Gl3d.tegn(R);
+        const l = document.createElement('canvas'); l.width = R.rb; l.height = R.rh;
+        const k = l.getContext('2d'); k.drawImage(Gl3d.lerret, 0, 0);
+        return k.getImageData(Math.round(x), Math.round(y), 1, 1).data;
+      };
+      const ramme = (g, liste, virkelig) => ({ rb, rh, bak: [0, 0, 0], horisont: null, fjern: 50000,
+        himmel: false, take: 0, virkelig, skygger: false, kam: kam(g), liste });
+      const opak = m => ({ m, modus: 'opak', blanding: 0, id: true });
+      const sum = p => p[0] + p[1] + p[2];
+
+      /* MATERIALENE: tre soner langs x – gress, grus og vann. */
+      const g = lagGitter(61, 61);
+      const graa = (255 << 24) | (150 << 16) | (150 << 8) | 150;
+      const sone = k => { const i = k % 61; return i < 20 ? 1 : i < 40 ? 6 : 4; };
+      Gl3d.nyttBilde(g);
+      const mS = Gl3d.mesh(g, { hoyde: g.z, farge: () => graa, materiale: sone }, 1, 'prove-soner');
+      const R = ramme(g, [opak(mS)], true);
+      const gress = px(R, rb / 2 - 100, rh / 2), grus = px(R, rb / 2, rh / 2), vann = px(R, rb / 2 + 100, rh / 2);
+      this.sjekk('«virkelig»: vann er blått', vann[2] > vann[0] + 20, [...vann].join(','));
+      this.sjekk('  gress er grønt', gress[1] > gress[0] + 12 && gress[1] > gress[2] + 25, [...gress].join(','));
+      this.sjekk('  grus er lysere enn gress og ikke grønt', sum(grus) > sum(gress) + 40 && grus[1] - grus[0] < 15,
+        [...grus].join(','));
+      R.virkelig = false;
+      const vanlig = px(R, rb / 2 - 100, rh / 2);
+      this.sjekk('i massebildet beholder flaten sin egen farge (grå er grå)',
+        Math.abs(vanlig[0] - vanlig[1]) < 10 && Math.abs(vanlig[1] - vanlig[2]) < 10, [...vanlig].join(','));
+
+      /* MASSEN BEHOLDER KULØREN, også i «virkelig». */
+      const rodt = (255 << 24) | (40 << 16) | (40 << 8) | 210;
+      const mM = Gl3d.mesh(g, { hoyde: g.z, farge: () => rodt, materiale: () => 20 }, 1, 'prove-masse');
+      const mI = Gl3d.mesh(g, { hoyde: g.z, farge: () => rodt }, 1, 'prove-ingen');
+      const masse = px(ramme(g, [opak(mM)], true), rb / 2, rh / 2);
+      const ingen = px(ramme(g, [opak(mI)], true), rb / 2, rh / 2);
+      this.sjekk('massen er fortsatt rød', masse[0] > masse[1] + 60 && masse[0] > masse[2] + 60, [...masse].join(','));
+      this.sjekk('  og nesten som uten materiale (bare lysstyrken varierer)',
+        Math.hypot(masse[0] - ingen[0], masse[1] - ingen[1], masse[2] - ingen[2]) < 40,
+        [...masse].join(',') + ' mot ' + [...ingen].join(','));
+
+      /* TRÆRNE: bare skog, en gravflate på 20 × 20 m midt i. */
+      Tegner3d._arealkart = { kodeVed: () => 30, koder: new Set([30]) };
+      Tegner3d._arealnokkel = 'prove-skog';
+      const g2 = lagGitter(81, 81);
+      g2.harGrav = new Uint8Array(81 * 81);
+      for (let j = 30; j <= 50; j++) for (let i = 30; i <= 50; i++) g2.harGrav[j * 81 + i] = 1;
+      const v = Object.create(Tegner3d);
+      v.lag = { arealdekke: true }; v.visning = 'vanlig';
+      const t = v._traer(g2);
+      const n = t ? t.data.length / 8 : 0;
+      let inne = 0;
+      for (let i = 0; i < n; i++) {
+        const dx = t.data[i * 8] - g2.midtX, dy = t.data[i * 8 + 1] - g2.midtY;
+        if (Math.abs(dx) < 12.5 && Math.abs(dy) < 12.5) inne++;
+      }
+      this.sjekk('skogen får trær (ett per ca. 30 m²)', n > 120 && n < 260, n + ' trær');
+      this.sjekk('  men ingen på gravflata eller nærmere enn 3 m', inne === 0, inne + ' for nær');
+      v.visning = 'foer'; v._traerFor = null;
+      const tf = v._traer(g2);
+      let inneFoer = 0;
+      for (let i = 0; tf && i < tf.data.length / 8; i++) {
+        if (Math.abs(tf.data[i * 8] - g2.midtX) < 9 && Math.abs(tf.data[i * 8 + 1] - g2.midtY) < 9) inneFoer++;
+      }
+      this.sjekk('  i «Før» står skogen også der det skal graves', inneFoer > 3, inneFoer + ' trær');
+      v.lag.arealdekke = false; v._traerFor = null;
+      this.sjekk('  og uten arealdekket er det ingen trær', !v._traer(g2));
+
+      /* TEGNET: én gang per nøkkel, og grønt der treet står. */
+      Gl3d.nyttBilde(g2);
+      const b0 = Gl3d.bygget;
+      const tm = Gl3d.traer(t.nokkel, t.data), tm2 = Gl3d.traer(t.nokkel, t.data);
+      this.sjekk('trærne bygges én gang per nøkkel', !!tm && tm === tm2 && Gl3d.bygget === b0 + 1,
+        (Gl3d.bygget - b0) + ' bygg');
+      const mB = Gl3d.mesh(g2, { hoyde: g2.z, farge: () => graa }, 1, 'prove-skogbunn');
+      const Rt = ramme(g2, [opak(mB), { m: tm, modus: 'opak', blanding: 0, id: false, traer: true }], false);
+      const x0 = t.data[0], y0 = t.data[1], h0 = t.data[3];
+      const w = D - 0.6 * h0;
+      const tre = px(Rt, rb / 2 + F * (x0 - g2.midtX) / w, rh / 2 - F * (y0 - g2.midtY) / w);
+      this.sjekk('et tre sett ovenfra er grønt', tre[1] > tre[0] + 8 && tre[1] > tre[2] + 8, [...tre].join(','));
+      /* Id-passet ser ikke trærne: avlesningen svarer om bakken. */
+      const id = Gl3d.lesId(Rt);
+      const kIdx = Math.round(rh / 2 - F * (y0 - g2.midtY) / D) * rb + Math.round(rb / 2 + F * (x0 - g2.midtX) / D);
+      this.sjekk('avlesningen under et tre svarer om bakken', id && id[kIdx] >= 0, id && String(id[kIdx]));
+    } finally {
+      Tegner3d.brukGpu = foerGpu;
+      Tegner3d._arealkart = foerKart; Tegner3d._arealnokkel = foerNokkel;
+    }
   },
 
   /* ---------------- 19. lovlighet i planet ---------------- */

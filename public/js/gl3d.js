@@ -108,7 +108,7 @@ precision highp float;
 layout(location = 0) in vec3 aPos;
 layout(location = 1) in vec3 aNorm;
 layout(location = 2) in vec3 aFarge;
-layout(location = 3) in vec3 aId;
+layout(location = 3) in vec4 aId;
 uniform vec3 uOff;
 uniform float uOv;
 uniform vec4 uRot;
@@ -121,8 +121,9 @@ out vec3 vNorm;
 out vec3 vVerden;
 out float vW;
 out vec4 vLys;
+out vec2 vMark;
 flat out vec3 vFarge;
-flat out vec3 vId;
+flat out vec4 vId;
 void main() {
   vec2 xy = aPos.xy + uOff.xy;
   float z = (aPos.z - uOff.z) * uOv;
@@ -138,6 +139,7 @@ void main() {
   vW = w;
   vFarge = aFarge;
   vId = aId;
+  vMark = aPos.xy;
   // skyggekartet slås opp litt ut langs normalen – se _skyggekart
   vLys = uLys * vec4(aPos + aNorm * uNormOff, 1.0);
 }`,
@@ -164,9 +166,11 @@ in vec3 vNorm;
 in vec3 vVerden;
 in float vW;
 in vec4 vLys;
+in vec2 vMark;
 flat in vec3 vFarge;
-flat in vec3 vId;
+flat in vec4 vId;
 uniform int uPass;
+uniform float uVirkelig;
 uniform float uIdPa;
 uniform vec2 uNF;
 uniform vec4 uOye;
@@ -179,6 +183,42 @@ out vec4 ut;
 const vec3 SOL = vec3(-0.4, 0.4, 0.82);
 const vec3 HORISONT = vec3(0.80, 0.86, 0.92);
 const vec3 HIMMELLYS = vec3(0.45, 0.60, 0.85);
+const vec3 SENIT = vec3(0.24, 0.45, 0.78);
+// Støy i verdenskoordinater: den står fast i landskapet når kameraet flytter seg.
+float hash(vec2 p) {
+  p = fract(mod(p, 1024.0) * vec2(0.1031, 0.1030));
+  p += dot(p, p.yx + 33.33);
+  return fract((p.x + p.y) * p.x);
+}
+float stoy(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
+             mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+float fbm(vec2 p) { return 0.5 * stoy(p) + 0.3 * stoy(p * 2.7 + 3.1) + 0.2 * stoy(p * 7.3 - 1.7); }
+// Materialets egen farge – se tabellen i specen for etappe 3. Tre skalaer:
+// store flekker (~25 m), mellomstore (~3 m) og korn (~0,5 m).
+vec3 materialFarge(int m, vec2 p, vec3 n) {
+  float s = fbm(p * 0.04), a = fbm(p * 0.35), b = fbm(p * 2.3);
+  vec3 c;
+  if (m == 1) c = mix(vec3(0.30, 0.42, 0.17), vec3(0.46, 0.53, 0.24), 0.7 * a + 0.3 * s) * (0.9 + 0.2 * b);
+  else if (m == 2) c = mix(vec3(0.17, 0.22, 0.11), vec3(0.30, 0.29, 0.16), a) * (0.85 + 0.3 * b);
+  else if (m == 3) c = mix(vec3(0.42, 0.39, 0.22), vec3(0.34, 0.39, 0.23), a) * (0.9 + 0.2 * b);
+  else if (m == 4) c = vec3(0.10, 0.22, 0.30) * (0.95 + 0.1 * a);
+  else if (m == 6) c = mix(vec3(0.52, 0.49, 0.43), vec3(0.63, 0.60, 0.53), b) * (0.92 + 0.12 * a);
+  else if (m == 7) c = mix(vec3(0.40, 0.30, 0.20), vec3(0.50, 0.38, 0.26), a) * (0.88 + 0.24 * b);
+  else if (m == 8) c = mix(vec3(0.42, 0.42, 0.41), vec3(0.58, 0.57, 0.55), a) * (0.8 + 0.3 * b);
+  else if (m == 9) c = mix(vec3(0.46, 0.42, 0.36), vec3(0.58, 0.54, 0.48), b) * (0.88 + 0.2 * a);
+  else if (m == 10) c = mix(vec3(0.45, 0.45, 0.45), vec3(0.55, 0.54, 0.52), a);
+  else if (m == 11) c = vec3(0.90, 0.93, 0.96) * (0.96 + 0.06 * a);
+  else c = vec3(0.5);
+  // bratt naturmark er stein og jord, ikke gress
+  if (m <= 3 && n.z < 0.75) {
+    c = mix(c, mix(vec3(0.45, 0.43, 0.40), vec3(0.40, 0.33, 0.24), a), smoothstep(0.75, 0.55, n.z));
+  }
+  return c;
+}
 float skygge() {
   if (uSkyggePa < 0.5) return 1.0;
   vec3 p = vLys.xyz * 0.5 + 0.5;
@@ -191,7 +231,7 @@ float skygge() {
 }
 void main() {
   gl_FragDepth = clamp((vW - uNF.x) / (uNF.y - uNF.x), 0.0, 1.0);
-  if (uPass == 1) { ut = uIdPa > 0.5 ? vec4(vId, 1.0) : vec4(0.0); return; }
+  if (uPass == 1) { ut = uIdPa > 0.5 ? vec4(vId.rgb, 1.0) : vec4(0.0); return; }
   if (uPass == 2) {
     float s = floor(clamp(vW / uNF.y, 0.0, 1.0) * 16777215.0);
     float r = floor(s / 65536.0);
@@ -205,7 +245,22 @@ void main() {
   bool bakside = bakken && dot(n, uOye.xyz - vVerden) < 0.0;
   float direkte = bakside ? 0.0 : clamp(dot(n, SOL), 0.0, 1.0) * skygge();
   float ly = bakside ? 0.45 : 0.55 + 0.45 * direkte;
-  vec3 c = min(vFarge * ly, vec3(1.0));
+  /* MATERIALET (fjerde byte i cellenummeret). I «Før» og «Etter» er det
+     materialets egen farge; ellers bare lysstyrken, så rødt forblir rødt. */
+  int mat = int(vId.a * 255.0 + 0.5);
+  vec3 alb = vFarge;
+  if (mat > 0) {
+    if (uVirkelig > 0.5 && mat != 20) alb = materialFarge(mat, vMark, n);
+    else alb *= 0.92 + 0.16 * fbm(vMark * 0.8);
+  }
+  vec3 c = min(alb * ly, vec3(1.0));
+  if (mat == 4 && uVirkelig > 0.5 && bakken) {
+    // vannet speiler himmelen, mest når man ser langs det
+    vec3 v = normalize(vVerden - uOye.xyz);
+    vec3 r = reflect(v, vec3(0.0, 0.0, 1.0));
+    float fr = 0.04 + 0.96 * pow(1.0 - clamp(-v.z, 0.0, 1.0), 5.0);
+    c = mix(c, mix(HORISONT, SENIT, pow(max(r.z, 0.0), 0.45)), fr);
+  }
   if (bakken) {
     c = mix(c, HIMMELLYS, 0.06 * (1.0 - direkte));
     if (uTake > 0.0) c = mix(c, HORISONT, 1.0 - exp(-pow(vW / uTake, 1.3)));
@@ -289,7 +344,7 @@ void main() {}`,
     const gl = this.gl;
     const hoved = this._program(this._VS, this._FS, ['uOff', 'uOv', 'uRot', 'uD', 'uProj', 'uNF',
       'uPass', 'uIdPa', 'uOye', 'uLys', 'uNormOff', 'uSkygge', 'uSkyggePa', 'uSkyggeTeksel',
-      'uSkyggeBias', 'uTake']);
+      'uSkyggeBias', 'uTake', 'uVirkelig']);
     const himmel = this._program(this._HIMMEL_VS, this._HIMMEL_FS, ['uRot', 'uProj']);
     const skygge = this._program(this._SKYGGE_VS, this._SKYGGE_FS, ['uLys']);
     if (!hoved || !himmel || !skygge) return false;
@@ -524,6 +579,7 @@ void main() {}`,
     }
     const indeks = new Uint32Array(Math.max(6, (nr - 1) * (nk - 1) * 6));
     let ni = 0;
+    const matF = lag.materiale || (lag.farge && lag.farge.materiale) || null;
     /* Fargen UTEN lys. Lyset regnes i shaderen, av normalen – se `_lys`. */
     Tegner3d._lysEn = true;
     try {
@@ -541,6 +597,8 @@ void main() {}`,
           far[v00 * 4] = f & 255; far[v00 * 4 + 1] = (f >> 8) & 255; far[v00 * 4 + 2] = (f >> 16) & 255;
           const id = k00 + 1;
           ids[v00 * 4] = (id >> 16) & 255; ids[v00 * 4 + 1] = (id >> 8) & 255; ids[v00 * 4 + 2] = id & 255;
+          // materialet i fjerde byte – se materialFarge i _FS
+          if (matF) ids[v00 * 4 + 3] = matF(k00) & 255;
           /* Flatenormalen slik `_lys` regner den – kryssproduktet av de to
              ekte kantene, pekende opp – lagt til i alle fire hjørnene. Ikke
              normalisert: en stor celle teller mer enn en liten. */
@@ -577,7 +635,7 @@ void main() {}`,
     attr(pos, 0, 3, gl.FLOAT, false, 0);
     attr(nor, 1, 3, gl.FLOAT, false, 0);
     attr(far, 2, 3, gl.UNSIGNED_BYTE, true, 4);
-    attr(ids, 3, 3, gl.UNSIGNED_BYTE, true, 4);
+    attr(ids, 3, 4, gl.UNSIGNED_BYTE, true, 4);
     const ib = gl.createBuffer();
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib);
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indeks.subarray(0, ni), gl.STATIC_DRAW);
@@ -686,6 +744,7 @@ void main() {}`,
       gl.uniform1f(u.uSkyggeBias, S.bias);
     }
     gl.uniform1f(u.uTake, R.take || 0);
+    gl.uniform1f(u.uVirkelig, R.virkelig ? 1 : 0);
     gl.disable(gl.CULL_FACE); gl.disable(gl.BLEND);
     gl.disable(gl.STENCIL_TEST); gl.disable(gl.SCISSOR_TEST);
     gl.colorMask(true, true, true, true);

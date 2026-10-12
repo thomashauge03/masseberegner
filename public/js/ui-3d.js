@@ -1806,7 +1806,7 @@ const Tegner3d = {
       const lagene0 = this.visning === 'vanlig'
         ? eier._lagliste(g, pal)
         : [{
-          hoyde: eier._flateHoyde(g), blanding: 0,
+          hoyde: eier._flateHoyde(g), blanding: 0, materiale: eier._flateMateriale(g),
           farge: (k00, k10, k01, k11, z) => {
             const c = Farger.terrengFlateRgb;
             const ly = eier._lys(g, k00, k10, k01, z, kam);
@@ -1984,13 +1984,54 @@ const Tegner3d = {
       if (!v) { v = Farger.arealRgb(k); bord.set(k, v); }
       return v;
     };
-    return (k00, k10, k01, k11, z) => {
+    const farge = (k00, k10, k01, k11, z) => {
       const rgb = kart ? rgbFor(kart.kodeVed(g.wx[k00], g.wy[k00]))
         : Farger.terrengFlateRgb;
       const ly = this._lys(g, k00, k10, k01, z, this._kamNa);
       const r = Math.min(255, rgb[0] * ly), gg = Math.min(255, rgb[1] * ly);
       const bl = Math.min(255, rgb[2] * ly);
       return (255 << 24) | (bl << 16) | (gg << 8) | r;
+    };
+    // skjermkortets materiale for samme celle – se Gl3d._bygg
+    farge.materiale = k00 => Tegner3d._arealMat(kart ? kart.kodeVed(g.wx[k00], g.wy[k00]) : null);
+    return farge;
+  },
+
+  /**
+   * AR5-koden som skjermkortets materiale (se materialFarge i gl3d.js).
+   * Uten arealdekke er bakken gress: et realistisk «Før» skal ikke stå grått.
+   */
+  _arealMat(kode) {
+    switch (kode) {
+      case 11: case 12: return 10;          // bebygd, samferdsel
+      case 30: return 2;                    // skog
+      case 60: return 3;                    // myr
+      case 70: return 11;                   // snø og is
+      case 81: case 82: return 4;           // ferskvann, hav
+      default: return 1;                    // dyrka, beite, åpen fastmark, ukjent
+    }
+  },
+
+  /**
+   * Materialet på den ene flaten i «Før» og «Etter».
+   *
+   * «Før» er dagens mark: arealdekket overalt. «Etter» er det som blir bygd
+   * der det bygges – vegbanen og den ferdige tomta i grus (en landbruksveg har
+   * grusdekke), skjæringen i jord eller fjell der fjellet står over ferdig
+   * flate, fyllingen i fyllmasse – og dagens mark utenfor.
+   */
+  _flateMateriale(g) {
+    const kart = (this.lag && this.lag.arealdekke) ? Tegner3d._arealkart : null;
+    const areal = k => Tegner3d._arealMat(kart ? kart.kodeVed(g.wx[k], g.wy[k]) : null);
+    if (this.visning !== 'etter') return areal;
+    return k => {
+      if ((g.harVeg && g.harVeg[k]) || (g.harFerdig && g.harFerdig[k])) return 6;
+      if (g.harGrav && g.harGrav[k]) {
+        const skj = !g.d || g.d[k] >= 0;
+        if (skj && g.zF && g.zP && g.zF[k] > g.zP[k] + 0.05) return 8;
+        return skj ? 7 : 9;
+      }
+      return areal(k);
     };
   },
 
@@ -2200,6 +2241,11 @@ const Tegner3d = {
   _flate(g, lag, o, rb, rh, kam) {
     const R = this._ramme;
     if (R && R.gpu) {
+      /* Uten eget materiale er flaten «masse» (20): bare lysstyrken varierer,
+         fargen står – se materialFarge i gl3d.js. */
+      if (!lag.materiale && !(lag.farge && lag.farge.materiale)) {
+        lag = Object.assign({}, lag, { materiale: Tegner3d._masseMat });
+      }
       const m = Gl3d.mesh(g, lag, o.steg, (o.stempel || R.stempel) + '§' + (o.merke || ''));
       if (m && !m.tom) {
         const gjennom = lag.blanding > 0;
@@ -2667,7 +2713,9 @@ const Tegner3d = {
     /* Himmel og dis bare når man STÅR i modellen. Ovenfra er det ingen
        horisont, og modellen – og rapportbildene – skal se ut som før. Disen
        tar på 2,5 km når man går, og lenger ut jo høyere man flyr. */
+    /* «Virkelig»: Før og Etter får materialenes egne farger – se materialFarge. */
     const R = this._ramme = { gpu, rb, rh, kam: kam.gl, bak, horisont, liste: [],
+      virkelig: this.visning !== 'vanlig',
       himmel: !!kam.oye, take: kam.oye ? 2500 + 6 * (this.kamH || 0) : 0,
       stempel: this._fargestempel(),
       fjern: Math.max(50000, 4 * ((this._sceneDiagonal || 0) + (kam.dist || 0))) };
@@ -2689,7 +2737,7 @@ const Tegner3d = {
     const lagene = this.visning === 'vanlig'
       ? this._lagliste(g, pal)
       : [{
-        hoyde: this._flateHoyde(g), blanding: 0,
+        hoyde: this._flateHoyde(g), blanding: 0, materiale: this._flateMateriale(g),
         farge: (k00, k10, k01, k11, z) => {
           const rgb = Farger.terrengFlateRgb;
           const ly = this._lys(g, k00, k10, k01, z, this._kamNa);
@@ -3951,6 +3999,8 @@ Tegner3d.OYEHOYDE = 1.7;
    noder er rundt 40 MB på skjermkortet – godt innenfor selv på et nettbrett. */
 Tegner3d.GPU_NODER = 1500000;
 Tegner3d.GPU_NODER_BAKGRUNN = 600000;
+/* Én funksjon, ikke en ny per bilde: «masse» – se `_flate`. */
+Tegner3d._masseMat = () => 20;
 
 /* CELLENUMMERET UNDER HVER PIKSEL – fra den tegneren som tegnet sist.
    Prosessoren skriver tabellen mens den tegner. Skjermkortet leser den ut
