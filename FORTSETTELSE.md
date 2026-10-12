@@ -58,6 +58,24 @@ Underveis ba brukeren om et **oversiktskart for rørene** – ett kart med alle
 typene i hver sin farge og tegnforklaring, og ett kart per type. Det kom foran
 resten av «Utenfor 3a».
 
+### 3D i bevegelse tegnet av skjermkortet
+
+2026-10-12: «har prøvd å dra i andre 3d modeller og dem på andre program går
+ofte mye mer smud … og er trege». Målt: rasteret i `ui-3d.js` bruker 20–38 ms
+per bilde i full skjerm på demoen, og faller i oppløsning mens man drar. Nå
+tegner `public/js/gl3d.js` (rå WebGL 2, ingen bibliotek) mens man drar, kniper
+eller ruller ovenfra: `_rasterOpptak` tar opp scenen som trekanter med ferdig
+farge (samme celler, krav og farger som `_raster`), og hvert bilde er bare et
+nytt kamera – målt under 1 ms. Gjennomsiktige lag følger rasterets regel via en
+egen lagramme og `gl_FragDepth`; alt i 24 bits dybde. Det skarpe bildet tegnes
+når man slipper (som før), og `_slaOpp` tegner det med en gang om siste bilde
+var skjermkortets. Musebevegelser samles til ett bilde per ramme
+(`_tegnIRammen`). Sammenlignet piksel for piksel mot rasteret: under 0,02 %
+ulike piksler (kanter) for veg, tomt med nabo og to gjennomsiktige lag på rad;
+0,2 % for rør med naboer. Bakkemodus (gå i modellen) tegnes fortsatt av
+rasteret – strekene skjules bak terrenget med rasterets dybde per piksel; det
+er neste steg om det trengs. `Tegner3d.glAv = true` slår skjermkortet av.
+
 ### Rør fra Makin' Excavator (Kinematic): SOSI og koden i navnet
 
 2026-10-12: «vi har jo rør innmålinger jeg vil at den skal også ta imot denne

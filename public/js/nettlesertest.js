@@ -6476,6 +6476,10 @@ const Nettlesertest = {
               clientX: rz.left + treff.x, clientY: rz.top + treff.y }));
             await this.vent(60);
           }
+          /* Hjulet tegnes nå av skjermkortet, og det skarpe bildet kommer når
+             hjulet har stått i 150 ms. Leses oppslaget før, kan det svare fra
+             bildet FØR zoomen – og da besto prøven uten å ha prøvd noe. */
+          await this.vent(250);
           const etter = Veg3d._slaOpp({ x: treff.x, y: treff.y }, o);
           /* Kravet er at markøren blir stående PÅ SAMME STED, ikke på nøyaktig
              samme node. Står punktet på grensen mellom to celler, avgjør en
