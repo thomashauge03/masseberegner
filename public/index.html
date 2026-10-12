@@ -681,6 +681,10 @@
             <button id="v3_grenser" class="verktoyknapp aktiv" title="Skråningsfot, vegkant og senterlinje">Grenser</button>
             <button id="v3_arealdekke" class="verktoyknapp aktiv" title="Skog, vann, dyrka mark og eksisterende veg på urørt mark – AR5 fra NIBIO">Arealdekke</button>
             <button id="v3_fyldig" class="verktoyknapp" title="Mal massen helt – terrenget står igjen bare der det ikke røres">Fyldig</button>
+            <button id="v3_traer" class="verktoyknapp aktiv" title="Trær der arealdekket sier skog – aldri der det graves eller fylles">Trær</button>
+            <button id="v3_skygger" class="verktoyknapp aktiv" title="Slagskygger fra sola">Skygger</button>
+            <button id="v3_himmel" class="verktoyknapp aktiv" title="Himmel og dis når du står i modellen">Himmel</button>
+            <button id="v3_ekte" class="verktoyknapp aktiv" title="Gress, grus, asfalt, jord og fjell i Før og Etter">Ekte flater</button>
           </span>
           <!-- Hvilke naboanlegg som er med, og hvor detaljert. Fylles av
                Tegner3d.visAndreliste og står tom med bare ett anlegg. -->
@@ -804,6 +808,10 @@
             <button id="t3_arealdekke" class="verktoyknapp aktiv" title="Skog, vann, dyrka mark og eksisterende veg på urørt mark – AR5 fra NIBIO">Arealdekke</button>
             <button id="t3_fyldig" class="verktoyknapp" title="Mal massen helt – terrenget står igjen bare der det ikke røres">Fyldig</button>
             <button id="t3_grenser" class="verktoyknapp aktiv" title="Tomtegrense og skråningsfot">Grenser</button>
+            <button id="t3_traer" class="verktoyknapp aktiv" title="Trær der arealdekket sier skog – aldri der det graves eller fylles">Trær</button>
+            <button id="t3_skygger" class="verktoyknapp aktiv" title="Slagskygger fra sola">Skygger</button>
+            <button id="t3_himmel" class="verktoyknapp aktiv" title="Himmel og dis når du står i modellen">Himmel</button>
+            <button id="t3_ekte" class="verktoyknapp aktiv" title="Gress, grus, asfalt, jord og fjell i Før og Etter">Ekte flater</button>
           </span>
           <span id="t3_andreliste" class="andreliste skjult"></span>
           <span class="synvalg" role="radiogroup" aria-label="Hva modellen viser">
@@ -1039,6 +1047,8 @@
         <select id="m_tverrfallType"><option value="tak">Tosidig (takfall)</option><option value="ensidig">Ensidig</option></select><span></span></div>
       <div class="felt"><label for="m_slitelagTykkelse">Slitelag, tykkelse</label><input type="number" id="m_slitelagTykkelse" step="0.01" value="0.10" min="0" max="1"><span>m</span></div>
       <div class="felt"><label for="m_slitelagBredde">Slitelag, bredde</label><input type="number" id="m_slitelagBredde" step="0.1" value="4.0" min="0" max="30"><span>m</span></div>
+      <div class="felt"><label for="m_dekke">Dekke</label>
+        <select id="m_dekke" title="Bare utseendet i 3D – tykkelsene står i slitelag og bærelag"><option value="grus">Grus</option><option value="asfalt">Asfalt</option></select><span></span></div>
       <div class="felt"><label for="m_baerelagTykkelse">Bærelag, tykkelse</label><input type="number" id="m_baerelagTykkelse" step="0.05" value="0.60" min="0" max="3"><span>m</span></div>
       <div class="felt"><label for="m_overbygningHelning">Helning på vegkroppens kant</label><input type="number" id="m_overbygningHelning" step="0.1" value="1.5" min="0" max="5"><span>1:x</span></div>
       <p class="notis">Vegkroppen har skrå kant, ikke loddrett. Med 0,70 m overbygning og

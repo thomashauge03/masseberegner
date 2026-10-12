@@ -45,6 +45,9 @@ const StandardMal = {
   tverrfallRetning: 1,        // ved ensidig: 1 = fall mot høyre
   slitelagTykkelse: 0.10,
   slitelagBredde: 3.5,
+  /* Dekket på vegbanen: 'grus' eller 'asfalt'. Bare utseendet i 3D – tykkelsene
+     står i slitelag og bærelag. En landbruksveg har grusdekke. */
+  dekke: 'grus',
   baerelagTykkelse: 0.60,
   grofteDybdePlanum: 0.20,    // under planum, slik normalen angir det
   grofteBunn: 0.30,

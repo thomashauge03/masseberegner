@@ -2029,7 +2029,8 @@ const Tegner3d = {
    */
   _traer(g) {
     const kart = Tegner3d._arealkart;
-    if (!this.lag || !this.lag.arealdekke || !kart || !g || !g.wx || !g.zT) return null;
+    if (!this.lag || !this.lag.arealdekke || this.lag.traer === false) return null;
+    if (!kart || !g || !g.wx || !g.zT) return null;
     if (kart.koder && !kart.koder.has(30)) return null;
     const foer = this.visning === 'foer';
     const nokkel = Gl3d._nr(g) + '|' + (foer ? 'foer' : 'etter') + '|' + (Tegner3d._arealnokkel || '');
@@ -2082,14 +2083,16 @@ const Tegner3d = {
    * «Før» er dagens mark: arealdekket overalt. «Etter» er det som blir bygd
    * der det bygges – vegbanen og den ferdige tomta i grus (en landbruksveg har
    * grusdekke), skjæringen i jord eller fjell der fjellet står over ferdig
-   * flate, fyllingen i fyllmasse – og dagens mark utenfor.
+   * flate, fyllingen i fyllmasse – og dagens mark utenfor. Står vegmalen på
+   * asfalt (`g.dekke`), er vegbanen asfalt.
    */
   _flateMateriale(g) {
     const kart = (this.lag && this.lag.arealdekke) ? Tegner3d._arealkart : null;
     const areal = k => Tegner3d._arealMat(kart ? kart.kodeVed(g.wx[k], g.wy[k]) : null);
     if (this.visning !== 'etter') return areal;
     return k => {
-      if ((g.harVeg && g.harVeg[k]) || (g.harFerdig && g.harFerdig[k])) return 6;
+      if (g.harVeg && g.harVeg[k]) return g.dekke === 'asfalt' ? 5 : 6;
+      if (g.harFerdig && g.harFerdig[k]) return 6;
       if (g.harGrav && g.harGrav[k]) {
         const skj = !g.d || g.d[k] >= 0;
         if (skj && g.zF && g.zP && g.zF[k] > g.zP[k] + 0.05) return 8;
@@ -2779,8 +2782,11 @@ const Tegner3d = {
        tar på 2,5 km når man går, og lenger ut jo høyere man flyr. */
     /* «Virkelig»: Før og Etter får materialenes egne farger – se materialFarge. */
     const R = this._ramme = { gpu, rb, rh, kam: kam.gl, bak, horisont, liste: [],
-      virkelig: this.visning !== 'vanlig',
-      himmel: !!kam.oye, take: kam.oye ? 2500 + 6 * (this.kamH || 0) : 0,
+      // bryterne i «Vis ▾» – hver del av grafikken kan slås av for seg
+      virkelig: this.visning !== 'vanlig' && this.lag.ekte !== false,
+      skygger: this.lag.skygger !== false,
+      himmel: !!kam.oye && this.lag.himmel !== false,
+      take: (kam.oye && this.lag.himmel !== false) ? 2500 + 6 * (this.kamH || 0) : 0,
       stempel: this._fargestempel(),
       fjern: Math.max(50000, 4 * ((this._sceneDiagonal || 0) + (kam.dist || 0))) };
     if (gpu) Gl3d.nyttBilde(g);

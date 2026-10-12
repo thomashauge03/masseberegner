@@ -7908,6 +7908,33 @@ const Nettlesertest = {
       Tegner3d.brukGpu = null; Veg3d.tegn();
       this.sjekk('på bakken er det det', !!Veg3d._gpuRamme && Veg3d._gpuRamme.himmel === true
         && Veg3d._gpuRamme.take > 0);
+
+      /* BRYTERNE FOR GRAFIKKEN: knappen i «Vis ▾» slår av, bildet følger. */
+      const brytere = [['himmel', 'Himmel'], ['skygger', 'Skygger'], ['ekte', 'Ekte flater'], ['traer', 'Trær']];
+      const klikk = (prefiks, felt) => {
+        const e = document.getElementById(prefiks + felt);
+        if (e) e.click();
+        return e;
+      };
+      for (const [felt, navn] of brytere) {
+        const e = klikk('v3_', felt);
+        this.sjekk('knappen «' + navn + '» finnes og slår det av', !!e && Veg3d.lag[felt] === false
+          && !e.classList.contains('aktiv'), e ? String(Veg3d.lag[felt]) : 'mangler');
+      }
+      Tegner3d.brukGpu = null; Veg3d.tegn();
+      this.sjekk('uten «Himmel» er det verken himmel eller dis på bakken',
+        !!Veg3d._gpuRamme && Veg3d._gpuRamme.himmel === false && !Veg3d._gpuRamme.take);
+      this.sjekk('uten «Skygger» er det ingen skygger', !!Veg3d._gpuRamme && Veg3d._gpuRamme.skygger === false);
+      Veg3d.settVisning('etter'); Veg3d.tegn();
+      this.sjekk('uten «Ekte flater» er «Etter» grått som før', !!Veg3d._gpuRamme && Veg3d._gpuRamme.virkelig === false);
+      Veg3d.settVisning('vanlig');
+      for (const [felt] of brytere) klikk('v3_', felt);
+      this.sjekk('og et nytt trykk slår alt på igjen', brytere.every(([felt]) => Veg3d.lag[felt] === true));
+      for (const [felt, navn] of brytere) {
+        const e = klikk('t3_', felt);
+        this.sjekk('tomta har også «' + navn + '»', !!e && Tomt3d.lag[felt] === false);
+        klikk('t3_', felt);
+      }
       sammenlign('vegen fra bakken');
 
       /* Avlesningen midt i bildet svarer det samme på begge. */
@@ -8343,6 +8370,24 @@ const Nettlesertest = {
       this.sjekk('  i «Før» står skogen også der det skal graves', inneFoer > 3, inneFoer + ' trær');
       v.lag.arealdekke = false; v._traerFor = null;
       this.sjekk('  og uten arealdekket er det ingen trær', !v._traer(g2));
+      v.lag.arealdekke = true; v.lag.traer = false; v._traerFor = null;
+      this.sjekk('  og med «Trær» slått av er det heller ingen', !v._traer(g2));
+      v.lag.traer = true; v._traerFor = null;
+
+      /* ASFALT: mørk og nøytral, og vegbanen får den i «Etter» når malen sier det. */
+      const gA = lagGitter(5, 5);
+      gA.harVeg = new Uint8Array(25).fill(1);
+      const vA = Object.create(Tegner3d);
+      vA.lag = {}; vA.visning = 'etter';
+      gA.dekke = 'asfalt';
+      this.sjekk('vegbanen er asfalt i «Etter» når malen sier asfalt', vA._flateMateriale(gA)(12) === 5);
+      gA.dekke = 'grus';
+      this.sjekk('  og grus når den sier grus', vA._flateMateriale(gA)(12) === 6);
+      Gl3d.nyttBilde(g);
+      const mA = Gl3d.mesh(g, { hoyde: g.z, farge: () => graa, materiale: () => 5 }, 1, 'prove-asfalt');
+      const asf = px(ramme(g, [opak(mA)], true), rb / 2, rh / 2);
+      this.sjekk('asfalt er mørk og nøytral', sum(asf) < sum(grus) * 0.6
+        && Math.max(asf[0], asf[1], asf[2]) - Math.min(asf[0], asf[1], asf[2]) < 14, [...asf].join(','));
 
       /* TEGNET: én gang per nøkkel, og grønt der treet står. */
       Gl3d.nyttBilde(g2);

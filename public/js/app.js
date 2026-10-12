@@ -5822,6 +5822,7 @@ const App = {
     sett('m_tverrfallType', m.tverrfallType);
     sett('m_slitelagTykkelse', m.slitelagTykkelse);
     sett('m_slitelagBredde', m.slitelagBredde);
+    sett('m_dekke', m.dekke === 'asfalt' ? 'asfalt' : 'grus');
     sett('m_baerelagTykkelse', m.baerelagTykkelse);
     sett('m_grofteDybdePlanum', m.grofteDybdePlanum);
     sett('m_grofteBunn', m.grofteBunn);
@@ -6475,6 +6476,7 @@ const App = {
     m.tverrfallType = document.getElementById('m_tverrfallType').value;
     m.slitelagTykkelse = tall('m_slitelagTykkelse');
     m.slitelagBredde = tall('m_slitelagBredde');
+    m.dekke = document.getElementById('m_dekke').value === 'asfalt' ? 'asfalt' : 'grus';
     m.baerelagTykkelse = tall('m_baerelagTykkelse');
     m.grofteDybdePlanum = tall('m_grofteDybdePlanum');
     m.grofteBunn = tall('m_grofteBunn');
@@ -8033,7 +8035,8 @@ const App = {
     for (const [felt, boks] of [['terreng', 't3_terreng'], ['grav', 't3_grav'],
       ['fjell', 't3_fjell'], ['overbygning', 't3_overbygning'],
       ['rutenett', 't3_rutenett'], ['grenser', 't3_grenser'],
-      ['arealdekke', 't3_arealdekke']]) {
+      ['arealdekke', 't3_arealdekke'], ['traer', 't3_traer'], ['skygger', 't3_skygger'],
+      ['himmel', 't3_himmel'], ['ekte', 't3_ekte']]) {
       const e = id2(boks);
       if (e) e.onclick = () => {
         Tomt3d.lag[felt] = !Tomt3d.lag[felt];
@@ -8219,7 +8222,8 @@ const App = {
     for (const [felt, boks] of [['terreng', 'v3_terreng'], ['grav', 'v3_grav'],
       ['vegbane', 'v3_vegbane'], ['fjell', 'v3_fjell'],
       ['rutenett', 'v3_rutenett'], ['grenser', 'v3_grenser'],
-      ['arealdekke', 'v3_arealdekke']]) {
+      ['arealdekke', 'v3_arealdekke'], ['traer', 'v3_traer'], ['skygger', 'v3_skygger'],
+      ['himmel', 'v3_himmel'], ['ekte', 'v3_ekte']]) {
       const e = id2(boks);
       if (e) e.onclick = () => {
         Veg3d.lag[felt] = !Veg3d.lag[felt];

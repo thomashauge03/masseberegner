@@ -36,7 +36,10 @@ const Tomt3d = Object.assign(Object.create(Tegner3d), {
      prosjektet har mer enn ett anlegg (Tegner3d._autoAndre). */
   /* `arealdekke`: se Veg3d.lag – bakken er den samme i begge visningene. */
   lag: { terreng: true, grav: true, fjell: false, overbygning: false, rutenett: false,
-    grenser: true, andre: false, arealdekke: true },
+    grenser: true, andre: false, arealdekke: true,
+    /* Grafikken på skjermkortet, hver for seg – se Tegner3d.tegn. Prosessoren
+       tegner ingen av dem, så der gjør bryterne ingenting. */
+    traer: true, skygger: true, himmel: true, ekte: true },
 
 
   init(app) {

@@ -58,7 +58,10 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
      modellen nøyaktig ut som før, så det koster ingenting å ha den framme,
      og en opplysning man ikke vet finnes blir aldri bedt om. */
   lag: { terreng: true, grav: true, vegbane: true, fjell: false, rutenett: false,
-    grenser: true, andre: false, arealdekke: true },
+    grenser: true, andre: false, arealdekke: true,
+    /* Grafikken på skjermkortet, hver for seg – se Tegner3d.tegn. Prosessoren
+       tegner ingen av dem, så der gjør bryterne ingenting. */
+    traer: true, skygger: true, himmel: true, ekte: true },
 
   /* Kolonneskjemaet. Likt i hver rad, så en kolonne alltid betyr det samme:
      foten er kolonne FOT_V og FOT_H, vegkantene KANT_V og KANT_H, senterlinja
@@ -425,8 +428,12 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
     const rader = res.profiler.filter(p => p.s >= fra && p.s <= til);
     if (rader.length < 2) return null;
 
+    /* Dekket er bare utseende, men det står på gitteret – se
+       Tegner3d._flateMateriale – og da må et nytt dekke gi et nytt gitter. */
+    const mal = (this.app && this.app.P && this.app.P.mal) || {};
+    const dekke = mal.dekke === 'asfalt' ? 'asfalt' : 'grus';
     const nokkel = res.profiler.length + '|' + fra.toFixed(2) + '|' + til.toFixed(2)
-      + '|' + this.kontekst;
+      + '|' + this.kontekst + '|' + dekke;
     if (this._gitterFor === res.profiler && this._gitterNokkel === nokkel) return this._gitterBuffer;
 
     /* Kontekstkolonner på hver side: bare terreng, ingen prosjektert flate.
@@ -611,7 +618,7 @@ const Veg3d = Object.assign(Object.create(Tegner3d), {
       wx, wy, zT, zP: zJord, zF: zFjell, zVeg, harVeg, zEtter,
       d, tAkse, s: sRad, finnes, harGrav, utenGrav, usikker, celleSperre,
       sperret, utenGeo, fra: rader[0].s, til: rader[rader.length - 1].s,
-      totalt: n, kn
+      totalt: n, kn, dekke
     };
     this._gitterFor = res.profiler; this._gitterNokkel = nokkel; this._gitterBuffer = g;
     return g;
