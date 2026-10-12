@@ -41,6 +41,7 @@ const Gl3d = {
   _nesteId: 1,
   _hashFor: new WeakMap(),
   _fbo: {},
+  _asynk: null,
 
   klar() {
     if (this.feilet || this.tapt) return false;
@@ -381,6 +382,11 @@ void main() {
       }
     }
     this._fbo = {};
+    if (gl && this._asynk) {
+      if (this._asynk.sync) gl.deleteSync(this._asynk.sync);
+      gl.deleteBuffer(this._asynk.buf);
+    }
+    this._asynk = null;
   },
 
   /* En mesh ingen har tegnet på 600 bilder, slettes. Bytter man fram og
@@ -522,7 +528,7 @@ void main() {
    * Samme lister, samme kamera og samme dybdeprøve som bildet – bare med
    * cellenummer (1) eller avstand (2) som farge.
    */
-  _passe(R, pass, b, h) {
+  _passe(R, pass, b, h, pbo) {
     const gl = this.gl;
     const f = this._fboFor(pass === 1 ? 'id' : 'dybde', b, h);
     gl.bindFramebuffer(gl.FRAMEBUFFER, f.fb);
@@ -540,6 +546,15 @@ void main() {
       this._tegnMesh(d.m);
     }
     gl.bindVertexArray(null);
+    if (pbo) {
+      // til en buffer på skjermkortet – hentes senere, se `dybdeOppslagRask`
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, pbo);
+      gl.bufferData(gl.PIXEL_PACK_BUFFER, b * h * 4, gl.STREAM_READ);
+      gl.readPixels(0, 0, b, h, gl.RGBA, gl.UNSIGNED_BYTE, 0);
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      return null;
+    }
     const ut = new Uint8Array(b * h * 4);
     gl.readPixels(0, 0, b, h, gl.RGBA, gl.UNSIGNED_BYTE, ut);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -577,19 +592,65 @@ void main() {
     if (!this._gyldig(R)) return null;
     if (R.dybdeFn) return R.dybdeFn;
     const qb = Math.max(1, Math.ceil(R.rb / 4)), qh = Math.max(1, Math.ceil(R.rh / 4));
-    const px = this._passe(R, 2, qb, qh);
+    R.dybdeFn = this._dekod(this._passe(R, 2, qb, qh), qb, qh, R.rb, R.rh, R.fjern);
+    return R.dybdeFn;
+  },
+
+  _dekod(px, qb, qh, rb, rh, fjern) {
     const d = new Float32Array(qb * qh);
     for (let y = 0; y < qh; y++) {
       const kilde = (qh - 1 - y) * qb * 4;
       for (let x = 0; x < qb; x++) {
         const i = kilde + x * 4;
         d[y * qb + x] = px[i + 3]
-          ? ((px[i] << 16) | (px[i + 1] << 8) | px[i + 2]) / 16777215 * R.fjern : Infinity;
+          ? ((px[i] << 16) | (px[i + 1] << 8) | px[i + 2]) / 16777215 * fjern : Infinity;
       }
     }
-    const fx = qb / R.rb, fy = qh / R.rh;
-    R.dybdeFn = (ix, iy) => d[Math.min(qh - 1, Math.floor(iy * fy)) * qb + Math.min(qb - 1, Math.floor(ix * fx))];
-    return R.dybdeFn;
+    const fx = qb / rb, fy = qh / rh;
+    return (ix, iy) => d[Math.min(qh - 1, Math.floor(iy * fy)) * qb + Math.min(qb - 1, Math.floor(ix * fx))];
+  },
+
+  /**
+   * Dybden mens man beveger seg: fra forrige bilde, uten å vente.
+   *
+   * MÅLT: å lese dybden rett ut kostet 11 ms av 12 i hvert bilde man gikk.
+   * Selve tegningen tok 0,2 – resten var nettleseren som ventet på at
+   * skjermkortet skulle bli ferdig, for så å sende pikslene tilbake. Her
+   * bestilles utlesingen i ett bilde og hentes i et senere, når skjermkortet
+   * sier den er klar. Strekene gjemmer seg da bak bakken slik den sto én
+   * sekstidels sekund før – og når man stopper, tegnes det ett bilde med
+   * den eksakte (se `_dybdeOppslag` i ui-3d.js).
+   */
+  dybdeOppslagRask(R) {
+    if (!this._gyldig(R)) return null;
+    if (R.dybdeFn) return R.dybdeFn;
+    const gl = this.gl;
+    let A = this._asynk;
+    if (A && A.kontekstNr !== this._kontekstNr) A = this._asynk = null;
+    if (A && A.sync) {
+      const s = gl.clientWaitSync(A.sync, 0, 0);
+      if (s === gl.ALREADY_SIGNALED || s === gl.CONDITION_SATISFIED) {
+        gl.deleteSync(A.sync);
+        A.sync = null;
+        const px = new Uint8Array(A.qb * A.qh * 4);
+        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, A.buf);
+        gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, px);
+        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+        A.fn = this._dekod(px, A.qb, A.qh, A.rb, A.rh, A.fjern);
+        A.fnRb = A.rb; A.fnRh = A.rh;
+      }
+    }
+    if (!A || !A.sync) {
+      const qb = Math.max(1, Math.ceil(R.rb / 4)), qh = Math.max(1, Math.ceil(R.rh / 4));
+      if (!A) A = this._asynk = { buf: gl.createBuffer(), kontekstNr: this._kontekstNr };
+      this._passe(R, 2, qb, qh, A.buf);
+      A.sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+      gl.flush();
+      Object.assign(A, { qb, qh, rb: R.rb, rh: R.rh, fjern: R.fjern });
+    }
+    // før det første svaret har kommet – eller lerretet har skiftet størrelse – den eksakte
+    if (A.fn && A.fnRb === R.rb && A.fnRh === R.rh) return A.fn;
+    return this.dybdeOppslag(R);
   }
 };
 

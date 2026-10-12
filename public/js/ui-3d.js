@@ -698,7 +698,7 @@ const Tegner3d = {
       typeof Tomt3d !== 'undefined' ? Tomt3d : null]) {
       if (!vis) continue;
       vis.glemBakgrunn();
-      vis._skalaSatt = false;
+      if (!vis._kameraRort) vis._skalaSatt = false;
       if (vis.aktiv) vis.tegn();
     }
     app.status(utelatt.length
@@ -895,8 +895,9 @@ const Tegner3d = {
        scene som ikke finnes lenger: det aktive anlegget blir en flekk, med
        dødt felt der naboen var. Samme feil motsatt vei når et anlegg kommer
        til. Denne kalles fra `tegn()` FØR innrammingsprøven, så det slår inn i
-       det samme bildet. */
-    if (this._andreNokkel != null) this._skalaSatt = false;
+       det samme bildet – med mindre brukeren har flyttet kameraet selv: da
+       står det der brukeren satte det. */
+    if (this._andreNokkel != null && !this._kameraRort) this._skalaSatt = false;
     this._andreNokkel = nokkel; this._andreBuffer = ut;
     return ut;
   },
@@ -2240,7 +2241,12 @@ const Tegner3d = {
     if (this._utenDybdeprove) return null;
     const rb = this._sisteRb, rh = this._sisteRh;
     if (!rb || !rh) return null;
-    if (this._gpuRamme) return Gl3d.dybdeOppslag(this._gpuRamme);
+    if (this._gpuRamme) {
+      /* Mens man går eller drar: forrige bildes dybde, uten å vente på
+         skjermkortet – se `Gl3d.dybdeOppslagRask`. I ro: den eksakte. */
+      return (this._farer || this._drar)
+        ? Gl3d.dybdeOppslagRask(this._gpuRamme) : Gl3d.dybdeOppslag(this._gpuRamme);
+    }
     const dyp = this._dyp;
     if (!dyp || dyp.length !== rb * rh) return null;
     return (ix, iy) => dyp[iy * rb + ix];
@@ -2554,6 +2560,7 @@ const Tegner3d = {
        for den størrelsen. `nullstill` tegner selv, så vi går ut etterpå. */
     if (this._maaRammes) {
       this._maaRammes = false;
+      this._kameraRort = false;
       /* PÅ BAKKEN FINNES DET INGEN INNRAMMING Å GJØRE.
          `nullstill` er veien hjem til oversikten, og den gikk ut av bakkemodus.
          Slår man på 3D og går ned på bakken i samme klikk, kom den etterpå og
@@ -3144,6 +3151,17 @@ const Tegner3d = {
    *   piltaster            går bortover, ett profil om gangen
    *   dobbeltklikk         tilbake til utgangsstillingen
    */
+  /**
+   * Tegn etter en mus- eller hjulhendelse.
+   *
+   * På skjermkortet ved neste skjermoppdatering: musa sender hendelser oftere
+   * enn skjermen viser bilder, og hvert bilde som tegnes og aldri vises er
+   * bortkastet. Prosessoren tegner med en gang, som før.
+   */
+  _tegnNa() {
+    if (this._gpu()) tegnSnart(this); else this.tegn();
+  },
+
   _musKobling() {
     const c = this.over || this.lerret;
     let dra = null;
@@ -3198,7 +3216,8 @@ const Tegner3d = {
         this.panY = (this.panY || 0) + (nm.y - this._knipMidt.y);
         this._knip = na; this._knipMidt = nm;
         this._skalaSatt = true;
-        this.tegn();
+        this._kameraRort = true;
+        this._tegnNa();
         e.preventDefault();
         return;
       }
@@ -3237,7 +3256,8 @@ const Tegner3d = {
         this.yaw = dra.yaw + (p.x - dra.x) * 0.4;
         this.pitch = Math.max(8, Math.min(88, dra.pitch + (p.y - dra.y) * 0.3));
       }
-      this.tegn();
+      this._kameraRort = true;
+      this._tegnNa();
       e.preventDefault();
     };
     const slutt = e => {
@@ -3261,6 +3281,7 @@ const Tegner3d = {
              å ta utgangspunkt i – hverken for dreiing eller for å gå ned
              på bakken. De to tingene har ingenting med hverandre å gjøre. */
           this.settFokus(traff.k, this._sisteGitter);
+          this._kameraRort = true;
           if (this._velg) this._velg(traff.k, this._sisteGitter);
           this.tegn();
         }
@@ -3269,9 +3290,13 @@ const Tegner3d = {
       if (this._drar) {
         this._drar = false;
         /* Full oppløsning først når man slipper. Under dragning tegnes det i
-           60 % skala – uten det hakker en stor tomt på et nettbrett. */
+           60 % skala – uten det hakker en stor tomt på et nettbrett.
+           Skjermkortet tegnet fullt hele tiden, og et ekstra bilde ville bare
+           blinket. */
         clearTimeout(this._skarpt);
-        this._skarpt = setTimeout(() => this.tegn(), 120);
+        if (!this._gpu()) this._skarpt = setTimeout(() => this.tegn(), 120);
+        // ... men strekene fikk forrige bildes dybde – ett bilde med den eksakte
+        else tegnSnart(this);
       }
     };
     c.addEventListener('mousedown', start);
@@ -3307,7 +3332,7 @@ const Tegner3d = {
           return;
         }
         this.kamH = Math.max(1.6, Math.min(4000, this.kamH * (e.deltaY < 0 ? 1 / 1.15 : 1.15)));
-        this.tegn();
+        this._tegnNa();
         return;
       }
       const f = e.deltaY < 0 ? 1.12 : 1 / 1.12;
@@ -3319,7 +3344,8 @@ const Tegner3d = {
       this.panY = (this.panY || 0) - my * (f - 1);
       this.skala *= f;
       this._skalaSatt = true;
-      this.tegn();
+      this._kameraRort = true;
+      this._tegnNa();
     }, { passive: false });
     c.addEventListener('keyup', e => {
       if (e.code !== 'Space' || this._foerFoerKikk === undefined) return;
@@ -3362,6 +3388,7 @@ const Tegner3d = {
         /* Ram inn det man dreier om. Uten fokus er det hele modellen, som før.
            På bakken betyr F noe annet – se framover – og den ligger nedenfor. */
         this._skalaSatt = false;
+        this._kameraRort = false;
         this.tegn();
         e.preventDefault(); e.stopPropagation();
         return;
@@ -3636,8 +3663,10 @@ const Tegner3d = {
         this._lopId = 0;
         this._farer = false;
         // ett skarpt bilde til slutt: under gåingen tegnes det i 60 % oppløsning
+        // – på prosessoren; skjermkortet tegnet fullt hele veien
         clearTimeout(this._skarpt);
-        this._skarpt = setTimeout(() => this.tegn(), 90);
+        if (!this._gpu()) this._skarpt = setTimeout(() => this.tegn(), 90);
+        else tegnSnart(this);   // strekene med eksakt dybde – se `_dybdeOppslag`
         return;
       }
       this._farer = true;
@@ -3758,6 +3787,7 @@ const Tegner3d = {
     this.fokus = null;
     this.panX = 0; this.panY = 0;
     this._skalaSatt = false;
+    this._kameraRort = false;
     this.tegn();
   },
 

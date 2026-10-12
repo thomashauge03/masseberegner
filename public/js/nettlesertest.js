@@ -7994,12 +7994,18 @@ const Nettlesertest = {
       await this.vent(100);
       const bygd1 = Gl3d.bygget;
       const gtider = [];
+      /* Som `_bakkeLop`: `_farer` står på mens man går, og hvert bilde er sin
+         egen oppgave. I en tett løkke rekker skjermkortet aldri å si fra at
+         dybden er lest ut, og hvert bilde ville ventet på den. */
+      Veg3d._farer = true;
       for (let i = 0; i < 60; i++) {
-        Veg3d._bakkeSteg && Veg3d._taster.add('w');
+        Veg3d._taster.add('w');
         Veg3d._bakkeSteg(1 / 60);
         Veg3d.tegn();
         gtider.push(Veg3d._sisteTegnetid);
+        await this.vent(16);
       }
+      Veg3d._farer = false;
       Veg3d._taster.clear();
       gtider.sort((a, b) => a - b);
       const gmedian = gtider[gtider.length >> 1];
@@ -8023,14 +8029,31 @@ const Nettlesertest = {
       mus('mousedown', 200, 150, { button: 2 }); mus('mousemove', 260, 170, { button: 2 });
       window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
       await this.vent(100);
-      const pan = [Veg3d.panX, Veg3d.panY, Veg3d.skala];
-      Veg3d._andreNokkel = 'noe annet';
-      Veg3d.lag.andre = true; Veg3d._andreBuffer = null;
-      Veg3d.tegn();
-      this.sjekk('flyttet man kameraet selv, står det der når anleggene endrer seg',
-        Veg3d.panX === pan[0] && Veg3d.panY === pan[1] && Veg3d.skala === pan[2],
-        pan.join(',') + ' → ' + [Veg3d.panX, Veg3d.panY, Veg3d.skala].join(','));
-      Veg3d.lag.andre = false;
+      /* Settet endres ved å legge til et rør – det tegnes ikke her, men det
+         endrer nøkkelen i `_bakgrunnsgitre`, og det er den som rammet inn.
+         Prøven teller innrammingene, og kontrollen viser at den ville telt
+         én uten flagget. */
+      this.sjekk('kameraet er merket som flyttet etter en dragning', Veg3d._kameraRort === true);
+      let rammet = 0;
+      Veg3d._tilpassSkala = function (...a) { rammet++; return Tegner3d._tilpassSkala.apply(this, a); };
+      try {
+        Veg3d.lag.andre = true;
+        Veg3d.tegn();
+        rammet = 0;
+        App.P.anlegg.push({ id: '__glatt_ror1', type: 'ror', navn: 'prøverør' });
+        Veg3d.tegn();
+        this.sjekk('flyttet man kameraet selv, rammes det ikke inn når anleggene endrer seg',
+          rammet === 0, rammet + ' innramminger');
+        Veg3d._kameraRort = false;
+        rammet = 0;
+        App.P.anlegg.push({ id: '__glatt_ror2', type: 'ror', navn: 'prøverør 2' });
+        Veg3d.tegn();
+        this.sjekk('  (uten flagget rammes det inn, så prøven måler noe)', rammet > 0, rammet + ' innramminger');
+      } finally {
+        delete Veg3d._tilpassSkala;
+        App.P.anlegg = App.P.anlegg.filter(a => !/^__glatt_ror/.test(a.id));
+        Veg3d.lag.andre = false;
+      }
       Veg3d.aktiver(false);
     } finally {
       Terreng.prototype.z = gz; Terreng.prototype.dekning = gd; Terreng.prototype.lastOmraade = gl;
