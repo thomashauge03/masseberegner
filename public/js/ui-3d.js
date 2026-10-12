@@ -2664,7 +2664,11 @@ const Tegner3d = {
     const pal = this._palett();
     /* Bildets tegneliste. På prosessoren er den tom og ubrukt – `_flate`
        fyller pikslene med en gang. */
+    /* Himmel og dis bare når man STÅR i modellen. Ovenfra er det ingen
+       horisont, og modellen – og rapportbildene – skal se ut som før. Disen
+       tar på 2,5 km når man går, og lenger ut jo høyere man flyr. */
     const R = this._ramme = { gpu, rb, rh, kam: kam.gl, bak, horisont, liste: [],
+      himmel: !!kam.oye, take: kam.oye ? 2500 + 6 * (this.kamH || 0) : 0,
       stempel: this._fargestempel(),
       fjern: Math.max(50000, 4 * ((this._sceneDiagonal || 0) + (kam.dist || 0))) };
     if (gpu) Gl3d.nyttBilde(g);

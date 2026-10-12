@@ -42,6 +42,10 @@ const Gl3d = {
   _hashFor: new WeakMap(),
   _fbo: {},
   _asynk: null,
+  _meshNr: 0,
+  _skygge: null,
+  /** Skyggekart bygd. Prøvene krever at tallet står når bare kameraet flytter seg. */
+  skyggekartBygd: 0,
 
   klar() {
     if (this.feilet || this.tapt) return false;
@@ -111,9 +115,12 @@ uniform vec4 uRot;
 uniform float uD;
 uniform vec4 uProj;
 uniform vec2 uNF;
+uniform mat4 uLys;
+uniform float uNormOff;
 out vec3 vNorm;
 out vec3 vVerden;
 out float vW;
+out vec4 vLys;
 flat out vec3 vFarge;
 flat out vec3 vId;
 void main() {
@@ -131,25 +138,57 @@ void main() {
   vW = w;
   vFarge = aFarge;
   vId = aId;
+  // skyggekartet slås opp litt ut langs normalen – se _skyggekart
+  vLys = uLys * vec4(aPos + aNorm * uNormOff, 1.0);
 }`,
 
   /* uPass: 0 = bildet, 1 = cellenummer, 2 = dybde kodet i RGB.
      Lyset er `_lys` i ui-3d.js, med én forskjell: normalen er utjevnet over
      nabocellene, så lyset glir over flaten i stedet for å skifte rute for
      rute. Fargen er flat per celle (`flat`), som før – en skjæringscelle ved
-     siden av en fyllingscelle skal ikke få en rødgrønn overgang. */
+     siden av en fyllingscelle skal ikke få en rødgrønn overgang.
+
+     SOLA ER LYSET. Skyggen fjerner bare det direkte sollyset: i skygge er
+     lyset 0,55, det samme som en skråning som vender bort fra sola. Bunnen
+     står der den sto, så rødt og grønt leses like godt i skyggen som i sola.
+
+     PÅ BAKKEN (uOye.w = 1) kommer himmelen inn: skyggene får et svakt blått
+     stikk fra himmellyset, og flatene tones mot horisontfargen med avstanden
+     – luftperspektiv. HORISONT er den samme fargen som himmelen har nede ved
+     horisonten (_HIMMEL_FS), så det fjerne terrenget glir over i himmelen
+     uten en kant. */
   _FS: `#version 300 es
 precision highp float;
+precision highp sampler2DShadow;
 in vec3 vNorm;
 in vec3 vVerden;
 in float vW;
+in vec4 vLys;
 flat in vec3 vFarge;
 flat in vec3 vId;
 uniform int uPass;
 uniform float uIdPa;
 uniform vec2 uNF;
 uniform vec4 uOye;
+uniform sampler2DShadow uSkygge;
+uniform float uSkyggePa;
+uniform float uSkyggeTeksel;
+uniform float uSkyggeBias;
+uniform float uTake;
 out vec4 ut;
+const vec3 SOL = vec3(-0.4, 0.4, 0.82);
+const vec3 HORISONT = vec3(0.80, 0.86, 0.92);
+const vec3 HIMMELLYS = vec3(0.45, 0.60, 0.85);
+float skygge() {
+  if (uSkyggePa < 0.5) return 1.0;
+  vec3 p = vLys.xyz * 0.5 + 0.5;
+  if (p.x <= 0.0 || p.x >= 1.0 || p.y <= 0.0 || p.y >= 1.0 || p.z >= 1.0) return 1.0;
+  float s = 0.0;
+  for (int i = -1; i <= 1; i++)
+    for (int j = -1; j <= 1; j++)
+      s += texture(uSkygge, vec3(p.xy + vec2(float(i), float(j)) * uSkyggeTeksel, p.z - uSkyggeBias));
+  return s / 9.0;
+}
 void main() {
   gl_FragDepth = clamp((vW - uNF.x) / (uNF.y - uNF.x), 0.0, 1.0);
   if (uPass == 1) { ut = uIdPa > 0.5 ? vec4(vId, 1.0) : vec4(0.0); return; }
@@ -162,13 +201,65 @@ void main() {
     return;
   }
   vec3 n = normalize(vNorm);
-  float ly;
-  if (uOye.w > 0.5 && dot(n, uOye.xyz - vVerden) < 0.0) ly = 0.45;
-  else ly = 0.55 + 0.45 * clamp(dot(n, vec3(-0.4, 0.4, 0.82)), 0.0, 1.0);
-  ut = vec4(min(vFarge * ly, vec3(1.0)), 1.0);
+  bool bakken = uOye.w > 0.5;
+  bool bakside = bakken && dot(n, uOye.xyz - vVerden) < 0.0;
+  float direkte = bakside ? 0.0 : clamp(dot(n, SOL), 0.0, 1.0) * skygge();
+  float ly = bakside ? 0.45 : 0.55 + 0.45 * direkte;
+  vec3 c = min(vFarge * ly, vec3(1.0));
+  if (bakken) {
+    c = mix(c, HIMMELLYS, 0.06 * (1.0 - direkte));
+    if (uTake > 0.0) c = mix(c, HORISONT, 1.0 - exp(-pow(vW / uTake, 1.3)));
+  }
+  ut = vec4(c, 1.0);
 }`,
 
-  _lagProgram() {
+  /* HIMMELEN: én trekant over hele skjermen, og blikkretningen regnet per
+     piksel av kameraets egne formler snudd baklengs (se `_kamera` i
+     ui-3d.js): fra skjermpunktet til rx og sy med w = 1, så til ry og z, og
+     til slutt verdensretningen. Dis nede ved horisonten, dyp blå oppe, og en
+     glød der sola står. */
+  _HIMMEL_VS: `#version 300 es
+out vec2 vNdc;
+void main() {
+  vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2)) * 2.0 - 1.0;
+  vNdc = p;
+  gl_Position = vec4(p, 0.0, 1.0);
+}`,
+
+  _HIMMEL_FS: `#version 300 es
+precision highp float;
+in vec2 vNdc;
+uniform vec4 uRot;
+uniform vec4 uProj;
+out vec4 ut;
+const vec3 SOL = vec3(-0.4, 0.4, 0.82);
+const vec3 HORISONT = vec3(0.80, 0.86, 0.92);
+const vec3 SENIT = vec3(0.24, 0.45, 0.78);
+const vec3 BAKKE = vec3(0.52, 0.56, 0.52);
+void main() {
+  float rx = (vNdc.x - uProj.y) / uProj.x;
+  float sy = (uProj.w - vNdc.y) / uProj.z;
+  float ry = -uRot.z + sy * uRot.w;
+  float z = -uRot.w - sy * uRot.z;
+  vec3 d = normalize(vec3(rx * uRot.x + ry * uRot.y, rx * uRot.y - ry * uRot.x, z));
+  vec3 c = d.z >= 0.0 ? mix(HORISONT, SENIT, pow(d.z, 0.45))
+                      : mix(HORISONT, BAKKE, clamp(-d.z * 5.0, 0.0, 1.0));
+  float s = max(dot(d, normalize(SOL)), 0.0);
+  c += vec3(1.0, 0.95, 0.8) * (pow(s, 800.0) * 1.5 + pow(s, 10.0) * 0.15);
+  ut = vec4(min(c, vec3(1.0)), 1.0);
+}`,
+
+  /* Skyggekartet: bare dybden, sett fra sola. */
+  _SKYGGE_VS: `#version 300 es
+layout(location = 0) in vec3 aPos;
+uniform mat4 uLys;
+void main() { gl_Position = uLys * vec4(aPos, 1.0); }`,
+
+  _SKYGGE_FS: `#version 300 es
+precision mediump float;
+void main() {}`,
+
+  _program(vsKilde, fsKilde, uniformer) {
     const gl = this.gl;
     const lag = (type, kilde) => {
       const s = gl.createShader(type);
@@ -180,22 +271,148 @@ void main() {
       }
       return s;
     };
-    const vs = lag(gl.VERTEX_SHADER, this._VS), fs = lag(gl.FRAGMENT_SHADER, this._FS);
-    if (!vs || !fs) return false;
+    const vs = lag(gl.VERTEX_SHADER, vsKilde), fs = lag(gl.FRAGMENT_SHADER, fsKilde);
+    if (!vs || !fs) return null;
     const p = gl.createProgram();
     gl.attachShader(p, vs); gl.attachShader(p, fs);
     gl.linkProgram(p);
     if (!gl.getProgramParameter(p, gl.LINK_STATUS) && !gl.isContextLost()) {
       console.warn('Gl3d: ' + gl.getProgramInfoLog(p));
-      return false;
+      return null;
     }
-    this._p = p;
-    this._u = {};
-    for (const n of ['uOff', 'uOv', 'uRot', 'uD', 'uProj', 'uNF', 'uPass', 'uIdPa', 'uOye']) {
-      this._u[n] = gl.getUniformLocation(p, n);
-    }
+    const u = {};
+    for (const n of uniformer) u[n] = gl.getUniformLocation(p, n);
+    return { p, u };
+  },
+
+  _lagProgram() {
+    const gl = this.gl;
+    const hoved = this._program(this._VS, this._FS, ['uOff', 'uOv', 'uRot', 'uD', 'uProj', 'uNF',
+      'uPass', 'uIdPa', 'uOye', 'uLys', 'uNormOff', 'uSkygge', 'uSkyggePa', 'uSkyggeTeksel',
+      'uSkyggeBias', 'uTake']);
+    const himmel = this._program(this._HIMMEL_VS, this._HIMMEL_FS, ['uRot', 'uProj']);
+    const skygge = this._program(this._SKYGGE_VS, this._SKYGGE_FS, ['uLys']);
+    if (!hoved || !himmel || !skygge) return false;
+    this._p = hoved.p; this._u = hoved.u;
+    this._himmel = himmel;
+    this._skyggeP = skygge;
+    this._tomVao = gl.createVertexArray();
+    /* ET SKYGGESAMPLER MÅ ALLTID HA ET DYBDEBILDE Å LESE.
+       Også når det ikke finnes noen skygger, og også i id- og dybdepassene,
+       som aldri slår opp i det: WebGL nekter å tegne med en sampler2DShadow
+       som peker på noe annet. Ett piksel på dybde 1 betyr «alltid sol». */
+    this._ingenSkygge = this._dybdetekstur(1);
+    this._fboSkygge = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this._fboSkygge);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, this._ingenSkygge, 0);
+    gl.drawBuffers([gl.NONE]);
+    gl.readBuffer(gl.NONE);
+    gl.viewport(0, 0, 1, 1);
+    gl.clearDepth(1);
+    gl.clear(gl.DEPTH_BUFFER_BIT);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.useProgram(this._p);
+    gl.uniform1i(this._u.uSkygge, 1);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, this._ingenSkygge);
+    gl.activeTexture(gl.TEXTURE0);
+    this._skygge = null;
     this._fbo = {};
     return true;
+  },
+
+  _dybdetekstur(storrelse) {
+    const gl = this.gl;
+    const t = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.DEPTH_COMPONENT24, storrelse, storrelse);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_COMPARE_MODE, gl.COMPARE_REF_TO_TEXTURE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_COMPARE_FUNC, gl.LEQUAL);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+    return t;
+  },
+
+  /**
+   * Scenen sett fra sola, som et dybdebilde.
+   *
+   * SOLA STÅR FAST I VERDEN, så kartet avhenger ikke av kameraet: det bygges
+   * når settet av flater endrer seg, og ellers aldri. Å dra, fly og gå koster
+   * ingenting ekstra.
+   *
+   * Bare de UGJENNOMSIKTIGE flatene kaster skygge. Det halvgjennomsiktige
+   * terrenget over gravflaten er et røntgenbilde, ikke noe som står i lyset.
+   *
+   * Kartet rammer inn alle flatene i bildet, sett langs sola. Tekselen er
+   * rundt en halv meter på et anlegg på to kilometer – grovt for en grøft, men
+   * godt nok for en fylling. Oppslaget gjøres litt ut langs normalen
+   * (`uNormOff`), og det er det som hindrer at en flate skygger for seg selv.
+   */
+  _skyggekart(R) {
+    const gl = this.gl;
+    const kastere = R.liste.filter(d => d.modus === 'opak' && d.m && !d.m.tom && !d.m.slettet);
+    if (!kastere.length) return null;
+    const nokkel = kastere.map(d => d.m.nr).join(',') + '|' + this.origo.x + ',' + this.origo.y;
+    const S0 = this._skygge;
+    if (S0 && S0.nokkel === nokkel) return S0;
+    const L = [-0.4, 0.4, 0.82], lL = Math.hypot(...L);
+    const f = L.map(v => -v / lL);
+    let r = [f[1] * 1 - f[2] * 0, f[2] * 0 - f[0] * 1, f[0] * 0 - f[1] * 0];     // f × ẑ
+    const lr = Math.hypot(...r); r = r.map(v => v / lr);
+    const u = [r[1] * f[2] - r[2] * f[1], r[2] * f[0] - r[0] * f[2], r[0] * f[1] - r[1] * f[0]];
+    const dot = (a, p) => a[0] * p[0] + a[1] * p[1] + a[2] * p[2];
+    const min = [Infinity, Infinity, Infinity], maks = [-Infinity, -Infinity, -Infinity];
+    for (const d of R.liste) {
+      const b = d.m && d.m.boks;
+      if (!b) continue;
+      for (const x of [b[0], b[3]]) for (const y of [b[1], b[4]]) for (const z of [b[2], b[5]]) {
+        const p = [x, y, z];
+        const q = [dot(r, p), dot(u, p), dot(f, p)];
+        for (let i = 0; i < 3; i++) { if (q[i] < min[i]) min[i] = q[i]; if (q[i] > maks[i]) maks[i] = q[i]; }
+      }
+    }
+    if (!Number.isFinite(min[0])) return null;
+    for (let i = 0; i < 3; i++) { min[i] -= 2; maks[i] += 2; }
+    const dx = maks[0] - min[0], dy = maks[1] - min[1], dz = maks[2] - min[2];
+    const stor = Math.min(4096, gl.getParameter(gl.MAX_TEXTURE_SIZE),
+      Math.max(1024, Math.pow(2, Math.ceil(Math.log2(Math.max(dx, dy) / 0.5)))));
+    // radene i matrisen er lysets akser, skalert til [-1, 1]
+    const rad = (a, lo, d) => [2 * a[0] / d, 2 * a[1] / d, 2 * a[2] / d, -2 * lo / d - 1];
+    const r0 = rad(r, min[0], dx), r1 = rad(u, min[1], dy), r2 = rad(f, min[2], dz);
+    const mat = new Float32Array([
+      r0[0], r1[0], r2[0], 0,
+      r0[1], r1[1], r2[1], 0,
+      r0[2], r1[2], r2[2], 0,
+      r0[3], r1[3], r2[3], 1]);
+    let S = S0;
+    if (!S || S.stor !== stor) {
+      if (S) gl.deleteTexture(S.tex);
+      S = { tex: this._dybdetekstur(stor), stor };
+    }
+    Object.assign(S, { nokkel, mat, teksel: Math.max(dx, dy) / stor, bias: 0.05 / dz });
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this._fboSkygge);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, S.tex, 0);
+    gl.viewport(0, 0, stor, stor);
+    gl.disable(gl.BLEND); gl.disable(gl.STENCIL_TEST); gl.disable(gl.SCISSOR_TEST);
+    gl.depthMask(true);
+    gl.clearDepth(1);
+    gl.clear(gl.DEPTH_BUFFER_BIT);
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthFunc(gl.LESS);
+    gl.enable(gl.POLYGON_OFFSET_FILL);
+    gl.polygonOffset(1.5, 3);
+    gl.useProgram(this._skyggeP.p);
+    gl.uniformMatrix4fv(this._skyggeP.u.uLys, false, mat);
+    for (const d of kastere) this._tegnMesh(d.m);
+    gl.disable(gl.POLYGON_OFFSET_FILL);
+    gl.bindVertexArray(null);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    this.skyggekartBygd++;
+    this._skygge = S;
+    return S;
   },
 
   /**
@@ -290,6 +507,8 @@ void main() {
     const far = new Uint8Array(nv * 4);
     const ids = new Uint8Array(nv * 4);
     const ox = this.origo.x, oy = this.origo.y;
+    // boksen rundt nodene – skyggekartet rammer inn etter den
+    const boks = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
     for (let jj = 0; jj < nr; jj++) {
       for (let ii = 0; ii < nk; ii++) {
         const k = rader[jj] * nb + kol[ii], v = (jj * nk + ii) * 3;
@@ -297,6 +516,10 @@ void main() {
         pos[v] = g.wx[k] - ox; pos[v + 1] = g.wy[k] - oy;
         const z = hoyde[k];
         pos[v + 2] = Number.isFinite(z) ? z : 0;
+        for (let a = 0; a < 3; a++) {
+          if (pos[v + a] < boks[a]) boks[a] = pos[v + a];
+          if (pos[v + a] > boks[a + 3]) boks[a + 3] = pos[v + a];
+        }
       }
     }
     const indeks = new Uint32Array(Math.max(6, (nr - 1) * (nk - 1) * 6));
@@ -360,7 +583,7 @@ void main() {
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indeks.subarray(0, ni), gl.STATIC_DRAW);
     bufre.push(ib);
     gl.bindVertexArray(null);
-    return { vao, bufre, n: ni, sist: this._bildenr };
+    return { vao, bufre, n: ni, sist: this._bildenr, nr: ++this._meshNr, boks };
   },
 
   _slett(m, gl) {
@@ -387,6 +610,13 @@ void main() {
       gl.deleteBuffer(this._asynk.buf);
     }
     this._asynk = null;
+    if (gl && this._skygge) {
+      gl.deleteTexture(this._skygge.tex);
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, this._ingenSkygge);
+      gl.activeTexture(gl.TEXTURE0);
+    }
+    this._skygge = null;
   },
 
   /* En mesh ingen har tegnet på 600 bilder, slettes. Bytter man fram og
@@ -437,11 +667,25 @@ void main() {
    */
   tegn(R) {
     const gl = this.gl, c = this.lerret;
+    // skyggekartet først: det har sin egen ramme og sitt eget program
+    const S = R.skygger === false ? null : this._skyggekart(R);
     if (c.width !== R.rb || c.height !== R.rh) { c.width = R.rb; c.height = R.rh; }
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, R.rb, R.rh);
     gl.useProgram(this._p);
     this._kameraUniformer(R);
+    const u = this._u;
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, S ? S.tex : this._ingenSkygge);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.uniform1f(u.uSkyggePa, S ? 1 : 0);
+    if (S) {
+      gl.uniformMatrix4fv(u.uLys, false, S.mat);
+      gl.uniform1f(u.uNormOff, 1.5 * S.teksel);
+      gl.uniform1f(u.uSkyggeTeksel, 1 / S.stor);
+      gl.uniform1f(u.uSkyggeBias, S.bias);
+    }
+    gl.uniform1f(u.uTake, R.take || 0);
     gl.disable(gl.CULL_FACE); gl.disable(gl.BLEND);
     gl.disable(gl.STENCIL_TEST); gl.disable(gl.SCISSOR_TEST);
     gl.colorMask(true, true, true, true);
@@ -451,7 +695,19 @@ void main() {
     farge(R.bak);
     gl.clearDepth(1); gl.clearStencil(0);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
-    if (R.horisont) {
+    if (R.himmel) {
+      // en ekte himmel, bak alt – se _HIMMEL_FS
+      const k = R.kam, hu = this._himmel.u;
+      gl.useProgram(this._himmel.p);
+      gl.uniform4f(hu.uRot, k.ca, k.sa, k.cp, k.sp);
+      gl.uniform4f(hu.uProj, 2 * k.F / R.rb, 2 * k.cx / R.rb - 1, 2 * k.F / R.rh, 1 - 2 * k.cy / R.rh);
+      gl.disable(gl.DEPTH_TEST);
+      gl.depthMask(false);
+      gl.bindVertexArray(this._tomVao);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      gl.depthMask(true);
+      gl.useProgram(this._p);
+    } else if (R.horisont) {
       // himmel over horisontlinja, fjern bakke under – se `tegn()` i ui-3d.js
       const grense = Math.max(0, Math.min(R.rh, R.horisont.grense));
       gl.enable(gl.SCISSOR_TEST);

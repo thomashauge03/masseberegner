@@ -186,7 +186,7 @@ const Nettlesertest = {
       'automatiskeNaboer', 'skisseSkraaninger', 'arealdekkePaaModellen',
       'grensesnittbredder', 'panelhoder',
       'tomt', 'tomteksport', 'tomterydding', 'tomtsnittOverbygning',
-      'gl3d', 'tomt3d', 'veg3d', 'gpuSammeBilde', 'gpuGlatt', 'gpuReserve', 'kartlag',
+      'gl3d', 'tomt3d', 'veg3d', 'gpuSammeBilde', 'gpuGlatt', 'gpuReserve', 'gpuLysOgLuft', 'kartlag',
       'rorArbeidsbilde', 'rorBeregning', 'rorImport', 'rorSone', 'rorKart', 'rorFane', 'rorRetting',
       'rorProfil', 'ror3d', 'rorRapport', 'rorPdf', 'rorForklaring',
       'groftBeregning', 'groftFane', 'groftKoder', 'groftVerktoy', 'groftKnutepunkt', 'groftProfil', 'groft3d',
@@ -7886,8 +7886,15 @@ const Nettlesertest = {
       Veg3d.settVisning('etter');
       sammenlign('vegen ovenfra, «etter»');
       Veg3d.settVisning('vanlig');
+      /* Himmel og dis bare når man står i modellen – se Gl3d._HIMMEL_FS. */
+      Tegner3d.brukGpu = null; Veg3d.tegn();
+      this.sjekk('ovenfra er det ingen himmel og ingen dis',
+        !!Veg3d._gpuRamme && Veg3d._gpuRamme.himmel === false && !Veg3d._gpuRamme.take);
       Veg3d.settModus('bakken');
       await this.vent(100);
+      Tegner3d.brukGpu = null; Veg3d.tegn();
+      this.sjekk('på bakken er det det', !!Veg3d._gpuRamme && Veg3d._gpuRamme.himmel === true
+        && Veg3d._gpuRamme.take > 0);
       sammenlign('vegen fra bakken');
 
       /* Avlesningen midt i bildet svarer det samme på begge. */
@@ -8153,6 +8160,88 @@ const Nettlesertest = {
       App._terrengnokkel = null;
       await App.oppdater();
     }
+  },
+
+  /* ---------------- lys og luft ---------------- */
+  async gpuLysOgLuft() {
+    if (typeof Gl3d === 'undefined' || !Gl3d.klar()) { this.hoppOver('lys og luft', 'WebGL2 finnes ikke'); return; }
+    const rodt = (255 << 24) | (40 << 16) | (40 << 8) | 220;
+    const lagGitter = (nb, nh, steg, z) => {
+      const n = nb * nh, g = { nb, nh, wx: new Float64Array(n), wy: new Float64Array(n),
+        finnes: new Uint8Array(n).fill(1), midtX: 500000, midtY: 6600000, maksAvvik: 1 };
+      const h = new Float32Array(n);
+      for (let j = 0; j < nh; j++) for (let i = 0; i < nb; i++) {
+        const k = j * nb + i;
+        g.wx[k] = 500000 + (i - (nb - 1) / 2) * steg; g.wy[k] = 6600000 + (j - (nh - 1) / 2) * steg;
+        h[k] = z(i, j);
+      }
+      return { g, lag: { hoyde: h, farge: () => rodt } };
+    };
+    const px = (R, x, y) => {
+      Gl3d.tegn(R);
+      const l = document.createElement('canvas'); l.width = R.rb; l.height = R.rh;
+      const k = l.getContext('2d'); k.drawImage(Gl3d.lerret, 0, 0);
+      return k.getImageData(x, y, 1, 1).data;
+    };
+
+    /* SKYGGE: en søyle på 30 m midt på en flate. Sola står i nordvest, så
+       skyggen faller mot sørøst. Kamera rett ned: x mot høyre, nord opp. */
+    const { g, lag } = lagGitter(41, 41, 1, (i, j) => (Math.abs(i - 20) <= 1 && Math.abs(j - 20) <= 1) ? 130 : 100);
+    Gl3d.nyttBilde(g);
+    const m = Gl3d.mesh(g, lag, 1, 'lys-søyle');
+    const rb = 400, rh = 400;
+    const R = { rb, rh, bak: [0, 0, 0], horisont: null, fjern: 50000, himmel: false, take: 0,
+      kam: { ox: g.midtX, oy: g.midtY, oz: 100, ov: 1, ca: 1, sa: 0, cp: 0, sp: 1,
+        D: 100, F: 800, cx: rb / 2, cy: rh / 2, naer: 1, oye: null },
+      liste: [{ m, modus: 'opak', blanding: 0, id: true }] };
+    const ved = (x, y) => [rb / 2 + 8 * x, rh / 2 - 8 * y];
+    const sum = p => p[0] + p[1] + p[2];
+    const skygge = px(R, ...ved(8, -8)), sol = px(R, ...ved(-8, 8)), side = px(R, ...ved(8, 8));
+    this.sjekk('bakken bak søyla ligger i skygge', sum(skygge) < sum(sol) * 0.8,
+      sum(skygge) + ' mot ' + sum(sol));
+    this.sjekk('  og bakken ved siden av gjør det ikke', Math.abs(sum(side) - sum(sol)) <= 6,
+      sum(side) + ' mot ' + sum(sol));
+    this.sjekk('  og skyggen er aldri mørkere enn 0,55 av fargen', skygge[0] >= Math.floor(220 * 0.55) - 2,
+      String(skygge[0]));
+    R.skygger = false;
+    const uten = px(R, ...ved(8, -8));
+    this.sjekk('  (uten skygger er den like lys som solsiden, så prøven måler noe)',
+      Math.abs(sum(uten) - sum(sol)) <= 6, sum(uten) + ' mot ' + sum(sol));
+
+    /* HIMMEL OG DIS: en flate på 2 km mot nord, øyet 1,7 m over den. */
+    const s2 = lagGitter(41, 201, 10, () => 100);
+    Gl3d.nyttBilde(s2.g);
+    const m2 = Gl3d.mesh(s2.g, s2.lag, 1, 'lys-slette');
+    const E = { x: s2.g.midtX, y: s2.g.midtY - 990, z: 101.7 };
+    const p = 5 * Math.PI / 180;             // ser fem grader ned
+    /* Disen tar på 100 m her: tre piksler under horisonten er bare ~200 m
+       unna med øyet 1,7 m over flaten, og prøven skal se at den virker. */
+    const R2 = { rb, rh, bak: [0, 0, 0], horisont: null, fjern: 50000, himmel: true, take: 100,
+      kam: { ox: E.x, oy: E.y, oz: E.z, ov: 1, ca: 1, sa: 0, cp: Math.cos(p), sp: Math.sin(p),
+        D: 0, F: (rh / 2) / Math.tan(30 * Math.PI / 180), cx: rb / 2, cy: rh / 2, naer: 0.35, oye: E },
+      liste: [{ m: m2, modus: 'opak', blanding: 0, id: true }] };
+    const topp = px(R2, rb / 2, 3);
+    this.sjekk('himmelen øverst er blå', topp[2] > topp[0] + 20, [...topp].join(','));
+    const horisontY = Math.round(rh / 2 - R2.kam.F * Math.tan(p));
+    const nedeHimmel = px(R2, rb / 2, Math.max(4, horisontY - 6));
+    this.sjekk('  og lysere ved horisonten enn oppe', sum(nedeHimmel) > sum(topp), sum(nedeHimmel) + ' mot ' + sum(topp));
+    const HOR = [204, 219, 235];
+    const avst = q => Math.hypot(q[0] - HOR[0], q[1] - HOR[1], q[2] - HOR[2]);
+    const naer = px(R2, rb / 2, rh - 3), fjern = px(R2, rb / 2, horisontY + 3);
+    this.sjekk('fjernt terreng er nærmere disen enn nært', avst(fjern) < avst(naer) * 0.5,
+      Math.round(avst(fjern)) + ' mot ' + Math.round(avst(naer)));
+    R2.take = 0; R2.himmel = false;
+    const fjernUten = px(R2, rb / 2, horisontY + 3);
+    this.sjekk('  (uten dis er det ikke det)', avst(fjernUten) > avst(fjern) * 2,
+      Math.round(avst(fjernUten)) + ' mot ' + Math.round(avst(fjern)));
+
+    /* SKYGGEKARTET BYGGES IKKE PÅ NYTT NÅR BARE KAMERAET FLYTTER SEG. */
+    R.skygger = true;
+    px(R, 0, 0);
+    const foer = Gl3d.skyggekartBygd;
+    for (let i = 0; i < 5; i++) { R.kam.ca = Math.cos(i / 5); R.kam.sa = Math.sin(i / 5); Gl3d.tegn(R); }
+    this.sjekk('skyggekartet står når bare kameraet endres', Gl3d.skyggekartBygd === foer,
+      (Gl3d.skyggekartBygd - foer) + ' bygg');
   },
 
   /* ---------------- 19. lovlighet i planet ---------------- */
