@@ -23,7 +23,7 @@ Nettlesertesten kjøres ved å åpne programmet med `?test=1`, eller fra konsoll
 med `Nettlesertest.kjor()`. Utviklingstjeneren startes med `node server.js`
 (port 5178). Programmet ligger også på https://masseberegner.vercel.app.
 
-Ved siste lagring: **963 prøver i selvtesten, 237 i rørprøven
+Ved siste lagring: **963 prøver i selvtesten, 249 i rørprøven
 (`test/rorprove.js`), 219 i grøfteprøven (`test/groftprove.js`), 175 i
 planprøven (`test/rorplanprove.js`), 77 i eksportprøven
 (`test/roreksportprove.js`), 77 i avviksprøven (`test/roravvikprove.js`), 45 i
@@ -75,6 +75,22 @@ ulike piksler (kanter) for veg, tomt med nabo og to gjennomsiktige lag på rad;
 0,2 % for rør med naboer. Bakkemodus (gå i modellen) tegnes fortsatt av
 rasteret – strekene skjules bak terrenget med rasterets dybde per piksel; det
 er neste steg om det trengs. `Tegner3d.glAv = true` slår skjermkortet av.
+
+### Flere rørfiler i ett anlegg
+
+2026-10-12: «jeg vil og at vi skal kunne flette alle rørfilene til samme prosjekt
+på masseberegner». Filvelgeren tar flere filer (`multiple`), og flere kan slippes
+på kartet; `RorUI.importerFiler` → `importerTekster` → felles `_importer`.
+`Ror.slaSammenFiler` fletter dem: eldste fil først, så den nyeste vinner for et
+punkt som står i flere (kjent igjen på navnet); sonen fra første fil som oppgir
+en, og en fil i en annen sone regnes om dit (`kilde.regnetOm`). Én kilde per fil.
+Dialogen viser hver fil, filer som ikke kunne leses, og hvor mange punkt som sto
+i flere. Målet kan være hvilket som helst innmålt røranlegg i prosjektet
+(`leggTil` = det åpne, `anlegg:<id>` = et annet, `nytt`); et annet mål enn
+det åpne beholder sine egne koder (`svar.kodeGrunnlag`). SOSI-koordinatene
+rundes til enheten, så samme punkt i XML- og SOSI-fila fra Makin' Excavator gir
+nøyaktig samme tall. Nettlesertesten ventet «ikke LandXML» i feilmeldingen fra
+forrige endring – rettet til «verken LandXML eller SOSI».
 
 ### Rør fra Makin' Excavator (Kinematic): SOSI og koden i navnet
 

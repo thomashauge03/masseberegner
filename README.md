@@ -153,6 +153,16 @@ Manage og liknende – eller fra en SOSI-fil (`.sos`), og begge formatene fra
 Kinematic Makin' Excavator. Velg **⌀ Nye rør (fra fil)** i anleggslista, «Rør
 (fra fil)» i førstevalget, eller slipp fila på kartet.
 
+* **Flere filer på én gang.** Velg eller slipp flere `.xml`- og `.sos`-filer
+  samtidig – fra ulike maskiner eller ulike dager – og de flettes til én import
+  med én dialog. Et punkt som står i flere filer, kjennes igjen på navnet og tas
+  med én gang; den nyeste fila gjelder. En fil som ikke kan leses, stopper ikke
+  de andre – dialogen sier hvilken og hvorfor. Hver fil står som egen kilde.
+* **Hvor punktene skal.** Dialogen viser alle innmålte røranlegg i prosjektet,
+  så filene kan legges til i hvilket som helst av dem – ikke bare det som er
+  åpent – eller i et nytt. Legges de i et annet anlegg enn det åpne, beholder
+  det sine egne koder og farger; bare nye koder kommer til.
+
 * **Makin' Excavator** har koden enten fra lista (står i `code`/`..OBJTYPE`, og
   navnet er bare «P12 (0)») eller skrevet som navnet på punktet («vann 63(2) (1)»,
   og koden er bare «Punkt»). Da hentes koden fra navnet uten tellerne

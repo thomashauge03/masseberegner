@@ -8662,7 +8662,7 @@ const Nettlesertest = {
       const ok3 = await RorUI.importerTekst('<html></html>', 'feil.xml', {}, { sone: 32, maal: 'nytt' });
       this.sjekk('en fil som ikke er LandXML avvises og rører ingenting',
         ok3 === false && App.P.anlegg.length === anleggFoer);
-      this.sjekk('og brukeren får vite hvorfor', /ikke LandXML/.test(document.getElementById('dialoginnhold').textContent));
+      this.sjekk('og brukeren får vite hvorfor', /verken LandXML eller SOSI/.test(document.getElementById('dialoginnhold').textContent));
       document.getElementById('dialog').classList.add('skjult');
       const farge = Farger.ror('vann');
       this.sjekk('fargene finnes i stilarket', !!farge && farge !== '#888', farge);
