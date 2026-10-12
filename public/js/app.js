@@ -1321,6 +1321,8 @@ const App = {
     for (const id of ['verktoyTrase', 'verktoyTraseFil', 'verktoyKum', 'verktoySnu']) bytt(id, plan);
     // oversiktskartet: for innmålte og tegnede rør – det tegner alle røranleggene
     bytt('verktoyRorKart', ror);
+    // et utsnitt av rørene til stikning – stikkpunkt, kummer og innmålte punkt med koordinater
+    bytt('verktoyUtsnitt', ror);
     if (tomt) { this.tomtTilSkjema(); this.visTomtemasser(); }
     if (ror && typeof RorUI !== 'undefined') RorUI.vis();
 
@@ -2186,6 +2188,7 @@ const App = {
     GroftUI.init(this);
     RorPlanUI.init(this);
     RorkartUI.init(this);
+    StikkutsnittUI.init(this);
     Rorprofil.init(this);
     Ror3d.init(this);
     this.koblingerUI();

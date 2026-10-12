@@ -225,6 +225,16 @@ sylinder fra bunnen av kumgropa opp til terrenget, en innmålt som en ring på
 1 m der den ble målt (laget «Kummer»). De eksporteres som rør – se «Eksport» under.
 Nye rør tegnes i et eget anlegg – se «Planlagte rør» under.
 
+### Utsnitt til stikning
+
+**▭ Utsnitt til stikning** i rørverktøyene: dra et rektangel i kartet rundt
+området du skal stikke ut, og få en PDF (A4 liggende) med kartet – rørene og
+hvert punkt nummerert – og en tabell med koordinatene. Med kommer
+stikkpunktene langs et tegnet rør (knekkpunkt, hver 10. meter og endene, med
+topp rør, bunn innvendig og gravebunn, og samme navn som i stiknings-KOF-en),
+kummene (bunnløp og lokk) og de innmålte punktene fra filene, med nord, øst og
+høyde slik de står i fila. Høyst 400 punkt per utsnitt.
+
 ### Oversiktskart
 
 **🗺 Oversiktskart** i kartverktøyet (og «Oversiktskart over rørene (PDF)» under

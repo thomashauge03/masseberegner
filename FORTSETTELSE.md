@@ -28,7 +28,7 @@ Ved siste lagring: **963 prøver i selvtesten, 280 i rørprøven
 planprøven (`test/rorplanprove.js`), 77 i eksportprøven
 (`test/roreksportprove.js`), 77 i avviksprøven (`test/roravvikprove.js`), 45 i
 traseprøven (`test/traseimportprove.js`), 68 i stikkrenneprøven
-(`test/stikkrenneprove.js`), 61 i anleggsprøven og 258 i tomteprøven, alle
+(`test/stikkrenneprove.js`), 11 i utsnittprøven (`test/stikkutsnittprove.js`), 61 i anleggsprøven og 258 i tomteprøven, alle
 grønne; 1516 av 1516 i nettlesertesten.** «Klikk i modellen flytter snittet
 dit» i `veg3d` kan feile når vinduet emuleres 1440 × 900 i en mindre rute –
 klikket lander én rad ved siden av; det gjør den likt på `main`. «og merknaden
@@ -57,6 +57,20 @@ automatisk.** Delte prosjekt (database og innlogging) er holdt utenfor.
 Underveis ba brukeren om et **oversiktskart for rørene** – ett kart med alle
 typene i hver sin farge og tegnforklaring, og ett kart per type. Det kom foran
 resten av «Utenfor 3a».
+
+### Utsnitt til stikning
+
+2026-10-12: «kan man velge bare områder til f.eks pdf utskrift slik at vi kan få
+med kordinatene til punktene slik at vi kan stikke ut små områder selv» – valgt:
+rør og innmålte punkt, rektangel. «▭ Utsnitt til stikning» i rørverktøyene: dra
+et rektangel i kartet (`StikkutsnittUI`, kartet flytter seg ikke mens man drar,
+`Kart.klikk` overser klikket etter slippet, modusen byttes tilbake etter det).
+PDF (A4 liggende, `public/js/stikkutsnitt.js`): kartet med bakgrunn, rørene og
+nummererte punkt, så tabell med nr, type, navn, kode, nord, øst, topp/målt,
+bunn, gravebunn og merknad. Stikkpunktene (fra `RorEksport.punkter` for det
+åpne tegnede anlegget) har KOF-navnene; kummene bunnløp og lokk; de innmålte
+(alle innmålte røranlegg) står som i fila – i fila sin sone, sagt på raden om
+den er en annen enn kartets. Høyst 400 punkt.
 
 ### 3D i bevegelse tegnet av skjermkortet
 

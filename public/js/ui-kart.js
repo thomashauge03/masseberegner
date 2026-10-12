@@ -844,6 +844,8 @@ const Kart = {
 
   klikk(e) {
     const P = this.app.P;
+    // rektangelet til stikning dras med musa – klikket etter at man slipper, er ikke et punkt
+    if (this.modus === 'utsnitt') return;
     if (this.modus === 'tegnTrase') { RorPlanUI.tegnKlikk(e.latlng); return; }
     if (this.modus === 'kum' || this.modus === 'snuTrase') { RorPlanUI.kartklikk(this.modus, e.latlng); return; }
     if (this.modus === 'rorAv' || this.modus === 'rorBryt' || this.modus === 'rorKoble') {
