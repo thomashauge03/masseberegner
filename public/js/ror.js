@@ -74,6 +74,14 @@ const Ror = (() => {
     const etikett = bom ? 'utf-8'
       : sosi ? (/^UTF-?8$/i.test(sosi[1]) ? 'utf-8' : /^(ISO8859-\d+|ANSI)$/i.test(sosi[1]) ? 'iso-8859-1' : 'utf-8')
       : m ? m[1].toLowerCase() : 'utf-8';
+    /* SIER FILA INGENTING, OG ER DEN IKKE GYLDIG UTF-8, er den Windows-tegn.
+       En KOF har ikke noe hode som oppgir tegnsettet, og mange program
+       skriver den i Windows-1252: «avløp» ble «avl�p», og to koder som var
+       like i maskinen, ble ulike her. */
+    if (!bom && !sosi && !m) {
+      try { return new TextDecoder('utf-8', { fatal: true }).decode(u8.subarray(start)); }
+      catch (e) { return new TextDecoder('windows-1252').decode(u8.subarray(start)); }
+    }
     try { return new TextDecoder(etikett).decode(u8.subarray(start)); }
     catch (e) { return new TextDecoder('utf-8').decode(u8.subarray(start)); }
   }
@@ -362,12 +370,73 @@ const Ror = (() => {
     return m ? `${m[1]}-${m[2]}-${m[3]}` : '';
   }
 
-  /** Fila, hvilken av de to den er: SOSI om den begynner med .HODE, ellers LandXML. */
+  /* Hentes der den bor, som Geo: KOF-posten leses likt for traseer og rør. */
+  function _traseImport() {
+    if (typeof TraseImport !== 'undefined') return TraseImport;
+    return require('./traseimport.js');
+  }
+
+  /**
+   * De innmålte punktene i en KOF-fil – eksporten fra VisualMachine og
+   * liknende: én 05-post per punkt, med navn, kode, nord, øst og høyde.
+   *
+   * ID-EN ER NAVNET OG STEDET, IKKE BARE NAVNET. VisualMachine begynner på
+   * nytt for hver fil: «P1» er et vannrør i den ene og en anboring tjue meter
+   * unna i den neste. Med navnet alene ville den andre fila skrevet over den
+   * første, punkt for punkt, uten et ord. Samme fil lest to ganger gir
+   * fortsatt de samme id-ene, så den kjennes igjen.
+   *
+   * Sonen står i 01-posten når den står noe sted; datoen i en «Created:»-linje
+   * i kommentarene.
+   */
+  function lesKOF(tekst) {
+    const s = String(tekst || '').replace(/^﻿/, '');
+    const T = _traseImport();
+    const advarsler = { utenHoyde: 0, ugyldige: 0, doble: 0, referanser: 0 };
+    const punkter = [];
+    const sett = new Set();
+    let sone = null, dato = '';
+    for (const rad of s.split(/\r?\n/)) {
+      const t = rad.trim();
+      if (!t) continue;
+      if (t[0] === '-') {
+        const d = /Created:\s*(\d{4}-\d{2}-\d{2})/i.exec(t);
+        if (d && !dato) dato = d[1];
+        continue;
+      }
+      if (/^01\b/.test(t)) {
+        const m = /\b\d{8}\s+\d+\s+(\d+)\b/.exec(t);
+        if (m && T.KSYS[+m[1]]) sone = T.KSYS[+m[1]];
+        continue;
+      }
+      if (!/^05\b/.test(t)) continue;
+      const p = T.kofPunkt(rad);
+      if (!p || !Number.isFinite(p.n) || !Number.isFinite(p.o)) { advarsler.ugyldige++; continue; }
+      if (!Number.isFinite(p.z)) { advarsler.utenHoyde++; continue; }
+      const kode = (p.kode || '').trim() || 'UTEN KODE';
+      const sted = `${p.n.toFixed(3)}|${p.o.toFixed(3)}|${p.z.toFixed(3)}`;
+      const id = (p.navn ? p.navn + '@' : kode + '|') + sted;
+      if (sett.has(id)) { advarsler.doble++; continue; }
+      sett.add(id);
+      punkter.push({ id, kode, n: p.n, o: p.o, z: p.z, tid: '', nr: punkter.length + 1 });
+    }
+    if (!punkter.length) throw new Error('Fant ingen innmålte punkter i fila.');
+    const epsg = { 32: 25832, 33: 25833, 35: 25835 }[sone] || null;
+    return { punkter, program: '', dato, epsg, advarsler };
+  }
+
+  /** Er dette en KOF med punkt? En 05-post med tall bakerst er nok. */
+  function _erKof(s) {
+    return /^[ \t]?05[ \t]+\S.*\d[ \t]*$/m.test(s) && !/<\w/.test(s.slice(0, 200));
+  }
+
+  /** Fila, hvilken av de tre den er: SOSI om den begynner med .HODE, LandXML, eller KOF. */
   function lesFil(tekst) {
     const s = String(tekst || '').replace(/^﻿/, '');
     if (/^\s*\.HODE\b/.test(s)) return lesSOSI(s);
     if (/<LandXML[\s>]/.test(s)) return lesLandXML(s);
-    throw new Error('Fila er verken LandXML eller SOSI. Velg en .xml- eller .sos-eksport fra maskinstyringen.');
+    if (_erKof(s)) return lesKOF(s);
+    throw new Error('Fila er verken LandXML, SOSI eller KOF. Velg en .xml-, .sos- eller .kof-eksport fra maskinstyringen.');
   }
 
   /* ---------------- kodene ---------------- */
@@ -384,7 +453,7 @@ const Ror = (() => {
   const _SYSTEM = { SP: 'spill', VA: 'vann', VL: 'vann', OV: 'overvann', DR: 'drens', AF: 'felles', TR: 'kabel' };
   /* Systemet skrevet ut, hvor som helst i koden – «160 kloakk», «vann 110». */
   const _SYSTEMORD = { VANN: 'vann', VANNLEDNING: 'vann', VANNRØR: 'vann', VANNROR: 'vann', VANNL: 'vann', VANL: 'vann',
-    SPILLVANN: 'spill', SPILVANN: 'spill', KLOAKK: 'spill', OVERVANN: 'overvann' };
+    SPILLVANN: 'spill', SPILVANN: 'spill', KLOAKK: 'spill', AVLØP: 'spill', AVLOP: 'spill', OVERVANN: 'overvann' };
   const _MATERIALER = ['PEH', 'PEL', 'PE', 'PP', 'PVC', 'GRP', 'BETONG', 'BET', 'DUKTIL', 'DUK', 'STÅL', 'STAL'];
   const _KABELORD = new Set(['FIBER', 'KABEL', 'TREKKERØR', 'TREKKEROR', 'EL']);
   const _DRENSORD = new Set(['DRENS', 'DREN']);
@@ -402,8 +471,8 @@ const Ror = (() => {
    * drens. Skrevet ut går foran kabel fordi «el muffe 110 vann» er en
    * elektromuffe på vannrøret, ikke en kabel.
    *
-   * Et kabelrør er en linje også uten dimensjon – «kabel gatelys» er en
-   * trasé, ikke et punkt.
+   * Et rør med kjent system er en linje også uten dimensjon – «kabel gatelys»
+   * og «avlop» er traseer, ikke punkt. Dimensjonen rettes i kodetabellen.
    */
   function tolkKode(kode) {
     const ren = String(kode || '').toUpperCase().replace(/_/g, ' ')
@@ -425,7 +494,7 @@ const Ror = (() => {
     const materiale = _MATERIALER.find(har) || (har('FIBER') ? 'FIBER' : '');
     const variant = ord.filter((w, i) => w !== prefiks && i !== dimPlass && w !== materiale && w !== 'MM'
       && !_erPunktord(w) && !_KABELORD.has(w) && !_DRENSORD.has(w) && !_SYSTEMORD[w]).join(' ');
-    const linje = !erPunkt && (dim || system === 'kabel');
+    const linje = !erPunkt && (dim || system);
     return { form: linje ? 'linje' : 'punkt', dim, materiale, system, variant };
   }
 
@@ -810,6 +879,8 @@ const Ror = (() => {
     let s = String(filnavn || '').replace(/^.*[\\/]/, '').replace(/\.[^.]+$/, '');
     s = s.replace(/^as[-_ ]?builts?[-_ ]*/i, '');
     s = s.replace(/[-_ ]*\d{4}-\d{2}-\d{2}(T[\d_:.-]+Z?)?$/i, '');
+    // «Grøft.xml_2026-09-16.kof» – VisualMachine beholder navnet på fila punktene ble målt mot
+    s = s.replace(/\.(xml|sos|kof)$/i, '');
     s = s.replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
     return s || 'Rør';
   }
@@ -1022,7 +1093,7 @@ const Ror = (() => {
   }
 
   return {
-    lesFil, lesLandXML, lesSOSI, dekod, tolkKode, koderFra, byggLinjer, avstandTilStrekk,
+    lesFil, lesLandXML, lesSOSI, lesKOF, dekod, tolkKode, koderFra, byggLinjer, avstandTilStrekk,
     lagTilXY, tilLatLon, erUtm, sjekkKoordinater, gjettSone, slaSammen, slaSammenFiler, dimensjon, kildetekst, navnFraFil,
     korridor, profil, objekterLangs, objekterPaaLinjer, sammendrag, merknader, spenn,
     nyRor, StandardRormal, FARGER

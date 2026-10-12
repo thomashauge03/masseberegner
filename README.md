@@ -150,8 +150,18 @@ for selve renna – fundament og omfylling – telles ikke.
 
 Innmålte rør kan hentes inn fra en LandXML-fil – eksporten «as-built» fra Xsite
 Manage og liknende – eller fra en SOSI-fil (`.sos`), og begge formatene fra
-Kinematic Makin' Excavator. Velg **⌀ Nye rør (fra fil)** i anleggslista, «Rør
-(fra fil)» i førstevalget, eller slipp fila på kartet.
+Kinematic Makin' Excavator – eller fra en KOF-fil (`.kof`) med ett punkt per
+05-post, som eksporten fra VisualMachine. Velg **⌀ Nye rør (fra fil)** i
+anleggslista, «Rør (fra fil)» i førstevalget, eller slipp fila på kartet.
+
+* **KOF:** navn, kode (gjerne med mellomrom, «vann 110»), nord, øst og høyde.
+  VisualMachine begynner punktnummereringen på nytt i hver fil, så et punkt
+  kjennes igjen på navnet OG stedet – to filer med «P1» på hvert sitt sted gir
+  to punkt, og samme fil lest to ganger gir ingen doble. Sonen leses fra
+  01-posten når den står der, datoen fra «Created:» i kommentarene. En KOF
+  uten tegnsett som ikke er gyldig UTF-8, leses som Windows-tegn (Æ, Ø, Å).
+* **«avløp»/«avlop»** er spillvann, og et rør med kjent system er et rør også
+  uten dimensjon – sett dimensjonen i Koder-fanen.
 
 * **Flere filer på én gang.** Velg eller slipp flere `.xml`- og `.sos`-filer
   samtidig – fra ulike maskiner eller ulike dager – og de flettes til én import

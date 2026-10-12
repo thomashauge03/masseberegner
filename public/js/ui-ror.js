@@ -42,8 +42,8 @@ const RorUI = {
         const filer = [...((e.dataTransfer && e.dataTransfer.files) || [])];
         if (!filer.length) return;
         e.preventDefault();
-        if (!filer.some(f => /\.(xml|sos)$/i.test(f.name))) {
-          this.app.status('Bare .xml- og .sos-filer fra maskinstyringen kan slippes her'); return;
+        if (!filer.some(f => /\.(xml|sos|kof)$/i.test(f.name))) {
+          this.app.status('Bare .xml-, .sos- og .kof-filer fra maskinstyringen kan slippes her'); return;
         }
         await this.importerFiler(filer, {});
       });
@@ -190,7 +190,7 @@ const RorUI = {
     if (liste.length === 1) return this.importerFil(liste[0], valg);
     const tekster = [];
     for (const f of liste) {
-      if (!/\.(xml|sos)$/i.test(f.name)) { tekster.push({ filnavn: f.name, feil: 'ikke en .xml- eller .sos-fil' }); continue; }
+      if (!/\.(xml|sos|kof)$/i.test(f.name)) { tekster.push({ filnavn: f.name, feil: 'ikke en .xml-, .sos- eller .kof-fil' }); continue; }
       try { tekster.push({ filnavn: f.name, tekst: Ror.dekod(await f.arrayBuffer()) }); }
       catch (e) { tekster.push({ filnavn: f.name, feil: e.message }); }
     }

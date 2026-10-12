@@ -662,7 +662,7 @@ console.log('\n18. SOSI fra maskinstyringen');
   const t = Ror.dekod(latin);
   paastand('..TEGNSETT ISO8859-10 gir Ø', t.includes('RØR 110') && t.includes('..NØH'));
   paastand('og fila leses', Ror.lesFil(t).punkter[0].kode === 'RØR 110');
-  kaster('verken SOSI eller LandXML gir klar beskjed', () => Ror.lesFil('hei'), /verken LandXML eller SOSI/);
+  kaster('verken SOSI, LandXML eller KOF gir klar beskjed', () => Ror.lesFil('hei'), /verken LandXML, SOSI eller KOF/);
 }
 
 /* ------------------------------------------------------------------ */
@@ -729,9 +729,54 @@ console.log('\n20. Flere filer flettes til én import');
 }
 
 /* ------------------------------------------------------------------ */
+console.log('\n21. KOF fra maskinstyringen');
+{
+  /* Oppdiktet. Slik skriver VisualMachine: kommentarer med «-00», «Created:»,
+     og 05-poster med navn (10), kode (8, gjerne med mellomrom) og nord øst høyde.
+     Navnene begynner på 1 i hver fil. */
+  const kof = (dato, poster) => ['-00 Prøveprogram', '-00', `-00 Created:  ${dato}`, '-00']
+    .concat(poster.map(([navn, kode, n, o, z]) => ` 05 ${navn.padEnd(10)} ${kode.padEnd(8)}  ${n.toFixed(3)}  ${o.toFixed(3)}  ${z.toFixed(3)}`))
+    .join('\r\n');
+  const a = kof('2026-05-01', [
+    ['prove1', 'avlop', 6600000, 500000, 100.0], ['prove2', 'avlop', 6600010, 500000, 100.1],
+    ['prove3', 'vann 110', 6600000, 500001, 100.3], ['prove4', 'vann 110', 6600010, 500001, 100.4],
+    ['prove5', 'gren 160', 6600005, 500000, 100.05], ['prove6', 'avlop160', 6600020, 500000, 100.2]]);
+  const r = Ror.lesFil(a);
+  sjekk('seks punkt', r.punkter.length, 6, 0);
+  paastand('koden med mellomrom blir med', r.punkter[2].kode === 'vann 110', r.punkter[2].kode);
+  sjekk('nord, øst og høyde', r.punkter[0].n + r.punkter[0].o / 1e6 + r.punkter[0].z / 1e9, 6600000 + 0.5 + 1e-7, 1e-9);
+  paastand('datoen fra «Created:»', r.dato === '2026-05-01', r.dato);
+  paastand('id-en er navnet og stedet', r.punkter[0].id === 'prove1@6600000.000|500000.000|100.000', r.punkter[0].id);
+  const ror = { punkter: r.punkter, koder: Ror.koderFra(r.punkter), retting: {} };
+  const b = Ror.byggLinjer(ror, Ror.StandardRormal, iFila);
+  paastand('«avlop» uten dimensjon er et rør, ikke et punkt',
+    b.linjer.some(l => l.kode === 'avlop') && Ror.tolkKode('avlop').system === 'spill', JSON.stringify(Ror.tolkKode('avlop')));
+  paastand('«gren 160» er et punkt', b.objekter.some(p => p.kode === 'gren 160'));
+
+  /* Den neste fila begynner på prove1 igjen – et annet punkt et annet sted.
+     Med navnet som id ville det skrevet over det første. */
+  const b2 = kof('2026-05-02', [['prove1', 'anboring', 6600030, 500005, 99.0], ['prove2', 'vann 110', 6600020, 500001, 100.5]]);
+  const r2 = Ror.lesFil(b2);
+  const sam = Ror.slaSammenFiler([{ les: r, filnavn: 'a.kof' }, { les: r2, filnavn: 'b.kof' }]);
+  sjekk('to filer med samme navn på ulike punkt gir alle åtte', sam.punkter.length, 8, 0);
+  sjekk('ingen ble tatt for å være det samme', sam.iFlere, 0, 0);
+  const igjen = Ror.slaSammenFiler([{ les: r, filnavn: 'a.kof' }, { les: Ror.lesFil(a), filnavn: 'a igjen.kof' }]);
+  sjekk('samme fil to ganger kjennes igjen', igjen.punkter.length, 6, 0);
+
+  const kort = Ror.lesFil(' 05 X 7 6600000.000 500000.000\r\n 05 Y vann 6600001.000 500000.000 100.000');
+  sjekk('punkt uten høyde telles', kort.advarsler.utenHoyde, 1, 0);
+  const ss = Ror.lesFil('01 Prøve 01012026 1 22\r\n 05 P1 vann 6600000.000 500000.000 100.000');
+  sjekk('sonen fra 01-posten', ss.epsg, 25832, 0);
+  const vinduer = Buffer.from(' 05 P1 avl\xF8p 6600000.000 500000.000 100.000', 'latin1');
+  paastand('Windows-tegn uten hode gir ø', Ror.lesFil(Ror.dekod(vinduer)).punkter[0].kode === 'avløp');
+  paastand('filnavnet fra VisualMachine', Ror.navnFraFil('Prøvenett.xml_2026-05-01.kof') === 'Prøvenett',
+    Ror.navnFraFil('Prøvenett.xml_2026-05-01.kof'));
+}
+
+/* ------------------------------------------------------------------ */
 /* DEN EKTE FILA – bare når stien er gitt. Kundens data ligger ikke i repoet. */
 if (process.env.ROR_FIL) {
-  console.log('\n21. Den ekte fila (ROR_FIL)');
+  console.log('\n22. Den ekte fila (ROR_FIL)');
   const les = Ror.lesFil(Ror.dekod(fs.readFileSync(process.env.ROR_FIL)));
   const ror = { punkter: les.punkter, koder: Ror.koderFra(les.punkter), retting: { av: [], brudd: [], koble: [] } };
   const b = Ror.byggLinjer(ror, Ror.StandardRormal, iFila);

@@ -370,7 +370,7 @@ const TraseImport = (() => {
     throw new Error('Bare .kof og .dxf kan leses som trase');
   }
 
-  return { KSYS, lesKof, lesDxf, les, kjed, rydd, lengde, bue };
+  return { KSYS, kofPunkt, lesKof, lesDxf, les, kjed, rydd, lengde, bue };
 })();
 
 if (typeof module !== 'undefined') module.exports = TraseImport;

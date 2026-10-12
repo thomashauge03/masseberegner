@@ -23,7 +23,7 @@ Nettlesertesten kjøres ved å åpne programmet med `?test=1`, eller fra konsoll
 med `Nettlesertest.kjor()`. Utviklingstjeneren startes med `node server.js`
 (port 5178). Programmet ligger også på https://masseberegner.vercel.app.
 
-Ved siste lagring: **963 prøver i selvtesten, 249 i rørprøven
+Ved siste lagring: **963 prøver i selvtesten, 263 i rørprøven
 (`test/rorprove.js`), 219 i grøfteprøven (`test/groftprove.js`), 175 i
 planprøven (`test/rorplanprove.js`), 77 i eksportprøven
 (`test/roreksportprove.js`), 77 i avviksprøven (`test/roravvikprove.js`), 45 i
@@ -75,6 +75,19 @@ ulike piksler (kanter) for veg, tomt med nabo og to gjennomsiktige lag på rad;
 0,2 % for rør med naboer. Bakkemodus (gå i modellen) tegnes fortsatt av
 rasteret – strekene skjules bak terrenget med rasterets dybde per piksel; det
 er neste steg om det trengs. `Tegner3d.glAv = true` slår skjermkortet av.
+
+### Rør fra KOF (VisualMachine)
+
+2026-10-12: «kan vi få importert disse og» – to .kof-filer fra VisualMachine
+med 05-poster (navn, kode med mellomrom, N Ø H). `Ror.lesKOF` bruker
+`TraseImport.kofPunkt` (nå eksportert); `lesFil` kjenner KOF på en 05-post.
+Id-en er `navn@N|Ø|H`, fordi VisualMachine begynner på «…1» i hver fil – med
+navnet alene skrev fil nummer to over den første. Datoen fra «Created:», sonen
+fra 01-posten. `dekod` leser en fil uten tegnsett som Windows-1252 når den ikke
+er gyldig UTF-8. `tolkKode`: avløp/avlop = spill, og et rør med kjent system er
+en linje også uten dimensjon (før bare kabel). `navnFraFil` tar bort «.xml» i
+«Nett.xml_2026-09-16.kof». Med de ekte filene: alle punktene inn, ingen tatt
+for doble, og rørene går videre fra den ene fila til den andre.
 
 ### Flere rørfiler i ett anlegg
 
