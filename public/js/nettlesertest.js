@@ -47,6 +47,21 @@ const Nettlesertest = {
   vent(ms) { return new Promise(r => setTimeout(r, ms)); },
 
   /**
+   * Er pikselen en MASSEFARGE – skjæringsrødt eller fyllingsgrønt?
+   *
+   * Ikke «alt rødt og alt grønt». Skjermkortet tegner «Før» og «Etter» med
+   * ekte materialer, og der er gresset grønt og jorda brun med vilje. Kulørene
+   * i massebildet har sin egen signatur: skjæringen (216, 30, 40) er rød med
+   * like mye grønt som blått, fyllingen (52, 160, 90) grønn med mer blått enn
+   * rødt. Gress er gulgrønt (mindre blått enn rødt), jord er brun (mer grønt
+   * enn blått). Vann ville vært blågrønt, men prøvene kjører uten arealdekke.
+   */
+  massefarge(r, g, b) {
+    if (r > g + 22 && r > b + 22 && Math.abs(g - b) < 20) return true;   // skjæring
+    return g > r + 16 && b > r + 8;                                       // fylling
+  },
+
+  /**
    * Kjører en prøve med en frist. Blir den ikke ferdig, kastes det – en prøve
    * som henger skal melde fra, ikke bli stille.
    *
@@ -6751,8 +6766,7 @@ const Nettlesertest = {
             const r = b[i], g2 = b[i + 1], bl = b[i + 2];
             if (r === bak[0] && g2 === bak[1] && bl === bak[2]) continue;
             n++;
-            if (r > g2 + 22 && r > bl + 22) kulor++;        // rødt
-            else if (g2 > r + 16) kulor++;                   // grønt
+            if (this.massefarge(r, g2, bl)) kulor++;
           }
           return { n, del: n ? kulor / n : 0 };
         };
@@ -7221,8 +7235,7 @@ const Nettlesertest = {
             const r = b[i], g2 = b[i + 1], bl = b[i + 2];
             if (r === bak[0] && g2 === bak[1] && bl === bak[2]) continue;
             n++;
-            if (r > g2 + 22 && r > bl + 22) kulor++;
-            else if (g2 > r + 16) kulor++;
+            if (this.massefarge(r, g2, bl)) kulor++;
           }
           return { n, del: n ? kulor / n : 0 };
         };

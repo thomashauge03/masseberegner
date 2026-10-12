@@ -114,9 +114,15 @@ ingenting ekstra; skygge fjerner bare det direkte lyset, så rødt og grønt
 leses like godt. Når man står i modellen: ekte himmel (fullskjermstrekant,
 blikkretning per piksel) og dis mot horisontfargen, `L = 2500 + 6·kamH` m.
 Ovenfra og rapportbildene uten himmel og dis. Gange ≈ 6 ms per bilde.
-**Etappe 3, materialer og trær – neste:** gress/skog/myr/vann fra
-arealdekket, asfalt, grus, fjell, naken jord, ekte trær i skogen; «Før» og
-«Etter» realistiske, massebildet beholder rødt og grønt.
+**Etappe 3, materialer og trær – ferdig.** Materialnummer per celle i
+fjerde byte av id-attributtet; prosedyrisk støy i origo-koordinater (står
+fast når kameraet flytter seg). «Før»/«Etter» (`R.virkelig`): materialets
+egen farge; massebildet: bare lysstyrken. Trær (`Tegner3d._traer`,
+`Gl3d.traer`): instansiert gran og løvtre der AR5 sier skog, aldri på eller
+3 m fra arbeidet (unntatt i «Før»), bare det aktive gitteret, ikke i id-
+eller dybdepasset. Gange med trær på demoen ≈ 6,5 ms per bilde.
+Vegbanen er grus, ikke asfalt: malen sier ingenting om dekket, og en
+landbruksveg (K1–K8) har grusdekke.
 
 ### Forslagene om samme rør rett etter importen
 
