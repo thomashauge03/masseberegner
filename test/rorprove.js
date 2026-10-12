@@ -774,9 +774,70 @@ console.log('\n21. KOF fra maskinstyringen');
 }
 
 /* ------------------------------------------------------------------ */
+console.log('\n22. Samme rør, ulike koder: forslag og sammenslåing');
+{
+  /* Oppdiktet. Et vannrør målt av tre maskiner: «VA 110PE» fra 0 til 40 m,
+     «vann 110» fra 42 til 80 m (endene møtes 2 m fra hverandre), «vanl 110»
+     – en skrivefeil – langt borte. Et spillvannsrør «sp 160» og «SP 160PE»
+     ved siden av. «vann 160» og «sk 160» skal IKKE foreslås. En stikkledning
+     «stikk110» begynner på vannrøret. */
+  let nr = 0;
+  const pkt = (kode, o, n) => ({ id: 'p' + (++nr), kode, n: 6600000 + n, o: 500000 + o, z: 100, nr });
+  const rekke = (kode, o, n0, n1, steg) => { const ut = []; for (let n = n0; n <= n1 + 1e-9; n += steg) ut.push(pkt(kode, o, n)); return ut; };
+  const punkter = [].concat(
+    rekke('VA 110PE', 0, 0, 40, 10), rekke('vann 110', 0, 42, 82, 10), rekke('vanl 110', 0, 300, 320, 10),
+    rekke('sp 160', 3, 0, 40, 10), rekke('SP 160PE', 3, 43, 83, 10),
+    rekke('vann 160', 0, 500, 540, 10), rekke('sk 160', 3, 600, 640, 10),
+    [pkt('stikk110', 0.3, 20), pkt('stikk110', 6, 25), pkt('stikk110', 12, 30), pkt('stikk110', 18, 35)]);
+  const ror = { punkter, koder: Ror.koderFra(punkter), retting: {} };
+  const xy = p => ({ x: p.o, y: p.n });
+  const f = Ror.forslagSammen(ror, xy, 25);
+  const har = (a, b) => f.find(x => (x.fra === a && x.til === b) || (x.fra === b && x.til === a));
+  paastand('«vanl 110» og «vann 110»: navnene er nesten like', har('vanl 110', 'vann 110')
+    && /nesten like/.test(har('vanl 110', 'vann 110').grunner.join()), JSON.stringify(f.map(x => [x.fra, x.til, x.grunner])));
+  paastand('«VA 110PE» og «vann 110»: endene møtes', har('VA 110PE', 'vann 110')
+    && /endene møtes 2 m/.test(har('VA 110PE', 'vann 110').grunner.join()));
+  paastand('«sp 160» og «SP 160PE»: samme navn uten materialet', har('sp 160', 'SP 160PE')
+    && /skrevet litt ulikt/.test(har('sp 160', 'SP 160PE').grunner.join()));
+  paastand('«vann 160» foreslås ikke med «vann 110» – dimensjonen sier imot', !har('vann 160', 'vann 110'));
+  paastand('«sk 160» og «sp 160» er to forkortelser, ikke en skrivefeil', !har('sk 160', 'sp 160'));
+  paastand('en stikkledning som begynner på røret, er ikke «oppå» det', !har('stikk110', 'vann 110') && !har('stikk110', 'VA 110PE'));
+  paastand('vannrøret og spillvannet ved siden av foreslås ikke', !har('VA 110PE', 'SP 160PE') && !har('sp 160', 'VA 110PE'));
+  paastand('koden med flest punkt er den det slås sammen til', har('sp 160', 'SP 160PE').til === 'SP 160PE'
+    || har('sp 160', 'SP 160PE').til === 'sp 160');
+
+  const foer = Ror.byggLinjer(ror, Ror.StandardRormal, xy).linjer.filter(l => /110/.test(l.kode) && !/stikk/.test(l.kode)).length;
+  Ror.slaaSammenKoder(ror, 'vann 110', 'VA 110PE');
+  const etter = Ror.byggLinjer(ror, Ror.StandardRormal, xy);
+  const va = etter.linjer.filter(l => l.kode === 'VA 110PE');
+  paastand('sammenslått blir vannrøret ett rør over hele lengden', va.length === 1 && va[0].lengde > 80,
+    `${foer} før, nå ${JSON.stringify(etter.linjer.map(l => [l.kode, Math.round(l.lengde)]))}`);
+  paastand('punktene beholder sin egen kode', ror.punkter.filter(p => p.kode === 'vann 110').length === 5);
+  paastand('forslaget er borte når det er gjort', !Ror.forslagSammen(ror, xy, 25).some(x => x.fra === 'vann 110' || x.til === 'vann 110'));
+  Ror.slaaSammenKoder(ror, 'vanl 110', 'vann 110');
+  paastand('en kjede følges: «vanl 110» → «vann 110» → «VA 110PE»', Ror.kanonisk(ror, 'vanl 110') === 'VA 110PE');
+  paastand('en ring slås ikke sammen', Ror.slaaSammenKoder(ror, 'VA 110PE', 'vanl 110') === false);
+  Ror.skillKode(ror, 'vann 110');
+  paastand('Skill gjør det om', Ror.kanonisk(ror, 'vann 110') === 'vann 110'
+    && Ror.byggLinjer(ror, Ror.StandardRormal, xy).linjer.some(l => l.kode === 'vann 110'));
+  Ror.ikkeSamme(ror, 'sp 160', 'SP 160PE');
+  paastand('«ikke samme rør» huskes', !Ror.forslagSammen(ror, xy, 25).some(x => [x.fra, x.til].includes('sp 160') && [x.fra, x.til].includes('SP 160PE')));
+
+  // prosjektfila: sammenslåingene leses inn igjen, søppel tas bort
+  const PF = require(js('prosjektform.js'));
+  {
+    const P = { anlegg: [{ id: 'a', type: 'ror', ror: { punkter: ror.punkter.slice(0, 3), alias: { a: 'b', c: 'c', d: 7 }, ikkeSamme: ['x', 3] } }] };
+    PF.klargjor(P);
+    const rr = P.anlegg[0].ror;
+    paastand('fila: gyldige sammenslåinger beholdes, resten tas bort',
+      JSON.stringify(rr.alias) === '{"a":"b"}' && JSON.stringify(rr.ikkeSamme) === '["x"]', JSON.stringify([rr.alias, rr.ikkeSamme]));
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* DEN EKTE FILA – bare når stien er gitt. Kundens data ligger ikke i repoet. */
 if (process.env.ROR_FIL) {
-  console.log('\n22. Den ekte fila (ROR_FIL)');
+  console.log('\n23. Den ekte fila (ROR_FIL)');
   const les = Ror.lesFil(Ror.dekod(fs.readFileSync(process.env.ROR_FIL)));
   const ror = { punkter: les.punkter, koder: Ror.koderFra(les.punkter), retting: { av: [], brudd: [], koble: [] } };
   const b = Ror.byggLinjer(ror, Ror.StandardRormal, iFila);

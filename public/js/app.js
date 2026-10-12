@@ -1364,7 +1364,7 @@ const App = {
       + '<div class="kartknapper">'
       + '<button class="kartknapp" data-nytt="veg">▬ Ny veg</button>'
       + '<button class="kartknapp" data-nytt="tomt">⬟ Ny tomt</button>'
-      + '<button class="kartknapp" data-nyttror="1">⌀ Nye rør (fra fil)</button>'
+      + '<button class="kartknapp" data-nyttror="1" title="Velg én eller flere filer – hold Ctrl eller Shift for å merke flere">⌀ Nye rør (fra filer)</button>'
       + '<button class="kartknapp" data-nyttplan="1">⌀ Planlagte rør (tegn)</button>'
       + '</div>';
     for (const b of panel.querySelectorAll('[data-bytt]')) {

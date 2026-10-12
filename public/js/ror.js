@@ -590,11 +590,13 @@ const Ror = (() => {
     const objekter = [];
     for (const p of (ror && ror.punkter) || []) {
       if (av.has(p.id)) continue;
-      const k = (ror.koder && ror.koder[p.kode]) || tolkKode(p.kode);
+      // en kode brukeren har slått sammen med en annen, trekkes som den andre – se `forslagSammen`
+      const kode = kanonisk(ror, p.kode);
+      const k = (ror.koder && (ror.koder[kode] || ror.koder[p.kode])) || tolkKode(kode);
       if (k.vis === false) continue;
       if (k.form !== 'linje') { objekter.push(p); continue; }
-      if (!perKode.has(p.kode)) perKode.set(p.kode, []);
-      perKode.get(p.kode).push(p);
+      if (!perKode.has(kode)) perKode.set(kode, []);
+      perKode.get(kode).push(p);
     }
     const linjer = [], enslige = [];
     const bruddTraff = new Set(), koblingTraff = new Set();
@@ -694,6 +696,173 @@ const Ror = (() => {
       bruddUtenTreff: (retting.brudd || []).filter(([a, b]) => !bruddTraff.has(_par(a, b))).length,
       koblingUtenTreff: koble.filter(([a, b]) => !koblingTraff.has(_par(a, b))).length
     };
+  }
+
+  /* ---------------- samme rør, ulike koder ---------------- */
+
+  /*
+   * HVORFOR. Et rør målt av tre maskiner over tre måneder får tre, fire, sju
+   * koder: «SP 160PE» fra Xsite, «avlop160» fra KOF-en, «sp 160» og «spilvann
+   * 160» fra gravemaskinen. Linjene trekkes bare mellom punkt med samme kode,
+   * så røret stopper der koden skifter – det ser ut som hull, men er målt.
+   *
+   * PÅ KNAPP, IKKE AUTOMATISK. Programmet foreslår, med grunnen, og brukeren
+   * slår sammen eller sier nei. To koder kan se like ut og likevel være to rør.
+   * Sammenslåingen er et oppslag (`ror.alias`): punktene og kodene deres røres
+   * ikke, og den kan skilles igjen.
+   */
+
+  /** Koden en kode tegnes som etter brukerens sammenslåinger. Kjeder følges, ringer stoppes. */
+  function kanonisk(ror, kode) {
+    const alias = ror && ror.alias;
+    if (!alias) return kode;
+    let k = kode;
+    const sett = new Set([k]);
+    while (Object.prototype.hasOwnProperty.call(alias, k) && !sett.has(alias[k])) { k = alias[k]; sett.add(k); }
+    return k;
+  }
+
+  /**
+   * «Spilvann 160» → «SPILVANN160»; ordene sortert, så «160 spillvann» og
+   * «spillvann 160» er like. Materialet og «mm» telles ikke: «sp 160» og
+   * «SP 160PE» er samme rør skrevet av to maskiner.
+   */
+  function _skrevet(kode) {
+    const ord = String(kode || '').toUpperCase().replace(/[_\-.,/]/g, ' ')
+      .replace(/(\d)([A-ZÆØÅ])/g, '$1 $2').replace(/([A-ZÆØÅ])(\d)/g, '$1 $2')
+      .split(/\s+/).filter(w => w && w !== 'MM' && !_MATERIALER.includes(w));
+    return { samlet: ord.join(''), sortert: ord.slice().sort().join(' ') };
+  }
+
+  /** Antall tegn som må byttes, settes inn eller tas bort (Levenshtein). */
+  function _avstandTekst(a, b) {
+    if (a === b) return 0;
+    const m = a.length, n = b.length;
+    let forrige = Array.from({ length: n + 1 }, (_, j) => j);
+    for (let i = 1; i <= m; i++) {
+      const na = [i];
+      for (let j = 1; j <= n; j++) {
+        na[j] = Math.min(forrige[j] + 1, na[j - 1] + 1, forrige[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      }
+      forrige = na;
+    }
+    return forrige[n];
+  }
+
+  /**
+   * Kan to koder være samme rør? Systemet og dimensjonen må ikke si imot
+   * hverandre, og de må ha minst én av dem felles. «vann 110» og «vann 160»
+   * er skrevet nesten likt, men er to rør.
+   */
+  function _forenlig(ta, tb) {
+    if (ta.system && tb.system && ta.system !== tb.system) return false;
+    if (ta.dim && tb.dim && ta.dim !== tb.dim) return false;
+    return !!((ta.system && ta.system === tb.system) || (ta.dim && ta.dim === tb.dim));
+  }
+
+  /**
+   * Forslag om koder som trolig er samme rør, med grunnen.
+   *
+   * Tre grunner, og systemet og dimensjonen må passe for alle:
+   *   · navnene er nesten like – samme ord i annen rekkefølge, eller høyst to
+   *     tegn forskjell («vanl 110», «vannl 110», «vann 110»)
+   *   · endene møtes – en ende av det ene røret ligger innen 5 m av en ende
+   *     av det andre, så det ene fortsetter der det andre slutter
+   *   · de ligger oppå hverandre – minst to punkt av det ene ligger innen 1 m
+   *     av det andre: samme rør målt to ganger
+   *
+   * Til (`til`) er koden med flest punkt; den andre tegnes som den. Et par
+   * brukeren har sagt nei til (`ror.ikkeSamme`), foreslås ikke igjen.
+   */
+  function forslagSammen(ror, tilXY, maks) {
+    const nei = new Set((ror && ror.ikkeSamme) || []);
+    const bygg = byggLinjer(ror, { maksAvstand: maks || StandardRormal.maksAvstand }, tilXY);
+    const perKode = new Map();
+    const hent = k => {
+      if (!perKode.has(k)) perKode.set(k, { linjer: [], ender: [], punkter: [] });
+      return perKode.get(k);
+    };
+    for (const l of bygg.linjer) {
+      const h = hent(l.kode);
+      h.linjer.push(l);
+      h.ender.push(l.xy[0], l.xy[l.xy.length - 1]);
+      h.punkter.push(...l.xy);
+    }
+    for (const p of bygg.enslige) {
+      const q = tilXY(p), h = hent(kanonisk(ror, p.kode));
+      h.ender.push(q); h.punkter.push(q);
+    }
+    const tolk = k => (ror.koder && ror.koder[k]) || tolkKode(k);
+    const koder = [...perKode.keys()].sort();
+    const ut = [];
+    for (let i = 0; i < koder.length; i++) {
+      for (let j = i + 1; j < koder.length; j++) {
+        const a = koder[i], b = koder[j];
+        if (nei.has(_par(a, b))) continue;
+        const ta = tolk(a), tb = tolk(b);
+        if (ta.form !== 'linje' || tb.form !== 'linje' || !_forenlig(ta, tb)) continue;
+        const grunner = [];
+        const sa = _skrevet(a), sb = _skrevet(b);
+        let navn = false;
+        if (sa.samlet === sb.samlet) { grunner.push('samme navn, skrevet litt ulikt'); navn = true; }
+        else if (sa.sortert === sb.sortert) { grunner.push('samme ord i annen rekkefølge'); navn = true; }
+        /* Seks tegn eller mer: «sk 160» og «sp 160» er én bokstav fra hverandre,
+           men to forkortelser – ikke en skrivefeil. */
+        else if (Math.min(sa.samlet.length, sb.samlet.length) >= 6 && _avstandTekst(sa.samlet, sb.samlet) <= 2) {
+          grunner.push('navnene er nesten like'); navn = true;
+        }
+        const A = perKode.get(a), B = perKode.get(b);
+        let ende = Infinity;
+        for (const p of A.ender) for (const q of B.ender) ende = Math.min(ende, Math.hypot(p.x - q.x, p.y - q.y));
+        if (ende <= 5) grunner.push(`endene møtes ${String(Math.round(ende * 10) / 10).replace('.', ',')} m fra hverandre`);
+        const oppaa = (P, Q) => {
+          let n = 0;
+          for (const p of P.punkter) {
+            for (const l of Q.linjer) {
+              let naer = false;
+              for (let k = 1; k < l.xy.length && !naer; k++) naer = avstandTilStrekk(p, l.xy[k - 1], l.xy[k]) <= 1;
+              if (naer) { n++; break; }
+            }
+          }
+          return n;
+        };
+        /* En stikkledning begynner PÅ hovedledningen, så de første punktene
+           ligger alltid tett inntil den. Oppå hverandre er derfor en stor del
+           av røret – minst tre punkt og to femdeler – ikke bare enden. */
+        const dekker = (P, Q) => { const n = oppaa(P, Q); return n >= 3 && n >= 0.4 * P.punkter.length; };
+        if (dekker(A, B) || dekker(B, A)) grunner.push('de ligger oppå hverandre – trolig samme rør målt to ganger');
+        if (!grunner.length) continue;
+        const na = A.punkter.length, nb = B.punkter.length;
+        const [fra, til] = na > nb || (na === nb && a < b) ? [b, a] : [a, b];
+        ut.push({ fra, til, grunner, navn, ende, antall: { [a]: na, [b]: nb } });
+      }
+    }
+    // navnelikhet først – den er sikrest – så de nærmeste endene
+    return ut.sort((x, y) => (y.navn - x.navn) || (x.ende - y.ende));
+  }
+
+  /** Slår `fra` sammen med `til`: punktene med `fra` tegnes heretter som `til`. */
+  function slaaSammenKoder(ror, fra, til) {
+    if (!fra || !til || fra === til || kanonisk(ror, til) === fra) return false;
+    ror.alias = Object.assign({}, ror.alias || {}, { [fra]: kanonisk(ror, til) });
+    return true;
+  }
+
+  /** Skiller en kode fra det den var slått sammen med. */
+  function skillKode(ror, kode) {
+    if (!ror.alias || !Object.prototype.hasOwnProperty.call(ror.alias, kode)) return false;
+    const ny = Object.assign({}, ror.alias);
+    delete ny[kode];
+    ror.alias = ny;
+    return true;
+  }
+
+  /** «Nei, de er ikke samme rør» – huskes, så forslaget ikke kommer igjen. */
+  function ikkeSamme(ror, a, b) {
+    const p = _par(a, b);
+    const liste = (ror.ikkeSamme || []).filter(x => x !== p);
+    liste.push(p);
+    ror.ikkeSamme = liste;
   }
 
   /* ---------------- koordinater ---------------- */
@@ -1094,6 +1263,7 @@ const Ror = (() => {
 
   return {
     lesFil, lesLandXML, lesSOSI, lesKOF, dekod, tolkKode, koderFra, byggLinjer, avstandTilStrekk,
+    kanonisk, forslagSammen, slaaSammenKoder, skillKode, ikkeSamme,
     lagTilXY, tilLatLon, erUtm, sjekkKoordinater, gjettSone, slaSammen, slaSammenFiler, dimensjon, kildetekst, navnFraFil,
     korridor, profil, objekterLangs, objekterPaaLinjer, sammendrag, merknader, spenn,
     nyRor, StandardRormal, FARGER

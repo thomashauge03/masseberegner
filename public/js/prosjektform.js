@@ -256,6 +256,17 @@ function _rettRorfelt(a, R) {
     }
     k.vis = k.vis !== false;
   }
+  /* Sammenslåtte koder (kode → kode) og par brukeren har sagt «ikke samme
+     rør» om – se Ror.forslagSammen. Bare tekst; en kode som peker på seg
+     selv er ingen sammenslåing. */
+  const alias = {};
+  if (erObjekt(a.ror.alias)) {
+    for (const [fra, til] of Object.entries(a.ror.alias)) {
+      if (typeof til === 'string' && til && til !== fra) alias[fra] = til;
+    }
+  }
+  a.ror.alias = alias;
+  a.ror.ikkeSamme = Array.isArray(a.ror.ikkeSamme) ? a.ror.ikkeSamme.filter(x => typeof x === 'string') : [];
   // en kode punktene har, men tabellen mangler, får tolkningen sin
   a.ror.koder = R.koderFra(a.ror.punkter, a.ror.koder);
   a.ror.kilder = a.ror.kilder.filter(erObjekt);

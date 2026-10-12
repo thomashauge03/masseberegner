@@ -655,6 +655,21 @@ const RorUI = {
     }
     const merknader = (res ? res.merknader : []).map(m => `<li>${escapeHtml(m.tekst)}</li>`).join('');
     const kilder = r.kilder.map(k => escapeHtml(Ror.kildetekst(k))).join('<br>');
+    const forslag = this._forslag(r);
+    const vist = forslag.slice(0, 8);
+    const alias = Object.keys(r.alias || {});
+    const forslagHtml = (vist.length ? `<h3>Kan være samme rør</h3>
+      <p class="notis">Rørene trekkes bare mellom punkt med samme kode, så et rør stopper der koden
+        skifter. Disse kodene ser ut til å høre sammen. Slå sammen der det stemmer – punktene og
+        kodene deres endres ikke, og det kan skilles igjen.</p>
+      <ul class="rorforslag">${vist.map((f, i) => `<li><span><b>${escapeHtml(f.fra)}</b> → <b>${escapeHtml(f.til)}</b>
+        <span class="notis">· ${escapeHtml(f.grunner.join('; '))}</span></span>
+        <span class="knapperad"><button class="knapp liten" data-sammen="${i}">Slå sammen</button>
+        <button class="knapp liten" data-ikkesamme="${i}">Ikke samme rør</button></span></li>`).join('')}</ul>
+      ${forslag.length > vist.length ? `<p class="notis">… og ${forslag.length - vist.length} til – de kommer når du har svart på disse.</p>` : ''}` : '')
+      + (alias.length ? `<h3>Slått sammen</h3><ul class="rorforslag">${alias.map(fra => `<li><span>${escapeHtml(fra)}
+        tegnes som <b>${escapeHtml(Ror.kanonisk(r, fra))}</b></span>
+        <button class="knapp liten" data-skill="${escapeAttr(fra)}">Skill</button></li>`).join('')}</ul>` : '');
     const ret = r.retting;
     e.innerHTML = `
       <h3>${escapeHtml(app.anlegg().navn || 'Rør')}</h3>
@@ -663,6 +678,7 @@ const RorUI = {
       <div class="sumrad"><span>Overdekning</span><span class="verdi">${Ror.spenn(s.minOd, s.maksOd, v => t(v, 2))} m</span></div>` : ''}
       <h3>Rørene</h3>
       <div class="rorliste">${liste || '<p class="tomtekst">Ingen rør – sjekk kodene og maks avstand.</p>'}</div>
+      ${forslagHtml}
       ${merknader ? `<h3>Merknader</h3><ul class="rormerknader">${merknader}</ul>` : ''}
       ${GroftUI.html(r, res)}
       <h3>Innstillinger</h3>
@@ -705,6 +721,50 @@ const RorUI = {
       app.planlegg(30);
     };
     e.querySelector('#rorImportNy').onclick = () => this.velgFil({});
+    const etter = () => { app.tegnAlt(); app.planlegg(30); this.vis(); };
+    for (const b of e.querySelectorAll('[data-sammen]')) {
+      b.onclick = () => {
+        const f = vist[+b.dataset.sammen];
+        if (!f) return;
+        app.merk(`slo sammen ${f.fra} med ${f.til}`);
+        Ror.slaaSammenKoder(r, f.fra, f.til);
+        app.status(`«${f.fra}» tegnes nå som «${f.til}» – Skill under «Slått sammen» eller angre`);
+        etter();
+      };
+    }
+    for (const b of e.querySelectorAll('[data-ikkesamme]')) {
+      b.onclick = () => {
+        const f = vist[+b.dataset.ikkesamme];
+        if (!f) return;
+        app.merk('ikke samme rør');
+        Ror.ikkeSamme(r, f.fra, f.til);
+        this.vis();
+      };
+    }
+    for (const b of e.querySelectorAll('[data-skill]')) {
+      b.onclick = () => {
+        app.merk(`skilte ${b.dataset.skill}`);
+        Ror.skillKode(r, b.dataset.skill);
+        etter();
+      };
+    }
+  },
+
+  /**
+   * Forslagene om samme rør, regnet bare når noe de bygger på har endret seg –
+   * fanen tegnes ofte, og forslagene ser på hvert par av koder.
+   */
+  _forslag(r) {
+    if (r.plan) return [];
+    const app = this.app;
+    const nokkel = [r.punkter.length, r.sone, app.sone, app.P.mal.maksAvstand, JSON.stringify(r.alias || {}),
+      JSON.stringify(r.ikkeSamme || []), JSON.stringify(r.retting || {}), JSON.stringify(r.koder || {})].join('#');
+    if (this._forslagFor !== r || this._forslagNokkel !== nokkel) {
+      this._forslagFor = r;
+      this._forslagNokkel = nokkel;
+      this._forslagBuffer = Ror.forslagSammen(r, Ror.lagTilXY(r.sone, app.sone), app.P.mal.maksAvstand);
+    }
+    return this._forslagBuffer;
   },
 
   _fyllKoder(r) {

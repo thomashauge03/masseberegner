@@ -23,7 +23,7 @@ Nettlesertesten kjøres ved å åpne programmet med `?test=1`, eller fra konsoll
 med `Nettlesertest.kjor()`. Utviklingstjeneren startes med `node server.js`
 (port 5178). Programmet ligger også på https://masseberegner.vercel.app.
 
-Ved siste lagring: **963 prøver i selvtesten, 263 i rørprøven
+Ved siste lagring: **963 prøver i selvtesten, 279 i rørprøven
 (`test/rorprove.js`), 219 i grøfteprøven (`test/groftprove.js`), 175 i
 planprøven (`test/rorplanprove.js`), 77 i eksportprøven
 (`test/roreksportprove.js`), 77 i avviksprøven (`test/roravvikprove.js`), 45 i
@@ -75,6 +75,23 @@ ulike piksler (kanter) for veg, tomt med nabo og to gjennomsiktige lag på rad;
 0,2 % for rør med naboer. Bakkemodus (gå i modellen) tegnes fortsatt av
 rasteret – strekene skjules bak terrenget med rasterets dybde per piksel; det
 er neste steg om det trengs. `Tegner3d.glAv = true` slår skjermkortet av.
+
+### Samme rør, ulike koder – forslag på knapp
+
+2026-10-12: «er det et det mangler rør på mange av plassene eller er punktene
+for lang ifra» – svaret var kodene: et prosjekt med fem filer (Xsite, KOF,
+Makin' Excavator) hadde spillvann 160 under sju koder og vann 110 under seks,
+og et rør trekkes bare mellom punkt med samme kode. Brukeren: «ikke gjør noe …
+men er navnene veldig like kan du gjerne forslå å slå sammen … om dem er nesten
+rett på siden». `Ror.forslagSammen` foreslår par der system og dimensjon passer
+og navnene er nesten like (samme ord, materialet tatt bort, eller ≤ 2 tegn på
+≥ 6 tegn), endene møtes innen 5 m, eller minst 40 % av det ene ligger innen 1 m
+av det andre. Rør-fanen viser forslagene med «Slå sammen» / «Ikke samme rør»,
+og «Slått sammen» med «Skill». Sammenslåingen er `ror.alias` (kode → kode),
+brukt i `byggLinjer` via `Ror.kanonisk`; punktene endres ikke. Nei huskes i
+`ror.ikkeSamme`. Med brukerens fil: 17 forslag; alle godtatt gir 31 rørbiter
+mot 46. Knappene for rørfiler heter nå «(fra filer)» med hint om Ctrl/Shift –
+filvelgeren tok flere filer fra før, men ingenting sa det.
 
 ### Rør fra KOF (VisualMachine)
 
