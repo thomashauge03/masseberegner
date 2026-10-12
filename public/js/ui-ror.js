@@ -23,9 +23,9 @@ const RorUI = {
     const fil = id('rorFil');
     if (fil) {
       fil.onchange = async () => {
-        const f = fil.files && fil.files[0];
+        const filer = [...(fil.files || [])];
         fil.value = '';            // samme fil to ganger på rad skal også gi en change
-        if (f) await this.importerFil(f, this._valg || {});
+        if (filer.length) await this.importerFiler(filer, this._valg || {});
       };
     }
     if (id('verktoyRorImport')) id('verktoyRorImport').onclick = () => this.velgFil({});
@@ -39,11 +39,13 @@ const RorUI = {
         if (t && [...(t.items || [])].some(i => i.kind === 'file')) { e.preventDefault(); t.dropEffect = 'copy'; }
       });
       flate.addEventListener('drop', async e => {
-        const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-        if (!f) return;
+        const filer = [...((e.dataTransfer && e.dataTransfer.files) || [])];
+        if (!filer.length) return;
         e.preventDefault();
-        if (!/\.(xml|sos)$/i.test(f.name)) { this.app.status('Bare .xml- og .sos-filer fra maskinstyringen kan slippes her'); return; }
-        await this.importerFil(f, {});
+        if (!filer.some(f => /\.(xml|sos)$/i.test(f.name))) {
+          this.app.status('Bare .xml- og .sos-filer fra maskinstyringen kan slippes her'); return;
+        }
+        await this.importerFiler(filer, {});
       });
     }
     if (id('ror_velg')) id('ror_velg').onchange = e => this.velgLinje(e.target.value);
@@ -180,11 +182,56 @@ const RorUI = {
   },
 
   /**
+   * Flere filer på én gang – valgt sammen eller sluppet sammen på kartet.
+   * Én fil går den vanlige veien.
+   */
+  async importerFiler(filer, valg) {
+    const liste = [...(filer || [])];
+    if (liste.length === 1) return this.importerFil(liste[0], valg);
+    const tekster = [];
+    for (const f of liste) {
+      if (!/\.(xml|sos)$/i.test(f.name)) { tekster.push({ filnavn: f.name, feil: 'ikke en .xml- eller .sos-fil' }); continue; }
+      try { tekster.push({ filnavn: f.name, tekst: Ror.dekod(await f.arrayBuffer()) }); }
+      catch (e) { tekster.push({ filnavn: f.name, feil: e.message }); }
+    }
+    return this.importerTekster(tekster, valg);
+  },
+
+  /**
+   * Flere filer som ÉN import: punktene flettes (se `Ror.slaSammenFiler`), og
+   * dialogen kommer én gang. En fil som ikke kan leses, stopper ikke de andre –
+   * dialogen sier hvilken og hvorfor.
+   *
+   * @param {Array<{filnavn, tekst?, feil?}>} tekster
+   */
+  async importerTekster(tekster, valg = {}, svarUtenDialog) {
+    const lest = [], feilFiler = [];
+    for (const t of tekster) {
+      if (t.feil) { feilFiler.push({ fil: t.filnavn, feil: t.feil }); continue; }
+      try {
+        const les = Ror.lesFil(t.tekst);
+        const kk = Ror.sjekkKoordinater(les.punkter);
+        if (kk.melding) throw new Error(kk.melding);
+        les.punkter = kk.punkter;
+        les.advarsler.utenforUtm = kk.utenfor;
+        lest.push({ les, filnavn: t.filnavn });
+      } catch (e) { feilFiler.push({ fil: t.filnavn, feil: e.message }); }
+    }
+    if (!lest.length) {
+      this._feil('Ingen av filene kunne leses: ' + feilFiler.map(f => `${f.fil} – ${f.feil}`).join(' · '));
+      return false;
+    }
+    const les = lest.length === 1 ? lest[0].les : Ror.slaSammenFiler(lest);
+    les.feilFiler = feilFiler;
+    const navn = lest.length === 1 ? lest[0].filnavn : `${lest.length} filer`;
+    return this._importer(les, navn, valg, svarUtenDialog, lest[0].filnavn);
+  },
+
+  /**
    * Hele importen fra tekst. Egen inngang, så nettlesertesten slipper
    * filvelgeren – den sender `svarUtenDialog` i stedet for å klikke.
    */
   async importerTekst(tekst, filnavn, valg = {}, svarUtenDialog) {
-    const app = this.app;
     let les;
     try { les = Ror.lesFil(tekst); }
     catch (e) { this._feil(e.message); return false; }
@@ -192,10 +239,22 @@ const RorUI = {
     if (kk.melding) { this._feil(kk.melding); return false; }
     les.punkter = kk.punkter;
     les.advarsler.utenforUtm = kk.utenfor;
+    return this._importer(les, filnavn, valg, svarUtenDialog);
+  },
+
+  /**
+   * Innmålte røranlegg i prosjektet – de punktene kan legges i. Et tegnet
+   * anlegg kan ikke få punkt lagt til: de ville havnet i `ror.punkter`, som et
+   * tegnet anlegg ikke bruker, og forsvunnet uten et ord.
+   */
+  _innmalte() {
+    return this.app.P.anlegg.filter(a => a.type === 'ror' && a.ror && !a.ror.plan);
+  },
+
+  /** Det som er felles for én og flere filer: dialogen og innleggingen. `navnFra` gir navnet på et nytt anlegg. */
+  async _importer(les, filnavn, valg, svarUtenDialog, navnFra) {
+    const app = this.app;
     const gjett = Ror.gjettSone(les.punkter, les.epsg, this._prosjektpunkter());
-    /* Et tegnet anlegg kan ikke få punkt lagt til – de ville havnet i
-       `ror.punkter`, som et tegnet anlegg ikke bruker, og forsvunnet uten et
-       ord. Da blir importen alltid et nytt anlegg. */
     const aktivtRor = app.erRor() && !app.erPlan() ? app.anlegg() : null;
     /* Det aktive anleggets koder gir tolkningen og fargene for koder brukeren
        alt har rettet – men bare kodene i DENNE fila kommer med. Ellers arvet
@@ -208,7 +267,9 @@ const RorUI = {
       ? Object.assign({ koder }, svarUtenDialog)
       : await this.dialog(les, filnavn, gjett, koder, aktivtRor, valg);
     if (!svar) { app.status('Importen ble avbrutt'); return false; }
-    this.leggInn(les, filnavn, svar);
+    // kodene i dialogen bygde på det aktive anleggets – et annet mål har sine egne
+    svar.kodeGrunnlag = aktivtRor ? aktivtRor.id : null;
+    this.leggInn(les, navnFra || filnavn, svar);
     return true;
   },
 
@@ -268,9 +329,19 @@ const RorUI = {
           + 'sjekk at rørene havner riktig i kartet etterpå.'
       }[gjett.grunn];
       const maks = this.app.P && this.app.erRor() ? this.app.P.mal.maksAvstand : Ror.StandardRormal.maksAvstand;
+      const flere = les.kilder && les.kilder.length > 1;
+      const feilFiler = les.feilFiler || [];
+      /* Målene: alle innmålte røranlegg i prosjektet, det aktive først og valgt –
+         så kan filene flettes inn i ett anlegg uansett hvilket som er åpent. */
+      const mal = this._innmalte().sort((x, y) => (y === aktivtRor) - (x === aktivtRor));
+      const forvalgt = valg.nytt || !aktivtRor ? 'nytt' : 'leggTil';
+      const maalverdi = x => (x === aktivtRor ? 'leggTil' : 'anlegg:' + x.id);
       innhold.innerHTML = `
         <p class="notis">${escapeHtml(filnavn)}${les.program ? ' · ' + escapeHtml(les.program) : ''}${les.dato ? ' · ' + escapeHtml(les.dato) : ''}</p>
+        ${flere ? `<ul class="notis rorfiler">${les.kilder.map(k => `<li>${escapeHtml(Ror.kildetekst(k))}</li>`).join('')}</ul>` : ''}
+        ${feilFiler.length ? `<p class="raud">Kunne ikke leses: ${feilFiler.map(f => `${escapeHtml(f.fil)} – ${escapeHtml(f.feil)}`).join(' · ')}</p>` : ''}
         <p><b>${les.punkter.length}</b> innmålte punkt i <b>${Object.keys(antall).length}</b> koder.
+          ${flere && les.iFlere ? `${les.iFlere} punkt sto i mer enn én fil og er tatt med én gang – kjent igjen på navnet, den nyeste fila gjelder.` : ''}
           ${hoppet.length ? `<span class="raud">Hoppet over: ${hoppet.join(', ')}.</span>` : ''}</p>
         <p class="notis">Punktene er toppen av røret, målt midt over senterlinja – sett ovenfra ligger de
           i senter. Linjene trekkes mellom punkt med samme kode som ligger høyst ${maks} m fra hverandre.</p>
@@ -282,11 +353,12 @@ const RorUI = {
         </div>
         <p class="notis">${grunn}</p>
         ${this.kodetabellHtml(koder, antall)}
-        ${aktivtRor ? `<fieldset class="rormaal"><legend>Hvor skal punktene?</legend>
-          <label><input type="radio" name="rorMaal" value="leggTil"${valg.nytt ? '' : ' checked'}>
-            Legg til i «${escapeHtml(aktivtRor.navn || 'Rør')}» – punkt som finnes fra før, kjennes igjen.
-            Anlegget er i UTM ${aktivtRor.ror.sone}; er fila i en annen sone, regnes punktene om dit.</label>
-          <label><input type="radio" name="rorMaal" value="nytt"${valg.nytt ? ' checked' : ''}> Nytt røranlegg</label></fieldset>` : ''}
+        ${mal.length ? `<fieldset class="rormaal"><legend>Hvor skal punktene?</legend>
+          ${mal.map(x => `<label><input type="radio" name="rorMaal" value="${escapeAttr(maalverdi(x))}"${
+            maalverdi(x) === forvalgt ? ' checked' : ''}>
+            Legg til i «${escapeHtml(x.navn || 'Rør')}» – punkt som finnes fra før, kjennes igjen.
+            Anlegget er i UTM ${x.ror.sone}; er fila i en annen sone, regnes punktene om dit.</label>`).join('')}
+          <label><input type="radio" name="rorMaal" value="nytt"${forvalgt === 'nytt' ? ' checked' : ''}> Nytt røranlegg</label></fieldset>` : ''}
         <div class="knapperad" style="justify-content:flex-end">
           <button class="knapp" id="rorAvbryt">Avbryt</button>
           <button class="knapp primaer" id="rorImporter">Importer</button>
@@ -373,9 +445,18 @@ const RorUI = {
   leggInn(les, filnavn, svar) {
     const app = this.app, P = app.P;
     app.merk('importerte rør');
-    const kilde = { fil: filnavn, program: les.program, dato: les.dato,
-      importert: new Date().toISOString(), antall: les.punkter.length };
-    let a = svar.maal === 'leggTil' && app.erRor() ? app.anlegg() : null;
+    const importert = new Date().toISOString();
+    // flere filer: én kilde per fil, så rapporten viser hver av dem
+    const kilder = les.kilder && les.kilder.length
+      ? les.kilder.map(k => Object.assign({}, k, { importert }))
+      : [{ fil: filnavn, program: les.program, dato: les.dato, importert, antall: les.punkter.length }];
+    const innmalt = x => x && x.type === 'ror' && x.ror && !x.ror.plan;
+    let a = null;
+    if (svar.maal === 'leggTil' && innmalt(app.anlegg())) a = app.anlegg();
+    else if (String(svar.maal || '').startsWith('anlegg:')) {
+      const id = svar.maal.slice('anlegg:'.length);
+      a = P.anlegg.find(x => String(x.id) === id && innmalt(x)) || null;
+    }
     let melding;
     if (a) {
       /* DE NYE PUNKTENE REGNES OM TIL ANLEGGETS SONE – IKKE OMVENDT.
@@ -390,10 +471,17 @@ const RorUI = {
       });
       const sam = Ror.slaSammen(a.ror.punkter, nye);
       a.ror.punkter = sam.punkter;
-      a.ror.koder = Object.assign({}, a.ror.koder, svar.koder);
+      /* Kodene i dialogen bygde på det aktive anleggets. Er målet et annet,
+         beholder det sine egne – bare nye koder kommer til. */
+      a.ror.koder = a.id === svar.kodeGrunnlag
+        ? Object.assign({}, a.ror.koder, svar.koder)
+        : Object.assign({}, svar.koder, a.ror.koder);
       // punktene står ikke lenger slik de var i fila – det skal stå et sted
-      if (fra !== til) kilde.regnetOm = { fra, til };
-      a.ror.kilder.push(kilde);
+      for (const kilde of kilder) {
+        // en fil som alt var regnet om ved flettingen, står fortsatt fra sin egen sone
+        if (fra !== til) kilde.regnetOm = { fra: kilde.regnetOm ? kilde.regnetOm.fra : fra, til };
+        a.ror.kilder.push(kilde);
+      }
       melding = `${sam.nye} nye punkt, ${sam.kjente} fantes fra før`
         + (sam.endret ? `, ${sam.endret} med nye tall` : '')
         + (fra !== til ? ` – regnet om fra UTM ${fra} til anleggets UTM ${til}` : '');
@@ -403,7 +491,7 @@ const RorUI = {
       a.ror.sone = svar.sone;
       a.ror.punkter = les.punkter.map(p => Object.assign({}, p));
       a.ror.koder = svar.koder;
-      a.ror.kilder = [kilde];
+      a.ror.kilder = kilder;
       /* ET NYTT PROSJEKT SOM IKKE HAR BESTEMT SEG, OG DER DET ENE ANLEGGET ER
          TOMT: bytt det ut i stedet for å legge et nytt ved siden av. Samme
          regel som `velgAnleggstype` – ellers ville et ferskt prosjekt med rør

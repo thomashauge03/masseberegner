@@ -687,9 +687,51 @@ console.log('\n19. Kodene fra Makin\' Excavator');
 }
 
 /* ------------------------------------------------------------------ */
+console.log('\n20. Flere filer flettes til én import');
+{
+  // oppdiktet: samme anlegg målt to ganger, én LandXML og én SOSI, punktene heter det samme
+  const xml = `<LandXML date="2026-05-01"><CoordinateSystem epsgCode="25832"/><CgPoints>
+<CgPoint name="p1" code="110 PE">6600000.000 500000.000 100.000</CgPoint>
+<CgPoint name="p2" code="110 PE">6600010.000 500000.000 100.100</CgPoint>
+</CgPoints></LandXML>`;
+  const sos = ['.HODE', '..TEGNSETT UTF-8', '...ENHET 0.001',
+    '.PUNKT 1:', '..NAME p2', '..OBJTYPE 110 PE', '..CreateTime "2026-05-09 10:00:00"', '..NØH', '6600010000 500000000 100150',
+    '.PUNKT 2:', '..NAME p3', '..OBJTYPE 110 PE', '..CreateTime "2026-05-09 10:01:00"', '..NØH', '6600000849 500020000 100200',
+    '.SLUTT'].join('\n');
+  // SOSI først i lista – rekkefølgen filene ble valgt i, skal ikke avgjøre
+  const filer = [{ les: Ror.lesFil(sos), filnavn: 'b.sos' }, { les: Ror.lesFil(xml), filnavn: 'a.xml' }];
+  const r = Ror.slaSammenFiler(filer);
+  sjekk('tre punkt, ingen doble', r.punkter.length, 3, 0);
+  sjekk('ett punkt sto i begge', r.iFlere, 1, 0);
+  const p2 = r.punkter.find(p => p.id === 'p2');
+  sjekk('den nyeste fila vinner for et punkt i begge', p2.z, 100.15, 1e-9);
+  paastand('én kilde per fil, eldste først', r.kilder.length === 2 && r.kilder[0].fil === 'a.xml'
+    && r.kilder[1].fil === 'b.sos', JSON.stringify(r.kilder));
+  paastand('sonen fra fila som oppgir den', r.epsg === 25832, String(r.epsg));
+  paastand('datoen er den nyeste', r.dato === '2026-05-09', r.dato);
+  const p3 = r.punkter.find(p => p.id === 'p3');
+  paastand('SOSI rundes til enheten: 6600000849 × 0.001 er nøyaktig 6600000.849', p3.n === 6600000.849, String(p3.n));
+  sjekk('advarslene legges sammen', Object.values(r.advarsler).reduce((a, v) => a + v, 0), 0, 0);
+
+  // en fil i sone 33 regnes om til sonen den andre oppgir
+  const [la, lo] = Ror.tilLatLon({ n: 6600000, o: 500030 }, 32);
+  const i33 = require(js('geo.js')).tilUtm(la, lo, 33);
+  const xml33 = `<LandXML date="2026-05-05"><CoordinateSystem epsgCode="25833"/><CgPoints>
+<CgPoint name="q1" code="110 PE">${i33.y.toFixed(3)} ${i33.x.toFixed(3)} 100.000</CgPoint></CgPoints></LandXML>`;
+  const r33 = Ror.slaSammenFiler([{ les: Ror.lesFil(xml), filnavn: 'a.xml' }, { les: Ror.lesFil(xml33), filnavn: 'c.xml' }]);
+  const q1 = r33.punkter.find(p => p.id === 'q1');
+  sjekk('punktet fra sone 33 havner der det ble målt – nord', q1.n, 6600000, 0.002);
+  sjekk('og øst', q1.o, 500030, 0.002);
+  const k33 = r33.kilder.find(k => k.fil === 'c.xml');
+  paastand('kilden noterer omregningen', k33.regnetOm && k33.regnetOm.fra === 33 && k33.regnetOm.til === 32,
+    JSON.stringify(k33));
+  paastand('fila som var i sonen fra før, er ikke regnet om', !r33.kilder.find(k => k.fil === 'a.xml').regnetOm);
+}
+
+/* ------------------------------------------------------------------ */
 /* DEN EKTE FILA – bare når stien er gitt. Kundens data ligger ikke i repoet. */
 if (process.env.ROR_FIL) {
-  console.log('\n20. Den ekte fila (ROR_FIL)');
+  console.log('\n21. Den ekte fila (ROR_FIL)');
   const les = Ror.lesFil(Ror.dekod(fs.readFileSync(process.env.ROR_FIL)));
   const ror = { punkter: les.punkter, koder: Ror.koderFra(les.punkter), retting: { av: [], brudd: [], koble: [] } };
   const b = Ror.byggLinjer(ror, Ror.StandardRormal, iFila);

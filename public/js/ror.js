@@ -297,7 +297,10 @@ const Ror = (() => {
         advarsler.ugyldige++; continue;
       }
       if (!medHoyde || koord.length < 3 || !Number.isFinite(koord[2])) { advarsler.utenHoyde++; continue; }
-      const n = oN + koord[0] * enhet, o = oO + koord[1] * enhet, z = koord[2] * enhetH;
+      /* Rundet til enheten: 6600000003 × 0.001 er 6600000.0030000005, og da
+         var punktet «endret» mot det samme punktet fra XML-fila. */
+      const n = _rund(oN + koord[0] * enhet, enhet), o = _rund(oO + koord[1] * enhet, enhet);
+      const z = _rund(koord[2] * enhetH, enhetH);
       if (!app && felt.APP) app = felt.APP;
       const navn = felt.NAME || felt.NAVN || '';
       const k = _kode(felt.OBJTYPE, navn);
@@ -325,6 +328,12 @@ const Ror = (() => {
       epsg: _KOORDSYS_EPSG[ks] || null,
       advarsler
     };
+  }
+
+  /** Tallet rundet til så mange desimaler som enheten har (0.001 → 3). */
+  function _rund(v, enhet) {
+    const des = Math.min(6, Math.max(0, Math.round(-Math.log10(enhet))));
+    return +v.toFixed(des);
   }
 
   /** En SOSI-linje uten kommentaren: alt etter en «!» som ikke står i fnutter. */
@@ -738,6 +747,51 @@ const Ror = (() => {
     return { punkter: [...ut.values()], nye: antallNye, kjente, endret };
   }
 
+  /**
+   * Flere filer som én import – samme form som `lesFil` gir, pluss `kilder`
+   * (én per fil) og `iFlere` (punkt som sto i mer enn én fil).
+   *
+   * Eldste fil først, så den nyeste vinner for et punkt som står i flere: det
+   * er samme regel som når filene legges til én og én. Et punkt kjennes igjen
+   * på navnet, som ellers.
+   *
+   * Sonen: oppgir en fil sin, gjelder den for alle; en fil som oppgir en annen,
+   * regnes om dit, og kilden noterer det. Filer uten sone får den som velges i
+   * dialogen.
+   *
+   * @param {Array<{les, filnavn}>} filer  `les` fra `lesFil`
+   */
+  function slaSammenFiler(filer) {
+    const sortert = filer.map((f, i) => ({ f, i }))
+      .sort((a, b) => ((a.f.les.dato || '') < (b.f.les.dato || '') ? -1
+        : (a.f.les.dato || '') > (b.f.les.dato || '') ? 1 : a.i - b.i))
+      .map(x => x.f);
+    const medSone = sortert.find(f => _EPSG_SONE[f.les.epsg]);
+    const sone = medSone ? _EPSG_SONE[medSone.les.epsg] : null;
+    let punkter = [], iFlere = 0;
+    const advarsler = {}, kilder = [], program = [];
+    let dato = '';
+    for (const f of sortert) {
+      const fs = _EPSG_SONE[f.les.epsg];
+      let pts = f.les.punkter;
+      const kilde = { fil: f.filnavn, program: f.les.program, dato: f.les.dato, antall: pts.length };
+      if (sone && fs && fs !== sone) {
+        const t = lagTilXY(fs, sone);
+        pts = pts.map(p => { const q = t(p); return Object.assign({}, p, { o: +q.x.toFixed(3), n: +q.y.toFixed(3) }); });
+        kilde.regnetOm = { fra: fs, til: sone };
+      }
+      const sam = slaSammen(punkter, pts);
+      punkter = sam.punkter;
+      iFlere += sam.kjente;
+      for (const [k, v] of Object.entries(f.les.advarsler || {})) advarsler[k] = (advarsler[k] || 0) + v;
+      if (f.les.program && !program.includes(f.les.program)) program.push(f.les.program);
+      if ((f.les.dato || '') > dato) dato = f.les.dato;
+      kilder.push(kilde);
+    }
+    return { punkter, program: program.join(' + '), dato, epsg: medSone ? medSone.les.epsg : null,
+      advarsler, kilder, iFlere };
+  }
+
   /** En dimensjon i mm, eller null: over 0 og høyst 3 000, som tall eller tekst. */
   function dimensjon(v) {
     const d = typeof v === 'string' ? parseFloat(v) : v;
@@ -969,7 +1023,7 @@ const Ror = (() => {
 
   return {
     lesFil, lesLandXML, lesSOSI, dekod, tolkKode, koderFra, byggLinjer, avstandTilStrekk,
-    lagTilXY, tilLatLon, erUtm, sjekkKoordinater, gjettSone, slaSammen, dimensjon, kildetekst, navnFraFil,
+    lagTilXY, tilLatLon, erUtm, sjekkKoordinater, gjettSone, slaSammen, slaSammenFiler, dimensjon, kildetekst, navnFraFil,
     korridor, profil, objekterLangs, objekterPaaLinjer, sammendrag, merknader, spenn,
     nyRor, StandardRormal, FARGER
   };
