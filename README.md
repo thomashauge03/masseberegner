@@ -143,8 +143,20 @@ for selve renna – fundament og omfylling – telles ikke.
 ## Rør fra maskinstyringen
 
 Innmålte rør kan hentes inn fra en LandXML-fil – eksporten «as-built» fra Xsite
-Manage og liknende. Velg **⌀ Nye rør (fra fil)** i anleggslista, «Rør (fra fil)»
-i førstevalget, eller slipp fila på kartet.
+Manage og liknende – eller fra en SOSI-fil (`.sos`), og begge formatene fra
+Kinematic Makin' Excavator. Velg **⌀ Nye rør (fra fil)** i anleggslista, «Rør
+(fra fil)» i førstevalget, eller slipp fila på kartet.
+
+* **Makin' Excavator** har koden enten fra lista (står i `code`/`..OBJTYPE`, og
+  navnet er bare «P12 (0)») eller skrevet som navnet på punktet («vann 63(2) (1)»,
+  og koden er bare «Punkt»). Da hentes koden fra navnet uten tellerne
+  («vann 63»), med små bokstaver og mellomrom mellom tall og bokstaver, så
+  «vann110» og «Vann 110» blir samme rør – og «tr40 (0)» blir samme som «tr40»
+  fra lista. Skrivefeil («vanl 110») blir egne koder. Datoen 2008-01-08 som
+  står i hver fil, byttes mot datoen til det siste målte punktet.
+* **SOSI:** bare `.PUNKT` leses; en `.KURVE` er en logglinje, og punktene på
+  den står også som egne punkt – den telles som hoppet over. Koordinatene regnes
+  med `..ENHET` og `..ORIGO-NØ`, sonen fra `..KOORDSYS` (22/23/25) når den står der.
 
 * **Punktene blir rør av seg selv.** Fila har bare punkter, og operatøren måler
   fram og tilbake og hopper mellom rørene i samme grøft – målerekkefølgen kan

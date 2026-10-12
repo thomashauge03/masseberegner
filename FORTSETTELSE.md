@@ -23,7 +23,7 @@ Nettlesertesten kjøres ved å åpne programmet med `?test=1`, eller fra konsoll
 med `Nettlesertest.kjor()`. Utviklingstjeneren startes med `node server.js`
 (port 5178). Programmet ligger også på https://masseberegner.vercel.app.
 
-Ved siste lagring: **963 prøver i selvtesten, 194 i rørprøven
+Ved siste lagring: **963 prøver i selvtesten, 237 i rørprøven
 (`test/rorprove.js`), 219 i grøfteprøven (`test/groftprove.js`), 175 i
 planprøven (`test/rorplanprove.js`), 77 i eksportprøven
 (`test/roreksportprove.js`), 77 i avviksprøven (`test/roravvikprove.js`), 45 i
@@ -57,6 +57,23 @@ automatisk.** Delte prosjekt (database og innlogging) er holdt utenfor.
 Underveis ba brukeren om et **oversiktskart for rørene** – ett kart med alle
 typene i hver sin farge og tegnforklaring, og ett kart per type. Det kom foran
 resten av «Utenfor 3a».
+
+### Rør fra Makin' Excavator (Kinematic): SOSI og koden i navnet
+
+2026-10-12: «vi har jo rør innmålinger jeg vil at den skal også ta imot denne
+typen format som d andre» – en .sos og en .xml fra Makin' Excavator. XML-fila ble
+lest, men omtrent halvparten av punktene hadde koden «Punkt» (operatøren skrev
+koden som navnet, «vann 63(2) (1)»), så de ble punkt og ingen rør; SOSI ble ikke
+lest i det hele tatt. Nå: `Ror.lesFil` velger SOSI (begynner med `.HODE`) eller
+LandXML; `Ror.lesSOSI` leser `.PUNKT` med `..ENHET`/`..ORIGO-NØ`/`..KOORDSYS` og
+teller kurvene; koden hentes fra navnet når den er «Punkt»/«Linjepunkt», uten
+tellerne, med små bokstaver og mellomrom mellom tall og bokstaver, og får listas
+skrivemåte når bare det skiller («tr 40» → «tr40»). Datoen 2008-01-08 i rota
+byttes mot siste målte punkt; programmet er App-egenskapen («Makin' Excavator»).
+`tolkKode` kjenner nå vann/kloakk/spillvann/overvann skrevet ut, TR som kabel,
+kabel uten dimensjon som linje, sveisemuffe/andborring/sveisskjøt/grenrør som
+punkt, og «30 grader» er ikke en dimensjon. Med den ekte fila ble det dobbelt så
+mange rør. Skrivefeil i navnene blir egne koder – det er ikke rettet.
 
 ### Etter programmet: kartblad, hvite tekstbokser, og SOSI med bare det fra fila
 

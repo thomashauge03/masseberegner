@@ -573,10 +573,124 @@ console.log('\n16. Hvert objekt på det røret det sitter på');
 }
 
 /* ------------------------------------------------------------------ */
+console.log('\n17. Makin\' Excavator: LandXML med koden i navnet');
+{
+  /* Oppdiktet. Slik skriver Kinematic: en kode valgt fra lista står i `code`
+     og navnet er «P3 (0)»; en kode operatøren skrev selv, står i navnet, og
+     `code` er bare «Punkt». Rota har alltid 2008-01-08. */
+  const egen = (tid) => `<Feature Code="Logpoint"><Property label="App" value="Makin&apos; Excavator"/>`
+    + `<Property label="CreateTime" value="${tid}"/></Feature>`;
+  const xml = `<?xml version="1.0" encoding="utf-8"?>
+<LandXML version="1.2" date="2008-01-08" xmlns="http://www.landxml.org/schema/LandXML-1.2">
+<Application name="kblexport" manufacturer="Kinematic Aps"/><Project name="Prøvefelt"/>
+<Units><Metric linearUnit="meter"/></Units>
+<PlanFeatures><PlanFeature name="L1 (0)" desc="Linje"><CoordGeom><Line><Start>6600000 500000 100</Start><End>6600001 500000 100</End></Line></CoordGeom></PlanFeature></PlanFeatures>
+<CgPoints><CgPoint name="P3 (0)" code="180 vann">6600010.000 500000.000 100.000</CgPoint>${egen('2026-05-02 10:00:00')}</CgPoints>
+<CgPoints><CgPoint name="vann 63 (1)" code="Punkt">6600020.000 500000.000 100.100</CgPoint>${egen('2026-05-03 10:00:00')}</CgPoints>
+<CgPoints><CgPoint name="vann63(1) (1)" code="Punkt">6600030.000 500000.000 100.200</CgPoint>${egen('2026-05-03 10:01:00')}</CgPoints>
+<CgPoints><CgPoint name="Vann 63(2) (1)" code="Punkt">6600040.000 500000.000 100.300</CgPoint>${egen('2026-05-03 10:02:00')}</CgPoints>
+<CgPoints><CgPoint name="Sveisemuffe vann 63 (1)" code="Punkt">6600035.000 500000.000 100.250</CgPoint>${egen('2026-05-03 10:03:00')}</CgPoints>
+<CgPoints><CgPoint name="P9 (1)" code="Punkt">6600050.000 500000.000 100.400</CgPoint>${egen('2026-05-04 10:00:00')}</CgPoints>
+<CgPoints><CgPoint name="LP1 (L1 (0))" code="Linjepunkt">6600000.000 500000.000 100.000</CgPoint></CgPoints>
+<CgPoints><CgPoint name="P1Endepunkt 160 (1)" code="Punkt">6600060.000 500000.000 100.500</CgPoint></CgPoints>
+<CgPoints><CgPoint name="P4 (0)" code="tr40">6600100.000 500010.000 99.000</CgPoint></CgPoints>
+<CgPoints><CgPoint name="tr40(1) (0)" code="Punkt">6600110.000 500010.000 99.000</CgPoint></CgPoints>
+</LandXML>`;
+  const r = Ror.lesFil(xml);
+  const kode = id => (r.punkter.find(p => p.id === id) || {}).kode;
+  sjekk('ti punkt', r.punkter.length, 10, 0);
+  paastand('koden fra navnet får listas skrivemåte når bare mellomrom skiller', kode('tr40(1) (0)') === 'tr40',
+    kode('tr40(1) (0)'));
+  paastand('en kode fra lista står som den står', kode('P3 (0)') === '180 vann', kode('P3 (0)'));
+  paastand('«Punkt» gir koden fra navnet, uten tellerne',
+    kode('vann 63 (1)') === 'vann 63' && kode('vann63(1) (1)') === 'vann 63' && kode('Vann 63(2) (1)') === 'vann 63',
+    [kode('vann 63 (1)'), kode('vann63(1) (1)'), kode('Vann 63(2) (1)')].join(' / '));
+  paastand('navnet blir id-en, uendret', r.punkter.some(p => p.id === 'vann63(1) (1)'));
+  paastand('bare et punktnummer gir ingen kode', kode('P9 (1)') === 'Punkt' && kode('LP1 (L1 (0))') === 'Linjepunkt',
+    kode('P9 (1)') + ' / ' + kode('LP1 (L1 (0))'));
+  paastand('punktnummeret foran koden tas bort', kode('P1Endepunkt 160 (1)') === 'endepunkt 160', kode('P1Endepunkt 160 (1)'));
+  paastand('programmet er det som målte', r.program === "Makin' Excavator", r.program);
+  paastand('2008-datoen i rota byttes mot siste målte punkt', r.dato === '2026-05-04', r.dato);
+  paastand('tiden fra CreateTime', r.punkter[0].tid === '2026-05-02 10:00:00', r.punkter[0].tid);
+  const ror = { punkter: r.punkter, koder: Ror.koderFra(r.punkter), retting: {} };
+  const b = Ror.byggLinjer(ror, Ror.StandardRormal, iFila);
+  const v63 = b.linjer.filter(l => l.kode === 'vann 63');
+  paastand('«vann 63» er ett rør med tre punkt', v63.length === 1 && v63[0].punkter.length === 3,
+    JSON.stringify(b.linjer.map(l => [l.kode, l.punkter.length])));
+  paastand('sveisemuffen er et punkt på røret', b.objekter.some(p => p.kode === 'sveisemuffe vann 63'));
+  /* Et rør skrevet slik blir ikke lenger «Punkt» – det var feilen: alle
+     punktene uten kode fra lista havnet i samme punktsett, og ingen linje ble trukket. */
+  paastand('ingen linje heter «Punkt»', !b.linjer.some(l => l.kode === 'Punkt'));
+}
+
+/* ------------------------------------------------------------------ */
+console.log('\n18. SOSI fra maskinstyringen');
+{
+  const sos = [
+    '.HODE', '..TEGNSETT UTF-8', '..TRANSPAR', '...KOORDSYS 22', '...ORIGO-NØ 6600000 500000', '...ENHET 0.001',
+    '..SOSI-VERSJON 5.0', '..DATO 01/02/2008 10:00:00',
+    '..APPLICATION', '...Navn kblexport',
+    '.KURVE 1:', '..NAME L1', '..OBJTYPE Linje', '..NØH', '0 0 100000', '1000 0 100000',
+    '.PUNKT 2:', '..NAME P3 (0)', '..OBJTYPE 180 vann', '..App "Makin\' Excavator"',
+    '..CreateTime "2026-05-02 10:00:00"', '..NØH', '10000 0 100000',
+    '.PUNKT 3:', '..NAME vann63(1) (1)', '..OBJTYPE Punkt', '..CreateTime "2026-05-03 10:00:00"',
+    '..NØH 20000 1500 100250 ! kommentar',
+    '.PUNKT 4:', '..NAME vann 63 (1)', '..OBJTYPE Punkt', '..NØH', '30000 0 100500',
+    '.PUNKT 5:', '..NAME uten høyde', '..OBJTYPE Punkt', '..NØ', '40000 0',
+    '.PUNKT 6:', '..NAME vann 63 (1)', '..OBJTYPE Punkt', '..NØH', '50000 0 100500',
+    '.SLUTT'
+  ].join('\r\n');
+  const r = Ror.lesFil(sos);
+  sjekk('tre punkt', r.punkter.length, 3, 0);
+  const p = r.punkter.find(q => q.id === 'vann63(1) (1)');
+  sjekk('nord = origo + tall × enhet', p.n, 6600020, 1e-6);
+  sjekk('øst = origo + tall × enhet', p.o, 500001.5, 1e-6);
+  sjekk('høyden i meter', p.z, 100.25, 1e-9);
+  paastand('tallene på samme linje som ..NØH, og kommentaren tas bort', Number.isFinite(p.z));
+  paastand('koden fra OBJTYPE, eller fra navnet når den er «Punkt»',
+    r.punkter[0].kode === '180 vann' && p.kode === 'vann 63', r.punkter.map(q => q.kode).join(' / '));
+  sjekk('KOORDSYS 22 er UTM 32', r.epsg, 25832, 0);
+  sjekk('kurven telles', r.advarsler.ikkePunkt, 1, 0);
+  sjekk('punkt uten høyde telles', r.advarsler.utenHoyde, 1, 0);
+  sjekk('dobbelt navn telles', r.advarsler.doble, 1, 0);
+  paastand('programmet fra punktene', r.program === "Makin' Excavator", r.program);
+  paastand('en dato som ikke er ÅÅÅÅMMDD brukes ikke', r.dato === '2026-05-03', r.dato);
+  const std = Ror.lesSOSI('.HODE\n..DATO 20260601\n...ENHET 0.01\n.PUNKT 1:\n..OBJTYPE 110PE\n..NØH\n660000000 50000000 10000\n.SLUTT');
+  paastand('..DATO ÅÅÅÅMMDD og ENHET 0.01', std.dato === '2026-06-01' && Math.abs(std.punkter[0].z - 100) < 1e-9
+    && Math.abs(std.punkter[0].n - 6600000) < 1e-6, JSON.stringify([std.dato, std.punkter[0]]));
+  const latin = Buffer.from('.HODE\r\n..TEGNSETT ISO8859-10\r\n.PUNKT 1:\r\n..OBJTYPE R\xD8R 110\r\n..N\xD8H\r\n1 2 3\r\n.SLUTT', 'latin1');
+  const t = Ror.dekod(latin);
+  paastand('..TEGNSETT ISO8859-10 gir Ø', t.includes('RØR 110') && t.includes('..NØH'));
+  paastand('og fila leses', Ror.lesFil(t).punkter[0].kode === 'RØR 110');
+  kaster('verken SOSI eller LandXML gir klar beskjed', () => Ror.lesFil('hei'), /verken LandXML eller SOSI/);
+}
+
+/* ------------------------------------------------------------------ */
+console.log('\n19. Kodene fra Makin\' Excavator');
+{
+  const fasit = [
+    ['vann 63', 'linje', 63, 'vann'], ['160 kloakk', 'linje', 160, 'spill'],
+    ['spillvann 160', 'linje', 160, 'spill'], ['tr 40', 'linje', 40, 'kabel'],
+    ['kabel gatelys', 'linje', null, 'kabel'], ['el muffe 110 vann', 'punkt', 110, 'vann'],
+    ['sveisemuffe vann 110', 'punkt', 110, 'vann'], ['45 grader bend 110 vann', 'punkt', 110, 'vann'],
+    ['andborring vann', 'punkt', null, 'vann'], ['sveisskjøt 50', 'punkt', 50, ''],
+    ['50mm vann', 'linje', 50, 'vann'], ['110 grenrør kloakk', 'punkt', 110, 'spill'],
+    ['110 drens', 'linje', 110, 'drens']
+  ];
+  for (const [kode, form, dim, system] of fasit) {
+    const t = Ror.tolkKode(kode);
+    paastand(`«${kode}» → ${form}, ${dim}, «${system}»`,
+      t.form === form && t.dim === dim && t.system === system, JSON.stringify(t));
+  }
+  paastand('«160 kloakk topp rør» har varianten «TOPP RØR»', Ror.tolkKode('160 kloakk topp rør').variant === 'TOPP RØR',
+    Ror.tolkKode('160 kloakk topp rør').variant);
+}
+
+/* ------------------------------------------------------------------ */
 /* DEN EKTE FILA – bare når stien er gitt. Kundens data ligger ikke i repoet. */
 if (process.env.ROR_FIL) {
-  console.log('\n17. Den ekte fila (ROR_FIL)');
-  const les = Ror.lesLandXML(Ror.dekod(fs.readFileSync(process.env.ROR_FIL)));
+  console.log('\n20. Den ekte fila (ROR_FIL)');
+  const les = Ror.lesFil(Ror.dekod(fs.readFileSync(process.env.ROR_FIL)));
   const ror = { punkter: les.punkter, koder: Ror.koderFra(les.punkter), retting: { av: [], brudd: [], koble: [] } };
   const b = Ror.byggLinjer(ror, Ror.StandardRormal, iFila);
   paastand('fila leses', les.punkter.length > 0, String(les.punkter.length));

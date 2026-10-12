@@ -66,9 +66,14 @@ const Ror = (() => {
     const bom = u8.length >= 3 && u8[0] === 0xEF && u8[1] === 0xBB && u8[2] === 0xBF;
     const start = bom ? 3 : 0;
     let hode = '';
-    for (let i = start; i < Math.min(u8.length, start + 200); i++) hode += String.fromCharCode(u8[i]);
-    const m = /encoding\s*=\s*["']([\w.:-]+)["']/i.exec(hode);
-    const etikett = bom || !m ? 'utf-8' : m[1].toLowerCase();
+    for (let i = start; i < Math.min(u8.length, start + 1000); i++) hode += String.fromCharCode(u8[i]);
+    /* SOSI sier det i ..TEGNSETT. ISO8859-10 har Æ, Ø og Å på samme plass som
+       ISO8859-1, og det er de bokstavene som teller her. */
+    const sosi = /^\s*\.HODE\b/.test(hode) && /\.TEGNSETT\s+([\w-]+)/i.exec(hode);
+    const m = sosi ? null : /encoding\s*=\s*["']([\w.:-]+)["']/i.exec(hode.slice(0, 200));
+    const etikett = bom ? 'utf-8'
+      : sosi ? (/^UTF-?8$/i.test(sosi[1]) ? 'utf-8' : /^(ISO8859-\d+|ANSI)$/i.test(sosi[1]) ? 'iso-8859-1' : 'utf-8')
+      : m ? m[1].toLowerCase() : 'utf-8';
     try { return new TextDecoder(etikett).decode(u8.subarray(start)); }
     catch (e) { return new TextDecoder('utf-8').decode(u8.subarray(start)); }
   }
@@ -104,6 +109,8 @@ const Ror = (() => {
     const advarsler = { utenHoyde: 0, ugyldige: 0, doble: 0, referanser: 0 };
     const punkter = [];
     const sett = new Set();
+    const fraNavn = new Set();
+    let app = '';
     const re = /<CgPoint\b([^>]*?)(\/>|>([^<]*)<\/CgPoint>)/g;
     let m;
     while ((m = re.exec(s))) {
@@ -115,24 +122,243 @@ const Ror = (() => {
       }
       if (tall.length < 3 || !Number.isFinite(tall[2])) { advarsler.utenHoyde++; continue; }
       const [n, o, z] = tall;
-      let kode = (a.code || '').trim();
+      /* Makin' Excavator skriver egenskapene i en <Feature> rett etter punktet:
+         når det ble målt, og hvilket program. */
+      const egen = _egenskaper(s, re.lastIndex);
+      if (!app && egen.App) app = egen.App;
+      const k = _kode(a.code, a.name);
+      let kode = k.kode;
       if (!kode && a.desc && a.desc !== 'undefined') kode = a.desc.trim();
       if (!kode) kode = 'UTEN KODE';
       const id = (a.name || '').trim() || `${kode}|${n.toFixed(3)}|${o.toFixed(3)}|${z.toFixed(3)}`;
       if (sett.has(id)) { advarsler.doble++; continue; }
       sett.add(id);
       const nr = parseInt(a.surveyOrder, 10);
-      punkter.push({ id, kode, n, o, z, tid: a.timeStamp || '',
-        nr: Number.isFinite(nr) ? nr : punkter.length + 1 });
+      const punkt = { id, kode, n, o, z, tid: a.timeStamp || egen.CreateTime || '',
+        nr: Number.isFinite(nr) ? nr : punkter.length + 1 };
+      punkter.push(punkt);
+      if (k.fraNavn) fraNavn.add(punkt);
     }
     if (!punkter.length) throw new Error('Fant ingen innmålte punkter i fila.');
+    _samkjor(punkter, fraNavn);
     return {
       punkter,
-      program: prog ? (_attributter(prog[1]).name || '') : '',
-      dato: rot ? (_attributter(rot[1]).date || '') : '',
+      program: app || (prog ? (_attributter(prog[1]).name || '') : ''),
+      dato: _dato(rot ? (_attributter(rot[1]).date || '') : '', punkter),
       epsg: Number.isFinite(epsgTall) ? epsgTall : null,
       advarsler
     };
+  }
+
+  /** Egenskapene i <Feature>-en som hører til punktet som slutter ved `fra`. */
+  function _egenskaper(s, fra) {
+    const ut = {};
+    const neste = s.indexOf('<CgPoint', fra);
+    const slutt = s.indexOf('</CgPoints>', fra);
+    const grense = Math.min(neste < 0 ? s.length : neste, slutt < 0 ? s.length : slutt);
+    const bit = s.slice(fra, grense);
+    if (!/<Feature\b/.test(bit)) return ut;
+    for (const p of bit.matchAll(/<Property\b([^>]*)>/g)) {
+      const a = _attributter(p[1]);
+      if (a.label) ut[a.label] = a.value || '';
+    }
+    return ut;
+  }
+
+  /* Ord som står som kode når operatøren ikke har gitt en: objekttypen. */
+  const _TYPEORD = new Set(['PUNKT', 'LINJEPUNKT', 'POINT']);
+
+  /**
+   * Koden til et punkt – også når den står i navnet.
+   *
+   * Makin' Excavator (Kinematic) har to måter. Velger operatøren en kode, står
+   * den i `code`, og navnet er bare «P12 (0)». Skriver operatøren koden som
+   * navn, står `code` som «Punkt», og navnet er «vann 63(2) (1)»: koden,
+   * telleren maskinen legger på, og nummeret i parentes til slutt. Leses
+   * «Punkt» som kode, blir alle rørene ett punktsett, og ingen linje trekkes.
+   *
+   * Koden fra navnet får små bokstaver og mellomrom mellom tall og bokstaver,
+   * så «vann110» og «Vann 110» blir samme rør. En kode valgt fra lista står
+   * som den står – den er skrevet likt hver gang.
+   */
+  function _kode(kode, navn) {
+    const k = String(kode || '').trim();
+    if (k && !_TYPEORD.has(k.toUpperCase())) return { kode: k, fraNavn: false };
+    const fraNavn = _kodeFraNavn(navn);
+    return fraNavn ? { kode: fraNavn, fraNavn: true } : { kode: k, fraNavn: false };
+  }
+
+  const _normKode = k => String(k).toLowerCase().replace(/(\d)([a-zæøå])/g, '$1 $2')
+    .replace(/([a-zæøå])(\d)/g, '$1 $2').replace(/\s+/g, ' ').trim();
+
+  /**
+   * En kode fra navnet som er en kode fra lista skrevet litt annerledes, får
+   * listas skrivemåte: «tr40 (0)» med «Punkt» og «tr40» fra lista er samme rør.
+   */
+  function _samkjor(punkter, fraNavn) {
+    const liste = new Map();
+    for (const p of punkter) {
+      if (fraNavn.has(p)) continue;
+      const n = _normKode(p.kode);
+      if (!liste.has(n)) liste.set(n, p.kode);
+    }
+    for (const p of fraNavn) { const k = liste.get(p.kode); if (k) p.kode = k; }
+  }
+
+  /**
+   * «vann 63(2) (1)» → «vann 63». «P12 (0)» og «LP1 (L1 (0))» har ingen kode,
+   * og «P1Endepunkt 160» er «endepunkt 160» – punktnummeret foran er maskinens.
+   */
+  function _kodeFraNavn(navn) {
+    const raa = String(navn || '').trim();
+    if (!raa || /^L?P\d+(?=[\s(]|$)/i.test(raa)) return '';
+    let s = raa.replace(/^P\d+(?=[a-zæøå])/i, ''), forrige;
+    do { forrige = s; s = s.replace(/\s*\(\d+\)\s*$/, ''); } while (s !== forrige);
+    return _normKode(s);
+  }
+
+  /**
+   * Datoen til en fil. Makin' Excavator skriver 2008-01-08 i rota av hver fil,
+   * så en dato eldre enn det siste målte punktet kan ikke være eksportdatoen –
+   * da står datoen til det siste punktet.
+   */
+  function _dato(oppgitt, punkter) {
+    let siste = '';
+    for (const p of punkter) {
+      const d = /^\d{4}-\d{2}-\d{2}/.exec(p.tid || '');
+      if (d && d[0] > siste) siste = d[0];
+    }
+    const o = /^\d{4}-\d{2}-\d{2}/.exec(oppgitt || '');
+    if (siste && (!oppgitt || (o && o[0] < siste))) return siste;
+    return oppgitt || '';
+  }
+
+  /* SOSI-koden for koordinatsystemet → EPSG, for sonene programmet kan. */
+  const _KOORDSYS_EPSG = { 22: 25832, 23: 25833, 25: 25835 };
+
+  /**
+   * De innmålte punktene i en SOSI-fil – eksporten fra Makin' Excavator og
+   * liknende.
+   *
+   * Bare .PUNKT leses. En .KURVE i en slik fil er en logglinje, og punktene på
+   * den står også som egne .PUNKT. Det som ikke er punkt, telles.
+   *
+   * Koordinatene er heltall ganget med ..ENHET (oftest 0.001 – millimeter),
+   * lagt til ..ORIGO-NØ. Koden står i ..OBJTYPE, eller i ..NAME når OBJTYPE
+   * bare er «Punkt» – samme regel som for LandXML-fila.
+   */
+  function lesSOSI(tekst) {
+    const s = String(tekst || '').replace(/^﻿/, '');
+    if (!/^\s*\.HODE\b/.test(s)) throw new Error('Fila er ikke SOSI. Velg en .sos-eksport fra maskinstyringen.');
+    const linjer = s.split(/\r?\n/).map(_utenKommentar);
+    const grupper = [];
+    for (const l of linjer) {
+      const g = /^\.([A-ZÆØÅ-]+)\b\s*(.*)$/i.exec(l);
+      if (g) grupper.push({ navn: g[1].toUpperCase(), linjer: [] });
+      else if (grupper.length) grupper[grupper.length - 1].linjer.push(l);
+    }
+    const hode = grupper.find(g => g.navn === 'HODE');
+    const verdi = (g, navn) => {
+      const re = new RegExp('^\\.+' + navn + '(?:\\s+(.*))?$', 'i');
+      for (const l of g.linjer) { const m = re.exec(l.trim()); if (m) return (m[1] || '').trim(); }
+      return null;
+    };
+    const enhet = parseFloat(hode && verdi(hode, 'ENHET')) || 1;
+    const enhetH = parseFloat(hode && verdi(hode, 'ENHET-H')) || enhet;
+    const origo = String((hode && verdi(hode, 'ORIGO-NØ')) || '0 0').split(/\s+/).map(Number);
+    const oN = Number.isFinite(origo[0]) ? origo[0] : 0, oO = Number.isFinite(origo[1]) ? origo[1] : 0;
+    const ks = parseInt(hode && verdi(hode, 'KOORDSYS'), 10);
+
+    const advarsler = { utenHoyde: 0, ugyldige: 0, doble: 0, referanser: 0, ikkePunkt: 0 };
+    const punkter = [];
+    const sett = new Set();
+    const fraNavn = new Set();
+    let app = '';
+    for (const g of grupper) {
+      if (g.navn === 'HODE' || g.navn === 'SLUTT') continue;
+      if (g.navn !== 'PUNKT' && g.navn !== 'SYMBOL') { advarsler.ikkePunkt++; continue; }
+      const felt = {};
+      let koord = null, medHoyde = false;
+      for (let i = 0; i < g.linjer.length; i++) {
+        const m = /^\.\.([^\s.][^\s]*)\s*(.*)$/.exec(g.linjer[i].trim());
+        if (!m) continue;
+        const nokkel = m[1].toUpperCase();
+        if (nokkel === 'NØH' || nokkel === 'NØ') {
+          medHoyde = nokkel === 'NØH';
+          let tall = m[2].trim();
+          // tallene står på samme linje eller på linja under
+          if (!tall && i + 1 < g.linjer.length && !/^\s*\./.test(g.linjer[i + 1])) tall = g.linjer[++i].trim();
+          koord = tall.split(/\s+/).filter(Boolean).map(Number);
+          continue;
+        }
+        if (!(nokkel in felt)) felt[nokkel] = _utenFnutter(m[2]);
+      }
+      if (!koord || koord.length < 2 || !Number.isFinite(koord[0]) || !Number.isFinite(koord[1])) {
+        advarsler.ugyldige++; continue;
+      }
+      if (!medHoyde || koord.length < 3 || !Number.isFinite(koord[2])) { advarsler.utenHoyde++; continue; }
+      const n = oN + koord[0] * enhet, o = oO + koord[1] * enhet, z = koord[2] * enhetH;
+      if (!app && felt.APP) app = felt.APP;
+      const navn = felt.NAME || felt.NAVN || '';
+      const k = _kode(felt.OBJTYPE, navn);
+      const kode = k.kode || 'UTEN KODE';
+      const id = navn.trim() || `${kode}|${n.toFixed(3)}|${o.toFixed(3)}|${z.toFixed(3)}`;
+      if (sett.has(id)) { advarsler.doble++; continue; }
+      sett.add(id);
+      const tid = /^\d{4}-\d{2}-\d{2}/.test(felt.CREATETIME || '') ? felt.CREATETIME : '';
+      const punkt = { id, kode, n, o, z, tid, nr: punkter.length + 1 };
+      punkter.push(punkt);
+      if (k.fraNavn) fraNavn.add(punkt);
+    }
+    if (!punkter.length) throw new Error('Fant ingen innmålte punkter i fila.');
+    _samkjor(punkter, fraNavn);
+    const dato = hode ? _sosiDato(verdi(hode, 'DATO')) : '';
+    const prog = hode && hode.linjer.findIndex(l => /^\.+APPLICATION\b/i.test(l.trim()));
+    let program = app;
+    if (!program && prog >= 0) {
+      const navn = /^\.+Navn\s+(.*)$/i.exec((hode.linjer[prog + 1] || '').trim());
+      if (navn) program = _utenFnutter(navn[1]);
+    }
+    return {
+      punkter, program: program || '',
+      dato: _dato(dato, punkter),
+      epsg: _KOORDSYS_EPSG[ks] || null,
+      advarsler
+    };
+  }
+
+  /** En SOSI-linje uten kommentaren: alt etter en «!» som ikke står i fnutter. */
+  function _utenKommentar(l) {
+    let i = 0, fnutt = '';
+    for (; i < l.length; i++) {
+      const c = l[i];
+      if (fnutt) { if (c === fnutt) fnutt = ''; continue; }
+      if (c === '"' || c === "'") fnutt = c;
+      else if (c === '!') return l.slice(0, i);
+    }
+    return l;
+  }
+
+  function _utenFnutter(v) {
+    const t = String(v || '').trim();
+    const m = /^"([^"]*)"$|^'([^']*)'$/.exec(t);
+    return m ? (m[1] !== undefined ? m[1] : m[2]) : t;
+  }
+
+  /* ..DATO er ÅÅÅÅMMDD i standarden. Står den på en annen måte, er den ikke
+     til å stole på (Makin' Excavator skriver «10/12/2026», og om det er
+     måned eller dag først, sier fila ikke) – da avgjør punktene. */
+  function _sosiDato(v) {
+    const m = /^(\d{4})(\d{2})(\d{2})/.exec(String(v || '').trim());
+    return m ? `${m[1]}-${m[2]}-${m[3]}` : '';
+  }
+
+  /** Fila, hvilken av de to den er: SOSI om den begynner med .HODE, ellers LandXML. */
+  function lesFil(tekst) {
+    const s = String(tekst || '').replace(/^﻿/, '');
+    if (/^\s*\.HODE\b/.test(s)) return lesSOSI(s);
+    if (/<LandXML[\s>]/.test(s)) return lesLandXML(s);
+    throw new Error('Fila er verken LandXML eller SOSI. Velg en .xml- eller .sos-eksport fra maskinstyringen.');
   }
 
   /* ---------------- kodene ---------------- */
@@ -141,16 +367,34 @@ const Ror = (() => {
   const _PUNKTORD = new Set(['MUFFE', 'ANBORING', 'ANNBORING', 'KUM', 'STAKEKUM', 'STAGEKUM',
     'SPYLEKUM', 'GREN', 'BEND', 'BØY', 'BOY', 'ENDE', 'ENDELOKK', 'PROPP', 'KRYSS',
     'OVERGANG', 'REDUKSJON', 'VENTIL', 'HYDRANT', 'SKJØT', 'SKJOT', 'PUNKT', 'PNT', 'PKT']);
-  const _SYSTEM = { SP: 'spill', VA: 'vann', VL: 'vann', OV: 'overvann', DR: 'drens', AF: 'felles' };
+  /* Sammensatte ord og skrivemåter fra maskinene: «sveisemuffe», «el muffe»,
+     «andborring», «sveisskjøt». */
+  const _PUNKTENDING = /(MUFFE|SKJØT|SKJOT|SKJØYT|BORING|BORRING)$/;
+  const _erPunktord = w => _PUNKTORD.has(w) || _PUNKTENDING.test(w)
+    || w === 'GRENRØR' || w === 'GRENROR' || w === 'ENDEPUNKT';
+  const _SYSTEM = { SP: 'spill', VA: 'vann', VL: 'vann', OV: 'overvann', DR: 'drens', AF: 'felles', TR: 'kabel' };
+  /* Systemet skrevet ut, hvor som helst i koden – «160 kloakk», «vann 110». */
+  const _SYSTEMORD = { VANN: 'vann', VANNLEDNING: 'vann', VANNRØR: 'vann', VANNROR: 'vann', VANNL: 'vann', VANL: 'vann',
+    SPILLVANN: 'spill', SPILVANN: 'spill', KLOAKK: 'spill', OVERVANN: 'overvann' };
   const _MATERIALER = ['PEH', 'PEL', 'PE', 'PP', 'PVC', 'GRP', 'BETONG', 'BET', 'DUKTIL', 'DUK', 'STÅL', 'STAL'];
   const _KABELORD = new Set(['FIBER', 'KABEL', 'TREKKERØR', 'TREKKEROR', 'EL']);
   const _DRENSORD = new Set(['DRENS', 'DREN']);
+  /* Et tall foran disse er en vinkel, ikke en dimensjon: «45 grader bend 110 vann». */
+  const _VINKELORD = new Set(['GRADER', 'GRAD', '°']);
 
   /**
    * Hva en kode fra operatøren betyr: linje eller punkt, dimensjon og system.
    *
-   * Kodene er fritekst – «90PE», «180 PE», «SP 160PE», «110DRENS». Svaret er et
-   * forslag: kodetabellen lar brukeren rette det, og det rettede vinner.
+   * Kodene er fritekst – «90PE», «180 PE», «SP 160PE», «110DRENS», «vann 63».
+   * Svaret er et forslag: kodetabellen lar brukeren rette det, og det rettede
+   * vinner.
+   *
+   * Systemet: forkortelsen først i koden, så systemet skrevet ut, så kabel og
+   * drens. Skrevet ut går foran kabel fordi «el muffe 110 vann» er en
+   * elektromuffe på vannrøret, ikke en kabel.
+   *
+   * Et kabelrør er en linje også uten dimensjon – «kabel gatelys» er en
+   * trasé, ikke et punkt.
    */
   function tolkKode(kode) {
     const ren = String(kode || '').toUpperCase().replace(/_/g, ' ')
@@ -158,17 +402,22 @@ const Ror = (() => {
       .replace(/\s+/g, ' ').trim();
     const ord = ren ? ren.split(' ') : [];
     const har = w => ord.includes(w);
-    const erPunkt = ord.some(w => _PUNKTORD.has(w));
-    const dimOrd = ord.find(w => /^\d+$/.test(w) && +w >= 16 && +w <= 3000);
+    const erPunkt = ord.some(_erPunktord);
+    const dimPlass = ord.findIndex((w, i) => /^\d+$/.test(w) && +w >= 16 && +w <= 3000
+      && !_VINKELORD.has(ord[i + 1]));
+    const dimOrd = dimPlass >= 0 ? ord[dimPlass] : undefined;
     const dim = dimOrd ? +dimOrd : null;
     const prefiks = ord.length > 1 && _SYSTEM[ord[0]] ? ord[0] : null;
     let system = prefiks ? _SYSTEM[prefiks] : '';
+    const utskrevet = ord.find(w => _SYSTEMORD[w]);
+    if (!system && utskrevet) system = _SYSTEMORD[utskrevet];
     if (!system && ord.some(w => _KABELORD.has(w))) system = 'kabel';
     if (!system && ord.some(w => _DRENSORD.has(w))) system = 'drens';
     const materiale = _MATERIALER.find(har) || (har('FIBER') ? 'FIBER' : '');
-    const variant = ord.filter(w => w !== prefiks && w !== dimOrd && w !== materiale
-      && !_PUNKTORD.has(w) && !_KABELORD.has(w) && !_DRENSORD.has(w)).join(' ');
-    return { form: erPunkt || !dim ? 'punkt' : 'linje', dim, materiale, system, variant };
+    const variant = ord.filter((w, i) => w !== prefiks && i !== dimPlass && w !== materiale && w !== 'MM'
+      && !_erPunktord(w) && !_KABELORD.has(w) && !_DRENSORD.has(w) && !_SYSTEMORD[w]).join(' ');
+    const linje = !erPunkt && (dim || system === 'kabel');
+    return { form: linje ? 'linje' : 'punkt', dim, materiale, system, variant };
   }
 
   /* ---------------- fargene ---------------- */
@@ -719,7 +968,7 @@ const Ror = (() => {
   }
 
   return {
-    lesLandXML, dekod, tolkKode, koderFra, byggLinjer, avstandTilStrekk,
+    lesFil, lesLandXML, lesSOSI, dekod, tolkKode, koderFra, byggLinjer, avstandTilStrekk,
     lagTilXY, tilLatLon, erUtm, sjekkKoordinater, gjettSone, slaSammen, dimensjon, kildetekst, navnFraFil,
     korridor, profil, objekterLangs, objekterPaaLinjer, sammendrag, merknader, spenn,
     nyRor, StandardRormal, FARGER

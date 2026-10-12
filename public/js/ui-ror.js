@@ -42,7 +42,7 @@ const RorUI = {
         const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
         if (!f) return;
         e.preventDefault();
-        if (!/\.xml$/i.test(f.name)) { this.app.status('Bare .xml-filer fra maskinstyringen kan slippes her'); return; }
+        if (!/\.(xml|sos)$/i.test(f.name)) { this.app.status('Bare .xml- og .sos-filer fra maskinstyringen kan slippes her'); return; }
         await this.importerFil(f, {});
       });
     }
@@ -186,7 +186,7 @@ const RorUI = {
   async importerTekst(tekst, filnavn, valg = {}, svarUtenDialog) {
     const app = this.app;
     let les;
-    try { les = Ror.lesLandXML(tekst); }
+    try { les = Ror.lesFil(tekst); }
     catch (e) { this._feil(e.message); return false; }
     const kk = Ror.sjekkKoordinater(les.punkter);
     if (kk.melding) { this._feil(kk.melding); return false; }
@@ -256,7 +256,8 @@ const RorUI = {
       const hoppet = [
         a.utenHoyde && `${a.utenHoyde} uten høyde`, a.ugyldige && `${a.ugyldige} med ugyldige tall`,
         a.doble && `${a.doble} doble`, a.referanser && `${a.referanser} referanser til andre punkt`,
-        a.utenforUtm && `${a.utenforUtm} med koordinater utenfor UTM i Norge`
+        a.utenforUtm && `${a.utenforUtm} med koordinater utenfor UTM i Norge`,
+        a.ikkePunkt && `${a.ikkePunkt} ${a.ikkePunkt === 1 ? 'linje eller flate' : 'linjer eller flater'} (bare punkt leses fra SOSI)`
       ].filter(Boolean);
       const antall = {};
       for (const p of les.punkter) antall[p.kode] = (antall[p.kode] || 0) + 1;
