@@ -7,6 +7,17 @@
  */
 const RorPlanUI = {
   app: null,
+  /* Typene en rørskisse velger mellom – verdien er systemet slik Ror.tolkKode
+     svarer, så en kode laget av den tolkes tilbake til samme type. */
+  SKISSETYPER: [['vann', 'Vann'], ['spill', 'Spillvann'], ['overvann', 'Overvann'], ['drens', 'Drens'],
+    ['kabel', 'Kabel / trekkerør'], ['egen', 'Egen kode …']],
+
+  /** Koden en skissetype og en dimensjon blir til: «spillvann 160», «kabel». */
+  _skissekode(system, dim) {
+    const ord = { vann: 'vann', spill: 'spillvann', overvann: 'overvann', drens: 'drens', kabel: 'kabel' }[system];
+    if (!ord) return '';
+    return dim ? `${ord} ${dim}` : ord;
+  },
   /* Traseen som tegnes nå. Den ligger utenfor prosjektet til den er ferdig,
      så hele traseen blir én angrepost – ikke én per klikk. */
   _ny: null,
@@ -429,8 +440,31 @@ const RorPlanUI = {
     const boks = document.getElementById('dialog'), innhold = document.getElementById('dialoginnhold');
     document.getElementById('dialogtittel').textContent = o.tittel;
     const forslag = [...new Set(Object.keys(koder).filter(k => koder[k].form !== 'punkt').concat(this._andreKoder()))];
+    const skisse = app.erSkisse();
     let nr = 0;
+    /* EN SKISSE SPØR OM TYPE OG DIMENSJON, IKKE OM KODE OG REGEL.
+       Koden lages av de to («spillvann 160»), så fargen og teksten langs
+       røret blir riktig uten at man må kunne kodene. «Egen kode» er der for
+       det som ikke passer. Regelen (selvfall/trykk) betyr ingenting uten høyder. */
+    const skisserad = x => {
+      nr++;
+      const t = x.kode ? Ror.tolkKode(x.kode) : { system: 'vann', dim: null };
+      const egen = !!x.kode && x.kode !== this._skissekode(t.system, t.dim);
+      const valgt = egen ? 'egen' : (t.system || 'vann');
+      const typer = this.SKISSETYPER.map(([v, navn]) =>
+        `<option value="${v}"${v === valgt ? ' selected' : ''}>${escapeHtml(navn)}</option>`).join('');
+      return `<div class="planrad skisserad"><label for="pt${nr}">Type</label>`
+        + `<select id="pt${nr}" class="minivalg skissetype">${typer}</select>`
+        + `<label for="pd${nr}">⌀</label><input id="pd${nr}" class="minitall skissedim" type="number" min="0" max="3000" step="1"`
+        + ` value="${t.dim || ''}"> mm`
+        + `<input class="plankode" list="planKodeliste" aria-label="Egen kode" placeholder="egen kode"`
+        + ` value="${escapeAttr(egen ? x.kode : '')}"${egen ? '' : ' hidden'}>`
+        + `<label for="ps${nr}">Side</label><input id="ps${nr}" class="planside" type="number" step="0.1" value="${x.side || 0}"> m`
+        + '<select class="planregel" hidden><option value="" selected></option></select>'
+        + (o.flere ? ' <button class="minilenke planfjern" title="Ta bort røret">×</button>' : '') + '</div>';
+    };
     const rad = x => {
+      if (skisse) return skisserad(x);
       nr++;
       return `<div class="planrad"><label for="pk${nr}">Kode</label>`
         + `<input id="pk${nr}" class="plankode" list="planKodeliste" value="${escapeAttr(x.kode || '')}" placeholder="f.eks. SP 160PE">`
@@ -440,7 +474,8 @@ const RorPlanUI = {
         + '</select>' + (o.flere ? ' <button class="minilenke planfjern" title="Ta bort røret">×</button>' : '') + '</div>';
     };
     innhold.innerHTML = `<p class="notis">${escapeHtml(o.notis || '')} Sideavstanden er fra traseen, positiv til høyre i `
-      + 'tegneretningen. Regelen kommer av koden: selvfall for spillvann, overvann og drens, trykk for vann og kabel.</p>'
+      + (skisse ? 'tegneretningen. En skisse er bare streken: ingen høyder og ingen grøft.</p>'
+        : 'tegneretningen. Regelen kommer av koden: selvfall for spillvann, overvann og drens, trykk for vann og kabel.</p>')
       + `<datalist id="planKodeliste">${forslag.map(k => `<option value="${escapeAttr(k)}">`).join('')}</datalist>`
       + `<div id="planRader">${o.rader.map(rad).join('')}</div>`
       + (o.flere ? '<div class="knapperad"><button class="knapp" id="planNyRad">+ Rør</button></div>' : '')
@@ -449,6 +484,10 @@ const RorPlanUI = {
     const koble = () => {
       for (const b of innhold.querySelectorAll('.planfjern')) {
         b.onclick = () => { if (innhold.querySelectorAll('.planrad').length > 1) b.closest('.planrad').remove(); };
+      }
+      // «Egen kode» viser feltet for den
+      for (const v of innhold.querySelectorAll('.skissetype')) {
+        v.onchange = () => { v.closest('.planrad').querySelector('.plankode').hidden = v.value !== 'egen'; };
       }
     };
     koble();
@@ -461,12 +500,17 @@ const RorPlanUI = {
     const lukk = () => boks.classList.add('skjult');
     innhold.querySelector('#planAvbryt').onclick = () => { lukk(); if (o.avbrutt) o.avbrutt(); };
     innhold.querySelector('#planLagre').onclick = () => {
+      const kodeAv = d => {
+        const type = d.querySelector('.skissetype');
+        if (!type || type.value === 'egen') return d.querySelector('.plankode').value.trim();
+        return this._skissekode(type.value, Ror.dimensjon(d.querySelector('.skissedim').value));
+      };
       const rader = [...innhold.querySelectorAll('.planrad')].map(d => ({
-        kode: d.querySelector('.plankode').value.trim(),
+        kode: kodeAv(d),
         side: RorPlan.klem('side', d.querySelector('.planside').value),
         regel: d.querySelector('.planregel').value || null
       })).filter(x => x.kode);
-      if (!rader.length) { app.status('Skriv koden til minst ett rør'); return; }
+      if (!rader.length) { app.status(skisse ? 'Skriv koden, eller velg en type' : 'Skriv koden til minst ett rør'); return; }
       lukk();
       o.lagre(rader);
     };
@@ -511,6 +555,8 @@ const RorPlanUI = {
         koblet.push(`${hvilken} er en grein av en annen trase`);
         continue;
       }
+      // en skisse har ingen høyder å hente – enden står bare der den ble satt
+      if (plan.skisse) continue;
       const k = RorPlan.kodeAv(f.koder, f.kode);
       if (!(k.dim > 0)) { notater.push(`påkoblingen har koden ${f.kode} uten dimensjon, så høyden ble ikke hentet`); continue; }
       const kodeAv = x => RorPlan.kodeAv(r.koder, x.kode);
@@ -527,7 +573,7 @@ const RorPlanUI = {
       app.tegnAlt();
       app.planlegg(30);
       app.status(`Traseen er lagret med ${nye.length} rør` + (koblet.length ? ' – ' + koblet.join(' og ') : '')
-        + ' – høydene kommer når terrenget er hentet' + (notater.length ? ' · ' + notater.join(' · ') : ''));
+        + (plan.skisse ? '' : ' – høydene kommer når terrenget er hentet') + (notater.length ? ' · ' + notater.join(' · ') : ''));
     }
     return { trase: t, nye, koblet, notater };
   },
@@ -538,6 +584,8 @@ const RorPlanUI = {
   kartklikk(modus, latlng) {
     const app = this.app;
     if (!app.erPlan()) return;
+    // en skisse har ingen kummer og ingen fallretning – verktøyene vises ikke, men en tast kan nå hit
+    if (app.erSkisse()) return;
     const plan = this.plan(), tol = RorUI._toleranse(latlng);
     if (modus === 'kum') {
       const p = this._naermestePunkt(latlng, tol);
@@ -740,6 +788,7 @@ const RorPlanUI = {
 
   /** Rør-fanen for et tegnet anlegg: traseene med rørene, kumlista, kontrollene, grøfta og innstillingene. */
   fyllFane(e, r, bygg, res) {
+    if (r.plan.skisse) { this._fyllSkisse(e, r, bygg, res); return; }
     const app = this.app, plan = r.plan, mp = app.P.mal.plan, t = (v, d = 0) => Rapport.tall(v, d);
     const bf = (res && res.bakkefaktor) || 1;
     let tr = '';
@@ -801,6 +850,43 @@ const RorPlanUI = {
       ${felt('planBrekk', 'Trykkrør: høybrekk og lavbrekk fra', mp.brekk, 'm', 0.05, 0.05, 5)}
       ${felt('planTrykkFall', 'Trykkrør: minste fall mellom brekkene (0 = av)', mp.trykkMinFall, '‰', 0.5, 0, 1000)}`;
     GroftUI.koble(e);
+    this.koble(e);
+  },
+
+  /**
+   * Rør-fanen for en rørskisse: traseene med rørene og lengden, ikke noe mer.
+   * Fall, overdekning, kummer, grøft og innstillingene hører til høydene, og
+   * en skisse har ingen – å vise dem tomme ville bare sett ut som noe mangler.
+   */
+  _fyllSkisse(e, r, bygg, res) {
+    const app = this.app, plan = r.plan, t = (v, d = 0) => Rapport.tall(v, d);
+    const bf = (res && res.bakkefaktor) || 1;
+    const streker = (res && res.skisse) || bygg.utenHoyde || [];
+    let tr = '';
+    plan.traseer.forEach((tra, ti) => {
+      tr += `<div class="rorgruppe"><div class="rorkode"><b>Trase ${ti + 1}</b><span class="notis">${tra.punkter.length} punkt</span>`
+        + ` <button class="minilenke" data-plannytt="${escapeAttr(tra.id)}">+ Rør</button>`
+        + ` <button class="minilenke" data-plantraseslett="${escapeAttr(tra.id)}">Slett traseen</button></div>`;
+      for (const x of plan.ror.filter(y => y.trase === tra.id)) {
+        const k = RorPlan.kodeAv(r.koder, x.kode);
+        const l = streker.find(y => y.id === x.id);
+        tr += `<div class="planror"><button class="rorlinje${x.id === RorUI.valgt ? ' aktiv' : ''}" data-linje="${escapeAttr(x.id)}">`
+          + `<span class="rorfarge" style="background:${Farger.ror(k.farge)}" aria-hidden="true"></span> <b>${escapeHtml(x.kode)}</b>`
+          + (k.dim ? ` · ⌀${k.dim}` : '') + (x.side ? ` · side ${t(x.side, 1)} m` : '')
+          + (l ? ` · ${t(l.lengde * bf, 1)} m` : '') + '</button>'
+          + ` <button class="minilenke" data-planendre="${escapeAttr(x.id)}">Endre</button>`
+          + ` <button class="minilenke" data-planslett="${escapeAttr(x.id)}">Slett</button></div>`;
+      }
+      tr += '</div>';
+    });
+    const s = res ? Ror.sammendrag(res) : null;
+    e.innerHTML = `<h3>${escapeHtml(app.anlegg().navn || 'Rørskisse')}</h3>
+      <p class="notis">Rørskisse · ${plan.traseer.length} ${plan.traseer.length === 1 ? 'trase' : 'traseer'}.
+        Bare strekene: hvor rørene går og hva slags rør det er – ingen høyder, ingen grøft.
+        Lengden er langs bakken i kartet.</p>
+      ${s ? `<div class="sumrad"><span>Rør</span><span class="verdi">${s.antall} · ${t(s.lengde)} m</span></div>` : ''}
+      <h3>Traseene</h3>
+      <div class="rorliste">${tr || '<p class="tomtekst">Ingen traseer ennå – tegn en med «✎ Ny trase» i kartet.</p>'}</div>`;
     this.koble(e);
   },
 

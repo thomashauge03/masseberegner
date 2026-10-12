@@ -172,7 +172,9 @@ function _rettPlan(a, RP) {
     if (greiner.some(x => x.trase === tid && x.ende === ende)) continue;
     greiner.push({ trase: tid, ende, til });
   }
+  // en rørskisse er en plan uten høyder – se RorPlan.bygg; flagget må overleve åpning og angre
   a.ror.plan = { traseer, ror, kummer, laast, greiner };
+  if (p.skisse === true) a.ror.plan.skisse = true;
   const m = erObjekt(a.mal.plan) ? a.mal.plan : {}, kum = erObjekt(m.kum) ? m.kum : {};
   const av = erObjekt(m.avvik) ? m.avvik : {};
   const std = RP.StandardPlanmal, sa = std.avvik, ell = (v, s) => (v === null ? s : v);

@@ -210,6 +210,13 @@ const RorPlan = (() => {
         .map(q => ({ o: q.x, n: q.y }));
       const xy = sone.map(tilXY);
       const s = stasjonering(xy);
+      /* EN SKISSE ER BARE STREKEN: hvor røret går og hva slags rør det er.
+         Ingen høyder, ingen kummer, ingen kontroller – og ingen merknad om
+         det som mangler, for det mangler med vilje. */
+      if (plan.skisse) {
+        utenHoyde.push({ id: r.id, kode: r.kode, xy, punkter: sone, grunn: 'skisse', lengde: s[n - 1] });
+        return;
+      }
       if (!(k.dim > 0)) {
         utenHoyde.push({ id: r.id, kode: r.kode, xy, punkter: sone, grunn: 'dimensjon' });
         if (!meldt.has('dim:' + r.kode)) {

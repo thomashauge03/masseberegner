@@ -771,6 +771,32 @@ console.log('\n7c. Knappen på tilfeldig terreng: ingen merknad etterpå');
     galt.slice(0, 3).join(' | '));
 }
 
+console.log('\n8. Rørskissen: bare streken');
+{
+  /* Samme trase som en plan, men flagget: ingen høyder, ingen kummer, ingen
+     merknader – heller ikke for et rør uten dimensjon eller uten terreng. */
+  const pl = plan1([[0, 0], [30, 0], [30, 40]], [{ kode: 'spillvann 160' }, { kode: 'kabel', side: 1 }],
+    { skisse: true, kummer: [{ id: 'k1', ror: 'r1', punkt: 'p2', diameter: 1000 }],
+      laast: [{ ror: 'r1', punkt: 'p1', bunn: 5 }] });
+  const b = bygg(pl, () => NaN);
+  paastand('ingen linjer med høyder', b.linjer.length === 0, JSON.stringify(b.linjer.map(l => l.kode)));
+  paastand('begge rørene er streker med grunnen «skisse»', b.utenHoyde.length === 2
+    && b.utenHoyde.every(u => u.grunn === 'skisse'), JSON.stringify(b.utenHoyde.map(u => [u.kode, u.grunn])));
+  sjekk('lengden langs traseen', b.utenHoyde[0].lengde, 70, 1e-9);
+  paastand('ingen merknader – heller ikke for «kabel» uten dimensjon', b.merknader.length === 0, JSON.stringify(b.merknader));
+  paastand('ingen kummer, selv om planen har en', !(b.kummer || []).length);
+  paastand('sideavstanden gjelder også for en skisse', Math.abs(b.utenHoyde[1].xy[0].y + 1) < 1e-9,
+    JSON.stringify(b.utenHoyde[1].xy[0]));
+  const Prosjektform = require(js('prosjektform.js'));
+  const P = Prosjektform.klargjor({ navn: 'p', aktivt: 'a1', anlegg: [{ id: 'a1', type: 'ror',
+    ror: { punkter: [], koder: {}, plan: { skisse: true, traseer: [{ id: 't1', punkter: [{ id: 'p1', lat: 58.1, lon: 7 },
+      { id: 'p2', lat: 58.2, lon: 7 }] }], ror: [{ id: 'r1', trase: 't1', kode: 'vann 110' }] } } }] });
+  paastand('flagget overlever prosjektfila', P.anlegg[0].ror.plan.skisse === true);
+  const P2 = Prosjektform.klargjor({ navn: 'p', aktivt: 'a1', anlegg: [{ id: 'a1', type: 'ror',
+    ror: { punkter: [], koder: {}, plan: { skisse: 'ja', traseer: [] } } }] });
+  paastand('bare true er en skisse', !P2.anlegg[0].ror.plan.skisse);
+}
+
 /* ---------------- sluttsum ---------------- */
 console.log(`\n${ok} tester ok, ${feil} feil`);
 process.exit(feil ? 1 : 0);
