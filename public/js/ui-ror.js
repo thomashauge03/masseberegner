@@ -270,7 +270,90 @@ const RorUI = {
     // kodene i dialogen bygde på det aktive anleggets – et annet mål har sine egne
     svar.kodeGrunnlag = aktivtRor ? aktivtRor.id : null;
     this.leggInn(les, navnFra || filnavn, svar);
+    /* Forslagene om samme rør kommer RETT ETTER importen – det er da man vet
+       hva som kom inn og husker hvilke maskiner som målte hva. Bare når
+       brukeren selv importerte: nettlesertesten svarer uten dialog, og skal
+       ikke få en ny boks den ikke vet om. Tidtakeren lar importdialogen lukke
+       seg først. */
+    if (!svarUtenDialog) setTimeout(() => this.sporOmSammen(), 0);
     return true;
+  },
+
+  /**
+   * «Kan være samme rør» – forslagene fra `Ror.forslagSammen`, med et svar per
+   * par: samme rør, ikke samme, eller vet ikke.
+   *
+   * INGENTING SLÅS SAMMEN AV SEG SELV. Svaret er brukerens, og «vet ikke» er
+   * forvalget: da står forslaget igjen i Rør-fanen til senere. «Senere» lukker
+   * uten å røre noe. Alle svarene er ett angresteg.
+   *
+   * @returns {Promise<boolean>} true når noe ble endret
+   */
+  sporOmSammen() {
+    const app = this.app;
+    if (!app || !app.erRor() || app.erPlan()) return Promise.resolve(false);
+    const r = app.P.ror;
+    const forslag = Ror.forslagSammen(r, Ror.lagTilXY(r.sone, app.sone), app.P.mal.maksAvstand);
+    if (!forslag.length) return Promise.resolve(false);
+    return new Promise(los => {
+      const boks = document.getElementById('dialog');
+      const ramme = boks.querySelector('.dialogboks');
+      const innhold = document.getElementById('dialoginnhold');
+      const lukkeknapp = document.getElementById('dialogLukk');
+      document.getElementById('dialogtittel').textContent = 'Kan være samme rør';
+      innhold.innerHTML = `
+        <p class="notis">Rørene trekkes bare mellom punkt med samme kode, så et rør målt av flere
+          maskiner får hull der koden skifter. Disse kodene ser ut til å høre sammen. Svar på dem du
+          vet – resten står igjen i Rør-fanen. Punktene og kodene deres endres ikke, og alt kan angres.</p>
+        <ul class="rorforslag rorsporsmal">${forslag.map((f, i) => `<li>
+          <span><b>${escapeHtml(f.fra)}</b> → <b>${escapeHtml(f.til)}</b>
+            <span class="notis">· ${escapeHtml(f.grunner.join('; '))}</span></span>
+          <span class="rorsvar" role="radiogroup" aria-label="${escapeAttr(f.fra + ' og ' + f.til)}">
+            <label><input type="radio" name="rs${i}" value="ja"> Samme rør</label>
+            <label><input type="radio" name="rs${i}" value="nei"> Ikke samme</label>
+            <label><input type="radio" name="rs${i}" value="" checked> Vet ikke</label>
+          </span></li>`).join('')}</ul>
+        <div class="knapperad" style="justify-content:flex-end">
+          <button class="knapp" id="rorSporSenere">Senere</button>
+          <button class="knapp primaer" id="rorSporFerdig">Ferdig</button>
+        </div>`;
+      let avgjort = false;
+      const gammelLukk = lukkeknapp.onclick;
+      const taste = e => { if (e.key === 'Escape') lukk(false); };
+      const lukk = endret => {
+        if (avgjort) return;
+        avgjort = true;
+        boks.classList.add('skjult');
+        ramme.classList.remove('bred');
+        lukkeknapp.onclick = gammelLukk;
+        document.removeEventListener('keydown', taste);
+        los(endret);
+      };
+      lukkeknapp.onclick = () => lukk(false);
+      innhold.querySelector('#rorSporSenere').onclick = () => lukk(false);
+      innhold.querySelector('#rorSporFerdig').onclick = () => {
+        const svar = forslag.map((f, i) => {
+          const v = innhold.querySelector(`input[name="rs${i}"]:checked`);
+          return { f, svar: v ? v.value : '' };
+        }).filter(x => x.svar);
+        if (!svar.length) { lukk(false); return; }
+        app.merk('svarte på forslag om samme rør');
+        let sammen = 0, ikke = 0;
+        for (const { f, svar: s } of svar) {
+          if (s === 'ja') { if (Ror.slaaSammenKoder(r, f.fra, f.til)) sammen++; }
+          else { Ror.ikkeSamme(r, f.fra, f.til); ikke++; }
+        }
+        app.status(`${sammen} slått sammen, ${ikke} ikke samme rør`
+          + (forslag.length > svar.length ? ` – ${forslag.length - svar.length} står igjen i Rør-fanen` : ''));
+        app.tegnAlt();
+        app.planlegg(30);
+        this.vis();
+        lukk(true);
+      };
+      document.addEventListener('keydown', taste);
+      ramme.classList.add('bred');
+      boks.classList.remove('skjult');
+    });
   },
 
   /** Første punkt i hvert anlegg, i grader – det sonegjettingen måler mot. */

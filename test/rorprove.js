@@ -820,6 +820,17 @@ console.log('\n22. Samme rør, ulike koder: forslag og sammenslåing');
   Ror.skillKode(ror, 'vann 110');
   paastand('Skill gjør det om', Ror.kanonisk(ror, 'vann 110') === 'vann 110'
     && Ror.byggLinjer(ror, Ror.StandardRormal, xy).linjer.some(l => l.kode === 'vann 110'));
+  /* Ja til to forslag i samme slengen, slik dialogen etter importen gir dem:
+     «vannl 110 → vann 110» og «vannl 110 → vanl 110». Alle tre skal bli ett
+     rør – flyttes bare koden, tar det andre svaret «vannl 110» ut av den
+     første gruppa igjen. */
+  {
+    const g = { alias: {} };
+    Ror.slaaSammenKoder(g, 'vannl 110', 'vann 110');
+    Ror.slaaSammenKoder(g, 'vannl 110', 'vanl 110');
+    const k = ['vannl 110', 'vann 110', 'vanl 110'].map(x => Ror.kanonisk(g, x));
+    paastand('to ja i samme slengen gir én gruppe av alle tre', k.every(x => x === k[0]), JSON.stringify([g.alias, k]));
+  }
   Ror.ikkeSamme(ror, 'sp 160', 'SP 160PE');
   paastand('«ikke samme rør» huskes', !Ror.forslagSammen(ror, xy, 25).some(x => [x.fra, x.til].includes('sp 160') && [x.fra, x.til].includes('SP 160PE')));
 

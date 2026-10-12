@@ -23,7 +23,7 @@ Nettlesertesten kjøres ved å åpne programmet med `?test=1`, eller fra konsoll
 med `Nettlesertest.kjor()`. Utviklingstjeneren startes med `node server.js`
 (port 5178). Programmet ligger også på https://masseberegner.vercel.app.
 
-Ved siste lagring: **963 prøver i selvtesten, 279 i rørprøven
+Ved siste lagring: **963 prøver i selvtesten, 280 i rørprøven
 (`test/rorprove.js`), 219 i grøfteprøven (`test/groftprove.js`), 175 i
 planprøven (`test/rorplanprove.js`), 77 i eksportprøven
 (`test/roreksportprove.js`), 77 i avviksprøven (`test/roravvikprove.js`), 45 i
@@ -75,6 +75,17 @@ ulike piksler (kanter) for veg, tomt med nabo og to gjennomsiktige lag på rad;
 0,2 % for rør med naboer. Bakkemodus (gå i modellen) tegnes fortsatt av
 rasteret – strekene skjules bak terrenget med rasterets dybde per piksel; det
 er neste steg om det trengs. `Tegner3d.glAv = true` slår skjermkortet av.
+
+### Forslagene om samme rør rett etter importen
+
+2026-10-12: «etterpå dem er importert eller før kan d komme forslag fra deg og
+så bekrefter jeg eller avkrefter jeg». `RorUI.sporOmSammen` åpner boksen «Kan
+være samme rør» etter en import gjennom dialogen (ikke med `svarUtenDialog`,
+som nettlesertesten bruker): Samme rør / Ikke samme / Vet ikke per par, Ferdig
+og Senere. Alle svarene er ett angresteg; «vet ikke» står igjen i Rør-fanen.
+`Ror.slaaSammenKoder` slår nå sammen GRUPPENE (`alias[kanonisk(fra)] =
+kanonisk(til)`), så ja til både «vannl 110 → vann 110» og «vannl 110 → vanl
+110» gir ett rør av alle tre.
 
 ### Samme rør, ulike koder – forslag på knapp
 

@@ -162,6 +162,10 @@ anleggslista, «Rør (fra filer)» i førstevalget, eller slipp filene på karte
   systemet og dimensjonen må passe. **Slå sammen** tegner den ene koden som den
   andre; punktene og kodene deres endres ikke, og **Skill** gjør det om.
   **Ikke samme rør** huskes. Ingenting slås sammen av seg selv.
+  Rett etter en import kommer forslagene også i en egen boks: svar **Samme
+  rør**, **Ikke samme** eller **Vet ikke** for hvert par, og trykk **Ferdig**.
+  «Vet ikke» lar forslaget stå i Rør-fanen til senere; alle svarene er ett
+  angresteg.
 
 * **KOF:** navn, kode (gjerne med mellomrom, «vann 110»), nord, øst og høyde.
   VisualMachine begynner punktnummereringen på nytt i hver fil, så et punkt

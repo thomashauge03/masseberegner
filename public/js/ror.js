@@ -841,10 +841,19 @@ const Ror = (() => {
     return ut.sort((x, y) => (y.navn - x.navn) || (x.ende - y.ende));
   }
 
-  /** Slår `fra` sammen med `til`: punktene med `fra` tegnes heretter som `til`. */
+  /**
+   * Slår `fra` sammen med `til`: punktene med `fra` tegnes heretter som `til`.
+   *
+   * Det er GRUPPENE som slås sammen, ikke bare de to kodene. Svarer man ja på
+   * både «vannl 110 → vann 110» og «vannl 110 → vanl 110», skal alle tre bli
+   * ett rør – med bare koden flyttet ville det andre svaret tatt «vannl 110»
+   * ut av den første gruppa igjen.
+   */
   function slaaSammenKoder(ror, fra, til) {
-    if (!fra || !til || fra === til || kanonisk(ror, til) === fra) return false;
-    ror.alias = Object.assign({}, ror.alias || {}, { [fra]: kanonisk(ror, til) });
+    if (!fra || !til) return false;
+    const a = kanonisk(ror, fra), b = kanonisk(ror, til);
+    if (a === b) return false;
+    ror.alias = Object.assign({}, ror.alias || {}, { [a]: b });
     return true;
   }
 

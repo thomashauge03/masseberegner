@@ -1050,6 +1050,10 @@ ul.rormerknader { margin: 4px 0 8px 18px; padding: 0; }
 ul.rorforslag { list-style: none; margin: 4px 0 8px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 ul.rorforslag li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 8px; font-size: 12px; }
 ul.rorforslag .knapperad { margin: 0; gap: 4px; }
+/* svarene i «Kan være samme rør» etter importen */
+.rorsvar { display: inline-flex; flex-wrap: wrap; gap: 4px 10px; }
+.rorsvar label { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
+ul.rorsporsmal { max-height: 55vh; overflow-y: auto; }
 
 /* ── grøfta ───────────────────────────────────────────────── */
 table.groftkodetall { width: 100%; border-collapse: collapse; font-size: 12px; }
