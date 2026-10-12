@@ -121,8 +121,10 @@ egen farge; massebildet: bare lysstyrken. Trær (`Tegner3d._traer`,
 `Gl3d.traer`): instansiert gran og løvtre der AR5 sier skog, aldri på eller
 3 m fra arbeidet (unntatt i «Før»), bare det aktive gitteret, ikke i id-
 eller dybdepasset. Gange med trær på demoen ≈ 6,5 ms per bilde.
-Vegbanen er grus, ikke asfalt: malen sier ingenting om dekket, og en
-landbruksveg (K1–K8) har grusdekke.
+Vegbanen er grus som forvalg (landbruksveg, K1–K8); vegmalen har fått
+`dekke: 'grus' | 'asfalt'` (bare utseendet, står på vegens gitter som
+`g.dekke`). Brytere i «Vis ▾» for veg og tomt: `lag.traer`, `lag.skygger`,
+`lag.himmel`, `lag.ekte` – alle på som forvalg, lagres ikke.
 
 ### Forslagene om samme rør rett etter importen
 

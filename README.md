@@ -61,7 +61,9 @@ glatte kanter og slagskygger fra sola. Står du i modellen (Fly og Gå), får
 du himmel og dis i det fjerne. Med arealdekket på står det trær i skogen
 rundt (aldri der det graves eller fylles), og «Før» og «Etter» viser gress,
 skog, myr, vann, grusveg, jord, fjell og fyllmasse slik det ser ut i
-virkeligheten. Massebildet beholder rødt og grønt. Mens du drar tar et bilde om lag 1 ms, og når
+virkeligheten. Massebildet beholder rødt og grønt. Velg «Dekke: Asfalt» i
+vegmalen for asfaltert veg. Under «Vis ▾» kan du slå av trær, skygger,
+himmel og ekte flater hver for seg. Mens du drar tar et bilde om lag 1 ms, og når
 du går om lag 6 ms (prosessoren brukte 88 ms). Avlesning, klikk og rapportbilder kommer fra det
 samme bildet. Mangler nettleseren WebGL 2, eller mister den skjermkortet,
 tegnes det som før.
