@@ -236,8 +236,7 @@ const Ror3d = Object.assign(Object.create(Tomt3d), {
     /* RØRENE LIGGER UNDER BAKKEN. Dybdeprøven i `_verdensstrek` skjuler alt bak
        rasteret når man står på bakken – og der ville hvert eneste rør vært
        borte. Røntgen er hele poenget her, så prøven slås av mens rørene tegnes. */
-    const dyp = this._dyp;
-    this._dyp = null;
+    this._utenDybdeprove = true;
     try {
       if (this.lag.staker && app.terreng) {
         k.strokeStyle = Farger.blekkSvak; k.lineWidth = 1;
@@ -289,7 +288,7 @@ const Ror3d = Object.assign(Object.create(Tomt3d), {
         k.strokeRect(s.x - 3, s.y - 3, 6, 6);
       }
     } finally {
-      this._dyp = dyp;
+      this._utenDybdeprove = false;
     }
   }
 });

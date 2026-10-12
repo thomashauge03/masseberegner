@@ -3536,6 +3536,10 @@ const Nettlesertest = {
                     this.sjekk('    veglerretet er synlig, så prøven under kan kjøre',
                       synlig, c9 ? (c9.offsetParent === null ? 'skjult' : c9.width + ' px') : 'intet lerret');
                     if (synlig) {
+                      /* `_skjermboks` er en innsparing i prosessorens
+                         blanding; skjermkortet bruker den ikke. */
+                      const gpu9 = Tegner3d.brukGpu;
+                      Tegner3d.brukGpu = false;
                       const kk9 = c9.getContext('2d');
                       const orgB = Tegner3d._skjermboks;
                       let ulikt = -1, tot = 0;
@@ -3551,7 +3555,7 @@ const Nettlesertest = {
                           if (a9[i] !== d9[i] || a9[i + 1] !== d9[i + 1]
                             || a9[i + 2] !== d9[i + 2]) ulikt++;
                         }
-                      } finally { Tegner3d._skjermboks = orgB; Veg3d.tegn(); }
+                      } finally { Tegner3d._skjermboks = orgB; Tegner3d.brukGpu = gpu9; Veg3d.tegn(); }
                       this.sjekk('    og gir NØYAKTIG samme bilde som uten den',
                         ulikt === 0, ulikt + ' av ' + tot + ' piksler ulike');
                       /* Og bildet må ha noe i seg. Et tomt lerret er også
@@ -7821,6 +7825,281 @@ const Nettlesertest = {
       App.klargjorProsjekt(App.P);
       App.resultat = null;
       App._terrengnokkel = null;
+    }
+  },
+
+  /* ---------------- skjermkortet og prosessoren gir samme bilde ---------------- */
+  async gpuSammeBilde() {
+    if (typeof Gl3d === 'undefined' || !Gl3d.klar()) {
+      this.hoppOver('samme bilde på begge tegnerne', 'WebGL2 finnes ikke'); return;
+    }
+    const foer = JSON.stringify(App.P);
+    const gz = Terreng.prototype.z, gd = Terreng.prototype.dekning, gl = Terreng.prototype.lastOmraade;
+    const foerGpu = Tegner3d.brukGpu;
+    try {
+      App.P = App.nyttProsjekt();
+      App.P.navn = '__test_gpu';
+      await App.settModus('veg');
+      const lat0 = 58.2958, lon0 = 7.2098;
+      const dLat = m => m / 111320, dLon = m => m / (111320 * Math.cos(lat0 * Math.PI / 180));
+      App.P.ip = [{ lat: lat0, lon: lon0, r: 0 },
+        { lat: lat0 + dLat(120), lon: lon0 + dLon(90), r: 60 },
+        { lat: lat0 + dLat(260), lon: lon0 + dLon(40), r: 0 }];
+      const s0 = Geo.tilUtm(lat0, lon0, App.sone);
+      Terreng.prototype.lastOmraade = async function () { };
+      Terreng.prototype.dekning = () => 1;
+      Terreng.prototype.z = function (x, y) { return 100 + (y - s0.y) * 0.06 - (x - s0.x) * 0.09; };
+      App._terrengnokkel = null;
+      await App.oppdater();
+      App.settTverrStasjon(App.resultat.lengde / 2);
+      Veg3d.aktiver(true);
+      Veg3d.nullstill();
+      await this.vent(200);
+
+      /* Cellene under hver piksel, fra begge. Kravet er 97 % av pikslene der
+         minst én av dem fant noe: kantene mellom to flater kan falle på hver
+         sin side av en piksel, men et kamera eller en projeksjon som er
+         forskjøvet, gir langt under det. */
+      const sammenlign = (navn) => {
+        Tegner3d.brukGpu = false; Veg3d.tegn();
+        const a = Int32Array.from(Veg3d._id);
+        Tegner3d.brukGpu = null; Veg3d.tegn();
+        const b = Veg3d._id;
+        let begge = 0, like = 0;
+        for (let i = 0; i < a.length; i++) {
+          if (a[i] < 0 && b[i] < 0) continue;
+          begge++;
+          if (a[i] === b[i]) like++;
+        }
+        this.sjekk(navn + ': skjermkortet tegnet bildet', !!Veg3d._gpuRamme);
+        this.sjekk(navn + ': samme celle under ' + Math.round(100 * like / Math.max(1, begge)) + ' % av pikslene',
+          begge > 1000 && like / begge >= 0.97, like + ' av ' + begge);
+      };
+      sammenlign('vegen ovenfra');
+      Veg3d.fyldig = true; Veg3d.glemFarger();
+      sammenlign('vegen ovenfra, fyldig');
+      Veg3d.fyldig = false; Veg3d.glemFarger();
+      Veg3d.settVisning('etter');
+      sammenlign('vegen ovenfra, «etter»');
+      Veg3d.settVisning('vanlig');
+      Veg3d.settModus('bakken');
+      await this.vent(100);
+      sammenlign('vegen fra bakken');
+
+      /* Avlesningen midt i bildet svarer det samme på begge. */
+      const o = document.getElementById('veg3dover');
+      const p = { x: o.clientWidth / 2, y: o.clientHeight * 0.7 };
+      Tegner3d.brukGpu = false; Veg3d.tegn();
+      const ka = Veg3d._slaOpp(p, o);
+      Tegner3d.brukGpu = null; Veg3d.tegn();
+      const kb = Veg3d._slaOpp(p, o);
+      this.sjekk('avlesningen under markøren er den samme cella', ka && kb && ka.k === kb.k,
+        (ka && ka.k) + ' / ' + (kb && kb.k));
+      /* DYBDEN STREKENE GJEMMER SEG BAK.
+         Ikke mot prosessoren: den blander w rett over skjermen, og over en
+         fem meter lang celle like ved øyet gir det 4,5 m helt nederst i
+         bildet – der bakken er nærmest. Skjermkortet blander perspektivriktig.
+         Kravet er derfor det fysiske: dybden ligger mellom hjørnene til cella
+         under pikselen, og den minker nedover skjermen. */
+      Tegner3d.brukGpu = null; Veg3d.tegn();
+      const db = Veg3d._dybdeOppslag();
+      const gB = Veg3d._sisteGitter, kamB = Veg3d._sisteKam, HB = Veg3d._flateHoyde(gB);
+      const rbB = Veg3d._sisteRb, rhB = Veg3d._sisteRh;
+      let innenfor = 0, prover = 0, forrigeW = Infinity, minker = true;
+      for (const f of [0.6, 0.7, 0.8, 0.9]) {
+        const ix = rbB >> 1, iy = (rhB * f) | 0;
+        const k = Veg3d._id[iy * rbB + ix];
+        const w = db && db(ix, iy);
+        if (!(k >= 0) || !Number.isFinite(w)) continue;
+        prover++;
+        const ws = [k, k + 1, k + gB.nb, k + gB.nb + 1]
+          .map(j => kamB.punkt(gB.wx[j], gB.wy[j], HB[j]).w);
+        if (w >= Math.min(...ws) * 0.9 - 0.3 && w <= Math.max(...ws) * 1.1 + 0.3) innenfor++;
+        if (!(w < forrigeW)) minker = false;
+        forrigeW = w;
+      }
+      this.sjekk('dybden på bakken ligger mellom hjørnene i cella under', prover >= 3 && innenfor === prover,
+        innenfor + ' av ' + prover);
+      this.sjekk('og minker nedover skjermen', prover >= 3 && minker);
+      Veg3d.settModus('oversikt');
+      Veg3d.aktiver(false);
+    } finally {
+      Tegner3d.brukGpu = foerGpu;
+      Terreng.prototype.z = gz; Terreng.prototype.dekning = gd; Terreng.prototype.lastOmraade = gl;
+      App.P = JSON.parse(foer);
+      App._terrengnokkel = null;
+      await App.oppdater();
+    }
+  },
+
+  /* ---------------- glatt: ingen ombygging, ingen nedskalering ---------------- */
+  async gpuGlatt() {
+    if (typeof Gl3d === 'undefined' || !Gl3d.klar()) {
+      this.hoppOver('glatt på skjermkortet', 'WebGL2 finnes ikke'); return;
+    }
+    const foer = JSON.stringify(App.P);
+    const gz = Terreng.prototype.z, gd = Terreng.prototype.dekning, gl = Terreng.prototype.lastOmraade;
+    try {
+      App.P = App.nyttProsjekt();
+      App.P.navn = '__test_glatt';
+      await App.settModus('veg');
+      const lat0 = 58.2958, lon0 = 7.2098;
+      const dLat = m => m / 111320, dLon = m => m / (111320 * Math.cos(lat0 * Math.PI / 180));
+      App.P.ip = [{ lat: lat0, lon: lon0, r: 0 },
+        { lat: lat0 + dLat(400), lon: lon0 + dLon(300), r: 120 },
+        { lat: lat0 + dLat(900), lon: lon0 + dLon(150), r: 0 }];
+      const s0 = Geo.tilUtm(lat0, lon0, App.sone);
+      Terreng.prototype.lastOmraade = async function () { };
+      Terreng.prototype.dekning = () => 1;
+      Terreng.prototype.z = function (x, y) { return 100 + 4 * Math.sin((x - s0.x) / 37) + (y - s0.y) * 0.05; };
+      App._terrengnokkel = null;
+      await App.oppdater();
+      App.settTverrStasjon(App.resultat.lengde / 2);
+      Veg3d.aktiver(true);
+      Veg3d.nullstill();
+      await this.vent(300);
+      const c = Veg3d.lerret, o = document.getElementById('veg3dover');
+      const rr = () => o.getBoundingClientRect();
+      const mus = (type, x, y, opt) => o.dispatchEvent(new MouseEvent(type, Object.assign(
+        { bubbles: true, cancelable: true, clientX: rr().left + x, clientY: rr().top + y, button: 0 }, opt || {})));
+      const fullB = Math.round(c.clientWidth * Math.min(2, window.devicePixelRatio || 1));
+
+      /* DRA, ZOOM, DREI: ingenting bygges, og bildet krymper aldri. */
+      const bygd0 = Gl3d.bygget;
+      const tider = [];
+      let minsteB = Infinity;
+      mus('mousedown', 200, 150);
+      for (let i = 0; i < 60; i++) {
+        mus('mousemove', 200 + i * 3, 150 + (i % 10));
+        Veg3d.tegn();                         // ett bilde per hendelse, målt
+        tider.push(Veg3d._sisteTegnetid);
+        minsteB = Math.min(minsteB, c.width);
+      }
+      window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+      for (let i = 0; i < 10; i++) {
+        o.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: i < 5 ? -100 : 100,
+          clientX: rr().left + 300, clientY: rr().top + 150 }));
+        await this.vent(20);
+      }
+      await this.vent(100);
+      this.sjekk('ingen mesh bygges mens man drar, zoomer og dreier', Gl3d.bygget === bygd0,
+        (Gl3d.bygget - bygd0) + ' bygg');
+      this.sjekk('og lerretet står i full oppløsning hele tiden', minsteB === fullB, minsteB + ' mot ' + fullB);
+      tider.sort((a, b) => a - b);
+      const median = tider[tider.length >> 1];
+      this.sjekk('median bildetid under dragning ≤ 16 ms (' + median.toFixed(1) + ' ms)', median <= 16);
+
+      /* GÅ: samme krav. */
+      Veg3d.settModus('bakken');
+      await this.vent(100);
+      const bygd1 = Gl3d.bygget;
+      const gtider = [];
+      for (let i = 0; i < 60; i++) {
+        Veg3d._bakkeSteg && Veg3d._taster.add('w');
+        Veg3d._bakkeSteg(1 / 60);
+        Veg3d.tegn();
+        gtider.push(Veg3d._sisteTegnetid);
+      }
+      Veg3d._taster.clear();
+      gtider.sort((a, b) => a - b);
+      const gmedian = gtider[gtider.length >> 1];
+      this.sjekk('ingen mesh bygges mens man går', Gl3d.bygget === bygd1, (Gl3d.bygget - bygd1) + ' bygg');
+      this.sjekk('median bildetid når man går ≤ 16 ms (' + gmedian.toFixed(1) + ' ms)', gmedian <= 16);
+      Veg3d.settModus('oversikt');
+
+      /* FØRSTE BILDE: fra av til tegnet, med tomt meshlager. */
+      Veg3d.aktiver(false);
+      Gl3d._glemAlt(true);
+      const t0 = performance.now();
+      Veg3d.aktiver(true);
+      Veg3d.tegn();
+      const forste = performance.now() - t0;
+      this.sjekk('første bilde etter at 3D slås på ≤ 300 ms (' + forste.toFixed(0) + ' ms)', forste <= 300);
+
+      /* INGEN HOPP: har man flyttet kameraet selv, rammes det ikke inn på nytt
+         når settet av anlegg endrer seg. */
+      Veg3d.nullstill();
+      await this.vent(100);
+      mus('mousedown', 200, 150, { button: 2 }); mus('mousemove', 260, 170, { button: 2 });
+      window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+      await this.vent(100);
+      const pan = [Veg3d.panX, Veg3d.panY, Veg3d.skala];
+      Veg3d._andreNokkel = 'noe annet';
+      Veg3d.lag.andre = true; Veg3d._andreBuffer = null;
+      Veg3d.tegn();
+      this.sjekk('flyttet man kameraet selv, står det der når anleggene endrer seg',
+        Veg3d.panX === pan[0] && Veg3d.panY === pan[1] && Veg3d.skala === pan[2],
+        pan.join(',') + ' → ' + [Veg3d.panX, Veg3d.panY, Veg3d.skala].join(','));
+      Veg3d.lag.andre = false;
+      Veg3d.aktiver(false);
+    } finally {
+      Terreng.prototype.z = gz; Terreng.prototype.dekning = gd; Terreng.prototype.lastOmraade = gl;
+      App.P = JSON.parse(foer);
+      App._terrengnokkel = null;
+      await App.oppdater();
+    }
+  },
+
+  /* ---------------- reserve og rapportbilder ---------------- */
+  async gpuReserve() {
+    if (typeof Gl3d === 'undefined' || !Gl3d.klar()) {
+      this.hoppOver('reserven når skjermkortet forsvinner', 'WebGL2 finnes ikke'); return;
+    }
+    const foer = JSON.stringify(App.P);
+    const gz = Terreng.prototype.z, gd = Terreng.prototype.dekning, gl = Terreng.prototype.lastOmraade;
+    try {
+      App.P = App.nyttProsjekt();
+      App.P.navn = '__test_reserve';
+      await App.settModus('veg');
+      const lat0 = 58.2958, lon0 = 7.2098;
+      const dLat = m => m / 111320, dLon = m => m / (111320 * Math.cos(lat0 * Math.PI / 180));
+      App.P.ip = [{ lat: lat0, lon: lon0, r: 0 },
+        { lat: lat0 + dLat(120), lon: lon0 + dLon(90), r: 60 },
+        { lat: lat0 + dLat(260), lon: lon0 + dLon(40), r: 0 }];
+      const s0 = Geo.tilUtm(lat0, lon0, App.sone);
+      Terreng.prototype.lastOmraade = async function () { };
+      Terreng.prototype.dekning = () => 1;
+      Terreng.prototype.z = function (x, y) { return 100 + (y - s0.y) * 0.06 - (x - s0.x) * 0.09; };
+      App._terrengnokkel = null;
+      await App.oppdater();
+
+      /* RAPPORTBILDENE: fra skjermkortet, og bare ett WebGL-lerret til sammen. */
+      const lerreter0 = Gl3d.lerreter;
+      const bilder = [];
+      for (let i = 0; i < 3; i++) bilder.push(await Rapport.lagTegninger());
+      const url = bilder[0] && (bilder[0].modell3d || (Array.isArray(bilder[0]) && bilder[0].find(b => /^data:image/.test(b && b.bilde || ''))));
+      this.sjekk('tre rapporter laget uten et eneste nytt WebGL-lerret', Gl3d.lerreter === lerreter0,
+        (Gl3d.lerreter - lerreter0) + ' nye');
+      this.sjekk('og rapporten har en 3D-tegning', !!url);
+
+      /* MISTET KONTEKST: prosessoren tar over, uten et kast. */
+      Veg3d.aktiver(true);
+      Veg3d.nullstill();
+      await this.vent(150);
+      const ext = Gl3d.gl.getExtension('WEBGL_lose_context');
+      if (!ext) { this.hoppOver('mistet kontekst', 'WEBGL_lose_context finnes ikke'); return; }
+      ext.loseContext();
+      await this.vent(100);
+      this.sjekk('skjermkortet er meldt borte', Gl3d.tapt === true);
+      let kast = null;
+      try { Veg3d.tegn(); } catch (e) { kast = e.message; }
+      this.sjekk('og bildet tegnes av prosessoren uten feil', !kast && !Veg3d._gpuRamme, kast || '');
+      const kk = Veg3d.lerret.getContext('2d');
+      const b = kk.getImageData(0, 0, Veg3d.lerret.width, Veg3d.lerret.height).data;
+      let malt = 0;
+      for (let i = 0; i < b.length; i += 4 * 7) if (b[i] !== b[0] || b[i + 1] !== b[1] || b[i + 2] !== b[2]) malt++;
+      this.sjekk('og bildet har noe i seg', malt > 200, malt + ' piksler');
+      ext.restoreContext();
+      await this.vent(300);
+      this.sjekk('skjermkortet er tilbake', Gl3d.tapt === false && Gl3d.klar());
+      Veg3d.tegn();
+      this.sjekk('og tegner igjen', !!Veg3d._gpuRamme);
+      Veg3d.aktiver(false);
+    } finally {
+      Terreng.prototype.z = gz; Terreng.prototype.dekning = gd; Terreng.prototype.lastOmraade = gl;
+      App.P = JSON.parse(foer);
+      App._terrengnokkel = null;
+      await App.oppdater();
     }
   },
 

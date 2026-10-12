@@ -99,6 +99,16 @@ const Tegner3d = {
      skala og overdrivning. Punktet er låst til midten av skjermen.
      Feltet er null naar det betyr «som foer»: midten av gitteret. */
   fokus: null,
+  /* SKJERMKORTET, ELLER PROSESSOREN.
+     null = skjermkortet når det finnes (Gl3d.klar()), false = alltid
+     prosessoren. Prøvene slår den av for å kjøre den gamle veien. */
+  brukGpu: null,
+  /* HAR BRUKEREN FLYTTET KAMERAET SELV?
+     Når settet av anlegg endrer seg – full detalj er regnet ferdig, en nabo
+     kommer til – ble bildet rammet inn på nytt, og kameraet hoppet midt i det
+     man så på. Har man dratt, zoomet eller klikket seg et sted, er det DER man
+     vil være. ↺, F og det å slå på 3D nullstiller. */
+  _kameraRort: false,
   /* PÅ BAKKEN.
      Oversikten er riktig verktøy for å se HVOR det svulmer, og feil verktøy for
      å navigere: motivet er 0,9-2,6 % av lerretet, og man ser aldri en fylling
@@ -269,6 +279,8 @@ const Tegner3d = {
          til det man ser på. En prosent av avstanden ligger langt under
          modellens egne w-verdier og forkaster bare det degenererte. */
       naer: dist * 0.01,
+      /* Det samme kameraet for skjermkortet – se `Gl3d._VS`. */
+      gl: { ox: s.x, oy: s.y, oz: z0, ov, ca, sa, cp, sp, D: dist, F, cx, cy, naer: dist * 0.01, oye: null },
       /**
        * @returns {{px,py,rx,sy,w}} px/py i rasterpiksler.
        *   rx/sy/w er kamerarommet, og de trengs der ute: nærplanklippingen må
@@ -309,6 +321,7 @@ const Tegner3d = {
     const cx = b / 2, cy = h / 2;
     return {
       F, cx, cy, oye: E, naer: 0.35,
+      gl: { ox: E.x, oy: E.y, oz: E.z, ov: 1, ca, sa, cp, sp, D: 0, F, cx, cy, naer: 0.35, oye: E },
       punkt: (wx, wy, wz) => {
         const x = wx - E.x, y = wy - E.y, z = wz - E.z;
         const rx = x * ca + y * sa;
@@ -1721,7 +1734,10 @@ const Tegner3d = {
        på fem naboer, som gir steg 1. */
     let noder = 0;
     for (const bg of gitre) noder += bg.nb * bg.nh;
-    const tak = (this._drar || this._farer) ? 18000 : 45000;
+    /* På skjermkortet bygges naboene én gang, og taket er så høyt at det
+       aldri endrer seg mens man drar – da popper ingen detalj inn etterpå. */
+    const tak = (this._ramme && this._ramme.gpu) ? Tegner3d.GPU_NODER_BAKGRUNN
+      : (this._drar || this._farer) ? 18000 : 45000;
     const steg = Math.max(1, Math.round(Math.sqrt(noder / tak)));
     for (const bg of gitre) {
       if (bg.full && bg.eier) {
@@ -1734,7 +1750,7 @@ const Tegner3d = {
         const b2 = Math.min(255, rgb[2] * ly);
         return (255 << 24) | (b2 << 16) | (g2 << 8) | r;
       };
-      this._raster(bg, bg.z, farge, this._piksler, this._dyp, null, rb, rh, kam, null, steg);
+      this._flate(bg, { hoyde: bg.z, farge, blanding: 0 }, { steg, merke: 's' }, rb, rh, kam);
     }
   },
 
@@ -1784,6 +1800,8 @@ const Tegner3d = {
        sted får to. Masken kommer ferdig inn – se `_terrengmasker`. */
     this._krevTerreng = krevTerreng || null;
     try {
+      // naboens farger avhenger av HANS lagbrytere, slik de står lånt nå
+      const stempel = this._fargestempel(eier);
       const lagene0 = this.visning === 'vanlig'
         ? eier._lagliste(g, pal)
         : [{
@@ -1800,7 +1818,7 @@ const Tegner3d = {
          Utenfor dette er flaten – uansett visning – dagens terreng, og altså
          felles med naboen. */
       const bygd = g.harGrav || g.harVeg || g.harFerdig || null;
-      for (const lag0 of lagene0) {
+      for (const [li, lag0] of lagene0.entries()) {
         if (!lag0 || !lag0.hoyde) continue;
         /* Terrenglaget kjennes på at det ligger på `zT`.
            I «før» og «etter» finnes det ikke noe eget terrenglag: hele
@@ -1850,42 +1868,20 @@ const Tegner3d = {
         const lag = dempFarge
           ? Object.assign({}, lag0, { farge: dempFarge, krev })
           : (krev === lag0.krev ? lag0 : Object.assign({}, lag0, { krev }));
-        if (!(lag.blanding > 0)) {
-          /* `id` er alltid null for et naboanlegg: museavlesningen skal svare
-             om det man ARBEIDER med, ikke om noe man bare ser. */
-          this._raster(g, lag.hoyde, lag.farge, this._piksler, this._dyp, null,
-            rb, rh, kam, krev, steg);
-          continue;
-        }
-        const boks = this._skjermboks(g, lag.hoyde, kam, rb, rh, krev);
-        if (boks.x1 < boks.x0) continue;                 // helt utenfor bildet
-        this._toemBoks(boks, rb);
-        this._raster(g, lag.hoyde, lag.farge, this._lag2, this._dyp2, null, rb, rh, kam, krev, steg);
-        const styrke = lag.blanding;
-        const p = this._piksler, d1 = this._dyp, d2 = this._dyp2, l2 = this._lag2;
-        for (let y = boks.y0; y <= boks.y1; y++) {
-          for (let x = boks.x0; x <= boks.x1; x++) {
-            const i = y * rb + x;
-          if (!l2[i]) continue;
-          if (d2[i] > d1[i]) continue;
-          const s = l2[i], u = p[i];
-          const r = ((s & 255) * styrke + (u & 255) * (1 - styrke)) | 0;
-          const gg = (((s >> 8) & 255) * styrke + ((u >> 8) & 255) * (1 - styrke)) | 0;
-          const bl = (((s >> 16) & 255) * styrke + ((u >> 16) & 255) * (1 - styrke)) | 0;
-          p[i] = (255 << 24) | (bl << 16) | (gg << 8) | r;
-          /* ET GJENNOMSIKTIG LAG PÅ ET NABOANLEGG MÅ LIKEVEL SETTE DYBDE.
-             I arbeidsbildet gjør det ikke det, og det er riktig der: terrenget
-             ligger halvgjennomsiktig oppå ens EGEN graveflate, og skal ikke
-             skygge for den.
-             Mellom to anlegg er det motsatt. I hele kontekstringen rundt en
-             nabo – tretti meter ut fra vegens fot, førti rundt en tomt – er
-             terrenget det ENESTE laget, og det er gjennomsiktig. Uten denne
-             linja sto `_dyp` på uendelig der, og det aktive anleggets flater
-             besto dybdeprøven og ble malt rett over en nabo som ligger tre
-             hundre meter nærmere kameraet. */
-            if (d2[i] < d1[i]) d1[i] = d2[i];
-          }
-        }
+        /* `id` er aldri satt for et naboanlegg: museavlesningen skal svare om
+           det man ARBEIDER med, ikke om noe man bare ser.
+           ET GJENNOMSIKTIG LAG PÅ ET NABOANLEGG MÅ LIKEVEL SETTE DYBDE.
+           I arbeidsbildet gjør det ikke det, og det er riktig der: terrenget
+           ligger halvgjennomsiktig oppå ens EGEN graveflate, og skal ikke
+           skygge for den.
+           Mellom to anlegg er det motsatt. I hele kontekstringen rundt en
+           nabo – tretti meter ut fra vegens fot, førti rundt en tomt – er
+           terrenget det ENESTE laget, og det er gjennomsiktig. Uten dybde sto
+           `_dyp` på uendelig der, og det aktive anleggets flater besto
+           dybdeprøven og ble malt rett over en nabo som ligger tre hundre meter
+           nærmere kameraet. */
+        this._flate(g, lag, { steg, dybde: true, stempel,
+          merke: 'n' + li + (dempFarge ? (heilflate && bygd ? 'dd' : 'd') : '') }, rb, rh, kam);
       }
     } finally {
       eier.visning = foer.visning;
@@ -2158,6 +2154,99 @@ const Tegner3d = {
     this.visAndreliste();
   },
 
+  /** Tegner skjermkortet dette bildet? */
+  _gpu() {
+    return Tegner3d.brukGpu !== false && typeof Gl3d !== 'undefined' && Gl3d.klar();
+  },
+
+  /**
+   * Alt fargen på en flate avhenger av utenom gitteret, høyden og masken.
+   *
+   * Skjermkortet bygger meshen én gang og gjenbruker den så lenge denne
+   * strengen er den samme. Står noe fargen leser UTENFOR den, blir fargen
+   * stående fra forrige gang – derfor er den heller for bred enn for smal:
+   * hele lagbryteren, temaet slik det står på <html>, og arealdekket.
+   */
+  _fargestempel(eier) {
+    const v = eier || this;
+    const html = typeof document !== 'undefined' ? document.documentElement : null;
+    return [this.visning, this.fyldig ? 1 : 0, JSON.stringify(v.lag || {}),
+      this._palettFor || '', String(Farger.terrengFlateRgb), String(Farger.annetAnleggRgb),
+      String(Farger.fjellRgb), Tegner3d._arealnokkel || '', Tegner3d._arealkart ? 1 : 0,
+      html ? [...html.attributes].map(a => a.name + '=' + a.value).join(',') : ''].join('§');
+  },
+
+  /**
+   * Én flate inn i bildet – på skjermkortet eller med prosessoren.
+   *
+   * @param {{hoyde, farge, krev, blanding}} lag
+   * @param {{id?, dybde?, steg?, merke?, stempel?}} o
+   *   id      flaten skriver cellenummer (bare det aktive anleggets
+   *           ugjennomsiktige lag)
+   *   dybde   et gjennomsiktig lag som likevel skal skrive dybde (naboer)
+   *   merke   skiller lag som ellers ville delt mesh-nøkkel
+   *   stempel fargestempelet, når det er et annet enn bildets (naboer)
+   *
+   * Prosessorveien er nøyaktig den som sto i `tegn()` og `_tegnFulltAnlegg`.
+   */
+  _flate(g, lag, o, rb, rh, kam) {
+    const R = this._ramme;
+    if (R && R.gpu) {
+      const m = Gl3d.mesh(g, lag, o.steg, (o.stempel || R.stempel) + '§' + (o.merke || ''));
+      if (m && !m.tom) {
+        const gjennom = lag.blanding > 0;
+        R.liste.push({ m, blanding: lag.blanding || 0,
+          modus: !gjennom ? 'opak' : (o.dybde ? 'gjennomDybde' : 'gjennom'),
+          id: !!o.id && !gjennom });
+      }
+      return;
+    }
+    if (!(lag.blanding > 0)) {
+      // ugjennomsiktig: rett inn i bildet, med det felles dybdebufferet
+      this._raster(g, lag.hoyde, lag.farge, this._piksler, this._dyp,
+        o.id ? this._id : null, rb, rh, kam, lag.krev, o.steg);
+      return;
+    }
+    /* Hvert gjennomsiktige lag får SITT EGET dybdebuffer, og bare der laget
+       FAKTISK kan havne – se `_skjermboks`. */
+    const boks = this._skjermboks(g, lag.hoyde, kam, rb, rh, lag.krev);
+    if (boks.x1 < boks.x0) return;                 // helt utenfor bildet
+    this._toemBoks(boks, rb);
+    this._raster(g, lag.hoyde, lag.farge, this._lag2, this._dyp2, null, rb, rh, kam, lag.krev, o.steg);
+    const styrke = lag.blanding;
+    const p = this._piksler, d1 = this._dyp, d2 = this._dyp2, l2 = this._lag2;
+    for (let y = boks.y0; y <= boks.y1; y++) {
+      for (let x = boks.x0; x <= boks.x1; x++) {
+        const i = y * rb + x;
+        if (!l2[i]) continue;
+        if (d2[i] > d1[i]) continue;               // ligger bak det ugjennomsiktige
+        const s = l2[i], u = p[i];
+        const r = ((s & 255) * styrke + (u & 255) * (1 - styrke)) | 0;
+        const gg = (((s >> 8) & 255) * styrke + ((u >> 8) & 255) * (1 - styrke)) | 0;
+        const bl = (((s >> 16) & 255) * styrke + ((u >> 16) & 255) * (1 - styrke)) | 0;
+        p[i] = (255 << 24) | (bl << 16) | (gg << 8) | r;
+        // et naboanleggs gjennomsiktige lag setter dybde – se `_tegnFulltAnlegg`
+        if (o.dybde && d2[i] < d1[i]) d1[i] = d2[i];
+      }
+    }
+  },
+
+  /**
+   * Avstanden w under et rasterpunkt, fra den tegneren som tegnet sist.
+   * null når det ikke finnes noe å slå opp i – eller når prøven er slått av,
+   * slik Ror3d gjør mens rørene tegnes gjennom bakken.
+   */
+  _dybdeOppslag() {
+    if (this._utenDybdeprove) return null;
+    const rb = this._sisteRb, rh = this._sisteRh;
+    if (!rb || !rh) return null;
+    if (this._gpuRamme) return Gl3d.dybdeOppslag(this._gpuRamme);
+    const dyp = this._dyp;
+    if (!dyp || dyp.length !== rb * rh) return null;
+    return (ix, iy) => dyp[iy * rb + ix];
+  },
+
+
   /**
    * Én flate inn i et pikselbuffer, med dybdeprøve.
    *
@@ -2329,6 +2418,9 @@ const Tegner3d = {
    * det man skal se.
    */
   _lys(g, k00, k10, k01, z, kam) {
+    /* Skjermkortet regner lyset selv, av en utjevnet normal – se Gl3d._bygg.
+       Mens det henter FARGEN, skal fargen være uten lys. */
+    if (Tegner3d._lysEn) return 1;
     /* NORMALEN FRA DE TO EKTE KANTENE, IKKE FRA ETT STEG PER AKSE.
        Her sto `(z10 - z00) / rute` for begge retningene. På en tomt er det
        riktig – rutenettet er kvadratisk. På en VEG er det ikke i nærheten:
@@ -2373,6 +2465,9 @@ const Tegner3d = {
     if (c.offsetParent === null) { this._sisteGitter = null; return; }
     const b = c.clientWidth, h = c.clientHeight;
     if (b < 20 || h < 20) { this._sisteGitter = null; return; }
+    const gpu = this._gpu();
+    /* Et bilde fra prosessoren skal ikke svare med skjermkortets id-buffer. */
+    this._gpuRamme = null;
 
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     /* OPPLØSNINGEN FØLGER MASKINEN, IKKE ET FAST TALL.
@@ -2384,9 +2479,10 @@ const Tegner3d = {
        Nå styres den av tiden forrige bilde tok, mot et budsjett på 28 ms – den
        ene tingen brukeren faktisk merker. Justeringen er myk (10 % per bilde),
        for et bilde som hopper mellom skarpt og grovt er verre å se på enn et
-       som er jevnt grovt. */
+       som er jevnt grovt.
+       På skjermkortet er bildet alltid fullt: det er ingenting å spare. */
     let kvalitet = 1;
-    if (this._drar || this._farer) {
+    if (!gpu && (this._drar || this._farer)) {
       const t = this._sisteTegnetid || 16;
       const mal = 28;
       let k = this._farteKvalitet || 0.7;
@@ -2424,8 +2520,26 @@ const Tegner3d = {
        pikselbundet: en celle som dekker en halv piksel koster nesten
        ingenting å hoppe over, og man ser den ikke uansett. */
     const pikslerPerMeter = (this.skala || 1) * dpr * kvalitet;
-    const steg = Math.max(1, Math.ceil(1.6 / Math.max(0.02, pikslerPerMeter)));
-    let g = this._gitter(steg);
+    let g;
+    if (gpu) {
+      /* PÅ SKJERMKORTET ER STEGET 1, OG DET STÅR.
+         Prosessoren desimerte etter zoomen, og en tomt ble bygd på nytt hver
+         gang man rullet på hjulet. Skjermkortet tegner hver node uansett hvor
+         lite den er; grovere blir det bare når gitteret er for stort til én
+         mesh. Steget huskes per resultat, så det ikke prøves på nytt hvert
+         bilde. */
+      if (this._gpuStegFor !== res) { this._gpuStegFor = res; this._gpuSteg = 1; }
+      g = this._gitter(this._gpuSteg);
+      const nn = g ? g.nb * g.nh : 0;
+      if (nn > Tegner3d.GPU_NODER) {
+        this._gpuSteg = Math.ceil(this._gpuSteg * Math.sqrt(nn / Tegner3d.GPU_NODER));
+        g = this._gitter(this._gpuSteg);
+      }
+      while (!g && this._gpuSteg < 8) g = this._gitter(++this._gpuSteg);
+    } else {
+      const steg = Math.max(1, Math.ceil(1.6 / Math.max(0.02, pikslerPerMeter)));
+      g = this._gitter(steg);
+    }
     /* Arealdekket henges på gitteret som faktisk tegnes – se
        `_sikreArealdekke`. Kallet er gratis når området alt er hentet. */
     if (g) this._sikreArealdekke(g);
@@ -2499,38 +2613,47 @@ const Tegner3d = {
     const kam = this._kamera(rb, rh, g, this.skala * f,
       ((this._panFast ? this._panFast.x : 0) + (this.panX || 0)) * f,
       ((this._panFast ? this._panFast.y : 0) + (this.panY || 0)) * f);
-    const n = rb * rh;
-    if (!this._bilde || this._bilde.width !== rb || this._bilde.height !== rh) {
-      this._bilde = g2.createImageData(rb, rh);
-      this._piksler = new Uint32Array(this._bilde.data.buffer);
-      this._dyp = new Float32Array(n);
-      this._id = new Int32Array(n);
-      this._lag2 = new Uint32Array(n);
-      this._dyp2 = new Float32Array(n);
-    }
     const bak = Farger.flateRgb;
-    const bakVerdi = (255 << 24) | (bak[2] << 16) | (bak[1] << 8) | bak[0];
-    this._piksler.fill(bakVerdi);
     /* HORISONTEN.
        Står man på bakken og ser utover, er øvre halvdel av skjermen én flat
        farge – og det ser ikke ut som himmel, det ser ut som et ødelagt bilde.
        To toner i stedet for én koster ett ekstra fill og ingen geometri:
        himmel over horisontlinja, fjern bakke under. Linja ligger nøyaktig der
        blikket er vannrett, så den flytter seg riktig når man ser opp og ned. */
+    let horisont = null;
     if (kam.oye) {
       const pyH = rh / 2 + kam.F * Math.tan(this.kamPitch * Math.PI / 180);
-      const ton = (rgb, f2) => (255 << 24)
-        | (Math.min(255, rgb[2] * f2) << 16) | (Math.min(255, rgb[1] * f2) << 8) | Math.min(255, rgb[0] * f2);
-      const himmel = ton(bak, 1.35);
-      const fjern = ton(Farger.terrengFlateRgb, 0.75);
-      const grense = Math.max(0, Math.min(rh, Math.round(pyH)));
-      this._piksler.fill(himmel, 0, grense * rb);
-      this._piksler.fill(fjern, grense * rb, rh * rb);
+      const ton = (rgb, f2) => rgb.map(v => Math.floor(Math.min(255, v * f2)));
+      horisont = { grense: Math.max(0, Math.min(rh, Math.round(pyH))),
+        himmel: ton(bak, 1.35), fjern: ton(Farger.terrengFlateRgb, 0.75) };
     }
-    this._dyp.fill(Infinity);
-    this._id.fill(-1);
+    if (!gpu) {
+      const n = rb * rh;
+      if (!this._bilde || this._bilde.width !== rb || this._bilde.height !== rh) {
+        this._bilde = g2.createImageData(rb, rh);
+        this._piksler = new Uint32Array(this._bilde.data.buffer);
+        this._dyp = new Float32Array(n);
+        this._id = new Int32Array(n);
+        this._lag2 = new Uint32Array(n);
+        this._dyp2 = new Float32Array(n);
+      }
+      const pakk = rgb => (255 << 24) | (rgb[2] << 16) | (rgb[1] << 8) | rgb[0];
+      this._piksler.fill(pakk(bak));
+      if (horisont) {
+        this._piksler.fill(pakk(horisont.himmel), 0, horisont.grense * rb);
+        this._piksler.fill(pakk(horisont.fjern), horisont.grense * rb, rh * rb);
+      }
+      this._dyp.fill(Infinity);
+      this._id.fill(-1);
+    }
 
     const pal = this._palett();
+    /* Bildets tegneliste. På prosessoren er den tom og ubrukt – `_flate`
+       fyller pikslene med en gang. */
+    const R = this._ramme = { gpu, rb, rh, kam: kam.gl, bak, horisont, liste: [],
+      stempel: this._fargestempel(),
+      fjern: Math.max(50000, 4 * ((this._sceneDiagonal || 0) + (kam.dist || 0))) };
+    if (gpu) Gl3d.nyttBilde(g);
 
     /* LAGENE KOMMER FRA VISNINGEN, IKKE FRA TEGNEREN.
        Hver visning – tomt eller veg – sier hvilke flater som skal tegnes, i
@@ -2566,45 +2689,26 @@ const Tegner3d = {
     try {
     /* De andre anleggene først – se `_tegnBakgrunn`. */
     this._tegnBakgrunn(g, this._andreNa, rb, rh, kam, pal);
-    for (const lag of lagene) {
+    /* Ugjennomsiktige lag skriver cellenummer; gjennomsiktige får hvert sitt
+       dybdebuffer og blandes inn der de ligger foran – se `_flate`. */
+    for (let i = 0; i < lagene.length; i++) {
+      const lag = lagene[i];
       if (!lag) continue;
-      if (!(lag.blanding > 0)) {
-        // ugjennomsiktig: rett inn i bildet, med det felles dybdebufferet
-        this._raster(g, lag.hoyde, lag.farge, this._piksler, this._dyp,
-          lag.idBuffer === false ? null : this._id, rb, rh, kam, lag.krev);
-        continue;
-      }
-      /* Hvert gjennomsiktige lag får SITT EGET dybdebuffer. Slår man i stedet
-         av dybdeskrivingen, blander to firkanter av samme lag seg der de
-         overlapper, og flaten får flekker. */
-      /* ... men bare der laget FAKTISK kan havne. `_skjermboks` projiserer de
-         åtte hjørnene av gitterets boks; utenfor den er både tømmingen og
-         blandingen bortkastet arbeid. På et vanlig bilde er det tre firedeler
-         av skjermen, ganger ett gjennomløp per gjennomsiktig lag. */
-      const boks = this._skjermboks(g, lag.hoyde, kam, rb, rh, lag.krev);
-      if (boks.x1 < boks.x0) continue;                 // helt utenfor bildet
-      this._toemBoks(boks, rb);
-      this._raster(g, lag.hoyde, lag.farge, this._lag2, this._dyp2, null, rb, rh, kam, lag.krev);
-      const styrke = lag.blanding;
-      const p = this._piksler, d1 = this._dyp, d2 = this._dyp2, l2 = this._lag2;
-      for (let y = boks.y0; y <= boks.y1; y++) {
-        for (let x = boks.x0; x <= boks.x1; x++) {
-          const i = y * rb + x;
-          if (!l2[i]) continue;
-          if (d2[i] > d1[i]) continue;               // ligger bak det ugjennomsiktige
-          const s = l2[i], u = p[i];
-          const r = ((s & 255) * styrke + (u & 255) * (1 - styrke)) | 0;
-          const gg = (((s >> 8) & 255) * styrke + ((u >> 8) & 255) * (1 - styrke)) | 0;
-          const bl = (((s >> 16) & 255) * styrke + ((u >> 16) & 255) * (1 - styrke)) | 0;
-          p[i] = (255 << 24) | (bl << 16) | (gg << 8) | r;
-        }
-      }
+      this._flate(g, lag, { id: lag.idBuffer !== false, merke: 'h' + i }, rb, rh, kam);
     }
     } finally {
       // felles fargeskala legges tilbake – se `_felleskala`
       for (const [gg, m] of skalaFoer) gg.maksAvvik = m;
+      this._ramme = null;
     }
-    g2.putImageData(this._bilde, 0, 0);
+    if (gpu) {
+      Gl3d.tegn(R);
+      g2.setTransform(1, 0, 0, 1, 0, 0);
+      g2.drawImage(Gl3d.lerret, 0, 0);
+      this._gpuRamme = R;
+    } else {
+      g2.putImageData(this._bilde, 0, 0);
+    }
     this._sisteGitter = g;
     this._sisteKam = kam;
     this._sisteRb = rb; this._sisteRh = rh;
@@ -2651,9 +2755,9 @@ const Tegner3d = {
     const b = this._strekB, h = this._strekH;
     const rb = this._sisteRb, rh = this._sisteRh;
     const naer = kam.naer || 1e-6;
-    const dyp = this._dyp;
     // dybdeprøven gjelder bare på bakken; ovenfra er strekene aldri skjult
-    const prov = !!(kam.oye && dyp && dyp.length === rb * rh);
+    const dybde = kam.oye ? this._dybdeOppslag() : null;
+    const prov = !!dybde;
     const paaSkjerm = q => ({ x: q.px * b / rb, y: q.py * h / rh });
     /* Skjult bak noe? Slå opp rasterets dybde i samme piksel. 2 % pluss en
        halvmeter er nok til at streken vinner mot sin egen flate, og for lite
@@ -2662,7 +2766,7 @@ const Tegner3d = {
       if (!prov) return false;
       const ix = q.px | 0, iy = q.py | 0;
       if (ix < 0 || iy < 0 || ix >= rb || iy >= rh) return false;
-      const d = dyp[iy * rb + ix];
+      const d = dybde(ix, iy);
       return Number.isFinite(d) && q.w > d * 1.02 + 0.5;
     };
     // punktet der strekket krysser nærplanet; w er lineær, så dette er eksakt
@@ -3574,13 +3678,13 @@ const Tegner3d = {
        opplysningen «dra for å gå» trenger. Uten dette falt farten tilbake på
        tretti meter over hver eneste bakgrunnspiksel: tok man tak i naboanlegget
        åtte hundre meter unna for å flytte seg dit, sto musa nesten stille. */
-    const dyp = this._dyp, rb = this._sisteRb, rh = this._sisteRh;
-    if (dyp && rb && rh && dyp.length === rb * rh && c && c.clientWidth) {
+    const dybde = this._dybdeOppslag(), rb = this._sisteRb, rh = this._sisteRh;
+    if (dybde && c && c.clientWidth) {
       // samme omregning som `_slaOpp`: pos er lerretsrelativ, ikke klientrelativ
       const ix = Math.round(pos.x * rb / c.clientWidth);
       const iy = Math.round(pos.y * rh / c.clientHeight);
       if (ix >= 0 && iy >= 0 && ix < rb && iy < rh) {
-        const d = dyp[iy * rb + ix];
+        const d = dybde(ix, iy);
         if (Number.isFinite(d) && d > 1) return d;
       }
     }
@@ -3779,6 +3883,24 @@ function tegnSnart(vis) {
    poenget med å gå er at fyllinga skal rage nøyaktig så høyt over deg som den
    kommer til å gjøre. */
 Tegner3d.OYEHOYDE = 1.7;
+
+/* Nodetak for skjermkortet. Over dette blir gitteret grovere. 1,5 millioner
+   noder er rundt 40 MB på skjermkortet – godt innenfor selv på et nettbrett. */
+Tegner3d.GPU_NODER = 1500000;
+Tegner3d.GPU_NODER_BAKGRUNN = 600000;
+
+/* CELLENUMMERET UNDER HVER PIKSEL – fra den tegneren som tegnet sist.
+   Prosessoren skriver tabellen mens den tegner. Skjermkortet leser den ut
+   bare når noen spør (avlesning, klikk, dragning), og da én gang per bilde.
+   `_slaOpp` og prøvene leser `_id` som før og merker ingen forskjell. */
+Object.defineProperty(Tegner3d, '_id', {
+  get() {
+    if (this._gpuRamme) return Gl3d.lesId(this._gpuRamme);
+    return this.__id || null;
+  },
+  set(v) { this.__id = v; },
+  configurable: true
+});
 
 Tegner3d.GAATASTER = {
   w: [1, 0, 0], arrowup: [1, 0, 0],
