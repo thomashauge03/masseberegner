@@ -174,6 +174,16 @@ anleggslista, «Rør (fra filer)» i førstevalget, eller slipp filene på karte
   «Vet ikke» lar forslaget stå i Rør-fanen til senere; alle svarene er ett
   angresteg.
 
+* **Leica iCON (LandXML med HexagonLandXML):** punktene har ingen kode – koden
+  er navnet med en teller rett bak («110 MM SP», «110 MM SP1», «MUR10»,
+  «GRØFT1(2)»). Telleren tas bort ved å finne det korteste navnet i fila
+  punktet bygger på, så «SP 1601» blir «SP 160» og ikke «SP». Et navn som bare
+  er et tall, er et punktnummer. **Linjene operatøren målte** (`PlanFeature`
+  med strekk mellom punktene) trekkes som fila sier – ikke etter avstand – og
+  en kode fila har målt som linje, foreslås som rør. Sonen leses fra
+  koordinatsystemets navn («Euref89 UTM32»).
+* **Marker alle / Fjern alle** over kodetabellen, i importdialogen og i
+  Koder-fanen – skal man bare ha noen få rør, fjerner man alle og krysser av de få.
 * **KOF:** navn, kode (gjerne med mellomrom, «vann 110»), nord, øst og høyde.
   VisualMachine begynner punktnummereringen på nytt i hver fil, så et punkt
   kjennes igjen på navnet OG stedet – to filer med «P1» på hvert sitt sted gir

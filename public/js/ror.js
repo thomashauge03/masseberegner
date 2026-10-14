@@ -112,7 +112,20 @@ const Ror = (() => {
     const rot = /<LandXML\b([^>]*)>/.exec(s);
     const prog = /<Application\b([^>]*)>/.exec(s);
     const ks = /<CoordinateSystem\b([^>]*)>/.exec(s);
-    const epsgTall = ks ? parseInt(_attributter(ks[1]).epsgCode, 10) : NaN;
+    let epsgTall = ks ? parseInt(_attributter(ks[1]).epsgCode, 10) : NaN;
+    /* LEICA (iCON, Captivate) skriver sin egen del, HexagonLandXML, etter den
+       vanlige. Der står koordinatsystemet med navn – «Euref89 UTM32» – men
+       uten EPSG-kode. */
+    const leica = /<HexagonLandXML\b/.test(s);
+    if (!Number.isFinite(epsgTall)) {
+      for (const c of s.matchAll(/<CoordinateSystem\b([^>]*)>/g)) {
+        // «Euref89 UTM32Utv.» – bokstaver rett etter sonen, så ikke \b
+        const z = /UTM\s*(32|33|35)(?!\d)/i.exec(_attributter(c[1]).name || '');
+        if (z) { epsgTall = 25800 + +z[1]; break; }
+      }
+    }
+    // alle punktnavnene – Leica-koden leses ut av navnet, målt mot de andre navnene (se `_kodeLeica`)
+    const navnSett = leica ? new Set([...s.matchAll(/<CgPoint\b[^>]*?\bname\s*=\s*"([^"]*)"/g)].map(x => _avkod(x[1]).trim())) : null;
 
     const advarsler = { utenHoyde: 0, ugyldige: 0, doble: 0, referanser: 0 };
     const punkter = [];
@@ -134,7 +147,9 @@ const Ror = (() => {
          når det ble målt, og hvilket program. */
       const egen = _egenskaper(s, re.lastIndex);
       if (!app && egen.App) app = egen.App;
-      const k = _kode(a.code, a.name);
+      const k = leica && !String(a.code || '').trim()
+        ? { kode: _kodeLeica(a.name, navnSett), fraNavn: false }
+        : _kode(a.code, a.name);
       let kode = k.kode;
       if (!kode && a.desc && a.desc !== 'undefined') kode = a.desc.trim();
       if (!kode) kode = 'UTEN KODE';
@@ -151,11 +166,99 @@ const Ror = (() => {
     _samkjor(punkter, fraNavn);
     return {
       punkter,
-      program: app || (prog ? (_attributter(prog[1]).name || '') : ''),
+      linjer: _planlinjer(s, sett),
+      program: app || (prog ? (_attributter(prog[1]).name || '') : '') || (leica ? 'Leica' : ''),
       dato: _dato(rot ? (_attributter(rot[1]).date || '') : '', punkter),
       epsg: Number.isFinite(epsgTall) ? epsgTall : null,
       advarsler
     };
+  }
+
+  /**
+   * Linjene operatøren målte som linjer: `<PlanFeature>` med strekk som peker
+   * på punktene (`pntRef`). Leica iCON skriver dem slik; punktene står ellers
+   * bare som punkt.
+   *
+   * DE TREKKES SOM FILA SIER, IKKE ETTER AVSTAND. Uten dem gjettet programmet
+   * linjene av hvilke punkt med samme kode som lå nærmest – riktig for en fil
+   * som bare har punkt, men her vet fila svaret. Et strekk som ikke henger på
+   * det forrige, begynner en ny linje.
+   *
+   * @param {Set<string>} kjente  punkt-id-ene som ble lest – en linje til et
+   *   punkt som ikke finnes, kortes av der
+   * @returns {Array<{navn, punkter: string[]}>}
+   */
+  function _planlinjer(s, kjente) {
+    const ut = [];
+    for (const f of s.matchAll(/<PlanFeature\b([^>]*)>([\s\S]*?)<\/PlanFeature>/g)) {
+      const navn = _avkod(_attributter(f[1]).name || '').trim();
+      let rekke = [];
+      const avslutt = () => { if (rekke.length >= 2) ut.push({ navn, punkter: rekke }); rekke = []; };
+      for (const l of f[2].matchAll(/<Line\b[^>]*>([\s\S]*?)<\/Line>/g)) {
+        const ref = t => { const x = new RegExp(`<${t}\\b([^>]*)>`).exec(l[1]); return x ? (_attributter(x[1]).pntRef || '').trim() : ''; };
+        const a = ref('Start'), b = ref('End');
+        if (!a || !b || !kjente.has(a) || !kjente.has(b)) { avslutt(); continue; }
+        if (!rekke.length || rekke[rekke.length - 1] !== a) { avslutt(); rekke.push(a); }
+        if (b !== rekke[rekke.length - 1]) rekke.push(b);
+      }
+      avslutt();
+    }
+    return ut;
+  }
+
+  /** Kodene fila har målt som linjer: den flest av punktene i hver linje har. */
+  function linjekoder(punkter, filLinjer) {
+    const kodeAv = new Map((punkter || []).map(p => [p.id, p.kode]));
+    const ut = new Set();
+    for (const l of filLinjer || []) {
+      const telle = new Map();
+      for (const id of l.punkter) { const k = kodeAv.get(id); if (k) telle.set(k, (telle.get(k) || 0) + 1); }
+      const best = [...telle].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))[0];
+      if (best) ut.add(best[0]);
+    }
+    return ut;
+  }
+
+  /** Linjene fra flere filer, eller fra en fil lagt til et anlegg – hver linje én gang. */
+  function flettLinjer(gamle, nye) {
+    const ut = (gamle || []).slice();
+    const sett = new Set(ut.map(l => l.punkter.join('\u0001')));
+    for (const l of nye || []) {
+      const k = l.punkter.join('\u0001');
+      if (!sett.has(k)) { sett.add(k); ut.push({ navn: l.navn || '', punkter: l.punkter.slice() }); }
+    }
+    return ut;
+  }
+
+  /**
+   * Koden i et punktnavn fra Leica iCON: navnet uten telleren.
+   *
+   * iCON gir hvert punkt koden som navn og legger et tall rett bak:
+   * «MUR», «MUR1» … «MUR28». En ny serie av samme kode får «(2)»
+   * etter: «GRØFT(2)», «GRØFT1(2)». Leses navnet som kode, blir hvert
+   * punkt sin egen kode, og ingenting henger sammen.
+   *
+   * TELLEREN KAN IKKE BARE KUTTES. «SP 1601» er «SP 160» med teller 1 – å kutte
+   * alle sifrene bak ga «SP». Navnet måles derfor mot de andre: koden er det
+   * KORTESTE navnet i fila som dette bygger på («MUR10» bygger både på
+   * «MUR1» og «MUR»; det er «MUR»). Finnes ikke grunnpunktet,
+   * kuttes sifrene bare når det som står igjen, slutter på en bokstav.
+   * Et navn som bare er et tall, er et punktnummer, ikke en kode.
+   */
+  function _kodeLeica(navn, alle) {
+    const raa = String(navn || '').trim();
+    if (!raa || /^-?\d+$/.test(raa)) return '';
+    const m = /^(.*?)(\(\d+\))?$/.exec(raa);
+    const rest = m[1], hale = m[2] || '';
+    const sifre = /\d+$/.exec(rest);
+    if (!sifre) return rest.trim();
+    const har = /[A-Za-zÆØÅæøå]/;
+    for (let k = sifre[0].length; k >= 1; k--) {
+      const grunn = rest.slice(0, rest.length - k);
+      if (har.test(grunn) && alle && (alle.has(grunn + hale) || alle.has(grunn.trim() + hale))) return grunn.trim();
+    }
+    const kuttet = rest.slice(0, rest.length - sifre[0].length);
+    return /[A-Za-zÆØÅæøå]$/.test(kuttet) ? kuttet.trim() : rest.trim();
   }
 
   /** Egenskapene i <Feature>-en som hører til punktet som slutter ved `fra`. */
@@ -485,7 +588,10 @@ const Ror = (() => {
       && !_VINKELORD.has(ord[i + 1]));
     const dimOrd = dimPlass >= 0 ? ord[dimPlass] : undefined;
     const dim = dimOrd ? +dimOrd : null;
-    const prefiks = ord.length > 1 && _SYSTEM[ord[0]] ? ord[0] : null;
+    /* Forkortelsen først i koden («SP 160PE») – eller sist («110 MM SP», slik
+       Leica iCON-operatørene skriver den). Midt inni er den for ofte noe annet. */
+    const prefiks = ord.length > 1 && _SYSTEM[ord[0]] ? ord[0]
+      : ord.length > 1 && _SYSTEM[ord[ord.length - 1]] ? ord[ord.length - 1] : null;
     let system = prefiks ? _SYSTEM[prefiks] : '';
     const utskrevet = ord.find(w => _SYSTEMORD[w]);
     if (!system && utskrevet) system = _SYSTEMORD[utskrevet];
@@ -518,7 +624,7 @@ const Ror = (() => {
    * ukjente rør i samme grøft aldri får samme farge. Det som står i `finnes`,
    * er brukerens, og røres ikke.
    */
-  function koderFra(punkter, finnes) {
+  function koderFra(punkter, finnes, linjekoder) {
     const ut = Object.assign({}, finnes || {});
     const brukt = new Set(Object.values(ut).map(k => k && k.farge));
     let neste = 0;
@@ -532,6 +638,9 @@ const Ror = (() => {
     for (const p of punkter || []) {
       if (ut[p.kode]) continue;
       const t = tolkKode(p.kode);
+      /* En kode fila har målt som linje («MUR», «GRØFT»), er en linje
+         – også når navnet ikke sier det. Kodetabellen kan rette det. */
+      if (linjekoder && linjekoder.has(p.kode)) t.form = 'linje';
       const farge = t.form === 'punkt' ? 'punkt' : (t.system || ledig());
       brukt.add(farge);
       ut[p.kode] = Object.assign(t, { farge, vis: true });
@@ -546,7 +655,7 @@ const Ror = (() => {
 
   /** Dataene til et nytt røranlegg. Linjene lagres ikke – de regnes av dette. */
   function nyRor() {
-    return { sone: 32, kilder: [], punkter: [], koder: {}, retting: { av: [], brudd: [], koble: [] } };
+    return { sone: 32, kilder: [], punkter: [], koder: {}, retting: { av: [], brudd: [], koble: [] }, filLinjer: [] };
   }
 
   /* ---------------- linjene ---------------- */
@@ -588,8 +697,45 @@ const Ror = (() => {
     const koble = retting.koble || [];
     const perKode = new Map();
     const objekter = [];
+    const bruddTraff = new Set(), koblingTraff = new Set();
+    const koden = kode => (ror.koder && ror.koder[kode]) || tolkKode(kode);
+    /* LINJENE FRA FILA FØRST – se `_planlinjer`. Fila sier hvilke punkt som
+       henger sammen, og da gjettes det ikke: linja trekkes i fila sin
+       rekkefølge. Et punkt som er slått av, eller et brudd brukeren har satt,
+       deler den. Koden er den flest av punktene har – operatøren fortsatte
+       gjerne fra enden av én serie inn i den neste. Punktene i en slik linje
+       er ikke med i gjettingen under. */
+    const fraFil = [], iFilLinje = new Set();
+    const punktAv = new Map(((ror && ror.punkter) || []).map(p => [p.id, p]));
+    for (const fl of (ror && ror.filLinjer) || []) {
+      const telle = new Map();
+      for (const id of fl.punkter) {
+        const p = punktAv.get(id);
+        if (p) { const k = kanonisk(ror, p.kode); telle.set(k, (telle.get(k) || 0) + 1); }
+      }
+      const kode = [...telle].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).map(x => x[0])[0];
+      if (!kode) continue;
+      const k = koden(kode);
+      // tegnes den som punkt, eller er den skjult, står punktene som det koden sier
+      if (k.vis === false || k.form !== 'linje') continue;
+      const biter = [];
+      let bit = [];
+      for (const id of fl.punkter) {
+        const p = punktAv.get(id);
+        if (!p || av.has(id)) { biter.push(bit); bit = []; continue; }
+        const forrige = bit[bit.length - 1];
+        if (forrige && brudd.has(_par(forrige.id, id))) { bruddTraff.add(_par(forrige.id, id)); biter.push(bit); bit = []; }
+        bit.push(p);
+      }
+      biter.push(bit);
+      for (const b of biter) {
+        if (b.length < 2) continue;
+        for (const p of b) iFilLinje.add(p.id);
+        fraFil.push({ kode, punkter: b });
+      }
+    }
     for (const p of (ror && ror.punkter) || []) {
-      if (av.has(p.id)) continue;
+      if (av.has(p.id) || iFilLinje.has(p.id)) continue;
       // en kode brukeren har slått sammen med en annen, trekkes som den andre – se `forslagSammen`
       const kode = kanonisk(ror, p.kode);
       const k = (ror.koder && (ror.koder[kode] || ror.koder[p.kode])) || tolkKode(kode);
@@ -599,7 +745,24 @@ const Ror = (() => {
       perKode.get(kode).push(p);
     }
     const linjer = [], enslige = [];
-    const bruddTraff = new Set(), koblingTraff = new Set();
+    const maal = (lp, lxy) => {
+      let lengde = 0, lengde3d = 0;
+      for (let k = 1; k < lp.length; k++) {
+        const d = Math.hypot(lxy[k].x - lxy[k - 1].x, lxy[k].y - lxy[k - 1].y);
+        lengde += d;
+        lengde3d += Math.hypot(d, lp[k].z - lp[k - 1].z);
+      }
+      return { lengde, lengde3d };
+    };
+    const brukteIder = new Set();
+    for (const f of fraFil) {
+      const lxy = f.punkter.map(tilXY);
+      // to linjer med samme kode og ender – en ring som er målt to ganger – må likevel ha hver sin id
+      let id = f.kode + ':' + [f.punkter[0].id, f.punkter[f.punkter.length - 1].id].sort().join('~') + '#fil';
+      for (let n = 2; brukteIder.has(id); n++) id = id.replace(/#fil\d*$/, '#fil' + n);
+      brukteIder.add(id);
+      linjer.push(Object.assign({ id, kode: f.kode, punkter: f.punkter, xy: lxy, fraFil: true }, maal(f.punkter, lxy)));
+    }
     for (const [kode, pts] of perKode) {
       const n = pts.length;
       const xy = pts.map(tilXY);
@@ -675,12 +838,7 @@ const Ror = (() => {
         // fra den enden som ble målt først – oftest den operatøren begynte i
         if (pts[sti[sti.length - 1]].nr < pts[sti[0]].nr) sti = sti.slice().reverse();
         const lp = sti.map(i => pts[i]), lxy = sti.map(i => xy[i]);
-        let lengde = 0, lengde3d = 0;
-        for (let k = 1; k < lp.length; k++) {
-          const d = Math.hypot(lxy[k].x - lxy[k - 1].x, lxy[k].y - lxy[k - 1].y);
-          lengde += d;
-          lengde3d += Math.hypot(d, lp[k].z - lp[k - 1].z);
-        }
+        const { lengde, lengde3d } = maal(lp, lxy);
         /* Id-en er de to endene. Treet har ingen ringer, så to rør med samme
            kode kan ikke dele begge endene – men de kan dele ett punkt: i en
            gren er knuten med i tre rør. Minste punkt-id var ofte knuten, og da
@@ -1015,7 +1173,7 @@ const Ror = (() => {
       .map(x => x.f);
     const medSone = sortert.find(f => _EPSG_SONE[f.les.epsg]);
     const sone = medSone ? _EPSG_SONE[medSone.les.epsg] : null;
-    let punkter = [], iFlere = 0;
+    let punkter = [], iFlere = 0, linjer = [];
     const advarsler = {}, kilder = [], program = [];
     let dato = '';
     for (const f of sortert) {
@@ -1030,12 +1188,13 @@ const Ror = (() => {
       const sam = slaSammen(punkter, pts);
       punkter = sam.punkter;
       iFlere += sam.kjente;
+      linjer = flettLinjer(linjer, f.les.linjer);
       for (const [k, v] of Object.entries(f.les.advarsler || {})) advarsler[k] = (advarsler[k] || 0) + v;
       if (f.les.program && !program.includes(f.les.program)) program.push(f.les.program);
       if ((f.les.dato || '') > dato) dato = f.les.dato;
       kilder.push(kilde);
     }
-    return { punkter, program: program.join(' + '), dato, epsg: medSone ? medSone.les.epsg : null,
+    return { punkter, linjer, program: program.join(' + '), dato, epsg: medSone ? medSone.les.epsg : null,
       advarsler, kilder, iFlere };
   }
 
@@ -1274,7 +1433,7 @@ const Ror = (() => {
   }
 
   return {
-    lesFil, lesLandXML, lesSOSI, lesKOF, dekod, tolkKode, koderFra, byggLinjer, avstandTilStrekk,
+    lesFil, lesLandXML, lesSOSI, lesKOF, linjekoder, flettLinjer, dekod, tolkKode, koderFra, byggLinjer, avstandTilStrekk,
     kanonisk, forslagSammen, slaaSammenKoder, skillKode, ikkeSamme,
     lagTilXY, tilLatLon, erUtm, sjekkKoordinater, gjettSone, slaSammen, slaSammenFiler, dimensjon, kildetekst, navnFraFil,
     korridor, profil, objekterLangs, objekterPaaLinjer, sammendrag, merknader, spenn,
