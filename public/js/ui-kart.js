@@ -361,7 +361,7 @@ const Kart = {
 
   init(app) {
     this.app = app;
-    const kart = L.map('kart', { zoomControl: true, doubleClickZoom: false }).setView([58.14, 7.07], 13);
+    const kart = L.map('kart', { zoomControl: true, doubleClickZoom: false }).setView([58.48, 7.21], 13); // Eiken
     this.kart = kart;
 
     this.byggLag();
