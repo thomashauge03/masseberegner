@@ -995,6 +995,46 @@ const Ror = (() => {
   }
 
   /**
+   * Bytter hele punktsettet mot et nytt (henting fra Makin): i motsetning til
+   * `slaSammen` forsvinner punkt som ikke er med i det nye. Funksjonen er ren –
+   * `ror` endres ikke. Den regner ut hva som er nytt, borte og endret (samme id,
+   * men annen n/o/z/kode), og hvor mange rettinger som peker på punkt som ikke
+   * finnes i det nye settet: hver id i `retting.av`, og hvert par i
+   * `retting.brudd` og `retting.koble` der en av id-ene mangler. `rensRetting`
+   * fjerner nettopp dem.
+   */
+  function byttPunkter(ror, nye) {
+    const gamle = new Map(((ror && ror.punkter) || []).map(p => [p.id, p]));
+    const finnes = new Set((nye || []).map(p => p.id));
+    let antallNye = 0, endret = 0;
+    for (const p of nye || []) {
+      const g = gamle.get(p.id);
+      if (!g) antallNye++;
+      else if (g.n !== p.n || g.o !== p.o || g.z !== p.z || g.kode !== p.kode) endret++;
+    }
+    let borte = 0;
+    for (const id of gamle.keys()) if (!finnes.has(id)) borte++;
+    const r = (ror && ror.retting) || {};
+    const rettingerBorte = (r.av || []).filter(id => !finnes.has(id)).length
+      + (r.brudd || []).filter(par => !par.every(id => finnes.has(id))).length
+      + (r.koble || []).filter(par => !par.every(id => finnes.has(id))).length;
+    return { punkter: (nye || []).map(p => Object.assign({}, p)), nye: antallNye, borte, endret, rettingerBorte };
+  }
+
+  /**
+   * Fjerner rettingene som peker på id-er utenfor `ider` (id-ene i det nye
+   * punktsettet) – nettopp de `byttPunkter` talte. `alias`, `ikkeSamme`, `koder`
+   * og `groft` røres ikke.
+   */
+  function rensRetting(ror, ider) {
+    const r = ror && ror.retting;
+    if (!r) return;
+    if (r.av) r.av = r.av.filter(id => ider.has(id));
+    if (r.brudd) r.brudd = r.brudd.filter(par => par.every(id => ider.has(id)));
+    if (r.koble) r.koble = r.koble.filter(par => par.every(id => ider.has(id)));
+  }
+
+  /**
    * Flere filer som én import – samme form som `lesFil` gir, pluss `kilder`
    * (én per fil) og `iFlere` (punkt som sto i mer enn én fil).
    *
@@ -1276,7 +1316,7 @@ const Ror = (() => {
   return {
     lesFil, lesLandXML, lesSOSI, lesKOF, dekod, tolkKode, koderFra, byggLinjer, avstandTilStrekk,
     kanonisk, forslagSammen, slaaSammenKoder, skillKode, ikkeSamme,
-    lagTilXY, tilLatLon, erUtm, sjekkKoordinater, gjettSone, slaSammen, slaSammenFiler, dimensjon, kildetekst, navnFraFil,
+    lagTilXY, tilLatLon, erUtm, sjekkKoordinater, gjettSone, slaSammen, byttPunkter, rensRetting, slaSammenFiler, dimensjon, kildetekst, navnFraFil,
     korridor, profil, objekterLangs, objekterPaaLinjer, sammendrag, merknader, spenn,
     nyRor, StandardRormal, FARGER
   };

@@ -632,6 +632,81 @@ console.log('\n11. Klienten: hentEksport');
 }
 
 /* ------------------------------------------------------------------ */
+console.log('\n12. Bytte av punktsett (Ror.byttPunkter og Ror.rensRetting)');
+{
+  const Ror = require('../public/js/ror.js');
+  const pkt = (id, n, o, z, kode = 'PE') => ({ id, kode, n, o, z, tid: null, nr: 0 });
+  const lagRor = () => {
+    const r = Ror.nyRor();
+    r.punkter = [pkt('A', 10, 20, 1), pkt('B', 11, 21, 2), pkt('C', 12, 22, 3), pkt('D', 13, 23, 4)];
+    r.retting = { av: ['B'], brudd: [['A', 'B']], koble: [['C', 'D']] };
+    r.alias = { X: 'A' }; r.ikkeSamme = [['A', 'D']]; r.koder = { PE: { dim: 110 } }; r.groft = { A: 1 };
+    return r;
+  };
+  const nye = () => [pkt('A', 10, 20, 1), pkt('C', 12, 22, 3.5), pkt('D', 13, 23, 4), pkt('E', 14, 24, 5)];
+
+  /* 12a: tallene, og at ror ikke røres */
+  {
+    const ror = lagRor();
+    const for_ = JSON.stringify(ror);
+    const nyeP = nye();
+    const forNye = JSON.stringify(nyeP);
+    const u = Ror.byttPunkter(ror, nyeP);
+    paastand('nye 1, borte 1, endret 1, rettingerBorte 2',
+      u.nye === 1 && u.borte === 1 && u.endret === 1 && u.rettingerBorte === 2, JSON.stringify({ ...u, punkter: undefined }));
+    paastand('punktene er de nye', u.punkter.map(p => p.id).join(',') === 'A,C,D,E', u.punkter.map(p => p.id).join(','));
+    paastand('ror er uendret', JSON.stringify(ror) === for_);
+    paastand('nye-lista er uendret', JSON.stringify(nyeP) === forNye);
+  }
+
+  /* 12b: rensRetting fjerner nettopp de rettingene som ble talt */
+  {
+    const ror = lagRor();
+    const alias = JSON.stringify(ror.alias), ikke = JSON.stringify(ror.ikkeSamme), koder = JSON.stringify(ror.koder), groft = JSON.stringify(ror.groft);
+    Ror.rensRetting(ror, new Set(nye().map(p => p.id)));
+    paastand('av og brudd tømt, koble beholdt',
+      JSON.stringify(ror.retting) === JSON.stringify({ av: [], brudd: [], koble: [['C', 'D']] }), JSON.stringify(ror.retting));
+    paastand('alias, ikkeSamme, koder og groft røres ikke',
+      JSON.stringify(ror.alias) === alias && JSON.stringify(ror.ikkeSamme) === ikke && JSON.stringify(ror.koder) === koder && JSON.stringify(ror.groft) === groft);
+    /* et par der bare den ene id-en mangler regnes også som borte */
+    const r2 = lagRor();
+    r2.retting = { av: ['A'], brudd: [['A', 'Z']], koble: [['Z', 'D'], ['A', 'D']] };
+    const u2 = Ror.byttPunkter(r2, nye());
+    Ror.rensRetting(r2, new Set(nye().map(p => p.id)));
+    paastand('par med én manglende id telles og fjernes',
+      u2.rettingerBorte === 2 && JSON.stringify(r2.retting) === JSON.stringify({ av: ['A'], brudd: [], koble: [['A', 'D']] }),
+      u2.rettingerBorte + ' ' + JSON.stringify(r2.retting));
+    /* tom ror, manglende retting */
+    const tom = Ror.nyRor();
+    const u3 = Ror.byttPunkter(tom, nye());
+    paastand('tomt anlegg: alle er nye, ingen rettinger borte', u3.nye === 4 && u3.borte === 0 && u3.endret === 0 && u3.rettingerBorte === 0);
+    delete tom.retting;
+    paastand('manglende retting tåles', Ror.byttPunkter(tom, nye()).rettingerBorte === 0 && (Ror.rensRetting(tom, new Set()), true));
+  }
+
+  /* 12c: en oppdiktet SOSI i samme form som fra Makin' Excavator, via lesFil */
+  {
+    const sosi = rader => [
+      '.HODE', '..TEGNSETT UTF-8', '..TRANSPAR', '...KOORDSYS 22', '...ORIGO-NØ 6600000 500000', '...ENHET 0.001',
+      '..SOSI-VERSJON 5.0', '..DATO 01/02/2008 10:00:00', '..APPLICATION', '...Navn kblexport',
+      ...rader, '.SLUTT'
+    ].join('\r\n');
+    const punkt = (nr, navn, z) => [`.PUNKT ${nr}:`, `..NAME ${navn}`, '..OBJTYPE 180 vann', '..App "Makin\' Excavator"',
+      '..CreateTime "2026-05-02 10:00:00"', '..NØH', `${nr}0000 0 ${z}`];
+    const forrige = Ror.lesFil(sosi([...punkt(1, 'P1 (0)', 100000), ...punkt(2, 'P2 (0)', 100100), ...punkt(3, 'P4 (0)', 100300)]));
+    const neste = Ror.lesFil(sosi([...punkt(1, 'P1 (0)', 100000), ...punkt(2, 'P2 (0)', 100150), ...punkt(4, 'P3 (0)', 100200)]));
+    paastand('begge lesefilene gir tre punkt og sone 32', forrige.punkter.length === 3 && neste.punkter.length === 3 && neste.epsg === 25832);
+    const ror = Ror.nyRor();
+    ror.punkter = forrige.punkter;
+    ror.retting.av = ['P4 (0)'];
+    const u = Ror.byttPunkter(ror, neste.punkter);
+    paastand('P3 ny, P4 borte, P2 endret (z)', u.nye === 1 && u.borte === 1 && u.endret === 1 && u.rettingerBorte === 1, JSON.stringify({ ...u, punkter: undefined }));
+    paastand('punktene er de fra den nye fila', u.punkter.map(p => p.id).sort().join('|') === 'P1 (0)|P2 (0)|P3 (0)', u.punkter.map(p => p.id).join('|'));
+    paastand('uendret ror etter bytte', ror.punkter === forrige.punkter && ror.retting.av[0] === 'P4 (0)');
+  }
+}
+
+/* ------------------------------------------------------------------ */
 console.log(`\n${ok} tester ok, ${feil} feil`);
 process.exit(feil ? 1 : 0);
 })();
