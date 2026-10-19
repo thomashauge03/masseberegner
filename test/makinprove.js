@@ -707,6 +707,32 @@ console.log('\n12. Bytte av punktsett (Ror.byttPunkter og Ror.rensRetting)');
 }
 
 /* ------------------------------------------------------------------ */
+console.log('\n13. Prosjektfila: ror.makin og ror.kopiAv');
+{
+  const Prosjektform = require('../public/js/prosjektform.js');
+  const makin = () => ({ orgId: 7, prosjektId: PROSJEKT, prosjektnavn: 'Oppdiktet prosjekt',
+    systemer: null, koder: ['110 PE'], sistHentet: '2026-10-19T08:00:00.000Z', antall: 12 });
+  const apne = ror => Prosjektform.klargjor({ navn: 'p', aktivt: 'a1',
+    anlegg: [{ id: 'a1', type: 'ror', ror: Object.assign({ punkter: [] }, ror) }] }).anlegg[0].ror;
+  const r1 = apne({ makin: makin() });
+  paastand('et gyldig ror.makin står som det var', JSON.stringify(r1.makin) === JSON.stringify(makin()), JSON.stringify(r1.makin));
+  paastand('org-id som tekst blir et tall', apne({ makin: Object.assign(makin(), { orgId: '7' }) }).makin.orgId === 7);
+  for (const [navn, feil] of [['org-id 0', { orgId: 0 }], ['org-id 1,5', { orgId: 1.5 }], ['prosjekt-id som ikke er en uuid', { prosjektId: '../x' }],
+    ['manglende prosjekt-id', { prosjektId: undefined }]]) {
+    paastand(`${navn} fjerner koblingen`, !('makin' in apne({ makin: Object.assign(makin(), feil) })));
+  }
+  paastand('et ror.makin som ikke er et objekt fjernes', !('makin' in apne({ makin: 'ja' })) && !('makin' in apne({ makin: [1] })));
+  const r2 = apne({ makin: Object.assign(makin(), { systemer: ['ikke-uuid', MASKIN, 5], koder: [], prosjektnavn: 3, antall: -2, sistHentet: 9 }) });
+  paastand('bare uuid-er blir stående som maskiner', JSON.stringify(r2.makin.systemer) === JSON.stringify([MASKIN]), JSON.stringify(r2.makin.systemer));
+  paastand('en tom kodeliste er «alle» (null) – proxyen avviser []', r2.makin.koder === null);
+  paastand('navn, antall og tid får trygge verdier', r2.makin.prosjektnavn === '' && r2.makin.antall === 0 && r2.makin.sistHentet === null,
+    JSON.stringify(r2.makin));
+  paastand('et anlegg uten ror.makin får ingen', !('makin' in apne({})));
+  paastand('ror.kopiAv blir stående', apne({ kopiAv: 'a9' }).kopiAv === 'a9');
+  paastand('et ugyldig ror.kopiAv fjernes', !('kopiAv' in apne({ kopiAv: { id: 1 } })) && !('kopiAv' in apne({ kopiAv: '' })));
+}
+
+/* ------------------------------------------------------------------ */
 console.log(`\n${ok} tester ok, ${feil} feil`);
 process.exit(feil ? 1 : 0);
 })();

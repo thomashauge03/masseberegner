@@ -757,6 +757,7 @@ const RorUI = {
     e.innerHTML = `
       <h3>${escapeHtml(app.anlegg().navn || 'Rør')}</h3>
       <p class="notis">${kilder || 'Ingen fil importert ennå.'}</p>
+      ${r.makin && typeof MakinUI !== 'undefined' ? MakinUI.faneHtml(r) : ''}
       ${s ? `<div class="sumrad"><span>Rør</span><span class="verdi">${s.antall} · ${t(s.lengde)} m</span></div>
       <div class="sumrad"><span>Overdekning</span><span class="verdi">${Ror.spenn(s.minOd, s.maksOd, v => t(v, 2))} m</span></div>` : ''}
       <h3>Rørene</h3>
@@ -778,6 +779,7 @@ const RorUI = {
         <button class="knapp" id="rorImportNy">Importer nyere fil…</button>
       </div>`;
     GroftUI.koble(e);
+    if (r.makin && typeof MakinUI !== 'undefined') MakinUI.kobleFane(e);
     for (const b of e.querySelectorAll('[data-linje]')) b.onclick = () => this.velgLinje(b.dataset.linje);
     e.querySelector('#rorSoneFane').onchange = ev => {
       app.merk('endret koordinatsystem');

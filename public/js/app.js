@@ -1325,6 +1325,9 @@ const App = {
     // en rørskisse har bare strekene – ingen grøft, ingen kummer, ingen fallretning
     const skisse = this.erSkisse();
     for (const id of ['verktoyRorImport', 'verktoyRorAv', 'verktoyRorBryt', 'verktoyRorKoble']) bytt(id, ror && !plan);
+    // «Hent fra Makin» henter på nytt – det finnes bare noe å hente på et anlegg som er koblet
+    const aktivt = this.anlegg();
+    bytt('verktoyRorMakin', ror && !plan && !!(aktivt && aktivt.ror && aktivt.ror.makin));
     for (const id of ['verktoyGroftStrekning', 'verktoyGroftSammen']) bytt(id, ror && !skisse);
     for (const id of ['verktoyTrase', 'verktoyTraseFil']) bytt(id, plan);
     for (const id of ['verktoyKum', 'verktoySnu']) bytt(id, plan && !skisse);
@@ -1376,6 +1379,7 @@ const App = {
       + '<button class="kartknapp" data-nytt="veg">▬ Ny veg</button>'
       + '<button class="kartknapp" data-nytt="tomt">⬟ Ny tomt</button>'
       + '<button class="kartknapp" data-nyttror="1" title="Velg én eller flere filer – hold Ctrl eller Shift for å merke flere">⌀ Nye rør (fra filer)</button>'
+      + '<button class="kartknapp" data-nyttmakin="1" title="Koble til et prosjekt i Makin 3D og hent innmålingene derfra">⌀ Rør fra Makin</button>'
       + '<button class="kartknapp" data-nyttplan="1">⌀ Planlagte rør (tegn)</button>'
       + '<button class="kartknapp" data-nyttplan="rorskisse" title="Bare streker med rørtype – ingen høyder, ingen grøft">✎ Rørskisse (tegn)</button>'
       + '</div>';
@@ -1387,6 +1391,9 @@ const App = {
     }
     for (const b of panel.querySelectorAll('[data-nyttror]')) {
       b.onclick = () => { this._lukkAnleggspanel(); RorUI.velgFil({ nytt: true }); };
+    }
+    for (const b of panel.querySelectorAll('[data-nyttmakin]')) {
+      b.onclick = () => { this._lukkAnleggspanel(); MakinUI.nyttAnlegg(); };
     }
     for (const b of panel.querySelectorAll('[data-nyttplan]')) {
       /* Står førstevalget oppe, er det ene anlegget tomt: det byttes ut, som
@@ -2196,6 +2203,7 @@ const App = {
     Pdfrapport.init(this);
     PdfUI.init(this);
     RorUI.init(this);
+    MakinUI.init(this);
     GroftUI.init(this);
     RorPlanUI.init(this);
     RorkartUI.init(this);

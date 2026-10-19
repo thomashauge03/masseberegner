@@ -532,6 +532,9 @@
         <!-- RØRENE TEGNES IKKE, DE HENTES. Knappene under er de tre enkle
              grepene for når appen har koblet noe feil – se RorUI.kartklikk. -->
         <button id="verktoyRorImport" class="verktoyknapp skjult" title="Hent innmålte rør fra LandXML-, SOSI- eller KOF-filer – velg én eller flere (hold Ctrl eller Shift)">📂 Importer rør</button>
+        <!-- HENT PÅ NYTT FRA MAKIN: bare på et anlegg koblet til et Makin-prosjekt.
+             Henter alt der på nytt og bytter ut punktene – se MakinUI.hent. -->
+        <button id="verktoyRorMakin" class="verktoyknapp skjult" title="Hent alle innmålingene i Makin-prosjektet på nytt – punktene byttes ut, rettingene og kodetabellen blir liggende">☁ Hent fra Makin</button>
         <!-- KARTET SOM SKAL UT PÅ PLASSEN: alle rørtypene i hver sin farge, og
              ett kart per type – se RorkartUI. -->
         <button id="verktoyRorKart" class="verktoyknapp skjult" title="Ett kart med alle rørene i hver sin farge, og ett kart per type, som PDF">🗺 Oversiktskart</button>
@@ -1265,6 +1268,7 @@
 <script src="js/ui-tomt3d.js"></script>
 <script src="js/ui-veg3d.js"></script>
 <script src="js/ui-ror.js"></script>
+<script src="js/ui-makin.js"></script>
 <script src="js/ui-groft.js"></script>
 <script src="js/ui-rorplan.js"></script>
 <script src="js/ui-rorprofil.js"></script>

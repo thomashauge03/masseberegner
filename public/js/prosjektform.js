@@ -276,6 +276,52 @@ function _rettRorfelt(a, R) {
     const n = tall(k.antall);
     k.antall = n !== null && n >= 0 ? Math.round(n) : 0;
   }
+  _rettMakin(a.ror, tall, erObjekt);
+}
+
+/**
+ * Koblingen til Makin (`ror.makin`) og merket på en kopi (`ror.kopiAv`).
+ *
+ * KOBLINGEN GÅR RETT TIL PROXYEN. org-id og prosjekt-id fra fila blir
+ * parametre i kallet, og maskinene og kodene blir kroppen i eksporten –
+ * proxyen avviser alt som ikke er heltall, UUID eller en ikke-tom liste. En
+ * fil redigert for hånd skulle ellers gitt en «ugyldig»-feil ved hvert trykk
+ * på «Hent fra Makin», uten at brukeren kunne se hvorfor. Uten gyldig org og
+ * prosjekt er det ingen kobling å redde, og anlegget blir et vanlig innmålt
+ * anlegg med punktene det har. En tom liste er «alle» (`null`), som i
+ * dialogen.
+ */
+function _rettMakin(r, tall, erObjekt) {
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if ('makin' in r) {
+    const m = r.makin;
+    const org = erObjekt(m) ? tall(m.orgId) : null;
+    if (!erObjekt(m) || !(org !== null && Number.isInteger(org) && org > 0)
+      || !(typeof m.prosjektId === 'string' && UUID.test(m.prosjektId))) {
+      delete r.makin;
+    } else {
+      const liste = (v, gyldig) => {
+        const l = Array.isArray(v) ? v.filter(gyldig) : [];
+        return l.length ? l : null;
+      };
+      const n = tall(m.antall);
+      r.makin = {
+        orgId: org,
+        prosjektId: m.prosjektId,
+        prosjektnavn: typeof m.prosjektnavn === 'string' ? m.prosjektnavn : '',
+        systemer: liste(m.systemer, s => typeof s === 'string' && UUID.test(s)),
+        koder: liste(m.koder, s => typeof s === 'string' && s.length > 0 && s.length <= 100),
+        sistHentet: typeof m.sistHentet === 'string' && !isNaN(Date.parse(m.sistHentet)) ? m.sistHentet : null,
+        antall: n !== null && n >= 0 ? Math.round(n) : 0
+      };
+    }
+  }
+  /* Kopien husker hvilket anlegg den er laget av (id-en, tekst) – se
+     App.kopierAnlegg. Noe annet enn en id peker ikke på noe. */
+  if ('kopiAv' in r) {
+    if (typeof r.kopiAv === 'number' && Number.isFinite(r.kopiAv)) r.kopiAv = String(r.kopiAv);
+    if (!(typeof r.kopiAv === 'string' && r.kopiAv)) delete r.kopiAv;
+  }
 }
 
 /**

@@ -1031,6 +1031,11 @@ table.plankoder .minitall { width: 52px; }
   border-radius: 1px; box-shadow: 0 0 0 1px rgba(0,0,0,.35); }
 fieldset.rormaal { border: 1px solid var(--kant); padding: 6px 10px; margin: 8px 0; }
 fieldset.rormaal label { display: block; padding: 2px 0; }
+/* Makin: nøkkelen og koblingen (ui-makin.js). Lista over koder kan bli lang –
+   den ruller for seg, så knappene under ikke havner nedenfor skjermen. */
+.makinfelt { display: flex; flex-direction: column; gap: 4px; margin: 8px 0; }
+.makinfelt .minivalg { width: 100%; padding: 5px 6px; font-size: 12.5px; box-sizing: border-box; }
+fieldset.rormaal.makinliste { max-height: 180px; overflow-y: auto; }
 
 /* ── rørfanen ─────────────────────────────────────────────── */
 .rorliste { display: flex; flex-direction: column; gap: 8px; }

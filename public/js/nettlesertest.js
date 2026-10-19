@@ -202,7 +202,7 @@ const Nettlesertest = {
       'grensesnittbredder', 'panelhoder',
       'tomt', 'tomteksport', 'tomterydding', 'tomtsnittOverbygning',
       'gl3d', 'tomt3d', 'veg3d', 'gpuSammeBilde', 'gpuGlatt', 'gpuReserve', 'gpuLysOgLuft', 'gpuMaterialer', 'kartlag',
-      'rorArbeidsbilde', 'rorBeregning', 'rorImport', 'rorSone', 'rorKart', 'rorFane', 'rorRetting',
+      'rorArbeidsbilde', 'rorBeregning', 'rorImport', 'makinHenting', 'rorSone', 'rorKart', 'rorFane', 'rorRetting',
       'rorProfil', 'ror3d', 'rorRapport', 'rorPdf', 'rorForklaring',
       'groftBeregning', 'groftFane', 'groftKoder', 'groftVerktoy', 'groftKnutepunkt', 'groftProfil', 'groft3d',
       'groftRapport', 'groftAvstiving',
@@ -9301,6 +9301,272 @@ const Nettlesertest = {
     } finally {
       await this._rorTilbake(foer);
     }
+  },
+
+  /**
+   * «Hent fra Makin»: koblingen, hentingen og hentingen på nytt.
+   *
+   * Makin kalles aldri: `MakinUI.klient` byttes ut med en falsk klient som
+   * svarer det prøven legger i køen – oppdiktede SOSI-filer ved Ydestad, der
+   * demoen ligger. Hver henting gjør anlegget likt Makin: punktene byttes ut,
+   * men arbeidet oppå dem (rettinger, kodetabellen) blir liggende, og en
+   * retting på et punkt som er borte, faller bort og telles.
+   */
+  async makinHenting() {
+    const foer = JSON.stringify(App.P);
+    const ekteKlient = MakinUI.klient;
+    const lagret = '__test_makin_' + Date.now();
+    const PROSJEKT = '123e4567-e89b-12d3-a456-426614174000';
+    const ANNET = '123e4567-e89b-12d3-a456-426614174999';
+    const M1 = '0a1b2c3d-1111-4222-8333-444455556666', M2 = '0a1b2c3d-2222-4222-8333-444455556666';
+    const NOKKEL = 'oppdiktet-nokkel-proeve';
+    const kø = [];            // det neste hentEksport svarer: filer, eller en feil som kastes
+    const bestilt = [];       // det hentEksport ble bedt om
+    const falsk = {
+      _nokkel: NOKKEL,
+      nokkel() { return this._nokkel; },
+      lagreNokkel(k) { this._nokkel = k; return true; },
+      glemNokkel() { this._nokkel = null; },
+      async kall(hva) {
+        if (hva === 'organisasjoner') return [{ id: 7, name: 'Oppdiktet Graving AS' }];
+        if (hva === 'prosjekter') return [{ id: 1, uuid: ANNET, name: 'Et annet felt' }, { id: 2, uuid: PROSJEKT, name: 'Prøvefelt Makin' }];
+        if (hva === 'maskiner') return [{ systemUuid: M1, systemName: 'Gravemaskin 1', recordCount: 10 },
+          { systemUuid: M2, systemName: 'Gravemaskin 2', recordCount: 2 }];
+        if (hva === 'koder') return [{ codeName: '110 PE', recordCount: 8, firstLogged: '2026-10-01T08:00:00Z', lastLogged: '2026-10-02T08:00:00Z' },
+          { codeName: 'vann 63', recordCount: 4, firstLogged: '2026-10-01T08:00:00Z', lastLogged: '2026-10-02T08:00:00Z' }];
+        throw new Error('ukjent kall i prøven: ' + hva);
+      },
+      async hentEksport(valg, framdrift) {
+        bestilt.push(JSON.parse(JSON.stringify(valg)));
+        if (framdrift) framdrift('Ber Makin lage fila …');
+        const svar = kø.shift();
+        if (!svar) throw new Error('prøven hadde ikke noe svar i køen');
+        if (svar instanceof Error) throw svar;
+        return { filer: svar };
+      }
+    };
+    /* Henting 1: 8 punkt 110 PE og 4 vann 63. Henting 2: mk-12 er slettet i
+       Makin, mk-2 er rettet (5 cm høyere), og mk-13 er nytt. */
+    const sett = andre => {
+      const p = [];
+      for (let i = 0; i < 8; i++) p.push({ id: 'mk-' + (i + 1), kode: '110 PE', x: i * 10, y: 0, z: 20 - i * 0.1 + (andre && i === 1 ? 0.05 : 0) });
+      for (let i = 0; i < 4; i++) p.push({ id: 'mk-' + (i + 9), kode: 'vann 63', x: i * 10, y: 1.5, z: 19.5 });
+      if (andre) { p.splice(11, 1); p.push({ id: 'mk-13', kode: '110 PE', x: 80, y: 0, z: 19.2 }); }
+      return p;
+    };
+    const dialog = () => document.getElementById('dialoginnhold');
+    const apen = () => !document.getElementById('dialog').classList.contains('skjult');
+    const venteTil = async (f, ms = 3000) => {
+      const t = Date.now();
+      while (!f() && Date.now() - t < ms) await this.vent(20);
+      return f();
+    };
+    const linje = () => document.getElementById('statuslinje').textContent;
+    const synlig = id => { const e = document.getElementById(id); return !!e && !e.classList.contains('skjult'); };
+    try {
+      MakinUI.klient = falsk;
+      App.P = App.nyttProsjekt();
+      App.visAnleggsvelger(); App.visAnleggsvalg(); App.malTilSkjema();
+      this.sjekk('knappen «Hent fra Makin» finnes i kartverktøyene', !!document.getElementById('verktoyRorMakin'));
+      this.sjekk('og anleggspanelet har «⌀ Rør fra Makin»', !!document.querySelector('#anleggspanel [data-nyttmakin]'));
+      this.sjekk('kartknappen synes ikke i et prosjekt uten Makin-anlegg', !synlig('verktoyRorMakin'));
+
+      /* ---- koblingen: dialogen, og et nytt anlegg ---- */
+      kø.push([{ navn: 'eksport.sos', tekst: this._makinSosi(sett(false)) }]);
+      const ny = MakinUI.nyttAnlegg();
+      await venteTil(() => apen() && dialog().querySelector('#makinProsjekt option[value="' + PROSJEKT + '"]'));
+      this.sjekk('koblingsdialogen åpner seg med prosjektene', apen() && !!dialog().querySelector('#makinProsjekt'));
+      this.sjekk('organisasjonen hoppes over når det bare er én', !dialog().querySelector('#makinOrg'));
+      this.sjekk('«Hent» er sperret før et prosjekt er valgt', document.getElementById('makinHent').disabled);
+      this.sjekk('dialogen har en vei til å bytte og glemme nøkkelen',
+        !!dialog().querySelector('#makinByttNokkel') && !!dialog().querySelector('#makinGlemNokkel'));
+      const velger = dialog().querySelector('#makinProsjekt');
+      velger.value = PROSJEKT;
+      velger.dispatchEvent(new Event('change'));
+      await venteTil(() => dialog().querySelectorAll('input[data-makinkode]').length === 2);
+      const maskiner = [...dialog().querySelectorAll('input[data-system]')];
+      const koder = [...dialog().querySelectorAll('input[data-makinkode]')];
+      this.sjekk('maskinene står med navn og antall, alle på', maskiner.length === 2 && maskiner.every(x => x.checked)
+        && /Gravemaskin 1/.test(dialog().textContent) && /\b10\b/.test(dialog().textContent), String(maskiner.length));
+      this.sjekk('kodene står med navn, alle på', koder.length === 2 && koder.every(x => x.checked) && /vann 63/.test(dialog().textContent));
+      for (const x of maskiner) { x.checked = false; x.dispatchEvent(new Event('change')); }
+      this.sjekk('uten maskiner kan ingenting hentes', document.getElementById('makinHent').disabled);
+      for (const x of maskiner) { x.checked = true; x.dispatchEvent(new Event('change')); }
+      this.sjekk('og med dem kan det', !document.getElementById('makinHent').disabled);
+      document.getElementById('makinHent').click();
+      const ok1 = await ny;
+      this.sjekk('hentingen gikk gjennom', ok1 === true, String(ok1));
+      this.sjekk('alle avkrysset sendes som «alle» (null) – aldri en tom liste',
+        bestilt[0] && bestilt[0].orgId === 7 && bestilt[0].prosjektId === PROSJEKT && bestilt[0].systemer === null && bestilt[0].koder === null,
+        JSON.stringify(bestilt[0]));
+      const a = App.anlegg();
+      this.sjekk('det tomme anlegget ble byttet ut med Makin-anlegget', App.P.anlegg.length === 1 && App.erRor() && !App.P.ubestemt,
+        App.P.anlegg.map(x => x.type).join(','));
+      this.sjekk('anlegget heter som prosjektet i Makin', a.navn === 'Prøvefelt Makin', a.navn);
+      const m = a.ror.makin;
+      this.sjekk('anlegget har koblingen', !!m && m.orgId === 7 && m.prosjektId === PROSJEKT && m.prosjektnavn === 'Prøvefelt Makin'
+        && m.systemer === null && m.koder === null && m.antall === 12 && !isNaN(Date.parse(m.sistHentet)), JSON.stringify(m));
+      this.sjekk('og alle 12 punktene', a.ror.punkter.length === 12, String(a.ror.punkter.length));
+      this.sjekk('sonen kommer fra fila', a.ror.sone === 32, String(a.ror.sone));
+      this.sjekk('kilden er Makin', a.ror.kilder.length === 1 && a.ror.kilder[0].fil === 'Makin: Prøvefelt Makin'
+        && a.ror.kilder[0].program === 'Makin 3D' && a.ror.kilder[0].antall === 12, JSON.stringify(a.ror.kilder));
+      this.sjekk('kodene fikk forslag', !!a.ror.koder['110 PE'] && !!a.ror.koder['vann 63']);
+      this.sjekk('nøkkelen ligger ikke i prosjektet', !JSON.stringify(App.P).includes(NOKKEL));
+      this.sjekk('kartknappen synes på Makin-anlegget', synlig('verktoyRorMakin'));
+      App.visFane('ror');
+      this.sjekk('rørfanen sier at anlegget er hentet fra Makin', /Hentet fra Makin/.test(document.getElementById('rorInnhold').textContent)
+        && /Prøvefelt Makin/.test(document.getElementById('rorInnhold').textContent));
+
+      /* ---- brukerens arbeid oppå punktene, og en ny henting ---- */
+      App.merk('prøve: retting');
+      a.ror.retting.av = ['mk-12', 'mk-3'];
+      const farge = a.ror.koder['110 PE'].farge === 'p5' ? 'p4' : 'p5';
+      a.ror.koder['110 PE'].farge = farge;
+      /* To filer med samme navn (eksporten ble delt i to tidsbolker), og mk-6
+         står i begge – på grensen mellom bolkene. */
+      const andre = sett(true);
+      kø.push([{ navn: 'eksport.sos', tekst: this._makinSosi(andre.slice(0, 6)) },
+        { navn: 'eksport.sos', tekst: this._makinSosi(andre.slice(5)) }]);
+      const sistFoer = m.sistHentet;
+      await this.vent(5);
+      const ok2 = await MakinUI.hent(App.anlegg());
+      const b = App.anlegg();
+      const ider = b.ror.punkter.map(p => p.id).sort().join(',');
+      this.sjekk('henting nr. 2 gikk gjennom', ok2 === true, String(ok2));
+      this.sjekk('hentingen bruker valgene fra koblingen', bestilt[1] && bestilt[1].prosjektId === PROSJEKT && bestilt[1].orgId === 7,
+        JSON.stringify(bestilt[1]));
+      this.sjekk('punktene er byttet: mk-12 er borte, mk-13 er kommet, ingen doble', b.ror.punkter.length === 12
+        && !ider.includes('mk-12') && ider.includes('mk-13'), ider);
+      this.sjekk('det rettede punktet har de nye tallene', Math.abs(b.ror.punkter.find(p => p.id === 'mk-2').z - 19.95) < 1e-6);
+      this.sjekk('rettingen på punktet som er borte, falt bort – den andre står', JSON.stringify(b.ror.retting.av) === '["mk-3"]',
+        JSON.stringify(b.ror.retting.av));
+      this.sjekk('kodefargen brukeren satte, står', b.ror.koder['110 PE'].farge === farge, b.ror.koder['110 PE'].farge);
+      this.sjekk('kilden er erstattet, ikke lagt til', b.ror.kilder.length === 1 && b.ror.kilder[0].antall === 12, JSON.stringify(b.ror.kilder));
+      this.sjekk('koblingen har ny tid og nytt antall', b.ror.makin.antall === 12 && b.ror.makin.sistHentet !== sistFoer,
+        JSON.stringify(b.ror.makin));
+      this.sjekk('statuslinja sier hva som skjedde', /^12 punkt fra Makin · 1 nye, 1 borte, 1 endret · 1 retting(er)? falt bort/.test(linje()), linje());
+
+      /* ---- én henting er ett angresteg ---- */
+      await App.angre();
+      const tilbake = App.anlegg().ror.punkter.map(p => p.id);
+      this.sjekk('angre gir punktene fra henting 1 tilbake', tilbake.includes('mk-12') && !tilbake.includes('mk-13')
+        && App.anlegg().ror.retting.av.includes('mk-12'), tilbake.join(','));
+      await App.gjorOm();
+      this.sjekk('og gjør om tar henting 2 inn igjen', App.anlegg().ror.punkter.some(p => p.id === 'mk-13'));
+
+      /* ---- feil: ingenting i prosjektet endres ---- */
+      {
+        const bilde = JSON.stringify(App.P), poster = App.historikk.bakover.length;
+        kø.push(new Makin.MakinFeil('Fikk ikke kontakt med Makin. Sjekk nettet og prøv igjen.', 'nett'));
+        const ok = await MakinUI.hent(App.anlegg());
+        this.sjekk('en nettfeil lar prosjektet stå byte-likt', ok === false && JSON.stringify(App.P) === bilde
+          && App.historikk.bakover.length === poster);
+        this.sjekk('og statuslinja sier hvorfor', /Fikk ikke kontakt med Makin/.test(linje()), linje());
+        kø.push([{ navn: 'tom.sos', tekst: this._makinSosi([]) }]);
+        const tom = await MakinUI.hent(App.anlegg());
+        this.sjekk('et svar uten punkter lar prosjektet stå byte-likt', tom === false && JSON.stringify(App.P) === bilde
+          && App.historikk.bakover.length === poster, linje());
+        kø.push(new Makin.MakinFeil('Makin avviste nøkkelen. Legg inn nøkkelen på nytt.', 'nokkel'));
+        const avvist = MakinUI.hent(App.anlegg());
+        await venteTil(() => apen() && dialog().querySelector('#makinNokkel'));
+        this.sjekk('en avvist nøkkel gir nøkkeldialogen', apen() && !!dialog().querySelector('#makinNokkel')
+          && dialog().querySelector('#makinNokkel').type === 'password');
+        this.sjekk('og statuslinja sier at Makin ikke godtok den', /Makin godtok ikke nøkkelen/.test(linje()), linje());
+        this.sjekk('«Husk på denne maskinen» står på', !!dialog().querySelector('#makinHusk') && dialog().querySelector('#makinHusk').checked);
+        document.getElementById('makinNokkelAvbryt').click();
+        const ok3 = await avvist;
+        this.sjekk('avbrutt: prosjektet står byte-likt', ok3 === false && JSON.stringify(App.P) === bilde && !apen());
+      }
+
+      /* ---- bytt nøkkel fra rørfanen ---- */
+      {
+        App.visFane('ror');
+        const lenke = document.getElementById('makinFaneBytt');
+        this.sjekk('rørfanen har «Bytt nøkkel»', !!lenke);
+        if (lenke) {
+          lenke.click();
+          await venteTil(() => apen() && dialog().querySelector('#makinNokkel'));
+          const felt = dialog().querySelector('#makinNokkel');
+          felt.value = '  oppdiktet-ny-nokkel  ';
+          document.getElementById('makinNokkelOk').click();
+          await venteTil(() => !apen());
+          this.sjekk('den nye nøkkelen lagres (trimmet)', falsk._nokkel === 'oppdiktet-ny-nokkel', String(falsk._nokkel));
+          this.sjekk('og står ikke igjen i feltet', felt.value === '');
+          this.sjekk('og havner ikke i prosjektet', !JSON.stringify(App.P).includes('oppdiktet-ny-nokkel'));
+        }
+        const glem = document.getElementById('makinFaneGlem');
+        this.sjekk('rørfanen har «Glem nøkkelen»', !!glem);
+        if (glem) { glem.click(); this.sjekk('og den glemmer den', falsk._nokkel === null); }
+        falsk._nokkel = NOKKEL;
+      }
+
+      /* ---- et anlegg i sone 33 får punktene fra en fil i sone 32 regnet om ---- */
+      {
+        const c = App.nyttAnlegg('ror', 'Sone 33');
+        c.ror.sone = 33;
+        c.ror.makin = { orgId: 7, prosjektId: PROSJEKT, prosjektnavn: 'Prøvefelt Makin', systemer: [M1], koder: null, sistHentet: null, antall: 0 };
+        App.P.anlegg.push(c);
+        App.byttAnlegg(c.id);
+        kø.push([{ navn: 'eksport.sos', tekst: this._makinSosi(sett(false), 32) }]);
+        const ok = await MakinUI.hent(App.anlegg());
+        const d = App.anlegg();
+        this.sjekk('valgte maskiner sendes som liste', JSON.stringify(bestilt[bestilt.length - 1].systemer) === JSON.stringify([M1]),
+          JSON.stringify(bestilt[bestilt.length - 1]));
+        const o32 = Geo.tilUtm(58.1412, 7.0705, 32);
+        const [la, lo] = Ror.tilLatLon({ n: o32.y, o: o32.x }, 32);
+        const i33 = Geo.tilUtm(la, lo, 33);
+        const p1 = d.ror.punkter.find(p => p.id === 'mk-1');
+        this.sjekk('anlegget beholder sone 33', ok === true && d.ror.sone === 33, String(d.ror.sone));
+        this.sjekk('punktene er regnet om fra 32 til 33', !!p1 && Math.abs(p1.o - i33.x) < 0.002 && Math.abs(p1.n - i33.y) < 0.002,
+          p1 ? `${(p1.o - i33.x).toFixed(3)} / ${(p1.n - i33.y).toFixed(3)}` : 'mangler');
+        this.sjekk('kilden noterer omregningen', !!d.ror.kilder[0].regnetOm && d.ror.kilder[0].regnetOm.fra === 32
+          && d.ror.kilder[0].regnetOm.til === 33, JSON.stringify(d.ror.kilder[0]));
+      }
+
+      /* ---- knappen synes bare på Makin-anlegget ---- */
+      {
+        const makinId = App.P.aktivt;
+        await RorUI.importerTekst(this._rorXml(), 'asbuilts_Vanlig.xml', {}, { sone: 32, maal: 'nytt' });
+        this.sjekk('kartknappen synes ikke på et vanlig røranlegg', App.erRor() && !App.anlegg().ror.makin && !synlig('verktoyRorMakin'));
+        App.byttAnlegg(makinId);
+        this.sjekk('men på Makin-anlegget', synlig('verktoyRorMakin'));
+      }
+
+      /* ---- koblingen overlever lagring og åpning ---- */
+      {
+        const fasit = JSON.stringify(App.anlegg().ror.makin);
+        const id = App.P.aktivt;
+        await Lager.lagre(lagret, App.P);
+        const raa = await Lager.hent(lagret);
+        this.sjekk('fila har ingen nøkkel', !JSON.stringify(raa).includes(NOKKEL));
+        App.P = App.moderniserProsjekt(Object.assign(App.nyttProsjekt(), raa));
+        const e = App.P.anlegg.find(x => x.id === id);
+        this.sjekk('ror.makin overlever lagring og åpning', !!e && JSON.stringify(e.ror.makin) === fasit,
+          e ? JSON.stringify(e.ror.makin) : 'anlegget mangler');
+      }
+    } finally {
+      MakinUI.klient = ekteKlient;
+      document.getElementById('dialog').classList.add('skjult');
+      try { await Lager.slett(lagret); } catch (e) { /* da får det stå */ }
+      await this._rorTilbake(foer);
+    }
+  },
+
+  /**
+   * En oppdiktet SOSI-fil i samme form som Makin' Excavator skriver: ett
+   * .PUNKT per innmåling, navnet i ..NAME og koden i ..OBJTYPE, tallene i
+   * millimeter. `punkter` er {id, kode, x, y, z} i meter fra et punkt ved
+   * Ydestad, i `sone`.
+   */
+  _makinSosi(punkter, sone = 32) {
+    const o = Geo.tilUtm(58.1412, 7.0705, sone);
+    const mm = v => Math.round(v * 1000);
+    const rader = ['.HODE', '..TEGNSETT UTF-8', '..TRANSPAR', `...KOORDSYS ${sone - 10}`, '...ORIGO-NØ 0 0', '...ENHET 0.001',
+      '..SOSI-VERSJON 5.0', '..DATO 20261001'];
+    punkter.forEach((p, i) => rader.push(`.PUNKT ${i + 1}:`, `..NAME ${p.id}`, `..OBJTYPE ${p.kode}`,
+      '..CreateTime "2026-10-01 10:00:00"', '..NØH', `${mm(o.y + p.y)} ${mm(o.x + p.x)} ${mm(p.z)}`));
+    rader.push('.SLUTT');
+    return rader.join('\r\n');
   },
 
   /**
