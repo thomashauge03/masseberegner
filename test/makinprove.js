@@ -362,6 +362,262 @@ console.log('\n8. For stort svar: 413');
   paastand('hent: base64 over 4 000 000 byte gir 413', r3.kode === 413 && r3.json().feil === 'for stor', r3.kode + ' ' + r3.tekst.length);
 }
 
+/* ------------------------------------------------------------------ */
+/* Klienten i nettleseren (public/js/makin.js). Alt sprøytes inn: fetch,
+   lager og vent. Prøvene venter aldri på ekte og kaller aldri Makin. */
+const Makin = require('../public/js/makin.js');
+const NOKKEL_LAGER = 'massekalk.makin';
+const KLIENT_ORG = 7, KLIENT_PROSJEKT = PROSJEKT;
+
+/** Falskt svar med det klienten bruker av en Response. */
+const fsvar = (status, data) => ({ status, ok: status >= 200 && status < 300, json: async () => data });
+/** Kaster fetch/vent/lager-feil som en async funksjon: forventer MakinFeil med denne arten. */
+async function kasterArt(navn, f, art) {
+  try { await f(); feil++; console.log(`  FEIL ${navn}  kastet ikke`); }
+  catch (e) {
+    paastand(navn, e instanceof Makin.MakinFeil && e.art === art, `${e && e.name}/${e && e.art}: ${e && e.message}`);
+    return e;
+  }
+}
+/** Bytene i fila som base64, slik proxyen sender dem. */
+const b64 = tekst => Buffer.from(tekst, 'latin1').toString('base64');
+/** Router for falsk fetch: finn «hva» og metode, la prøven svare. */
+function lagRouter(svar) {
+  const logg = [];
+  const f = async (url, opt = {}) => {
+    const u = new URL(url, 'http://lokal');
+    const kall = { hva: u.searchParams.get('hva'), q: Object.fromEntries(u.searchParams), metode: opt.method || 'GET',
+      hoder: opt.headers || {}, kropp: opt.body ? JSON.parse(opt.body) : undefined, url: String(url) };
+    logg.push(kall);
+    return svar(kall, logg);
+  };
+  f.logg = logg;
+  return f;
+}
+const lagKlient = (fetch, lager, ekstra = {}) => {
+  const ventet = [];
+  const vent = async ms => { ventet.push(ms); };
+  const k = Makin.lag(Object.assign({ fetch, lager: lager || { [NOKKEL_LAGER]: JSON.stringify({ v: 1, nokkel: NOKKEL }) }, vent }, ekstra));
+  k.ventet = ventet;
+  return k;
+};
+
+console.log('\n9. Klienten: nøkkelen i lageret');
+{
+  const lager = {};
+  const k = Makin.lag({ fetch: lagRouter(() => fsvar(200, [])), lager, vent: async () => {} });
+  paastand('uten lagret nøkkel gir nokkel() null', k.nokkel() === null);
+  k.lagreNokkel('  ' + NOKKEL + ' ');
+  paastand('nøkkelen kan lagres og leses (trimmet)', k.nokkel() === NOKKEL, String(k.nokkel()));
+  let lagret = null;
+  try { lagret = JSON.parse(lager[NOKKEL_LAGER]); } catch (e) { /* feiler under */ }
+  paastand('lagres som {v:1, nokkel} under massekalk.makin', lagret && lagret.v === 1 && lagret.nokkel === NOKKEL && Object.keys(lagret).length === 2);
+  k.glemNokkel();
+  paastand('nøkkelen kan glemmes', k.nokkel() === null && lager[NOKKEL_LAGER] === undefined);
+  k.lagreNokkel('   ');
+  paastand('en tom nøkkel lagres ikke', k.nokkel() === null);
+
+  lager[NOKKEL_LAGER] = '{ikke json';
+  paastand('ødelagt innhold i lageret gir null', k.nokkel() === null);
+  lager[NOKKEL_LAGER] = JSON.stringify({ v: 2, nokkel: NOKKEL });
+  paastand('ukjent versjon gir null', k.nokkel() === null);
+
+  const kaster = new Proxy({}, {
+    get() { throw new Error('lageret er stengt'); },
+    set() { throw new Error('lageret er stengt'); },
+    deleteProperty() { throw new Error('lageret er stengt'); }
+  });
+  const kk = Makin.lag({ fetch: lagRouter(() => fsvar(200, [])), lager: kaster, vent: async () => {} });
+  let u = null;
+  try { kk.lagreNokkel(NOKKEL); kk.glemNokkel(); } catch (e) { u = e; }
+  paastand('et lager som kaster gir ikke unntak ved lagre/glemme', u === null, u && u.message);
+  paastand('et lager som kaster gir null fra nokkel()', kk.nokkel() === null);
+}
+
+console.log('\n10. Klienten: kall og feilarter');
+{
+  const f = lagRouter(() => fsvar(200, [{ id: 1 }]));
+  const k = lagKlient(f);
+  const data = await k.kall('prosjekter', { org: KLIENT_ORG });
+  paastand('kall gir data fra svaret', Array.isArray(data) && data[0].id === 1);
+  const c = f.logg[0];
+  paastand('Authorization: Bearer <nøkkel> sendes', c.hoder.Authorization === AUTH, JSON.stringify(Object.keys(c.hoder)));
+  paastand('kallet går til /api/makin med hva og org', c.url.startsWith('/api/makin?') && c.hva === 'prosjekter' && c.q.org === '7', c.url);
+  paastand('uten kropp er det GET', c.metode === 'GET');
+
+  const fp = lagRouter(() => fsvar(200, { eksport: 5 }));
+  const kp = lagKlient(fp);
+  await kp.kall('start', { org: KLIENT_ORG, prosjekt: KLIENT_PROSJEKT }, { systemer: null, koder: null });
+  const cp = fp.logg[0];
+  paastand('med kropp er det POST med JSON', cp.metode === 'POST' && cp.hoder['Content-Type'] === 'application/json' &&
+    cp.kropp && cp.kropp.systemer === null && cp.q.prosjekt === KLIENT_PROSJEKT, JSON.stringify(cp.kropp));
+
+  const fIng = lagRouter(() => fsvar(200, []));
+  const kIng = lagKlient(fIng, {});
+  await kasterArt('uten nøkkel kastes «nokkel» uten å kalle fetch', () => kIng.kall('organisasjoner', {}), 'nokkel');
+  paastand('…og fetch ble ikke kalt', fIng.logg.length === 0);
+
+  const feilmeldinger = [];
+  const prov = async (navn, svar, art) => {
+    const e = await kasterArt(navn, () => lagKlient(lagRouter(svar)).kall('organisasjoner', {}), art);
+    if (e) feilmeldinger.push(e.message);
+  };
+  await prov('401 mangler nøkkel gir «nokkel»', () => fsvar(401, { feil: 'mangler nøkkel' }), 'nokkel');
+  await prov('401 avvist gir «nokkel»', () => fsvar(401, { feil: 'avvist' }), 'nokkel');
+  await prov('413 gir «for stor»', () => fsvar(413, { feil: 'for stor' }), 'for stor');
+  await prov('502 gir «makin»', () => fsvar(502, { feil: 'Makin svarte 500' }), 'makin');
+  await prov('504 gir «makin»', () => fsvar(504, { feil: 'Makin svarte ikke i tide' }), 'makin');
+  await prov('500 gir «makin»', () => fsvar(500, {}), 'makin');
+  await prov('400 gir «makin»', () => fsvar(400, { feil: 'Ugyldig org' }), 'makin');
+  await prov('fetch som kaster gir «nett»', () => { throw new TypeError('Failed to fetch'); }, 'nett');
+  await prov('svar som ikke er JSON gir «makin»', () => ({ status: 200, ok: true, json: async () => { throw new SyntaxError('x'); } }), 'makin');
+  paastand('ingen feilmelding inneholder nøkkelen', feilmeldinger.every(m => !m.includes(NOKKEL)));
+  paastand('feilmeldingene er på norsk og ikke tomme', feilmeldinger.every(m => typeof m === 'string' && m.length > 5));
+
+  /* proxyen kan ekko noe uventet: nøkkelen skal likevel aldri videre i meldingen */
+  const eko = await kasterArt('400 med nøkkelen i teksten', () => lagKlient(lagRouter(() => fsvar(400, { feil: AUTH }))).kall('organisasjoner', {}), 'makin');
+  paastand('…lekker ikke nøkkelen i meldingen', eko && !eko.message.includes(NOKKEL), eko && eko.message);
+}
+
+console.log('\n11. Klienten: hentEksport');
+{
+  const SOS = '.HODE\n..TEGNSETT ISO8859-10\n.PUNKT 1:\n..NAVN "R\xD8R"\n.SLUTT';
+  const klarSvar = (navn = 'a.sos') => fsvar(200, { status: 'klar', filer: [{ navn, base64: b64(SOS) }] });
+  const parm = { orgId: KLIENT_ORG, prosjektId: KLIENT_PROSJEKT, systemer: null, koder: null };
+
+  /* 11a: to ganger venter, så klar */
+  {
+    let n = 0;
+    const f = lagRouter(k => k.hva === 'start' ? fsvar(200, { eksport: 42 }) : (++n <= 2 ? fsvar(202, { status: 'venter' }) : klarSvar()));
+    const k = lagKlient(f);
+    const tekster = [];
+    const ut = await k.hentEksport(parm, t => tekster.push(t));
+    paastand('to ganger venter og så klar gir fila', ut.filer.length === 1 && ut.filer[0].navn === 'a.sos', JSON.stringify(ut.filer.map(x => x.navn)));
+    paastand('base64 er gjort om til tekst med riktig tegnsett (Ø)', ut.filer[0].tekst.includes('"RØR"'), ut.filer[0].tekst);
+    paastand('ingen idForan når det er én eksport', !('idForan' in ut.filer[0]));
+    paastand('framdrift: tre «Venter»-meldinger', tekster.filter(t => /Venter/.test(t)).length === 3, JSON.stringify(tekster));
+    paastand('framdrift: «Ber Makin» først og «Henter» sist', /^Ber Makin/.test(tekster[0]) && /^Henter/.test(tekster[tekster.length - 1]), JSON.stringify(tekster));
+    paastand('klienten venter 2000 ms mellom forsøkene', JSON.stringify(k.ventet) === '[2000,2000]', JSON.stringify(k.ventet));
+    const start = f.logg[0];
+    paastand('start sendes først, med null for «alle» og uten fra/til',
+      start.hva === 'start' && start.kropp.systemer === null && start.kropp.koder === null && !('fra' in start.kropp) && !('til' in start.kropp), JSON.stringify(start.kropp));
+    paastand('hent bruker eksport-id-en fra start', f.logg.filter(c => c.hva === 'hent').every(c => c.q.eksport === '42' && c.metode === 'GET'));
+    paastand('hent har nøkkelen i hodet', f.logg.every(c => c.hoder.Authorization === AUTH));
+  }
+
+  /* 11b: tomme lister blir null (proxyen avviser []) og valgene sendes videre */
+  {
+    const f = lagRouter(k => k.hva === 'start' ? fsvar(200, { eksport: 1 }) : klarSvar());
+    await lagKlient(f).hentEksport({ ...parm, systemer: [], koder: [] });
+    paastand('tomme lister sendes som null, aldri []', f.logg[0].kropp.systemer === null && f.logg[0].kropp.koder === null, JSON.stringify(f.logg[0].kropp));
+    const f2 = lagRouter(k => k.hva === 'start' ? fsvar(200, { eksport: 1 }) : klarSvar());
+    await lagKlient(f2).hentEksport({ ...parm, systemer: [MASKIN], koder: ['RØR', 'KUM'] });
+    paastand('valgte maskiner og koder sendes videre',
+      JSON.stringify(f2.logg[0].kropp.systemer) === JSON.stringify([MASKIN]) && JSON.stringify(f2.logg[0].kropp.koder) === JSON.stringify(['RØR', 'KUM']));
+  }
+
+  /* 11c: 21 ganger venter */
+  {
+    const f = lagRouter(k => k.hva === 'start' ? fsvar(200, { eksport: 1 }) : fsvar(202, { status: 'venter' }));
+    const k = lagKlient(f);
+    await kasterArt('for mange «venter» kaster «venter»', () => k.hentEksport(parm), 'venter');
+    paastand('høyst 20 forsøk, ventet 2000 ms mellom dem', f.logg.filter(c => c.hva === 'hent').length === 20 && k.ventet.length === 19 && k.ventet.every(ms => ms === 2000),
+      f.logg.filter(c => c.hva === 'hent').length + ' / ' + k.ventet.length);
+  }
+
+  /* 11d: 413 på hele perioden, klar på begge halvdelene */
+  {
+    const FRA = '2024-01-01T00:00:00.000Z', TIL = '2024-03-01T00:00:00.000Z';
+    let id = 0;
+    const f = lagRouter(k => {
+      if (k.hva === 'koder') return fsvar(200, [
+        { codeName: 'A', recordCount: 5, firstLogged: '2024-01-10T00:00:00Z', lastLogged: '2024-02-01T00:00:00Z' },
+        { codeName: 'B', recordCount: 5, firstLogged: FRA, lastLogged: TIL },
+        { codeName: 'C', recordCount: 0, firstLogged: null, lastLogged: null }
+      ]);
+      if (k.hva === 'start') return fsvar(200, { eksport: ++id });
+      return k.q.eksport === '1' ? fsvar(413, { feil: 'for stor' }) : klarSvar('del' + k.q.eksport + '.sos');
+    });
+    const tekster = [];
+    const ut = await lagKlient(f).hentEksport(parm, t => tekster.push(t));
+    paastand('413 på hele perioden og så klar på begge halvdelene gir begge filene',
+      ut.filer.length === 2 && ut.filer[0].navn === 'del2.sos' && ut.filer[1].navn === 'del3.sos', JSON.stringify(ut.filer.map(x => x.navn)));
+    const starter = f.logg.filter(c => c.hva === 'start').map(c => c.kropp);
+    paastand('tre starter: hele, første halvdel, andre halvdel', starter.length === 3, String(starter.length));
+    const mid = new Date((Date.parse(FRA) + Date.parse(TIL)) / 2).getTime();
+    paastand('første halvdel går fra første til midten av perioden',
+      starter[1] && Date.parse(starter[1].fra) === Date.parse(FRA) && Date.parse(starter[1].til) === mid, JSON.stringify(starter[1]));
+    paastand('andre halvdel går fra midten til siste',
+      starter[2] && Date.parse(starter[2].fra) === mid && Date.parse(starter[2].til) === Date.parse(TIL), JSON.stringify(starter[2]));
+    paastand('periodens ytterkanter kommer fra koder-lista (null hoppes over)', f.logg.some(c => c.hva === 'koder'));
+    paastand('framdrift sier fra om delingen', tekster.some(t => /deler|i deler/i.test(t)), JSON.stringify(tekster));
+  }
+
+  /* 11e: nettfeil på andre halvdel – ingen halv henting */
+  {
+    let id = 0;
+    const f = lagRouter(k => {
+      if (k.hva === 'koder') return fsvar(200, [{ codeName: 'A', recordCount: 5, firstLogged: '2024-01-01T00:00:00Z', lastLogged: '2024-03-01T00:00:00Z' }]);
+      if (k.hva === 'start') { ++id; if (id === 3) throw new TypeError('Failed to fetch'); return fsvar(200, { eksport: id }); }
+      return k.q.eksport === '1' ? fsvar(413, { feil: 'for stor' }) : klarSvar();
+    });
+    let ut = null;
+    const e = await kasterArt('nettfeil på andre halvdel kaster', async () => { ut = await lagKlient(f).hentEksport(parm); }, 'nett');
+    paastand('…og gir ingen filer fra første halvdel', ut === null);
+  }
+
+  /* 11f: ingen koder med tidspunkt: de siste 10 årene til «nå» */
+  {
+    const NA = Date.parse('2026-06-01T12:00:00Z');
+    let id = 0;
+    const f = lagRouter(k => {
+      if (k.hva === 'koder') return fsvar(200, [{ codeName: 'C', recordCount: 0, firstLogged: null, lastLogged: null }]);
+      if (k.hva === 'start') return fsvar(200, { eksport: ++id });
+      return k.q.eksport === '1' ? fsvar(413, { feil: 'for stor' }) : klarSvar();
+    });
+    await lagKlient(f, undefined, { na: () => NA }).hentEksport(parm);
+    const starter = f.logg.filter(c => c.hva === 'start').map(c => c.kropp);
+    const ti = new Date(NA); ti.setUTCFullYear(ti.getUTCFullYear() - 10);
+    paastand('uten tidspunkt i koder deles de siste 10 årene til nå',
+      starter.length === 3 && Date.parse(starter[1].fra) === ti.getTime() && Date.parse(starter[2].til) === NA, JSON.stringify(starter));
+  }
+
+  /* 11g: deler videre til hver del er under grensen, men aldri smalere enn ett døgn */
+  {
+    let id = 0;
+    /* hele og alle halvdeler er for store: perioden på 5 døgn deles til delene er 1,25 døgn – én gang til ville gitt under ett døgn */
+    const f = lagRouter(k => {
+      if (k.hva === 'koder') return fsvar(200, [{ codeName: 'A', recordCount: 5, firstLogged: '2024-01-01T00:00:00Z', lastLogged: '2024-01-06T00:00:00Z' }]);
+      if (k.hva === 'start') return fsvar(200, { eksport: ++id });
+      return fsvar(413, { feil: 'for stor' });
+    });
+    await kasterArt('alltid for stor kaster «for stor» til slutt', () => lagKlient(f).hentEksport(parm), 'for stor');
+    const starter = f.logg.filter(c => c.hva === 'start').map(c => c.kropp).filter(b => b.fra);
+    const minste = Math.min(...starter.map(b => Date.parse(b.til) - Date.parse(b.fra)));
+    paastand('ingen del er smalere enn ett døgn', minste >= 86400000, String(minste / 86400000));
+    paastand('delingen gikk mer enn ett nivå (ned til 1,25 døgn)', minste < 2 * 86400000, String(minste / 86400000));
+
+    /* hver del kan være for stor i seg selv, men bare noen: bare de deles videre */
+    let id2 = 0;
+    const f2 = lagRouter(k => {
+      if (k.hva === 'koder') return fsvar(200, [{ codeName: 'A', recordCount: 5, firstLogged: '2024-01-01T00:00:00Z', lastLogged: '2024-01-09T00:00:00Z' }]);
+      if (k.hva === 'start') return fsvar(200, { eksport: ++id2 });
+      const k0 = f2.logg.filter(c => c.hva === 'start')[Number(k.q.eksport) - 1].kropp;
+      const dogn = !k0.fra ? 99 : (Date.parse(k0.til) - Date.parse(k0.fra)) / 86400000;
+      return dogn > 2 ? fsvar(413, { feil: 'for stor' }) : klarSvar('d' + k.q.eksport + '.sos');
+    });
+    const ut = await lagKlient(f2).hentEksport(parm);
+    paastand('deler til hver del er under grensen og gir alle delene', ut.filer.length === 4 && ut.filer.every(x => x.tekst.length > 0), String(ut.filer.length));
+  }
+
+  /* 11h: andre feil underveis stopper */
+  {
+    const f = lagRouter(k => k.hva === 'start' ? fsvar(401, { feil: 'avvist' }) : klarSvar());
+    await kasterArt('401 ved start kaster «nokkel»', () => lagKlient(f).hentEksport(parm), 'nokkel');
+  }
+}
+
+/* ------------------------------------------------------------------ */
 console.log(`\n${ok} tester ok, ${feil} feil`);
 process.exit(feil ? 1 : 0);
 })();
