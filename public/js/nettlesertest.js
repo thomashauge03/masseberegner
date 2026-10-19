@@ -9380,7 +9380,15 @@ const Nettlesertest = {
 
       /* ---- koblingen: dialogen, og et nytt anlegg ---- */
       kø.push([{ navn: 'eksport.sos', tekst: this._makinSosi(sett(false)) }]);
-      const ny = MakinUI.nyttAnlegg();
+      /* Gjennom førstevalget «Hva skal du regne på?», slik et nytt prosjekt
+         begynner – knappen der manglet, og Makin var bare å finne i anleggslista. */
+      const forste = document.querySelector('#velganlegg [data-velg="makin"]');
+      this.sjekk('førstevalget har «☁ Rør fra Makin»', !!forste && synlig('velganlegg'));
+      let ny;
+      const ekteNytt = MakinUI.nyttAnlegg;
+      MakinUI.nyttAnlegg = function () { return (ny = ekteNytt.apply(this, arguments)); };
+      try { forste.click(); } finally { MakinUI.nyttAnlegg = ekteNytt; }
+      this.sjekk('og knappen der starter koblingen', !!ny);
       await venteTil(() => apen() && dialog().querySelector('#makinProsjekt option[value="' + PROSJEKT + '"]'));
       this.sjekk('koblingsdialogen åpner seg med prosjektene', apen() && !!dialog().querySelector('#makinProsjekt'));
       this.sjekk('organisasjonen hoppes over når det bare er én', !dialog().querySelector('#makinOrg'));
@@ -9412,6 +9420,7 @@ const Nettlesertest = {
       const a = App.anlegg();
       this.sjekk('det tomme anlegget ble byttet ut med Makin-anlegget', App.P.anlegg.length === 1 && App.erRor() && !App.P.ubestemt,
         App.P.anlegg.map(x => x.type).join(','));
+      this.sjekk('og førstevalget er borte', !synlig('velganlegg'));
       this.sjekk('anlegget heter som prosjektet i Makin', a.navn === 'Prøvefelt Makin', a.navn);
       const m = a.ror.makin;
       this.sjekk('anlegget har koblingen', !!m && m.orgId === 7 && m.prosjektId === PROSJEKT && m.prosjektnavn === 'Prøvefelt Makin'

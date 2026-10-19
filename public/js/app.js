@@ -1303,6 +1303,8 @@ const App = {
        prosjektet blir bestemt først når importen er gjort (se RorUI.leggInn).
        Avbryter man, står spørsmålet der fortsatt. */
     if (type === 'ror') { RorUI.velgFil({}); return; }
+    // samme for Makin: prosjektet blir bestemt når hentingen er lagt inn (MakinUI._leggInn)
+    if (type === 'makin') { MakinUI.nyttAnlegg(); return; }
     delete this.P.ubestemt;
     const a = this.anlegg();
     /* MEN BARE HVIS DET FAKTISK ER TOMT.
