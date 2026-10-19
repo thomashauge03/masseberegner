@@ -83,9 +83,40 @@ const MakinUI = {
     if (!a || !a.ror || !a.ror.makin) return false;
     if (this._holder) { app.status('Makin henter allerede – vent til den er ferdig'); return false; }
     if (!this.klient.nokkel() && !(await this._holdt(() => this.nokkelDialog()))) { app.status('Henting fra Makin avbrutt'); return false; }
+    return this._hent(a, this._valgFra(a), () => this.hent(a));
+  },
+
+  /** Valgene fra koblingen på et Makin-anlegg – det en ny henting bestiller. */
+  _valgFra(a) {
     const m = a.ror.makin;
-    return this._hent(a, { orgId: m.orgId, prosjektId: m.prosjektId, prosjektnavn: m.prosjektnavn,
-      systemer: m.systemer, koder: m.koder }, () => this.hent(a));
+    return { orgId: m.orgId, prosjektId: m.prosjektId, prosjektnavn: m.prosjektnavn,
+      systemer: m.systemer, koder: m.koder };
+  },
+
+  /**
+   * Når et prosjekt åpnes: hvert Makin-anlegg i det hentes på nytt, ett om
+   * gangen, så det står likt Makin uten at noen trykker.
+   *
+   * BRUKEREN BA OM DETTE (2026-10-19) – ellers står regelen om at ingenting
+   * hentes uten et trykk. Derfor er det så stille som mulig: uten lagret nøkkel
+   * hentes ingenting og det står én linje i statuslinja (ingen dialog som
+   * hopper opp når man bare ville se på prosjektet); avviser Makin nøkkelen,
+   * står det også bare der. Har ingenting endret seg i Makin, rører hentingen
+   * ikke prosjektet – ingen angrepost, ingenting ulagret. Blir et annet
+   * prosjekt åpnet underveis, stopper den.
+   */
+  async vedApning() {
+    const app = this.app, P = app.P;
+    const anlegg = (P && P.anlegg || []).filter(a => a.type === 'ror' && a.ror && !a.ror.plan && a.ror.makin);
+    if (!anlegg.length) return;
+    if (!this.klient.nokkel()) {
+      app.status('Makin-anlegget ble ikke hentet på nytt – trykk «☁ Hent fra Makin» og legg inn nøkkelen');
+      return;
+    }
+    for (const a of anlegg) {
+      if (app.P !== P || !P.anlegg.includes(a)) return;
+      await this._hent(a, Object.assign(this._valgFra(a), { auto: true }), null);
+    }
   },
 
   /**
@@ -109,7 +140,8 @@ const MakinUI = {
          da finnes ikke `a` lenger, og punktene ville havnet i et anlegg ingen
          ser. Heller ingenting enn feil sted. */
       if (app.P !== P || (a && !P.anlegg.includes(a))) {
-        app.status('Prosjektet ble endret mens Makin hentet – trykk «Hent fra Makin» igjen');
+        // ved åpning: et annet prosjekt er åpnet, og det skal ikke få en melding om dette
+        if (!valg.auto) app.status('Prosjektet ble endret mens Makin hentet – trykk «Hent fra Makin» igjen');
       } else {
         this._leggInn(a, valg, les);
         ok = true;
@@ -119,6 +151,12 @@ const MakinUI = {
     } finally {
       this._holder = false;
       if (knapp) knapp.disabled = false;
+    }
+    if (feil && valg.auto) {
+      // ved åpning: ingen dialog, bare en linje – brukeren har ikke bedt om noe
+      this.app.status('⚠ Makin-anlegget ble ikke hentet på nytt: '
+        + (feil.art === 'nokkel' ? 'Makin godtok ikke nøkkelen – trykk «☁ Hent fra Makin»' : (feil.message || 'noe gikk galt')));
+      return false;
     }
     return feil ? this._feil(feil, igjen) : ok;
   },
@@ -205,6 +243,17 @@ const MakinUI = {
       return Object.assign({}, p, { o: +q.x.toFixed(3), n: +q.y.toFixed(3) });
     });
 
+    /* VED ÅPNING, OG INGENTING ER NYTT I MAKIN: prosjektet røres ikke. Ellers
+       ville hver åpning gitt en angrepost og et prosjekt som «har endringer
+       som ikke er lagret», bare fordi tidspunktet for hentingen flyttet seg. */
+    if (valg.auto && !ny) {
+      const prove = Ror.byttPunkter(a.ror, punkter);
+      if (!prove.nye && !prove.borte && !prove.endret) {
+        app.status(`«${a.navn}» er likt Makin (${prove.punkter.length} punkt)`);
+        return;
+      }
+    }
+
     // ---- herfra endres prosjektet ----
     app.merk('hentet fra Makin');
     if (ny) {
@@ -258,7 +307,7 @@ const MakinUI = {
     /* Det lesingen hoppet over (doble navn, linjer, punkt uten høyde …) – med
        samme ordlyd som «Hoppet over» i importdialogen. */
     const hoppet = Ror.hoppetOver(les.advarsler);
-    app.status(`${bytte.punkter.length} punkt fra Makin · ${bytte.nye} nye, ${bytte.borte} borte, ${bytte.endret} endret`
+    app.status((valg.auto ? `«${a.navn}» hentet på nytt: ` : '') + `${bytte.punkter.length} punkt fra Makin · ${bytte.nye} nye, ${bytte.borte} borte, ${bytte.endret} endret`
       + (r ? ` · ${r} ${r === 1 ? 'retting' : 'rettinger'} falt bort` : '')
       + (fra !== til ? ` · regnet om fra UTM ${fra} til anleggets UTM ${til}` : '')
       + (hoppet.length ? ` · hoppet over: ${hoppet.join(', ')}` : '')

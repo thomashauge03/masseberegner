@@ -89,7 +89,10 @@ nøkkeltype) i stedet for via filer. Delene:
   Makin» i kartverktøyene på et Makin-anlegg. Nøkkeldialog (lim inn, bytt, glem)
   og koblingsdialog (organisasjon, prosjekt, maskiner, koder). Én henting er
   ett angresteg (`app.merk('hentet fra Makin')`), og anlegget endres først når alt
-  er hentet og lest uten feil. Bare brukerens trykk starter noe.
+  er hentet og lest uten feil. Brukerens trykk – og, etter ønske 2026-10-19,
+  åpning av prosjektet (`MakinUI.vedApning` fra `App.apne`): likt Makin gir
+  ingen endring og ingen angrepost, uten nøkkel eller ved feil bare en linje i
+  statuslinja, aldri en dialog. «☁ Rør fra Makin» står også i førstevalget.
 - **Låsen** gjelder bare punktsettet: ingen fil kan importeres inn i et
   Makin-anlegg. Rettinger, «samme rør», kodetabell og grøfter virker og blir
   liggende ved ny henting. **«Lag en kopi»** (`App.kopierAnlegg`, i Rør-fanen):

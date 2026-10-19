@@ -7746,6 +7746,10 @@ const App = {
         + 'Nå graves alt under vegkroppen ned til fjell – kubikken er høyere enn '
         + 'den var. Skru av «Masseutskifting ned til fjell» i malen for de gamle tallene.');
     }
+    /* Makin-anleggene hentes på nytt når prosjektet åpnes (brukerens ønske).
+       Ikke ventet på: prosjektet står klart med det som var lagret, og
+       hentingen legger seg inn når Makin har svart. */
+    MakinUI.vedApning();
   },
 
   /* Tomt3d.tegn() returnerer sjølv med ein gong når panelet er skjult, så

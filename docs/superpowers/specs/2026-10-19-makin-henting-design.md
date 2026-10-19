@@ -29,8 +29,9 @@ ligger i massekalk er likt det som ligger i Makin hver gang brukeren ber om det.
 
 ## Ikke-mål
 
-- Ingen automatisk henting, ingen bakgrunnssynk, ingen tidsstyring. Bare knappen
-  (se minnet «knapper, ikke automatikk»).
+- Ingen bakgrunnssynk og ingen tidsstyring. Henting skjer på knappen – og,
+  endret etter brukerens ønske 2026-10-19, når prosjektet åpnes (se «Avgjort av
+  brukeren»).
 - Massekalk skriver **aldri** noe til Makin. Bare lesing.
 - Kopien følger ikke med når Makin får nye punkter. Den er et øyeblikksbilde fra
   da den ble laget.
@@ -179,7 +180,12 @@ angre-steg (`app.merk('kopi av anlegg')`).
 
 ## Avgjort av brukeren
 
-- Egen knapp, henting bare når brukeren trykker.
+- Egen knapp, henting når brukeren trykker.
+- 2026-10-19, etter første utgave: Makin-anleggene hentes også på nytt av seg
+  selv når prosjektet åpnes. Likt Makin gir ingen endring og ingen angrepost;
+  uten lagret nøkkel eller ved feil står det bare en linje i statuslinja.
+  (Makins API kan ikke liste prosjektfilene, så «velge blant filene i Makin»
+  er ikke mulig; brukeren valgte å beholde punkthentingen.)
 - Hver henting gjør massekalk likt Makin.
 - Fila fra Makin skal ikke endres; endring av punktsettet betyr en ny fil (kopi).
 - Bare punktene låses. Rettinger, kodetabell og grøfter er lov på

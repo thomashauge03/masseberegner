@@ -9663,6 +9663,57 @@ const Nettlesertest = {
         this.sjekk('ror.makin overlever lagring og åpning', !!e && JSON.stringify(e.ror.makin) === fasit,
           e ? JSON.stringify(e.ror.makin) : 'anlegget mangler');
       }
+
+      /* ---- når prosjektet åpnes, hentes Makin-anlegget på nytt av seg selv ----
+         (brukerens ønske 2026-10-19). Likt Makin: prosjektet røres ikke. Nytt i
+         Makin: punktene byttes, ett angresteg. Uten nøkkel: bare en linje. */
+      {
+        App.P = App.nyttProsjekt();
+        App.visAnleggsvelger(); App.visAnleggsvalg(); App.malTilSkjema();
+        const b = App.nyttAnlegg('ror', 'Åpnes på nytt');
+        b.ror.makin = { orgId: 7, prosjektId: PROSJEKT, prosjektnavn: 'Prøvefelt Makin', systemer: null, koder: null, sistHentet: null, antall: 0 };
+        App.P.anlegg.push(b);
+        App.byttAnlegg(b.id);
+        kø.length = 0;
+        kø.push([{ navn: 'eksport.sos', tekst: this._makinSosi(sett(false)) }]);
+        await MakinUI.hent(App.anlegg());
+        App.P.navn = lagret;
+        await Lager.lagre(lagret, App.P);
+        const apne = async svar => {
+          const n = bestilt.length;
+          if (svar) kø.push(svar);
+          await App.apne(lagret);
+          if (svar) await venteTil(() => bestilt.length > n && !MakinUI._holder && /Makin|likt/.test(linje()), 4000);
+          return bestilt.length - n;
+        };
+
+        const n1 = await apne([{ navn: 'eksport.sos', tekst: this._makinSosi(sett(false)) }]);
+        this.sjekk('åpning henter Makin-anlegget på nytt', n1 === 1, String(n1));
+        this.sjekk('  likt Makin: statuslinja sier det', /er likt Makin \(12 punkt\)/.test(linje()), linje());
+        this.sjekk('  og prosjektet er urørt – ingenting ulagret, ingen angrepost',
+          !App.harUlagret() && App.historikk.bakover.length === 0, App.historikk.bakover.length + ' poster');
+
+        const n2 = await apne([{ navn: 'eksport.sos', tekst: this._makinSosi(sett(true)) }]);
+        const c = App.P.anlegg.find(x => x.ror && x.ror.makin);
+        this.sjekk('nytt i Makin: punktene byttes ved åpning', n2 === 1 && !!c && c.ror.punkter.some(p => p.id === 'mk-13')
+          && !c.ror.punkter.some(p => p.id === 'mk-12'), c ? c.ror.punkter.map(p => p.id).join(',') : 'mangler');
+        this.sjekk('  statuslinja sier at det ble hentet', /hentet på nytt: 12 punkt fra Makin · 1 nye, 1 borte, 1 endret/.test(linje()), linje());
+        this.sjekk('  og det er ett angresteg', App.historikk.bakover.length === 1, String(App.historikk.bakover.length));
+
+        falsk._nokkel = null;
+        const n3 = await apne(null);
+        await this.vent(50);
+        this.sjekk('uten nøkkel hentes ingenting ved åpning', n3 === 0, String(n3));
+        this.sjekk('  ingen dialog, bare en linje', !apen() && /legg inn nøkkelen/.test(linje()), linje());
+        falsk._nokkel = NOKKEL;
+
+        kø.push(Object.assign(new Error('Makin svarte ikke'), { art: 'nett' }));
+        await App.apne(lagret);
+        const foerFeil = JSON.stringify(App.P);
+        await venteTil(() => /ikke hentet på nytt/.test(linje()), 4000);
+        this.sjekk('en feil ved åpning gir en linje og lar prosjektet stå', !apen() && /ikke hentet på nytt: Makin svarte ikke/.test(linje())
+          && JSON.stringify(App.P) === foerFeil, linje());
+      }
     } finally {
       MakinUI.klient = ekteKlient;
       document.getElementById('dialog').classList.add('skjult');

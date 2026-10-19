@@ -239,10 +239,12 @@ anleggslista, «Rør (fra filer)» i førstevalget, eller slipp filene på karte
 ### Hent fra Makin
 
 Har du innmålingene i Makin' 3D, kan Massekalk hente dem rett fra skyen i stedet
-for at du eksporterer en fil. **⌀ Rør fra Makin** i anleggslista kobler til et
-prosjekt i Makin og henter punktene inn i et eget, nytt røranlegg; **☁ Hent fra
-Makin** i kartverktøyene på det anlegget henter alt på nytt. Ingenting hentes
-uten at du trykker, og Massekalk skriver aldri noe til Makin.
+for at du eksporterer en fil. **☁ Rør fra Makin** (i «Hva skal du regne på?»
+og i anleggslista) kobler til et prosjekt i Makin og henter punktene inn i et
+eget, nytt røranlegg; **☁ Hent fra Makin** i kartverktøyene på det anlegget
+henter alt på nytt. Når du **åpner prosjektet**, hentes Makin-anleggene på nytt
+av seg selv – er ingenting nytt i Makin, røres prosjektet ikke, og uten lagret
+nøkkel står det bare en linje i statuslinja. Massekalk skriver aldri noe til Makin.
 
 * **Nøkkelen.** Lag en API-nøkkel i Makin (Profil → API-nøkler → Opprett ny
   nøkkel) og lim den inn første gang. Den lagres bare i denne nettleseren
