@@ -102,6 +102,8 @@ const StikkutsnittUI = {
     }
     for (const a of app.P.anlegg) {
       if (a.type !== 'ror' || !a.ror || a.ror.plan || !a.ror.punkter.length) continue;
+      // et Makin-anlegg med en kopi: punktene står i kopien, og skal ikke stå to ganger i tabellen
+      if (app.telles && !app.telles(a)) continue;
       const r = a.ror, tilXY = Ror.lagTilXY(r.sone, sone);
       const av = new Set((r.retting && r.retting.av) || []);
       for (const p of r.punkter) {

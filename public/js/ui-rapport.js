@@ -1901,6 +1901,9 @@ Lengdene er langs bakken i kartet.</p>
            resultat, og runden ventet 45 s på det; et rutenett finnes bare for
            en tomt, og hvert røranlegg ble regnet ut bare for å bli avvist. */
         if (!app._harGeometri(a)) { hoppet.push({ anlegg: a, grunn: 'ingenting tegnet ennå' }); continue; }
+        /* Et Makin-anlegg med en kopi: kopien er med, og originalen ville gitt
+           de samme rørene en gang til. Det sies fra, som alt annet som utelates. */
+        if (app.telles && !app.telles(a)) { hoppet.push({ anlegg: a, grunn: 'det finnes en kopi, og den telles i stedet' }); continue; }
         if (valg.bare && !valg.bare(a)) { hoppet.push({ anlegg: a, grunn: valg.grunn || 'ikke med i denne eksporten' }); continue; }
         this.eksportsvar(`Henter ${i + 1} av ${anlegg.length}: ${a.navn || a.type} …`);
         try {

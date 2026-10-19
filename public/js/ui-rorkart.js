@@ -52,6 +52,8 @@ const RorkartUI = {
     const maalteKummer = [];
     for (const a of P.anlegg) {
       if (a.type !== 'ror' || !a.ror) continue;
+      // et Makin-anlegg med en kopi: kopien står på arket, ellers kom hvert rør to ganger
+      if (app.telles && !app.telles(a)) continue;
       const r = a.ror, plan = !!r.plan;
       const synlige = {};
       for (const [kode, k] of Object.entries(r.koder || {})) {

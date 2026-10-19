@@ -202,7 +202,7 @@ const Nettlesertest = {
       'grensesnittbredder', 'panelhoder',
       'tomt', 'tomteksport', 'tomterydding', 'tomtsnittOverbygning',
       'gl3d', 'tomt3d', 'veg3d', 'gpuSammeBilde', 'gpuGlatt', 'gpuReserve', 'gpuLysOgLuft', 'gpuMaterialer', 'kartlag',
-      'rorArbeidsbilde', 'rorBeregning', 'rorImport', 'makinHenting', 'rorSone', 'rorKart', 'rorFane', 'rorRetting',
+      'rorArbeidsbilde', 'rorBeregning', 'rorImport', 'makinHenting', 'makinLaas', 'rorSone', 'rorKart', 'rorFane', 'rorRetting',
       'rorProfil', 'ror3d', 'rorRapport', 'rorPdf', 'rorForklaring',
       'groftBeregning', 'groftFane', 'groftKoder', 'groftVerktoy', 'groftKnutepunkt', 'groftProfil', 'groft3d',
       'groftRapport', 'groftAvstiving',
@@ -9580,6 +9580,211 @@ const Nettlesertest = {
       MakinUI.klient = ekteKlient;
       document.getElementById('dialog').classList.add('skjult');
       try { await Lager.slett(lagret); } catch (e) { /* da får det stå */ }
+      await this._rorTilbake(foer);
+    }
+  },
+
+  /**
+   * Låsen på Makin-anlegget, kopien og dobbelttellingen.
+   *
+   * Bare punktsettet er låst: ingen fil kan legges inn i Makin-anlegget – ikke
+   * fra importdialogen, «Importer nyere fil» eller en fil sluppet på kartet.
+   * «Lag en kopi» gir et vanlig anlegg som kan få filer, og som en ny henting
+   * ikke rører. Finnes kopien, telles originalen ikke med i avviket,
+   * kryssingen og rapportene – ellers sto de samme rørene der to ganger.
+   * Rettingene er fortsatt lov på Makin-anlegget.
+   */
+  async makinLaas() {
+    const foer = JSON.stringify(App.P);
+    const ekteKlient = MakinUI.klient;
+    const PROSJEKT = '123e4567-e89b-12d3-a456-426614174000';
+    const kø = [];
+    const falsk = {
+      nokkel: () => 'oppdiktet-nokkel-proeve',
+      lagreNokkel: () => true,
+      glemNokkel() {},
+      async kall(hva) { throw new Error('ukjent kall i prøven: ' + hva); },
+      async hentEksport() {
+        const svar = kø.shift();
+        if (!svar) throw new Error('prøven hadde ikke noe svar i køen');
+        return { filer: svar };
+      }
+    };
+    // samme punkt som i makinHenting: henting 2 har mistet mk-12 og fått mk-13
+    const sett = andre => {
+      const p = [];
+      for (let i = 0; i < 8; i++) p.push({ id: 'mk-' + (i + 1), kode: '110 PE', x: i * 10, y: 0, z: 20 - i * 0.1 + (andre && i === 1 ? 0.05 : 0) });
+      for (let i = 0; i < 4; i++) p.push({ id: 'mk-' + (i + 9), kode: 'vann 63', x: i * 10, y: 1.5, z: 19.5 });
+      if (andre) { p.splice(11, 1); p.push({ id: 'mk-13', kode: '110 PE', x: 80, y: 0, z: 19.2 }); }
+      return p;
+    };
+    const apen = () => !document.getElementById('dialog').classList.contains('skjult');
+    const venteTil = async (f, ms = 3000) => {
+      const t = Date.now();
+      while (!f() && Date.now() - t < ms) await this.vent(20);
+      return f();
+    };
+    const synlig = id => { const e = document.getElementById(id); return !!e && !e.classList.contains('skjult'); };
+    const maal = () => [...document.querySelectorAll('#dialoginnhold input[name="rorMaal"]')];
+    const finn = id => App.P.anlegg.find(x => x.id === id);
+    const fane = () => document.getElementById('rorInnhold');
+    // forslagene om samme rør kommer like etter en import med dialog – «Senere» lukker uten å røre noe
+    const senere = async () => {
+      await this.vent(50);
+      const s = document.getElementById('rorSporSenere');
+      if (s && apen()) s.click();
+    };
+    try {
+      MakinUI.klient = falsk;
+      App.P = App.nyttProsjekt();
+      App.visAnleggsvelger(); App.visAnleggsvalg(); App.malTilSkjema();
+
+      /* ---- et vanlig røranlegg og et Makin-anlegg ---- */
+      await RorUI.importerTekst(this._rorXml(), 'asbuilts_Vanlig.xml', {}, { sone: 32, maal: 'nytt' });
+      const vanligId = App.P.aktivt;
+      const m = App.nyttAnlegg('ror', 'Prøvefelt Makin');
+      const mId = m.id;
+      m.ror.sone = 32;
+      m.ror.makin = { orgId: 7, prosjektId: PROSJEKT, prosjektnavn: 'Prøvefelt Makin', systemer: null, koder: null, sistHentet: null, antall: 0 };
+      App.P.anlegg.push(m);
+      App.byttAnlegg(mId);
+      kø.push([{ navn: 'eksport.sos', tekst: this._makinSosi(sett(false)) }]);
+      const ok1 = await MakinUI.hent(m);
+      this.sjekk('Makin-anlegget er hentet', ok1 === true && App.P.aktivt === mId && finn(mId).ror.punkter.length === 12,
+        String(finn(mId).ror.punkter.length));
+
+      /* ---- knappene på Makin-anlegget ---- */
+      App.visFane('ror');
+      this.sjekk('rørfanen viser «Hentet fra Makin <tid> · <prosjektnavn>»',
+        /Hentet fra Makin [\s\S]*· Prøvefelt Makin/.test(fane().textContent));
+      const kopiknapp = () => fane().querySelector('#makinFaneKopi');
+      this.sjekk('og knappene «Lag en kopi» og «Bytt nøkkel»', !!kopiknapp() && /Lag en kopi/.test(kopiknapp().textContent)
+        && !!fane().querySelector('#makinFaneBytt'));
+      this.sjekk('«Importer nyere fil» finnes ikke på Makin-anlegget', !fane().querySelector('#rorImportNy'));
+      this.sjekk('kartknappen «Importer rør» er skjult, «Hent fra Makin» vises', !synlig('verktoyRorImport') && synlig('verktoyRorMakin'));
+      this.sjekk('rettingsknappene vises som før', ['verktoyRorAv', 'verktoyRorBryt', 'verktoyRorKoble'].every(synlig));
+
+      /* ---- importdialogen: Makin-anlegget er ikke et mål ---- */
+      {
+        const venter = RorUI.importerTekst(this._rorXml(), 'asbuilts_Ny.xml', {});
+        await venteTil(() => apen() && maal().length > 0);
+        const verdier = maal().map(x => x.value).join(',');
+        this.sjekk('importdialogen har bare det vanlige anlegget som mål', verdier === 'anlegg:' + vanligId + ',nytt', verdier);
+        this.sjekk('og «Nytt røranlegg» er valgt', maal().some(x => x.value === 'nytt' && x.checked));
+        const avbryt = document.getElementById('rorAvbryt');
+        if (avbryt) avbryt.click(); else document.getElementById('dialog').classList.add('skjult');
+        await Promise.race([venter, this.vent(500)]);
+      }
+
+      /* ---- leggInn: «legg til» og «anlegg:<id>» på Makin-anlegget gir et nytt ---- */
+      {
+        const antall = App.P.anlegg.length, punkt = finn(mId).ror.punkter.length;
+        const ok = await RorUI.importerTekst(this._rorXml(), 'asbuilts_LeggTil.xml', {}, { sone: 32, maal: 'leggTil' });
+        this.sjekk('«legg til» mens Makin-anlegget er oppe gir et nytt anlegg', ok === true && App.P.anlegg.length === antall + 1
+          && finn(mId).ror.punkter.length === punkt && App.P.aktivt !== mId && !App.anlegg().ror.makin,
+          `${antall} → ${App.P.anlegg.length}, ${finn(mId).ror.punkter.length} punkt`);
+        App.byttAnlegg(vanligId);
+        const ok2 = await RorUI.importerTekst(this._rorXml(), 'asbuilts_Maal.xml', {}, { sone: 32, maal: 'anlegg:' + mId });
+        this.sjekk('«anlegg:<id>» på Makin-anlegget gir også et nytt', ok2 === true && App.P.anlegg.length === antall + 2
+          && finn(mId).ror.punkter.length === punkt, `${antall} → ${App.P.anlegg.length}, ${finn(mId).ror.punkter.length} punkt`);
+      }
+
+      /* ---- dra og slipp mens Makin-anlegget er oppe ---- */
+      {
+        App.byttAnlegg(mId);
+        const antall = App.P.anlegg.length, punkt = finn(mId).ror.punkter.length;
+        const dt = new DataTransfer();
+        dt.items.add(new File([this._rorXml()], 'asbuilts_Sluppet.xml', { type: 'text/xml' }));
+        document.querySelector('.kartflate').dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+        await venteTil(() => apen() && maal().length > 0);
+        this.sjekk('en fil sluppet på kartet åpner dialogen med «Nytt røranlegg» valgt',
+          maal().some(x => x.value === 'nytt' && x.checked) && !maal().some(x => x.value === 'leggTil' || x.value === 'anlegg:' + mId),
+          maal().map(x => x.value + (x.checked ? '*' : '')).join(','));
+        const importer = document.getElementById('rorImporter');
+        if (importer) importer.click();
+        await venteTil(() => App.P.anlegg.length === antall + 1);
+        await senere();
+        this.sjekk('og gir et nytt anlegg – Makin-anlegget har like mange punkt som før',
+          App.P.anlegg.length === antall + 1 && finn(mId).ror.punkter.length === punkt,
+          `${antall} → ${App.P.anlegg.length}, ${finn(mId).ror.punkter.length} punkt`);
+      }
+
+      /* ---- «Lag en kopi» ---- */
+      let kId = null;
+      {
+        App.byttAnlegg(mId);
+        App.visFane('ror');
+        const antall = App.P.anlegg.length, poster = App.historikk.bakover.length;
+        const punktFoer = JSON.stringify(finn(mId).ror.punkter);
+        if (kopiknapp()) kopiknapp().click();
+        const k = App.anlegg();
+        kId = k.id;
+        this.sjekk('«Lag en kopi» gir et nytt, aktivt anlegg', App.P.anlegg.length === antall + 1 && kId !== mId,
+          `${antall} → ${App.P.anlegg.length}`);
+        this.sjekk('  rett etter originalen', App.P.anlegg.indexOf(k) === App.P.anlegg.findIndex(x => x.id === mId) + 1);
+        this.sjekk('  uten Makin-koblingen, med kopiAv', !!k.ror && !k.ror.makin && k.ror.kopiAv === mId, JSON.stringify(k.ror && k.ror.kopiAv));
+        this.sjekk('  med navnet «… (kopi)» og de samme punktene', k.navn === 'Prøvefelt Makin (kopi)'
+          && JSON.stringify(k.ror.punkter) === punktFoer, k.navn);
+        this.sjekk('  i ett angresteg', App.historikk.bakover.length === poster + 1,
+          `${poster} → ${App.historikk.bakover.length}`);
+        this.sjekk('kopien har «Importer rør» og «Importer nyere fil», ikke «Hent fra Makin»',
+          synlig('verktoyRorImport') && !synlig('verktoyRorMakin') && !!fane().querySelector('#rorImportNy'));
+        await App.angre();
+        this.sjekk('angre tar kopien bort', App.P.anlegg.length === antall && !finn(kId) && App.P.aktivt === mId);
+        await App.gjorOm();
+        this.sjekk('og gjør om gir den tilbake', !!finn(kId) && App.P.aktivt === kId);
+        const n = finn(kId) ? finn(kId).ror.punkter.length : 0;
+        const ok = await RorUI.importerTekst(this._rorXml(), 'asbuilts_Kopi.xml', {}, { sone: 32, maal: 'leggTil' });
+        this.sjekk('en fil kan legges til i kopien', ok === true && App.P.aktivt === kId && finn(kId).ror.punkter.length === n + 50
+          && App.P.anlegg.length === antall + 1, `${n} → ${finn(kId) && finn(kId).ror.punkter.length}`);
+      }
+
+      /* ---- en ny henting rører originalen, ikke kopien ---- */
+      {
+        const kopi = JSON.stringify(finn(kId).ror);
+        kø.push([{ navn: 'eksport.sos', tekst: this._makinSosi(sett(true)) }]);
+        const ok = await MakinUI.hent(finn(mId));
+        const ider = finn(mId).ror.punkter.map(p => p.id);
+        this.sjekk('en ny henting endrer originalen', ok === true && ider.includes('mk-13') && !ider.includes('mk-12'), ider.join(','));
+        this.sjekk('men ikke kopien', JSON.stringify(finn(kId).ror) === kopi);
+      }
+
+      /* ---- dobbelttellingen ---- */
+      {
+        const ider = () => App._innmalteRor().map(x => x.anlegg);
+        const telles = id => typeof App.telles === 'function' && App.telles(finn(id));
+        this.sjekk('_innmalteRor har kopien og ikke originalen', ider().includes(kId) && !ider().includes(mId) && ider().includes(vanligId),
+          ider().join(','));
+        this.sjekk('App.telles sier det samme', telles(kId) && !telles(mId) && telles(vanligId));
+        App.byttAnlegg(mId);
+        App.visFane('ror');
+        this.sjekk('rørfanen på originalen sier at kopien telles i stedet', /telles ikke/.test(fane().textContent));
+        App.byttAnlegg(kId);
+        const opasitet = [];
+        Kart.lag.andre.eachLayer(l => { if (l instanceof L.Polyline) opasitet.push(l.options.opacity); });
+        this.sjekk('kartet viser originalen dempet', opasitet.some(o => o < 0.55) && opasitet.some(o => o === 0.55),
+          [...new Set(opasitet)].join(','));
+        const i = App.P.anlegg.findIndex(x => x.id === kId);
+        const [ut] = App.P.anlegg.splice(i, 1);
+        this.sjekk('uten kopien har _innmalteRor originalen', ider().includes(mId) && telles(mId), ider().join(','));
+        App.P.anlegg.splice(i, 0, ut);
+      }
+
+      /* ---- rettingene er lov på Makin-anlegget ---- */
+      {
+        App.byttAnlegg(mId);
+        const r = finn(mId).ror;
+        const p = r.punkter.find(x => x.id === 'mk-4');
+        const [lat, lon] = Ror.tilLatLon(p, r.sone);
+        Kart.settModus('rorAv');
+        Kart.kart.setView([lat, lon], 19);
+        RorUI.kartklikk('rorAv', L.latLng(lat, lon));
+        this.sjekk('«rør av» virker på Makin-anlegget', finn(mId).ror.retting.av.includes('mk-4'), JSON.stringify(finn(mId).ror.retting.av));
+        Kart.settModus('rediger');
+      }
+    } finally {
+      MakinUI.klient = ekteKlient;
+      document.getElementById('dialog').classList.add('skjult');
       await this._rorTilbake(foer);
     }
   },

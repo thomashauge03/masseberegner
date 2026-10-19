@@ -206,7 +206,7 @@ const App = {
     // et tegnet røranlegg ('rorplan') er et røranlegg med en plan – se RorPlan; en rørskisse er en plan uten høyder
     const ror = type === 'ror' || type === 'rorplan' || type === 'rorskisse';
     const a = {
-      id: id || 'a' + Date.now().toString(36) + Math.floor(Math.random() * 1000).toString(36),
+      id: id || this._nyId(),
       type: type === 'tomt' ? 'tomt' : ror ? 'ror' : 'veg',
       navn: navn || (type === 'tomt' ? 'Tomt' : type === 'rorplan' ? 'Planlagte rør' : type === 'rorskisse' ? 'Rørskisse' : ror ? 'Rør' : 'Veg')
     };
@@ -245,6 +245,60 @@ const App = {
     a.plasser = [];
     a.stikkrenner = [];
     return a;
+  },
+
+  /** En ny anleggs-id – den samme kilden for et nytt anlegg og en kopi. */
+  _nyId() {
+    return 'a' + Date.now().toString(36) + Math.floor(Math.random() * 1000).toString(36);
+  },
+
+  /**
+   * «Lag en kopi»: et vanlig anlegg med alt det originalen har – punktene,
+   * rettingene, kodetabellen og grøftene – men uten Makin-koblingen.
+   *
+   * PUNKTENE I ET MAKIN-ANLEGG ER LÅST. De byttes bare ut av en ny henting, så
+   * massekalk alltid er likt Makin. Vil brukeren legge til en annen fil eller
+   * ha et øyeblikksbilde som ikke flytter seg, er det kopien som får det. Den
+   * merkes med `kopiAv`, og så lenge den finnes telles ikke originalen med
+   * (se `telles`) – ellers sto de samme rørene to ganger i rapporten.
+   *
+   * Kopien legges rett etter originalen og blir aktiv. Byttet er en del av
+   * kopieringen: ett angresteg, ikke to.
+   *
+   * @returns {?object} kopien, eller null om anlegget ikke finnes
+   */
+  kopierAnlegg(id) {
+    const a = this.P.anlegg.find(x => x.id === id);
+    if (!a) return null;
+    this.merk('kopi av anlegg');
+    const k = JSON.parse(JSON.stringify(a));
+    k.id = this._nyId();
+    k.navn = RorUI._ledigNavn((a.navn || 'Rør') + ' (kopi)');
+    if (k.ror) {
+      delete k.ror.makin;
+      k.ror.kopiAv = a.id;
+    }
+    this.P.anlegg.splice(this.P.anlegg.indexOf(a) + 1, 0, k);
+    this._ikkeMerk = true;
+    try { this.byttAnlegg(k.id); } finally { this._ikkeMerk = false; }
+    this.status(`«${k.navn}» er et vanlig røranlegg – filer kan legges til der. `
+      + `Så lenge kopien finnes, telles ikke «${a.navn || 'Rør'}» med i beregningene.`);
+    return k;
+  },
+
+  /**
+   * Om et anlegg skal telles med der innmålte rør legges sammen: rapporten,
+   * avviket mot innmålt, kryssingskontrollen, oversiktskartet og stikningen.
+   *
+   * ET MAKIN-ANLEGG MED EN KOPI TELLES IKKE. Kopien har de samme punktene (og
+   * kanskje flere), og med begge med sto hvert rør der to ganger – to like
+   * kryss i kontrollen, dobbel lengde i rapporten. Originalen vises fortsatt,
+   * dempet, og kan hentes på nytt. Lages flere kopier, er det brukerens sak å
+   * slette dem hen ikke vil ha med.
+   */
+  telles(a) {
+    if (!a || a.type !== 'ror' || !a.ror || !a.ror.makin) return true;
+    return !this.P.anlegg.some(x => x !== a && x.type === 'ror' && x.ror && x.ror.kopiAv === a.id);
   },
 
   /**
@@ -1324,10 +1378,14 @@ const App = {
     const plan = this.erPlan();
     // en rørskisse har bare strekene – ingen grøft, ingen kummer, ingen fallretning
     const skisse = this.erSkisse();
-    for (const id of ['verktoyRorImport', 'verktoyRorAv', 'verktoyRorBryt', 'verktoyRorKoble']) bytt(id, ror && !plan);
-    // «Hent fra Makin» henter på nytt – det finnes bare noe å hente på et anlegg som er koblet
+    for (const id of ['verktoyRorAv', 'verktoyRorBryt', 'verktoyRorKoble']) bytt(id, ror && !plan);
+    /* «Hent fra Makin» henter på nytt – det finnes bare noe å hente på et
+       anlegg som er koblet. Der er punktene låst, og «Importer rør» skal ikke
+       synes: en fil inn i et Makin-anlegg ville blitt borte ved neste henting. */
     const aktivt = this.anlegg();
-    bytt('verktoyRorMakin', ror && !plan && !!(aktivt && aktivt.ror && aktivt.ror.makin));
+    const makin = !!(aktivt && aktivt.ror && aktivt.ror.makin);
+    bytt('verktoyRorImport', ror && !plan && !makin);
+    bytt('verktoyRorMakin', ror && !plan && makin);
     for (const id of ['verktoyGroftStrekning', 'verktoyGroftSammen']) bytt(id, ror && !skisse);
     for (const id of ['verktoyTrase', 'verktoyTraseFil']) bytt(id, plan);
     for (const id of ['verktoyKum', 'verktoySnu']) bytt(id, plan && !skisse);
@@ -3615,6 +3673,8 @@ const App = {
     const ut = [];
     for (const a of this.P.anlegg) {
       if (a.type !== 'ror' || a.id === this.P.aktivt || !a.ror) continue;
+      // et Makin-anlegg med en kopi: kopien krysses i stedet – se `telles`
+      if (!this.telles(a)) continue;
       const linjer = bygde.get(a.id)
         || (a.ror.plan ? this.byggPlan(a) : Ror.byggLinjer(a.ror, a.mal, Ror.lagTilXY(a.ror.sone, this.sone))).linjer;
       for (const l of linjer) {
@@ -3629,12 +3689,14 @@ const App = {
   /**
    * De innmålte røranleggene i prosjektet, med rørene i regnesonen – til
    * avviket mot innmålt (RorAvvik). Rørene er de samme som kartet viser:
-   * rettingene gjelder, og et punkt som er slått av, er ikke med.
+   * rettingene gjelder, og et punkt som er slått av, er ikke med. Et
+   * Makin-anlegg med en kopi er ikke med – kopien er (se `telles`).
    */
   _innmalteRor() {
     const ut = [];
     for (const a of this.P.anlegg) {
       if (a.type !== 'ror' || !a.ror || a.ror.plan || !a.ror.punkter.length) continue;
+      if (!this.telles(a)) continue;
       const b = Ror.byggLinjer(a.ror, a.mal, Ror.lagTilXY(a.ror.sone, this.sone));
       ut.push({ anlegg: a.id, navn: a.navn || 'Rør', koder: a.ror.koder, linjer: b.linjer });
     }

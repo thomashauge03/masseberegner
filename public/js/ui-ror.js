@@ -45,7 +45,9 @@ const RorUI = {
         if (!filer.some(f => /\.(xml|sos|kof)$/i.test(f.name))) {
           this.app.status('Bare .xml-, .sos- og .kof-filer fra maskinstyringen kan slippes her'); return;
         }
-        await this.importerFiler(filer, {});
+        /* Står et Makin-anlegg oppe, kan fila ikke legges i det (se `_laast`) –
+           dialogen foreslår da et nytt anlegg i stedet for å la være å svare. */
+        await this.importerFiler(filer, this._laast(this.app.anlegg()) ? { nytt: true } : {});
       });
     }
     if (id('ror_velg')) id('ror_velg').onchange = e => this.velgLinje(e.target.value);
@@ -245,10 +247,24 @@ const RorUI = {
   /**
    * Innmålte røranlegg i prosjektet – de punktene kan legges i. Et tegnet
    * anlegg kan ikke få punkt lagt til: de ville havnet i `ror.punkter`, som et
-   * tegnet anlegg ikke bruker, og forsvunnet uten et ord.
+   * tegnet anlegg ikke bruker, og forsvunnet uten et ord. Et Makin-anlegg
+   * kan heller ikke (se `_laast`).
    */
   _innmalte() {
-    return this.app.P.anlegg.filter(a => a.type === 'ror' && a.ror && !a.ror.plan);
+    return this.app.P.anlegg.filter(a => a.type === 'ror' && a.ror && !a.ror.plan && !this._laast(a));
+  },
+
+  /**
+   * PUNKTENE I ET MAKIN-ANLEGG ER LÅST.
+   *
+   * De byttes bare ut av en ny henting, som gjør anlegget likt Makin. En fil
+   * lagt inn ved siden av ville blitt borte uten et ord ved neste trykk på
+   * «Hent fra Makin». Derfor er Makin-anlegget aldri et mål for en import –
+   * vil brukeren ha en fil inn, er det en kopi (`App.kopierAnlegg`) som får
+   * den. Arbeidet oppå punktene – rettinger, kodetabellen, grøftene – er lov.
+   */
+  _laast(a) {
+    return !!(a && a.type === 'ror' && a.ror && !a.ror.plan && a.ror.makin);
   },
 
   /** Det som er felles for én og flere filer: dialogen og innleggingen. `navnFra` gir navnet på et nytt anlegg. */
@@ -415,9 +431,11 @@ const RorUI = {
       const flere = les.kilder && les.kilder.length > 1;
       const feilFiler = les.feilFiler || [];
       /* Målene: alle innmålte røranlegg i prosjektet, det aktive først og valgt –
-         så kan filene flettes inn i ett anlegg uansett hvilket som er åpent. */
+         så kan filene flettes inn i ett anlegg uansett hvilket som er åpent.
+         Et Makin-anlegg er ikke med (se `_laast`); står det oppe, er et nytt
+         anlegg valgt. */
       const mal = this._innmalte().sort((x, y) => (y === aktivtRor) - (x === aktivtRor));
-      const forvalgt = valg.nytt || !aktivtRor ? 'nytt' : 'leggTil';
+      const forvalgt = valg.nytt || !aktivtRor || this._laast(aktivtRor) ? 'nytt' : 'leggTil';
       const maalverdi = x => (x === aktivtRor ? 'leggTil' : 'anlegg:' + x.id);
       innhold.innerHTML = `
         <p class="notis">${escapeHtml(filnavn)}${les.program ? ' · ' + escapeHtml(les.program) : ''}${les.dato ? ' · ' + escapeHtml(les.dato) : ''}</p>
@@ -540,6 +558,11 @@ const RorUI = {
       const id = svar.maal.slice('anlegg:'.length);
       a = P.anlegg.find(x => String(x.id) === id && innmalt(x)) || null;
     }
+    /* Et Makin-anlegg tar ikke imot filer (se `_laast`). Dialogen viser det
+       aldri som mål, men et svar kan komme andre veier – da blir det et nytt
+       anlegg, og statuslinja sier hvorfor. */
+    let sperret = null;
+    if (this._laast(a)) { sperret = a; a = null; }
     let melding;
     if (a) {
       /* DE NYE PUNKTENE REGNES OM TIL ANLEGGETS SONE – IKKE OMVENDT.
@@ -583,7 +606,8 @@ const RorUI = {
       const tomt = na && !app._harGeometri(na);
       if (P.ubestemt && tomt) { a.id = na.id; P.anlegg[P.anlegg.indexOf(na)] = a; }
       else P.anlegg.push(a);
-      melding = `${les.punkter.length} punkt importert som «${navn}»`;
+      melding = `${les.punkter.length} punkt importert som «${navn}»`
+        + (sperret ? ` – punktene i «${sperret.navn || 'Rør'}» kommer fra Makin og tar ikke imot filer` : '');
     }
     delete P.ubestemt;
     this.valgt = null;
@@ -754,10 +778,16 @@ const RorUI = {
         tegnes som <b>${escapeHtml(Ror.kanonisk(r, fra))}</b></span>
         <button class="knapp liten" data-skill="${escapeAttr(fra)}">Skill</button></li>`).join('')}</ul>` : '');
     const ret = r.retting;
+    const laast = this._laast(app.anlegg());
+    /* En kopi av dette Makin-anlegget finnes: det skal stå her at det ikke
+       telles, ellers lurer man på hvorfor rørene mangler i rapporten. */
+    const ikkeTalt = laast && !app.telles(app.anlegg());
     e.innerHTML = `
       <h3>${escapeHtml(app.anlegg().navn || 'Rør')}</h3>
       <p class="notis">${kilder || 'Ingen fil importert ennå.'}</p>
       ${r.makin && typeof MakinUI !== 'undefined' ? MakinUI.faneHtml(r) : ''}
+      ${ikkeTalt ? `<p class="notis">Det finnes en kopi av dette anlegget. Kopien telles i rapporten, avviket og
+        kryssingen – dette anlegget telles ikke, men står i kartet og kan hentes på nytt.</p>` : ''}
       ${s ? `<div class="sumrad"><span>Rør</span><span class="verdi">${s.antall} · ${t(s.lengde)} m</span></div>
       <div class="sumrad"><span>Overdekning</span><span class="verdi">${Ror.spenn(s.minOd, s.maksOd, v => t(v, 2))} m</span></div>` : ''}
       <h3>Rørene</h3>
@@ -774,9 +804,12 @@ const RorUI = {
       <h3>Retting</h3>
       <p class="notis">Slått av: ${ret.av.length} punkt · brudd: ${ret.brudd.length} · koblinger: ${ret.koble.length}.
         Bruk knappene i kartet for å rette.</p>
+      ${laast ? `<p class="notis">Punktene kommer fra Makin og byttes bare ut av «Hent fra Makin». Skal en annen
+        fil inn, eller vil du ha et øyeblikksbilde som står stille, lag en kopi – den er et vanlig røranlegg.</p>` : ''}
       <div class="knapperad">
         <button class="knapp" id="rorTilbakestill"${ret.av.length + ret.brudd.length + ret.koble.length ? '' : ' disabled'}>Tilbakestill rettinger</button>
-        <button class="knapp" id="rorImportNy">Importer nyere fil…</button>
+        ${laast ? '<button class="knapp" id="makinFaneKopi">Lag en kopi</button>'
+          : '<button class="knapp" id="rorImportNy">Importer nyere fil…</button>'}
       </div>`;
     GroftUI.koble(e);
     if (r.makin && typeof MakinUI !== 'undefined') MakinUI.kobleFane(e);
@@ -805,7 +838,11 @@ const RorUI = {
       app.tegnAlt();
       app.planlegg(30);
     };
-    e.querySelector('#rorImportNy').onclick = () => this.velgFil({});
+    // på et Makin-anlegg står «Lag en kopi» der «Importer nyere fil» ellers står
+    const nyFil = e.querySelector('#rorImportNy');
+    if (nyFil) nyFil.onclick = () => this.velgFil({});
+    const kopi = e.querySelector('#makinFaneKopi');
+    if (kopi) kopi.onclick = () => app.kopierAnlegg(app.P.aktivt);
     const etter = () => { app.tegnAlt(); app.planlegg(30); this.vis(); };
     for (const b of e.querySelectorAll('[data-sammen]')) {
       b.onclick = () => {

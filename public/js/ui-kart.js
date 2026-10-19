@@ -1478,9 +1478,13 @@ const Kart = {
         /* Rørene under vegen er nettopp det man vil se når vegen tegnes. */
         const b = Ror.byggLinjer(a.ror, a.mal || Ror.StandardRormal, Ror.lagTilXY(a.ror.sone, a.ror.sone));
         const ramme = L.latLngBounds([]);
+        /* Et Makin-anlegg med en kopi telles ikke (App.telles). Det tegnes
+           likevel – det kan hentes på nytt – men svakere enn bakgrunnen ellers,
+           så kopien oppå er den man ser. */
+        const opacity = !app.telles || app.telles(a) ? stil.opacity : 0.25;
         for (const l of b.linjer) {
           const p = l.punkter.map(q => Ror.tilLatLon(q, a.ror.sone));
-          L.polyline(p, Object.assign({}, stil, { dashArray: null, weight: 2 })).on('click', bytt).addTo(this.lag.andre);
+          L.polyline(p, Object.assign({}, stil, { dashArray: null, weight: 2, opacity })).on('click', bytt).addTo(this.lag.andre);
           ramme.extend(p);
         }
         if (ramme.isValid()) midt = ramme.getCenter();
