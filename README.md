@@ -226,6 +226,40 @@ anleggslista, «Rør (fra filer)» i førstevalget, eller slipp filene på karte
   strek, koble to ender. Rettingene står seg når en nyere fil importeres –
   punktene kjennes igjen på id-en i fila, og ingenting slettes stille.
 
+### Hent fra Makin
+
+Har du innmålingene i Makin' 3D, kan Massekalk hente dem rett fra skyen i stedet
+for at du eksporterer en fil. **⌀ Rør fra Makin** i anleggslista kobler til et
+prosjekt i Makin og henter punktene inn i et eget, nytt røranlegg; **☁ Hent fra
+Makin** i kartverktøyene på det anlegget henter alt på nytt. Ingenting hentes
+uten at du trykker, og Massekalk skriver aldri noe til Makin.
+
+* **Nøkkelen.** Lag en API-nøkkel i Makin (Profil → API-nøkler → Opprett ny
+  nøkkel) og lim den inn første gang. Den lagres bare i denne nettleseren
+  (`localStorage`, `massekalk.makin`) – aldri i prosjektet, angre-stegene,
+  eksportene eller på serveren. **Bytt nøkkel** og **Glem nøkkelen i denne
+  nettleseren** står i dialogene og i Rør-fanen. Kalla går gjennom Massekalks
+  egen server (Makin tillater ikke kall rett fra nettleseren); den sender nøkkelen
+  videre for hvert kall, lagrer den ikke og svarer med `no-store`.
+* **Koble til.** Du velger organisasjon, prosjekt, maskiner og koder (alt er
+  valgt fra start – fjern for eksempel kantstein og terreng). Valget lagres på
+  anlegget. Å koble til lager alltid et nytt anlegg, og er prosjektet alt koblet
+  til et, hentes det inn i det. Henter du på nytt, går det mot de samme valgene.
+* **Hentingen** ber Makin lage SOSI-fila, venter til den er klar og leser den
+  som en vanlig fil. Er eksporten for stor for ett svar, deles den i
+  tidsbolker som settes sammen her. Alt kommer inn som ett angresteg, eller
+  ingenting gjør det – feiler noe underveis, står anlegget som det var.
+* **Låsen: bare punktene.** Det går ikke an å legge en fil inn i et Makin-anlegg
+  (knappen er byttet ut, og anlegget står ikke som mål i importdialogen). Alt
+  annet virker som på et vanlig anlegg – rettinger, «samme rør», kodetabell og
+  grøfter – og **blir liggende når punktene hentes på nytt**. En retting på et
+  punkt som ikke finnes lenger, faller bort, og oppsummeringen sier hvor mange.
+* **Lag en kopi** (Rør-fanen) gir et vanlig røranlegg uten Makin-kobling, der
+  du kan importere filer og endre fritt; en ny henting rører det ikke. Så lenge
+  kopien finnes, telles ikke originalen i beregninger, rapporter, avvik og
+  eksporter for hele prosjektet – den vises dempet og kan hentes på nytt. Lager
+  du flere kopier, må du selv slette dem du ikke vil ha med.
+
 Rørene vises i kart, lengdeprofil og 3D (piltastene blar mellom dem), og får
 sin egen del i rapporten og PDF-en. I 3D står kummene: en tegnet kum som en
 sylinder fra bunnen av kumgropa opp til terrenget, en innmålt som en ring på
@@ -629,8 +663,22 @@ Stikkrennene mot fasit regnet for hånd på en rett veg: fylling på flatt terre
 uendret av en renne, en skjev renne (også i en stigning, og på terreng som
 faller langs vegen, der endene leses der renna krysser foten), sidebratt terreng med
 innløpet i grøftebunnen og renna dreid om utløpet for overdekningen, senking
-uten og med fall å gi, låste høyder, og det som ikke går. `npm test` kjører
-alle åtte.
+uten og med fall å gi, låste høyder, og det som ikke går.
+
+```bash
+node test/makinprove.js
+```
+
+Hent fra Makin: ZIP-leseren, proxyen (hvilke kall som slippes gjennom, adressene
+bygd av validerte parametre, `no-store`, at nøkkelen aldri står i et svar) og
+klienten (nøkkelen i lageret, ventingen på eksporten, deling i tidsbolker og
+feilmeldingene), alt mot en falsk `fetch` og laget testdata – Makin kalles aldri.
+`npm test` kjører alle ti.
+
+`test/makin-sonde.js` er ikke en del av `npm test`: en prøve du kjører selv, med
+din egen nøkkel i `MAKIN_NOKKEL`, mot en ekte eksport. Den skriver bare
+oppbygningen (antall, typer, linjer som `.PUNKT` eller `.KURVE`, om navn
+kolliderer mellom maskiner), aldri koordinater, navn, koder eller nøkkelen.
 
 ```bash
 node test/demo-ydestad.js
@@ -643,9 +691,11 @@ demoprosjektet til `public/demo/`.
 
 ```
 api/dtm/flis.js          henter og pakker en terrengflis (Vercel-funksjon)
+api/makin.js             smal proxy mot Makin' 3D: fast liste med kall, nøkkelen lagres aldri
 api/punkt.js             kontroll mot Kartverkets punkt-API
 api/sok.js               stedsnavn- og adressesøk
 lib/hoydedata.js         GeoTIFF-leser, flishenting og pakking
+lib/zip.js               ZIP-leser (eksporten fra Makin), uten avhengigheter
 server.js                lokal utviklingsserver som bruker de samme funksjonene
 vercel.json              utlegging
 
@@ -665,6 +715,8 @@ public/js/rorplan.js     planlagte rør: høydene, kummer, greiner, påkoblinger
 public/js/roreksport.js  rørene til KOF, LandXML, SOSI, DXF og GeoJSON – bunn, topp og gravebunn
 public/js/roravvik.js    planlagte rør mot innmålte: avvik i plan og høyde, dekning og toleranser
 public/js/traseimport.js traseer fra KOF og DXF
+public/js/makin.js       klienten mot Makin via /api/makin: nøkkelen, eksporten, tidsbolker
+public/js/ui-makin.js    Hent fra Makin i skjermen: knappene, nøkkel- og koblingsdialogen
 public/js/ui-ror*.js     rørene i skjermen: import, faner, profil, 3D
 public/js/ui-rorplan.js  planlagte rør i skjermen: tegning, redigering, Rør-fanen, punktfeltet
 public/js/ui-groft.js    grøfta i skjermen: Rør-fanen, verktøyene i kartet, normalgrøfta

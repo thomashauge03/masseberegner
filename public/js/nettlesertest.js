@@ -9725,7 +9725,9 @@ const Nettlesertest = {
         this.sjekk('  uten Makin-koblingen, med kopiAv', !!k.ror && !k.ror.makin && k.ror.kopiAv === mId, JSON.stringify(k.ror && k.ror.kopiAv));
         this.sjekk('  med navnet «… (kopi)» og de samme punktene', k.navn === 'Prøvefelt Makin (kopi)'
           && JSON.stringify(k.ror.punkter) === punktFoer, k.navn);
-        this.sjekk('  i ett angresteg', App.historikk.bakover.length === poster + 1,
+        /* Angrelista holder høyst `grense` steg: sent i en full kjøring er den full, og da
+           er «ett steg til» det samme som at lengden står på grensa. */
+        this.sjekk('  i ett angresteg', App.historikk.bakover.length === Math.min(poster + 1, App.historikk.grense),
           `${poster} → ${App.historikk.bakover.length}`);
         this.sjekk('kopien har «Importer rør» og «Importer nyere fil», ikke «Hent fra Makin»',
           synlig('verktoyRorImport') && !synlig('verktoyRorMakin') && !!fane().querySelector('#rorImportNy'));

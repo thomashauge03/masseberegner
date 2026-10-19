@@ -17,7 +17,7 @@ npm test
 ```
 
 (selvtesten, rørprøven, grøfteprøven, planprøven, eksportprøven, avviksprøven,
-traseprøven og stikkrenneprøven etter hverandre)
+traseprøven, stikkrenneprøven, utsnittprøven og Makin-prøven etter hverandre)
 
 Nettlesertesten kjøres ved å åpne programmet med `?test=1`, eller fra konsollen
 med `Nettlesertest.kjor()`. Utviklingstjeneren startes med `node server.js`
@@ -28,8 +28,9 @@ Ved siste lagring: **963 prøver i selvtesten, 280 i rørprøven
 planprøven (`test/rorplanprove.js`), 91 i eksportprøven
 (`test/roreksportprove.js`), 77 i avviksprøven (`test/roravvikprove.js`), 45 i
 traseprøven (`test/traseimportprove.js`), 68 i stikkrenneprøven
-(`test/stikkrenneprove.js`), 11 i utsnittprøven (`test/stikkutsnittprove.js`), 61 i anleggsprøven og 258 i tomteprøven, alle
-grønne; 1516 av 1516 i nettlesertesten.** «Klikk i modellen flytter snittet
+(`test/stikkrenneprove.js`), 11 i utsnittprøven (`test/stikkutsnittprove.js`), 195 i
+Makin-prøven (`test/makinprove.js`), 61 i anleggsprøven og 258 i tomteprøven, alle
+grønne; 1680 av 1680 i nettlesertesten (på grenen `makin-henting`).** «Klikk i modellen flytter snittet
 dit» i `veg3d` kan feile når vinduet emuleres 1440 × 900 i en mindre rute –
 klikket lander én rad ved siden av; det gjør den likt på `main`. «og merknaden
 sier det som gjelder nå» i `flereAnlegg` feilet én gang i hele runden og aldri
@@ -57,6 +58,63 @@ automatisk.** Delte prosjekt (database og innlogging) er holdt utenfor.
 Underveis ba brukeren om et **oversiktskart for rørene** – ett kart med alle
 typene i hver sin farge og tegnforklaring, og ett kart per type. Det kom foran
 resten av «Utenfor 3a».
+
+### Hent fra Makin – bygd, ikke prøvd mot en ekte eksport
+
+Spec: `docs/superpowers/specs/2026-10-19-makin-henting-design.md`. Plan:
+`docs/superpowers/plans/2026-10-19-makin-henting.md`. Grenen `makin-henting`
+(worktree), **ikke flettet inn i `main` og ikke pushet** – push til `main`
+deployer, så det venter på brukerens ja.
+
+Brukeren ba 2026-10-19 om å hente innmålingene rett fra Makin' 3D sin sky-API (ny
+nøkkeltype) i stedet for via filer. Delene:
+
+- **`api/makin.js`** – smal proxy (Vercel-funksjon, også i `RUTER` i `server.js`).
+  Fast liste med fem kall, stier bygd av validerte parametre (`orgId` og
+  `exportId` hele tall > 0, `projectId` og `systemUuids` UUID-er), aldri en
+  adresse fra klienten. Nøkkelen kommer i `Authorization`, sendes videre og
+  lagres eller logges aldri; alle svar har `Cache-Control: no-store`. Pakker ut
+  ZIP-fila på serveren og sender SOSI-teksten; `409` fra Makin blir «ikke klar»;
+  over 4 000 000 byte svarer den `413` (Vercel tåler ca. 4,5 MB).
+  `maxDuration: 30` i `vercel.json`. Eneste `POST` mot Makin er å starte eksporten.
+- **`lib/zip.js`** – liten ZIP-leser med `zlib.inflateRawSync`, ingen avhengigheter.
+- **`public/js/makin.js`** – klienten. Nøkkelen bare i
+  `localStorage['massekalk.makin']` som `{v:1, nokkel}` (try/catch som
+  `massekalk.kartvalg`). Starter eksporten, prøver igjen på «ikke klar» med øvre
+  grense, og deler i tidsbolker (`fromTimestamp`/`toTimestamp`) når SOSI-teksten
+  blir for stor. Feil blir `MakinFeil` med norsk tekst som aldri har nøkkelen i seg.
+- **`Ror.byttPunkter` / `Ror.rensRetting`** – byttet av hele punktsettet ved en
+  henting, og en retting på et punkt som er borte faller bort og telles.
+- **`public/js/ui-makin.js`** – «⌀ Rør fra Makin» i anleggslista (nytt, tomt
+  Makin-anlegg; er prosjektet alt koblet, hentes det inn i det) og «☁ Hent fra
+  Makin» i kartverktøyene på et Makin-anlegg. Nøkkeldialog (lim inn, bytt, glem)
+  og koblingsdialog (organisasjon, prosjekt, maskiner, koder). Én henting er
+  ett angresteg (`app.merk('hentet fra Makin')`), og anlegget endres først når alt
+  er hentet og lest uten feil. Bare brukerens trykk starter noe.
+- **Låsen** gjelder bare punktsettet: ingen fil kan importeres inn i et
+  Makin-anlegg. Rettinger, «samme rør», kodetabell og grøfter virker og blir
+  liggende ved ny henting. **«Lag en kopi»** (`App.kopierAnlegg`, i Rør-fanen):
+  vanlig røranlegg uten `ror.makin`, med `kopiAv`; originalen telles da ikke i
+  beregninger og eksporter for hele prosjektet (`App.telles`) og vises dempet.
+- **Prøver:** `test/makinprove.js` (195, med i `npm test`) og en del i
+  nettlesertesten, begge med falsk klient/`fetch` og oppdiktede punkt.
+  `test/makin-sonde.js` er en manuell sonde brukeren kjører med egen nøkkel.
+
+**Gjenstår:**
+
+- **Sonden mot en ekte eksport er ikke kjørt ennå.** Til den er det: `lesSOSI` er
+  uendret og leser bare `.PUNKT`. Kommer linjepunktene fra Makin ikke som `.PUNKT`,
+  eller kolliderer punktnavn mellom maskiner, kan punkt falle bort som «doble».
+  Da må `.KURVE` leses som punktrekker og/eller id få maskinen som prefiks
+  (`maskin|navn`, én eksport per maskin) – se «Avgjort etter gjennomlesingen» i
+  spesifikasjonen. Prøvene får da testdata i samme form.
+- Proxyen leser hele svaret fra Makin før 4 MB-sjekken, så minnet kan bli stort
+  på et enormt prosjekt. ZIP-grensen er 64 MB.
+- Delingen i tidsbolker legger midtpunktet i begge halvdeler; det går ut fra at
+  Makins `from`/`to` er inklusive. Ikke bekreftet.
+- «Lag en kopi» ligger i Retting-raden i Rør-fanen; kanskje den bør stå mer
+  framme.
+- Med ekte nøkkel er ingenting prøvd – det gjør brukeren selv.
 
 ### Utsnitt til stikning
 
