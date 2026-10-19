@@ -18,6 +18,7 @@ const PUBLIC_DIR = path.join(__dirname, 'public');
 
 const RUTER = {
   '/api/dtm/flis': require('./api/dtm/flis.js'),
+  '/api/makin': require('./api/makin.js'),
   '/api/punkt': require('./api/punkt.js'),
   '/api/sok': require('./api/sok.js')
 };
