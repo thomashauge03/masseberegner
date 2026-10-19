@@ -1085,6 +1085,26 @@ const Ror = (() => {
     return typeof d === 'number' && Number.isFinite(d) && d > 0 && d <= 3000 ? d : null;
   }
 
+  /**
+   * Det lesingen hoppet over, som korte tekster: «2 doble», «1 linje eller
+   * flate (bare punkt leses fra SOSI)» … Tom liste når ingenting ble hoppet
+   * over. Importdialogen og statuslinja etter en henting fra Makin bruker
+   * begge denne, så ordlyden står ett sted.
+   *
+   * @param {object} a  `advarsler` fra `lesFil` (summert av `slaSammenFiler`)
+   * @returns {string[]}
+   */
+  function hoppetOver(a) {
+    if (!a) return [];
+    return [
+      a.utenHoyde && `${a.utenHoyde} uten høyde`, a.ugyldige && `${a.ugyldige} med ugyldige tall`,
+      a.doble && `${a.doble} doble`, a.referanser && `${a.referanser} referanser til andre punkt`,
+      a.utenforUtm && `${a.utenforUtm} med koordinater utenfor UTM i Norge`,
+      a.ikkePunkt && `${a.ikkePunkt} ${a.ikkePunkt === 1 ? 'linje eller flate' : 'linjer eller flater'} (bare punkt leses fra SOSI)`,
+      a.tommeFiler && `${a.tommeFiler} ${a.tommeFiler === 1 ? 'fil' : 'filer'} uten punkt`
+    ].filter(Boolean);
+  }
+
   /** En kilde som én linje: fil · program · dato · antall – og omregningen, om den ble gjort. */
   function kildetekst(k) {
     return [k.fil, k.program, k.dato, `${k.antall} punkt`,
@@ -1316,7 +1336,7 @@ const Ror = (() => {
   return {
     lesFil, lesLandXML, lesSOSI, lesKOF, dekod, tolkKode, koderFra, byggLinjer, avstandTilStrekk,
     kanonisk, forslagSammen, slaaSammenKoder, skillKode, ikkeSamme,
-    lagTilXY, tilLatLon, erUtm, sjekkKoordinater, gjettSone, slaSammen, byttPunkter, rensRetting, slaSammenFiler, dimensjon, kildetekst, navnFraFil,
+    lagTilXY, tilLatLon, erUtm, sjekkKoordinater, gjettSone, slaSammen, byttPunkter, rensRetting, slaSammenFiler, dimensjon, hoppetOver, kildetekst, navnFraFil,
     korridor, profil, objekterLangs, objekterPaaLinjer, sammendrag, merknader, spenn,
     nyRor, StandardRormal, FARGER
   };

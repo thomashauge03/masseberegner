@@ -209,7 +209,7 @@ console.log('\n3. start: POST og kroppen til Makin');
 }
 
 /* ------------------------------------------------------------------ */
-console.log('\n4. hent: ZIP, bare .sos, base64');
+console.log('\n4. hent: ZIP, bare .sos og .sosi, base64');
 {
   const q = { hva: 'hent', org: ORG, prosjekt: PROSJEKT, eksport: '42' };
   const sos = Buffer.from('.PUNKT 1\n..NØ 1 2\n.SLUTT\n', 'latin1');      // Ø som én byte (latin1)
@@ -217,12 +217,15 @@ console.log('\n4. hent: ZIP, bare .sos, base64');
     { navn: 'lesmeg.txt', data: Buffer.from('ikke sosi') },
     { navn: 'mappe/', data: Buffer.alloc(0), metode: 0 },
     { navn: 'mappe/punkter.sos', data: sos },
-    { navn: 'LINJER.SOS', data: Buffer.from('.KURVE 1\n'), metode: 0 }
+    { navn: 'LINJER.SOS', data: Buffer.from('.KURVE 1\n'), metode: 0 },
+    { navn: 'lang/endelse.sosi', data: Buffer.from('.PUNKT 2\n'), metode: 0 },
+    { navn: 'ikke.sosix', data: Buffer.from('x'), metode: 0 }
   ]);
   const r = await kall(lagFetch(() => new Response(zip, { status: 200 })), q);
   const d = r.kode === 200 ? r.json() : {};
   paastand('hent: 200 {status:klar}', r.kode === 200 && d.status === 'klar', r.kode + ' ' + r.tekst.slice(0, 80));
-  paastand('hent: bare .sos-oppføringene', d.filer && d.filer.map(x => x.navn).join('|') === 'mappe/punkter.sos|LINJER.SOS', JSON.stringify(d.filer && d.filer.map(x => x.navn)));
+  paastand('hent: bare .sos- og .sosi-oppføringene', d.filer && d.filer.map(x => x.navn).join('|') === 'mappe/punkter.sos|LINJER.SOS|lang/endelse.sosi',
+    JSON.stringify(d.filer && d.filer.map(x => x.navn)));
   paastand('hent: rå bytes som base64 (tegnsettet er uberørt)', d.filer && Buffer.compare(Buffer.from(d.filer[0].base64, 'base64'), sos) === 0);
   paastand('hent: Cache-Control no-store', r.hoder['Cache-Control'] === 'no-store');
 
@@ -417,6 +420,28 @@ console.log('\n9. Klienten: nøkkelen i lageret');
   k.lagreNokkel('   ');
   paastand('en tom nøkkel lagres ikke', k.nokkel() === null);
 
+  /* Tegn som ikke kan stå i et HTTP-hode: fetch kastet TypeError, og det så ut
+     som «ingen kontakt» hver gang. Nå avvises nøkkelen der den limes inn. */
+  for (const [navn, rar] of [['et usynlig mellomrom (U+200B)', NOKKEL + '​'], ['typografiske anførselstegn', '“' + NOKKEL + '”'],
+    ['en æ', NOKKEL + 'æ'], ['et linjeskift inni', 'abc\ndef']]) {
+    const l = {};
+    const kn = Makin.lag({ fetch: lagRouter(() => fsvar(200, [])), lager: l, vent: async () => {} });
+    let e = null, svar;
+    try { svar = kn.lagreNokkel(rar); } catch (x) { e = x; }
+    paastand(`nøkkel med ${navn} avvises med MakinFeil «nokkel»`, e instanceof Makin.MakinFeil && e.art === 'nokkel' && svar === undefined,
+      e ? `${e.art}: ${e.message}` : 'kastet ikke');
+    paastand(`  …lagres ikke, og meldingen har ikke nøkkelen`, l[NOKKEL_LAGER] === undefined && kn.nokkel() === null
+      && !!e && !e.message.includes(NOKKEL) && /tegn/.test(e.message));
+  }
+  {
+    const l = {};
+    const kn = Makin.lag({ fetch: lagRouter(() => fsvar(200, [])), lager: l, vent: async () => {} });
+    paastand('mellomrom rundt trimmes, og vanlige ASCII-tegn går', kn.lagreNokkel('  ' + NOKKEL + '+/=_.~ \t') === true
+      && kn.nokkel() === NOKKEL + '+/=_.~', String(kn.nokkel()));
+    l[NOKKEL_LAGER] = JSON.stringify({ v: 1, nokkel: NOKKEL + '​' });
+    paastand('en ugyldig nøkkel som alt ligger lagret, gir null (nøkkeldialogen spør på nytt)', kn.nokkel() === null);
+  }
+
   lager[NOKKEL_LAGER] = '{ikke json';
   paastand('ødelagt innhold i lageret gir null', k.nokkel() === null);
   lager[NOKKEL_LAGER] = JSON.stringify({ v: 2, nokkel: NOKKEL });
@@ -477,6 +502,39 @@ console.log('\n10. Klienten: kall og feilarter');
   /* proxyen kan ekko noe uventet: nøkkelen skal likevel aldri videre i meldingen */
   const eko = await kasterArt('400 med nøkkelen i teksten', () => lagKlient(lagRouter(() => fsvar(400, { feil: AUTH }))).kall('organisasjoner', {}), 'makin');
   paastand('…lekker ikke nøkkelen i meldingen', eko && !eko.message.includes(NOKKEL), eko && eko.message);
+
+  /* Proxyens faste tekster: et prosjekt som er slettet eller flyttet i Makin
+     (404) skal si det, ikke «Makin svarte med en feil (502)». Bare tekstene i
+     lista slipper gjennom, og da som klientens egen tekst. */
+  const medFeil = (hva, status, feil) => kasterArt(`${status} «${feil}» på ${hva} gir «makin»`,
+    () => lagKlient(lagRouter(() => fsvar(status, { feil }))).kall(hva, { org: KLIENT_ORG, prosjekt: KLIENT_PROSJEKT }), 'makin');
+  const e404 = await medFeil('maskiner', 502, 'Makin svarte 404');
+  paastand('Makin 404 på et prosjekt: «Fant ikke prosjektet i Makin – er det slettet eller flyttet?»',
+    e404 && e404.message === 'Fant ikke prosjektet i Makin – er det slettet eller flyttet?', e404 && e404.message);
+  const e404h = await medFeil('hent', 502, 'Makin svarte 404');
+  paastand('…også når fila hentes', e404h && /Fant ikke prosjektet i Makin/.test(e404h.message), e404h && e404h.message);
+  const e404o = await medFeil('prosjekter', 502, 'Makin svarte 404');
+  paastand('Makin 404 på prosjektlista sier at organisasjonen ikke finnes', e404o && /Fant ikke organisasjonen/.test(e404o.message), e404o && e404o.message);
+  const e429 = await medFeil('koder', 502, 'Makin svarte 429');
+  paastand('Makin 429 ber brukeren vente', e429 && /for mange kall/.test(e429.message), e429 && e429.message);
+  const eZip = await medFeil('hent', 502, 'Kunne ikke lese ZIP-fila fra Makin');
+  paastand('en ZIP proxyen ikke kunne lese, sies med egne ord', eZip && /pakke ut/.test(eZip.message), eZip && eZip.message);
+  const eNa = await medFeil('organisasjoner', 502, 'Kunne ikke nå Makin');
+  paastand('«Kunne ikke nå Makin» blir «Serveren fikk ikke kontakt med Makin»', eNa && /Serveren fikk ikke kontakt/.test(eNa.message), eNa && eNa.message);
+  const e500 = await medFeil('maskiner', 502, 'Makin svarte 500');
+  paastand('en tekst som ikke står i lista, gir den generelle meldingen', e500 && e500.message === 'Makin svarte med en feil (502). Prøv igjen om litt.',
+    e500 && e500.message);
+  const eLekk = await medFeil('maskiner', 502, 'Makin svarte 404 ' + AUTH);
+  paastand('en tekst med nøkkelen i er ikke i lista – og lekker ikke', eLekk && !eLekk.message.includes(NOKKEL)
+    && !/Fant ikke/.test(eLekk.message), eLekk && eLekk.message);
+  const eProto = await medFeil('maskiner', 502, '__proto__');
+  paastand('«__proto__» som tekst gir den generelle meldingen', eProto && /Makin svarte med en feil \(502\)/.test(eProto.message), eProto && eProto.message);
+  const e400 = await medFeil('maskiner', 400, 'Makin svarte 404');
+  paastand('400 er alltid «feil i Massekalk», uansett tekst', e400 && /feil i Massekalk/.test(e400.message), e400 && e400.message);
+
+  /* den ekte proxyen gir nettopp den teksten for en 404 fra Makin */
+  const r404 = await kall(lagFetch(() => new Response('', { status: 404 })), { hva: 'maskiner', org: ORG, prosjekt: PROSJEKT });
+  paastand('proxyen svarer 502 «Makin svarte 404» når Makin svarer 404', r404.kode === 502 && r404.json().feil === 'Makin svarte 404', r404.tekst);
 }
 
 console.log('\n11. Klienten: hentEksport');
@@ -730,6 +788,52 @@ console.log('\n13. Prosjektfila: ror.makin og ror.kopiAv');
   paastand('et anlegg uten ror.makin får ingen', !('makin' in apne({})));
   paastand('ror.kopiAv blir stående', apne({ kopiAv: 'a9' }).kopiAv === 'a9');
   paastand('et ugyldig ror.kopiAv fjernes', !('kopiAv' in apne({ kopiAv: { id: 1 } })) && !('kopiAv' in apne({ kopiAv: '' })));
+}
+
+/* ------------------------------------------------------------------ */
+console.log('\n14. Klienten siler etter samme regler som proxyen');
+{
+  const { byggStart, UUID: PROXY_UUID, HELTALL } = require('../api/makin.js');
+  const godtar = kropp => { try { byggStart(kropp); return true; } catch (e) { return false; } };
+  const maskiner = [MASKIN, MASKIN.toUpperCase(), 'ikke-uuid', '', MASKIN + 'x', ' ' + MASKIN, null, 5, '0a1b2c3d111142228333444455556666'];
+  for (const m of maskiner) {
+    paastand(`maskin ${JSON.stringify(m)}: klienten og proxyen er enige`, Makin.gyldigUuid(m) === godtar({ systemer: [m] }),
+      `${Makin.gyldigUuid(m)} / ${godtar({ systemer: [m] })}`);
+  }
+  const koder = ['110 PE', 'vann 63', 'Ø', '', 'x'.repeat(100), 'x'.repeat(101), 'a\tb', 'a\nb', 'a\x7fb', 'RØR KUM', 5, null];
+  for (const k of koder) {
+    paastand(`kode ${JSON.stringify(k).slice(0, 30)}: klienten og proxyen er enige`, Makin.gyldigKode(k) === godtar({ koder: [k] }),
+      `${Makin.gyldigKode(k)} / ${godtar({ koder: [k] })}`);
+  }
+  for (const p of [PROSJEKT, 'ikke-uuid', PROSJEKT + '/../..', '']) {
+    paastand(`prosjekt ${JSON.stringify(p).slice(0, 30)}: klienten og proxyen er enige`, Makin.gyldigUuid(p) === PROXY_UUID.test(p));
+  }
+  for (const o of [1, 7, 9999999999, 10000000000, 0, -3, 1.5, '7', NaN]) {
+    const proxy = typeof o === 'number' && HELTALL.test(String(o));
+    paastand(`org ${String(o)}: klienten og proxyen er enige`, Makin.gyldigOrg(o) === proxy, `${Makin.gyldigOrg(o)} / ${proxy}`);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+console.log('\n15. Ror.hoppetOver: det lesingen hoppet over, med samme ordlyd overalt');
+{
+  const Ror = require('../public/js/ror.js');
+  const sosi = [
+    '.HODE', '..TEGNSETT UTF-8', '..TRANSPAR', '...KOORDSYS 22', '...ORIGO-NØ 6600000 500000', '...ENHET 0.001',
+    '.PUNKT 1:', '..NAME P1', '..OBJTYPE 110 PE', '..NØH', '10000 0 100000',
+    '.PUNKT 2:', '..NAME P1', '..OBJTYPE 110 PE', '..NØH', '20000 0 100000',
+    '.KURVE 3:', '..OBJTYPE 110 PE', '..NØH', '10000 0 100000', '20000 0 100000',
+    '.SLUTT'
+  ].join('\r\n');
+  const les = Ror.lesFil(sosi);
+  const h = Ror.hoppetOver(les.advarsler);
+  paastand('ett punkt lest', les.punkter.length === 1, String(les.punkter.length));
+  paastand('et dobbelt navn og en .KURVE står i lista', h.includes('1 doble') && h.includes('1 linje eller flate (bare punkt leses fra SOSI)'),
+    JSON.stringify(h));
+  paastand('ingenting hoppet over gir tom liste', Ror.hoppetOver({ utenHoyde: 0, doble: 0 }).length === 0 && Ror.hoppetOver(undefined).length === 0);
+  paastand('flertall og tomme filer', JSON.stringify(Ror.hoppetOver({ ikkePunkt: 2, tommeFiler: 1, utenforUtm: 3 }))
+    === JSON.stringify(['3 med koordinater utenfor UTM i Norge', '2 linjer eller flater (bare punkt leses fra SOSI)', '1 fil uten punkt']),
+    JSON.stringify(Ror.hoppetOver({ ikkePunkt: 2, tommeFiler: 1, utenforUtm: 3 })));
 }
 
 /* ------------------------------------------------------------------ */

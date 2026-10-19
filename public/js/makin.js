@@ -8,7 +8,8 @@
  * «massekalk.makin» som {v:1, nokkel}) og i Authorization-hodet på kall til
  * /api/makin. Den skal aldri inn i anlegget, angre-historikken, eksporter,
  * logger eller feilmeldinger: meldingene under bygges av status og faste
- * tekster, aldri av det proxyen svarer.
+ * tekster, aldri av det proxyen svarer (en av proxyens egne faste tekster kan
+ * velge hvilken av våre som vises – se PROXYFEIL – men kommer aldri med selv).
  *
  * FEIL. Alt som går galt kastes som MakinFeil med en `art` som kallestedet kan
  * velge tekst og knapp etter:
@@ -54,11 +55,49 @@ const Makin = (() => {
     return new Uint8Array(Buffer.from(b64, 'base64'));
   }
 
-  /** Meldingen til brukeren for en feilstatus. Aldri bygd av svarteksten. */
-  function feilFraStatus(status) {
+  /* Det proxyen godtar (api/makin.js: UUID, HELTALL, KONTROLLTEGN og grensene
+     i byggStart). Dialogen siler listene fra Makin med disse, så en maskin
+     eller kode proxyen ville avvist med 400, aldri kan krysses av.
+     test/makinprove.js sjekker at reglene her og i proxyen sier det samme. */
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const KONTROLLTEGN = /[\x00-\x1f\x7f]/;
+  const gyldigOrg = v => Number.isSafeInteger(v) && v > 0 && v <= 9999999999;
+  const gyldigUuid = v => typeof v === 'string' && UUID.test(v);
+  const gyldigKode = v => typeof v === 'string' && v.length > 0 && v.length <= 100 && !KONTROLLTEGN.test(v);
+
+  /* En nøkkel går i et HTTP-hode, og der er bare synlige ASCII-tegn lov. Et
+     usynlig mellomrom eller et typografisk anførselstegn fra kopieringen fikk
+     fetch til å kaste – og det så ut som at nettet var nede, hver gang. */
+  const NOKKELTEGN = /^[\x20-\x7e]+$/;
+  const UGYLDIG_NOKKEL = 'Nøkkelen har tegn som ikke kan være i en Makin-nøkkel (et usynlig tegn eller et '
+    + 'typografisk anførselstegn fra kopieringen?). Kopier den på nytt fra Makin og lim den inn igjen.';
+
+  /* Faste tekster fra proxyen som brukeren har nytte av å få vite om. Bare
+     disse, ordrett, slipper gjennom – og da som vår egen tekst, aldri som det
+     proxyen svarte. Alt annet blir den generelle meldingen. */
+  const PROXYFEIL = {
+    'Makin svarte 404': hva => (hva === 'prosjekter'
+      ? 'Fant ikke organisasjonen i Makin – har nøkkelen fortsatt tilgang til den?'
+      : 'Fant ikke prosjektet i Makin – er det slettet eller flyttet?'),
+    'Makin svarte 429': () => 'Makin har fått for mange kall akkurat nå. Vent et minutt og prøv igjen.',
+    'Makin svarte ikke i tide': () => 'Makin svarte ikke i tide. Prøv igjen om litt.',
+    'Kunne ikke nå Makin': () => 'Serveren fikk ikke kontakt med Makin. Prøv igjen om litt.',
+    'Kunne ikke lese ZIP-fila fra Makin': () => 'Makin sendte en fil Massekalk ikke kunne pakke ut. Prøv igjen om litt.',
+    'Makin ga et svar vi ikke forsto': () => 'Makin ga et svar Massekalk ikke forsto. Prøv igjen om litt.',
+    'Makin svarte uventet': () => 'Makin ga et svar Massekalk ikke forsto. Prøv igjen om litt.'
+  };
+
+  /**
+   * Meldingen til brukeren for en feilstatus. Aldri bygd av svarteksten:
+   * `feil` fra proxyen brukes bare som oppslag i PROXYFEIL.
+   */
+  function feilFraStatus(status, feil, hva) {
     if (status === 401) return new MakinFeil('Makin avviste nøkkelen. Legg inn nøkkelen på nytt.', 'nokkel');
     if (status === 413) return new MakinFeil('Svaret fra Makin ble for stort.', 'for stor');
     if (status === 400) return new MakinFeil('Makin-kallet var ugyldig. Dette er en feil i Massekalk, ikke hos deg.', 'makin');
+    if (typeof feil === 'string' && Object.prototype.hasOwnProperty.call(PROXYFEIL, feil)) {
+      return new MakinFeil(PROXYFEIL[feil](hva), 'makin');
+    }
     if (status === 504) return new MakinFeil('Makin svarte ikke i tide. Prøv igjen om litt.', 'makin');
     return new MakinFeil('Makin svarte med en feil (' + status + '). Prøv igjen om litt.', 'makin');
   }
@@ -76,16 +115,23 @@ const Makin = (() => {
         const raa = lagerNå()[LAGER_NOKKEL];
         if (!raa) return null;
         const j = JSON.parse(raa);
-        if (!j || j.v !== 1 || typeof j.nokkel !== 'string' || !j.nokkel.trim()) return null;
+        /* en nøkkel lagret før tegnene ble sjekket: spør heller på nytt enn å
+           la hvert kall feile som «ingen kontakt» */
+        if (!j || j.v !== 1 || typeof j.nokkel !== 'string' || !j.nokkel.trim() || !NOKKELTEGN.test(j.nokkel)) return null;
         return j.nokkel;
       } catch (e) { return null; }
     }
 
-    /** Lagrer nøkkelen (trimmet). Gir false om den er tom eller lageret er stengt. */
+    /**
+     * Lagrer nøkkelen (trimmet). Gir false om den er tom eller lageret er
+     * stengt, og kaster MakinFeil ('nokkel') om den har tegn som ikke kan stå
+     * i et HTTP-hode – meldingen kan vises som den er.
+     */
     function lagreNokkel(k) {
+      const t = typeof k === 'string' ? k.trim() : '';
+      if (!t) return false;
+      if (!NOKKELTEGN.test(t)) throw new MakinFeil(UGYLDIG_NOKKEL, 'nokkel');
       try {
-        const t = typeof k === 'string' ? k.trim() : '';
-        if (!t) return false;
         lagerNå()[LAGER_NOKKEL] = JSON.stringify({ v: 1, nokkel: t });
         return true;
       } catch (e) { return false; }
@@ -119,7 +165,9 @@ const Makin = (() => {
         try { return await r.json(); }
         catch (e) { throw new MakinFeil('Makin ga et svar Massekalk ikke forsto.', 'makin'); }
       }
-      throw feilFraStatus(r.status);
+      let feil = null;
+      try { const j = await r.json(); feil = j && j.feil; } catch (e) { /* ingen JSON: den generelle meldingen */ }
+      throw feilFraStatus(r.status, feil, hva);
     }
 
     /**
@@ -215,7 +263,7 @@ const Makin = (() => {
     return { nokkel, lagreNokkel, glemNokkel, kall, hentEksport };
   }
 
-  return { lag, MakinFeil };
+  return { lag, MakinFeil, gyldigOrg, gyldigUuid, gyldigKode };
 })();
 
 if (typeof module !== 'undefined') module.exports = Makin;

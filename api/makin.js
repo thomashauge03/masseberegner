@@ -22,7 +22,7 @@
  *
  * start tar JSON { systemer: uuid[]|null, koder: string[]|null, fra?, til? }
  * og svarer { eksport: <exportId> }. hent svarer { status:'klar', filer:[{navn,
- * base64}] } (bare .sos-fila, rå bytes – nettleseren dekoder tegnsettet), eller
+ * base64}] } (bare .sos-/.sosi-filene, rå bytes – nettleseren dekoder tegnsettet), eller
  * 202 { status:'venter' } når Makin ikke er ferdig (409).
  */
 
@@ -178,7 +178,7 @@ function lagHandler({ fetch }) {
         }
         return svar(200, {
           status: 'klar',
-          filer: filer.filter(f => /\.sos$/i.test(f.navn)).map(f => ({ navn: f.navn, base64: f.data.toString('base64') }))
+          filer: filer.filter(f => /\.sosi?$/i.test(f.navn)).map(f => ({ navn: f.navn, base64: f.data.toString('base64') }))
         });
       }
 
@@ -201,3 +201,7 @@ function lagHandler({ fetch }) {
 module.exports = lagHandler({ fetch: (...a) => fetch(...a) });
 module.exports.lagHandler = lagHandler;
 module.exports.lesKropp = lesKropp;
+/* For prøven som sjekker at klienten (public/js/makin.js) siler etter samme regler. */
+module.exports.byggStart = byggStart;
+module.exports.UUID = UUID;
+module.exports.HELTALL = HELTALL;

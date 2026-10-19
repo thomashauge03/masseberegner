@@ -51,18 +51,25 @@ const MakinUI = {
   async nyttAnlegg() {
     const app = this.app;
     if (this._holder) { app.status('Makin henter allerede – vent til den er ferdig'); return false; }
-    if (!this.klient.nokkel() && !(await this.nokkelDialog())) { app.status('Henting fra Makin avbrutt'); return false; }
+    if (!this.klient.nokkel() && !(await this._holdt(() => this.nokkelDialog()))) { app.status('Henting fra Makin avbrutt'); return false; }
     let valg;
-    try { valg = await this.koblingsdialog(); }
+    try { valg = await this._holdt(() => this.koblingsdialog()); }
     catch (e) { return this._feil(e, () => this.nyttAnlegg()); }
     if (!valg) { app.status('Henting fra Makin avbrutt'); return false; }
-    if (valg.byttNokkel) return (await this.nokkelDialog()) ? this.nyttAnlegg() : false;
+    if (valg.byttNokkel) return (await this._holdt(() => this.nokkelDialog())) ? this.nyttAnlegg() : false;
     if (valg.glemt) { app.status('Makin-nøkkelen er glemt i denne nettleseren'); return false; }
     const finnes = app.P.anlegg.find(a => a.type === 'ror' && a.ror && a.ror.makin
       && a.ror.makin.orgId === valg.orgId && a.ror.makin.prosjektId === valg.prosjektId) || null;
     /* Brukeren ba om rør fra Makin, og fikk dem i et anlegg som fantes – det
        skal stå, ellers leter man etter et nytt anlegg som aldri kom. */
-    if (finnes) valg.tillegg = ` · hentet inn i «${finnes.navn || 'Rør'}», som alt var koblet til prosjektet`;
+    if (finnes) {
+      valg.tillegg = ` · hentet inn i «${finnes.navn || 'Rør'}», som alt var koblet til prosjektet`;
+      /* Og har det en kopi, er det kopien som telles – ellers leter man i
+         rapporten etter punktene som nettopp kom inn. */
+      const kopi = !app.telles(finnes)
+        && app.P.anlegg.find(x => x !== finnes && x.type === 'ror' && x.ror && x.ror.kopiAv === finnes.id);
+      if (kopi) valg.tillegg += ` · telles ikke, kopien «${kopi.navn || 'Rør'}» gjør`;
+    }
     return this._hent(finnes, valg, () => this.nyttAnlegg());
   },
 
@@ -75,7 +82,7 @@ const MakinUI = {
     const app = this.app;
     if (!a || !a.ror || !a.ror.makin) return false;
     if (this._holder) { app.status('Makin henter allerede – vent til den er ferdig'); return false; }
-    if (!this.klient.nokkel() && !(await this.nokkelDialog())) { app.status('Henting fra Makin avbrutt'); return false; }
+    if (!this.klient.nokkel() && !(await this._holdt(() => this.nokkelDialog()))) { app.status('Henting fra Makin avbrutt'); return false; }
     const m = a.ror.makin;
     return this._hent(a, { orgId: m.orgId, prosjektId: m.prosjektId, prosjektnavn: m.prosjektnavn,
       systemer: m.systemer, koder: m.koder }, () => this.hent(a));
@@ -141,11 +148,12 @@ const MakinUI = {
   _les(filer) {
     const lest = [];
     const liste = filer || [];
+    let tomme = 0;
     for (const f of liste) {
       let les;
       try { les = Ror.lesFil(f.tekst); }
       catch (e) {
-        if (this._tomSosi(f.tekst, e)) continue;
+        if (this._tomSosi(f.tekst, e)) { tomme++; continue; }
         throw new Error('Fila fra Makin kunne ikke leses: ' + e.message);
       }
       const kk = Ror.sjekkKoordinater(les.punkter);
@@ -157,6 +165,9 @@ const MakinUI = {
     if (!liste.length) throw new Error('Makin sendte ingen fil – ingenting i anlegget er tømt eller endret');
     const les = lest.length === 0 ? null : lest.length === 1 ? lest[0].les : Ror.slaSammenFiler(lest);
     if (!les || !les.punkter.length) throw new Error(this.INGEN_PUNKT);
+    /* Tomme bolker ved siden av en med punkter: står i «hoppet over» sammen
+       med det lesingen hoppet over, så tallene i statuslinja går opp. */
+    if (tomme) les.advarsler = Object.assign({}, les.advarsler, { tommeFiler: tomme });
     return les;
   },
 
@@ -244,11 +255,13 @@ const MakinUI = {
       if (Kart.zoomTilRor) Kart.zoomTilRor();
     }
     const r = bytte.rettingerBorte;
-    const utenfor = les.advarsler && les.advarsler.utenforUtm;
+    /* Det lesingen hoppet over (doble navn, linjer, punkt uten høyde …) – med
+       samme ordlyd som «Hoppet over» i importdialogen. */
+    const hoppet = Ror.hoppetOver(les.advarsler);
     app.status(`${bytte.punkter.length} punkt fra Makin · ${bytte.nye} nye, ${bytte.borte} borte, ${bytte.endret} endret`
       + (r ? ` · ${r} ${r === 1 ? 'retting' : 'rettinger'} falt bort` : '')
       + (fra !== til ? ` · regnet om fra UTM ${fra} til anleggets UTM ${til}` : '')
-      + (utenfor ? ` · ${utenfor} punkt utenfor UTM i Norge ble hoppet over` : '')
+      + (hoppet.length ? ` · hoppet over: ${hoppet.join(', ')}` : '')
       + (valg.tillegg || ''));
   },
 
@@ -262,13 +275,26 @@ const MakinUI = {
     if (e && e.art === 'nokkel') {
       const hadde = !!this.klient.nokkel();
       if (hadde) app.status('⚠ Makin godtok ikke nøkkelen');
-      const ny = await this.nokkelDialog(hadde ? 'Makin godtok ikke nøkkelen. Lag en ny i Makin og lim den inn her.' : null);
+      const ny = await this._holdt(() => this.nokkelDialog(hadde ? 'Makin godtok ikke nøkkelen. Lag en ny i Makin og lim den inn her.' : null));
       if (ny && igjen) return igjen();
       if (!ny) app.status(hadde ? '⚠ Makin godtok ikke nøkkelen – ingenting er hentet' : 'Henting fra Makin avbrutt');
       return false;
     }
     app.status('⚠ ' + ((e && e.message) || 'Noe gikk galt med Makin'));
     return false;
+  },
+
+  /**
+   * `f` (en dialog) med `_holder` satt så lenge den står oppe. Et nytt trykk
+   * på «Hent» mens nøkkel- eller koblingsdialogen var åpen, la ellers en ny
+   * dialog over den første – og den førstes løfte ble aldri innfridd. `_holder`
+   * settes tilbake til det den var FØR et nytt forsøk startes, så «prøv igjen
+   * med den nye nøkkelen» ikke stenger seg selv ute.
+   */
+  async _holdt(f) {
+    const for_ = this._holder;
+    this._holder = true;
+    try { return await f(); } finally { this._holder = for_; }
   },
 
   /**
@@ -331,7 +357,17 @@ const MakinUI = {
       const bruk = () => {
         const k = felt.value.trim();
         if (!k) { melding.textContent = 'Lim inn nøkkelen først.'; melding.hidden = false; return; }
-        if (!this.klient.lagreNokkel(k)) {
+        let lagret;
+        /* En nøkkel med tegn som ikke kan stå i et HTTP-hode, kastes med en
+           melding som kan vises som den er (den inneholder aldri nøkkelen). */
+        try { lagret = this.klient.lagreNokkel(k); }
+        catch (e) {
+          felt.value = '';
+          melding.textContent = (e && e.message) || 'Nøkkelen kunne ikke brukes.';
+          melding.hidden = false;
+          return;
+        }
+        if (!lagret) {
           melding.textContent = 'Nettleseren lar ikke Massekalk lagre nøkkelen (privat vindu eller blokkert lagring?).';
           melding.hidden = false;
           return;
@@ -357,7 +393,7 @@ const MakinUI = {
   async koblingsdialog() {
     const k = this.klient;
     const liste = v => (Array.isArray(v) ? v : []);
-    const orger = liste(await k.kall('organisasjoner')).filter(o => o && Number.isInteger(o.id) && o.id > 0);
+    const orger = liste(await k.kall('organisasjoner')).filter(o => o && Makin.gyldigOrg(o.id));
     if (!orger.length) throw new Makin.MakinFeil('Nøkkelen gir ikke tilgang til noen organisasjon i Makin.', 'makin');
     return new Promise((los, avvis) => {
       const m = this._modal('Rør fra Makin', `
@@ -388,9 +424,12 @@ const MakinUI = {
          til det forrige er hentet, skal det forrige svaret ikke skrive over. */
       let tur = 0;
       const merket = sel => [...d.querySelectorAll(sel)];
+      /* Ingen hake i en liste som har bokser, gir ingenting å hente. Men en
+         liste uten bokser (Makin ga ingen maskiner eller koder) skal ikke sperre
+         knappen for godt: da sendes «alle» (null), og et tomt svar sier fra selv. */
+      const ingenValgt = sel => { const alle = merket(sel); return alle.length > 0 && !alle.some(x => x.checked); };
       const sjekk = () => {
-        hentKnapp.disabled = !velger.value || !merket('input[data-system]').some(x => x.checked)
-          || !merket('input[data-makinkode]').some(x => x.checked);
+        hentKnapp.disabled = !velger.value || ingenValgt('input[data-system]') || ingenValgt('input[data-makinkode]');
       };
       const lastLister = async () => {
         const min = ++tur;
@@ -404,8 +443,11 @@ const MakinUI = {
             k.kall('koder', { org: org(), prosjekt: uuid })]);
         } catch (e) { if (min === tur) feil(e); return; }
         if (min !== tur || m.erLukket()) return;
-        maskiner = liste(maskiner).filter(x => x && typeof x.systemUuid === 'string');
-        koder = liste(koder).filter(x => x && typeof x.codeName === 'string' && x.codeName);
+        /* Samme regler som proxyen (Makin.gyldigUuid/gyldigKode): det den ville
+           avvist med 400, kan ikke krysses av – ellers stoppet ett rart kodenavn
+           hele hentingen med «en feil i Massekalk». */
+        maskiner = liste(maskiner).filter(x => x && Makin.gyldigUuid(x.systemUuid));
+        koder = liste(koder).filter(x => x && Makin.gyldigKode(x.codeName));
         const antall = n => (Number.isFinite(n) ? ` <span class="notis">· ${n}</span>` : '');
         lister.innerHTML = `
           <fieldset class="rormaal makinliste"><legend>Maskiner</legend>${maskiner.length ? maskiner.map(x =>
@@ -429,7 +471,7 @@ const MakinUI = {
         try { svar = await k.kall('prosjekter', { org: org() }); }
         catch (e) { if (min === tur) feil(e); return; }
         if (min !== tur || m.erLukket()) return;
-        prosjekter = liste(svar).filter(p => p && typeof p.uuid === 'string' && p.uuid);
+        prosjekter = liste(svar).filter(p => p && Makin.gyldigUuid(p.uuid));
         if (!prosjekter.length) { velger.innerHTML = '<option value="">Ingen prosjekter i denne organisasjonen</option>'; return; }
         velger.innerHTML = (prosjekter.length > 1 ? '<option value="">Velg prosjekt …</option>' : '')
           + prosjekter.map(p => `<option value="${escapeAttr(p.uuid)}">${escapeHtml(p.name || p.uuid)}</option>`).join('');

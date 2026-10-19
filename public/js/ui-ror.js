@@ -412,13 +412,7 @@ const RorUI = {
       const innhold = document.getElementById('dialoginnhold');
       const lukkeknapp = document.getElementById('dialogLukk');
       document.getElementById('dialogtittel').textContent = 'Rør fra fil';
-      const a = les.advarsler;
-      const hoppet = [
-        a.utenHoyde && `${a.utenHoyde} uten høyde`, a.ugyldige && `${a.ugyldige} med ugyldige tall`,
-        a.doble && `${a.doble} doble`, a.referanser && `${a.referanser} referanser til andre punkt`,
-        a.utenforUtm && `${a.utenforUtm} med koordinater utenfor UTM i Norge`,
-        a.ikkePunkt && `${a.ikkePunkt} ${a.ikkePunkt === 1 ? 'linje eller flate' : 'linjer eller flater'} (bare punkt leses fra SOSI)`
-      ].filter(Boolean);
+      const hoppet = Ror.hoppetOver(les.advarsler);
       const antall = {};
       for (const p of les.punkter) antall[p.kode] = (antall[p.kode] || 0) + 1;
       const grunn = {

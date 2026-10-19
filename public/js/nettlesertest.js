@@ -9322,18 +9322,25 @@ const Nettlesertest = {
     const NOKKEL = 'oppdiktet-nokkel-proeve';
     const kø = [];            // det neste hentEksport svarer: filer, eller en feil som kastes
     const bestilt = [];       // det hentEksport ble bedt om
+    let ingenKoder = false;   // Makin gir en tom kodeliste
     const falsk = {
       _nokkel: NOKKEL,
       nokkel() { return this._nokkel; },
-      lagreNokkel(k) { this._nokkel = k; return true; },
+      /* Samme sjekk av tegnene som den ekte klienten (den kaster), men lagret her. */
+      lagreNokkel(k) { if (!Makin.lag({ lager: {} }).lagreNokkel(k)) return false; this._nokkel = k.trim(); return true; },
       glemNokkel() { this._nokkel = null; },
+      /* Listene har også oppføringer proxyen ville avvist med 400 (ikke en
+         uuid, en kode over 100 tegn, en kode med et kontrolltegn): de skal
+         aldri bli en avkrysningsboks. */
       async kall(hva) {
         if (hva === 'organisasjoner') return [{ id: 7, name: 'Oppdiktet Graving AS' }];
-        if (hva === 'prosjekter') return [{ id: 1, uuid: ANNET, name: 'Et annet felt' }, { id: 2, uuid: PROSJEKT, name: 'Prøvefelt Makin' }];
+        if (hva === 'prosjekter') return [{ id: 1, uuid: ANNET, name: 'Et annet felt' }, { id: 2, uuid: PROSJEKT, name: 'Prøvefelt Makin' },
+          { id: 3, uuid: '42', name: 'Rart prosjekt' }];
         if (hva === 'maskiner') return [{ systemUuid: M1, systemName: 'Gravemaskin 1', recordCount: 10 },
-          { systemUuid: M2, systemName: 'Gravemaskin 2', recordCount: 2 }];
-        if (hva === 'koder') return [{ codeName: '110 PE', recordCount: 8, firstLogged: '2026-10-01T08:00:00Z', lastLogged: '2026-10-02T08:00:00Z' },
-          { codeName: 'vann 63', recordCount: 4, firstLogged: '2026-10-01T08:00:00Z', lastLogged: '2026-10-02T08:00:00Z' }];
+          { systemUuid: M2, systemName: 'Gravemaskin 2', recordCount: 2 }, { systemUuid: 'ikke-en-uuid', systemName: 'Rar maskin', recordCount: 1 }];
+        if (hva === 'koder') return ingenKoder ? [] : [{ codeName: '110 PE', recordCount: 8, firstLogged: '2026-10-01T08:00:00Z', lastLogged: '2026-10-02T08:00:00Z' },
+          { codeName: 'vann 63', recordCount: 4, firstLogged: '2026-10-01T08:00:00Z', lastLogged: '2026-10-02T08:00:00Z' },
+          { codeName: 'x'.repeat(101), recordCount: 1 }, { codeName: 'rar\u0007kode', recordCount: 1 }];
         throw new Error('ukjent kall i prøven: ' + hva);
       },
       async hentEksport(valg, framdrift) {
@@ -9389,6 +9396,9 @@ const Nettlesertest = {
       this.sjekk('maskinene står med navn og antall, alle på', maskiner.length === 2 && maskiner.every(x => x.checked)
         && /Gravemaskin 1/.test(dialog().textContent) && /\b10\b/.test(dialog().textContent), String(maskiner.length));
       this.sjekk('kodene står med navn, alle på', koder.length === 2 && koder.every(x => x.checked) && /vann 63/.test(dialog().textContent));
+      this.sjekk('det proxyen ville avvist, står ikke i dialogen (rar uuid, for lang kode, kontrolltegn)',
+        !/Rar maskin|Rart prosjekt|rar.kode|xxxxxxxxxx/.test(dialog().textContent)
+        && !dialog().querySelector('#makinProsjekt option[value="42"]'), String(maskiner.length + koder.length));
       for (const x of maskiner) { x.checked = false; x.dispatchEvent(new Event('change')); }
       this.sjekk('uten maskiner kan ingenting hentes', document.getElementById('makinHent').disabled);
       for (const x of maskiner) { x.checked = true; x.dispatchEvent(new Event('change')); }
@@ -9476,9 +9486,18 @@ const Nettlesertest = {
           && dialog().querySelector('#makinNokkel').type === 'password');
         this.sjekk('og statuslinja sier at Makin ikke godtok den', /Makin godtok ikke nøkkelen/.test(linje()), linje());
         this.sjekk('«Husk på denne maskinen» står på', !!dialog().querySelector('#makinHusk') && dialog().querySelector('#makinHusk').checked);
+        /* Et nytt trykk på «Hent» mens nøkkeldialogen står oppe, la en ny dialog
+           over den første – og den førstes løfte ble aldri innfridd. */
+        const feltet = dialog().querySelector('#makinNokkel');
+        const iKo = kø.length, bestiltFoer = bestilt.length;
+        const andre = await Promise.race([MakinUI.hent(App.anlegg()), this.vent(1000).then(() => 'hang')]);
+        this.sjekk('et nytt «Hent» mens nøkkeldialogen er oppe, gjør ingenting', andre === false && bestilt.length === bestiltFoer
+          && kø.length === iKo && /Makin henter allerede/.test(linje()), `${andre} · ${linje()}`);
+        this.sjekk('  og det er fortsatt den samme dialogen', apen() && dialog().querySelector('#makinNokkel') === feltet);
         document.getElementById('makinNokkelAvbryt').click();
-        const ok3 = await avvist;
-        this.sjekk('avbrutt: prosjektet står byte-likt', ok3 === false && JSON.stringify(App.P) === bilde && !apen());
+        const ok3 = await Promise.race([avvist, this.vent(2000).then(() => 'hang')]);
+        this.sjekk('avbrutt: prosjektet står byte-likt', ok3 === false && JSON.stringify(App.P) === bilde && !apen(), String(ok3));
+        this.sjekk('  og en ny henting kan startes igjen etterpå', MakinUI._holder === false);
       }
 
       /* ---- en tom tidsbolk stopper ikke hentingen ----
@@ -9490,6 +9509,21 @@ const Nettlesertest = {
         this.sjekk('en tom bolk ved siden av en med punkter: hentingen går gjennom', ok === true
           && App.anlegg().ror.punkter.length === 12, linje());
         this.sjekk('  og statuslinja teller punktene', /^12 punkt fra Makin · 0 nye, 0 borte, 0 endret/.test(linje()), linje());
+        this.sjekk('  og sier at én fil var uten punkt', /· hoppet over: 1 fil uten punkt/.test(linje()), linje());
+      }
+
+      /* ---- det lesingen hoppet over, står i statuslinja ----
+         Et navn som står to ganger, og en .KURVE (bare punkt leses fra SOSI):
+         samme ordlyd som «Hoppet over» i importdialogen. */
+      {
+        const p = sett(true);
+        const sosi = this._makinSosi([...p, Object.assign({}, p[0])])
+          .replace(/\.SLUTT$/, ['.KURVE 99:', '..OBJTYPE 110 PE', '..NØH', '0 0 0', '1000 1000 0', '.SLUTT'].join('\r\n'));
+        kø.push([{ navn: 'eksport.sos', tekst: sosi }]);
+        const ok = await MakinUI.hent(App.anlegg());
+        this.sjekk('en fil med et dobbelt navn og en linje hentes', ok === true && App.anlegg().ror.punkter.length === 12, linje());
+        this.sjekk('  statuslinja sier at det doble navnet og linja ble hoppet over',
+          /· hoppet over: .*1 doble/.test(linje()) && /hoppet over: .*1 linje eller flate \(bare punkt leses fra SOSI\)/.test(linje()), linje());
       }
 
       /* ---- «Rør fra Makin» på et prosjekt som alt er koblet ---- */
@@ -9510,6 +9544,42 @@ const Nettlesertest = {
           /· hentet inn i «Prøvefelt Makin», som alt var koblet til prosjektet$/.test(linje()), linje());
       }
 
+      /* ---- det samme, når anlegget har en kopi: da er det kopien som telles ----
+         Og Makin gir ingen koder: da finnes ingen kodebokser, og «Hent» skal
+         likevel kunne trykkes (alle koder, null). */
+      {
+        const original = App.anlegg();
+        const kopi = App.nyttAnlegg('ror', 'Prøvefelt Makin (kopi)');
+        kopi.ror.kopiAv = original.id;
+        App.P.anlegg.push(kopi);
+        const antall = App.P.anlegg.length;
+        ingenKoder = true;
+        try {
+          kø.push([{ navn: 'eksport.sos', tekst: this._makinSosi(sett(true)) }]);
+          const igjen = MakinUI.nyttAnlegg();
+          await venteTil(() => apen() && dialog().querySelector('#makinProsjekt option[value="' + PROSJEKT + '"]'));
+          const v = dialog().querySelector('#makinProsjekt');
+          v.value = PROSJEKT;
+          v.dispatchEvent(new Event('change'));
+          await venteTil(() => dialog().querySelectorAll('input[data-system]').length === 2);
+          this.sjekk('uten koder fra Makin er det ingen kodebokser', dialog().querySelectorAll('input[data-makinkode]').length === 0
+            && /Ingen koder er logget/.test(dialog().textContent));
+          this.sjekk('  men «Hent punktene» kan trykkes', !document.getElementById('makinHent').disabled);
+          document.getElementById('makinHent').click();
+          const ok = await Promise.race([igjen, this.vent(3000).then(() => 'hang')]);
+          this.sjekk('  og hentingen går, med alle koder (null)', ok === true && bestilt[bestilt.length - 1].koder === null,
+            `${ok} · ${JSON.stringify(bestilt[bestilt.length - 1])}`);
+          this.sjekk('anlegget med en kopi får punktene, og ingen nytt anlegg', App.P.anlegg.length === antall
+            && App.P.aktivt === original.id, `${antall} → ${App.P.anlegg.length}`);
+          this.sjekk('  og statuslinja sier at kopien telles i stedet',
+            /som alt var koblet til prosjektet · telles ikke, kopien «Prøvefelt Makin \(kopi\)» gjør$/.test(linje()), linje());
+        } finally {
+          ingenKoder = false;
+          App.P.anlegg.splice(App.P.anlegg.indexOf(kopi), 1);
+          if (App.P.aktivt !== original.id) App.byttAnlegg(original.id);
+        }
+      }
+
       /* ---- bytt nøkkel fra rørfanen ---- */
       {
         App.visFane('ror');
@@ -9519,6 +9589,14 @@ const Nettlesertest = {
           lenke.click();
           await venteTil(() => apen() && dialog().querySelector('#makinNokkel'));
           const felt = dialog().querySelector('#makinNokkel');
+          /* et usynlig mellomrom fra kopieringen: fetch ville kastet ved hvert
+             kall, og det så ut som at nettet var nede */
+          felt.value = 'oppdiktet-rar-nokkel​';
+          document.getElementById('makinNokkelOk').click();
+          const melding = dialog().querySelector('#makinNokkelMelding');
+          this.sjekk('en nøkkel med et usynlig tegn avvises i dialogen, med en forklaring', apen() && !!melding && !melding.hidden
+            && /tegn/.test(melding.textContent) && falsk._nokkel === NOKKEL, melding && melding.textContent);
+          this.sjekk('  og feltet er tømt, så den limes inn på nytt', felt.value === '');
           felt.value = '  oppdiktet-ny-nokkel  ';
           document.getElementById('makinNokkelOk').click();
           await venteTil(() => !apen());

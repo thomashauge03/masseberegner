@@ -6,8 +6,11 @@
 //
 // Bruk (i egen terminal, med nøkkelen satt der, aldri i chatten):
 //   MAKIN_NOKKEL=...                      node test/makin-sonde.js   // lister organisasjoner (id og antall)
-//   MAKIN_NOKKEL=... MAKIN_ORG=<id>       node test/makin-sonde.js   // lister prosjekter (id og antall)
-//   MAKIN_NOKKEL=... MAKIN_ORG=<id> MAKIN_PROSJEKT=<id> node test/makin-sonde.js   // eksporterer og skriver struktur
+//   MAKIN_NOKKEL=... MAKIN_ORG=<id>       node test/makin-sonde.js   // lister prosjekter (uuid og antall)
+//   MAKIN_NOKKEL=... MAKIN_ORG=<id> MAKIN_PROSJEKT=<uuid> node test/makin-sonde.js   // eksporterer og skriver struktur
+//
+// MAKIN_PROSJEKT er prosjektets UUID – det samme proxyen, skjermbildet og
+// ror.makin.prosjektId bruker – ikke tall-id-en.
 //
 // Kaller Makin direkte (ikke proxyen). Node 18+, ingen avhengigheter.
 // Utpakkingen her er midlertidig; en skikkelig lib/zip.js kommer senere.
@@ -66,6 +69,15 @@ function liste(j) {
 }
 
 const ventMs = ms => new Promise(r => setTimeout(r, ms));
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Feltnavnene i første oppføring og typen til hvert felt – aldri verdiene.
+function skrivFeltnavn(hva, l) {
+  const e = l.find(x => x && typeof x === 'object');
+  if (!e) { console.log('  ' + hva + ': ingen oppføringer å vise feltnavn fra'); return; }
+  const felt = Object.keys(e).sort().map(k => k + ':' + (e[k] === null ? 'null' : Array.isArray(e[k]) ? 'liste' : typeof e[k]));
+  console.log('  ' + hva + ' – feltnavn i én oppføring: ' + felt.join(', '));
+}
 
 // ---------- Minimal ZIP-leser (sentralkatalog + inflateRaw, metode 0 og 8) ----------
 function lesZip(buf) {
@@ -178,15 +190,27 @@ async function main() {
   if (!PROSJEKT) {
     const pr = liste(await hentJson('/v1/organizations/' + org + '/projects', 'Henting av prosjekter'));
     console.log('Prosjekter: ' + pr.length);
-    for (const p of pr) console.log('  id=' + p.id + (p.uuid ? '  uuid=' + p.uuid : ''));
-    console.log('\nSett MAKIN_PROSJEKT til en av id-ene og kjør på nytt.');
+    for (const p of pr) console.log('  uuid=' + (typeof p.uuid === 'string' && p.uuid ? p.uuid : '(mangler)'));
+    console.log('\nSett MAKIN_PROSJEKT til en av uuid-ene og kjør på nytt.');
     return;
   }
+  if (!UUID.test(PROSJEKT)) stopp('MAKIN_PROSJEKT må være prosjektets uuid (ser slik ut: 123e4567-e89b-12d3-a456-426614174000).');
   const pid = encodeURIComponent(PROSJEKT);
   const rot = '/v1/organizations/' + org + '/projects/' + pid + '/geometry';
 
   const sys = liste(await hentJson(rot + '/systems', 'Henting av systemer'));
   console.log('Systemer: ' + sys.length + '  recordCount: [' + sys.map(s => s.recordCount).join(', ') + ']');
+  skrivFeltnavn('systems', sys);
+
+  /* koder-lista: navnene på feltene (aldri verdiene), så codeName, recordCount,
+     firstLogged og lastLogged kan sjekkes mot det klienten og dialogen bruker. */
+  const obj = liste(await hentJson(rot + '/objects', 'Henting av koder (objects)'));
+  console.log('Koder (objects): ' + obj.length);
+  skrivFeltnavn('objects', obj);
+  for (const f of ['codeName', 'recordCount', 'firstLogged', 'lastLogged']) {
+    const n = obj.filter(o => o && typeof o === 'object' && f in o).length;
+    console.log('  ' + f + ': finnes i ' + n + ' av ' + obj.length);
+  }
 
   const start = await hentJson(rot, 'Start av eksport', {
     method: 'POST',
