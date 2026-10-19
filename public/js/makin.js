@@ -27,6 +27,7 @@ const Makin = (() => {
   const VENTE_MS = 2000;
   const MAKS_FORSOK = 20;
   const DOGN_MS = 86400000;
+  const LUFT_MS = 1000;
 
   class MakinFeil extends Error {
     constructor(melding, art) {
@@ -134,10 +135,17 @@ const Makin = (() => {
       for (let n = 1; n <= MAKS_FORSOK; n++) {
         si('Venter på Makin (' + n + ') …');
         const svar = await kall('hent', { org: p.orgId, prosjekt: p.prosjektId, eksport });
-        if (svar && svar.status === 'klar' && Array.isArray(svar.filer)) {
+        if (svar && svar.status === 'klar') {
+          if (!Array.isArray(svar.filer)) throw new MakinFeil('Makin ga en fil Massekalk ikke forsto.', 'makin');
           si('Henter …');
-          return svar.filer.map(f => ({ navn: f.navn, tekst: rorDekod(base64TilBytes(f.base64)) }));
+          try {
+            return svar.filer.map(f => ({ navn: f.navn, tekst: rorDekod(base64TilBytes(f.base64)) }));
+          } catch (e) {
+            /* ugyldig base64 eller ei fil som ikke lar seg lese: aldri et rått unntak ut */
+            throw new MakinFeil('Makin ga en fil Massekalk ikke forsto.', 'makin');
+          }
         }
+        if (!svar || svar.status !== 'venter') throw new MakinFeil('Makin ga et svar Massekalk ikke forsto.', 'makin');
         if (n < MAKS_FORSOK) await doVent(VENTE_MS);
       }
       throw new MakinFeil('Makin ble ikke ferdig med fila', 'venter');
@@ -153,11 +161,13 @@ const Makin = (() => {
         if (!isNaN(a) && a < minst) minst = a;
         if (!isNaN(b) && b > mest) mest = b;
       }
-      if (minst <= mest) return [minst, mest];
+      /* Litt luft i begge ender: er Makins fra/til utelukkende eller avrundet,
+         ville punktene ytterst ellers falt stille bort i en halv henting. */
+      if (minst <= mest) return [minst - LUFT_MS, mest + LUFT_MS];
       const til = naMs();
       const fra = new Date(til);
       fra.setUTCFullYear(fra.getUTCFullYear() - 10);
-      return [fra.getTime(), til];
+      return [fra.getTime() - LUFT_MS, til + LUFT_MS];
     }
 
     /**

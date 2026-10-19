@@ -546,9 +546,11 @@ console.log('\n11. Klienten: hentEksport');
     paastand('tre starter: hele, første halvdel, andre halvdel', starter.length === 3, String(starter.length));
     const mid = new Date((Date.parse(FRA) + Date.parse(TIL)) / 2).getTime();
     paastand('første halvdel går fra første til midten av perioden',
-      starter[1] && Date.parse(starter[1].fra) === Date.parse(FRA) && Date.parse(starter[1].til) === mid, JSON.stringify(starter[1]));
+      starter[1] && Date.parse(starter[1].fra) === Date.parse(FRA) - 1000 && Date.parse(starter[1].til) === mid, JSON.stringify(starter[1]));
     paastand('andre halvdel går fra midten til siste',
-      starter[2] && Date.parse(starter[2].fra) === mid && Date.parse(starter[2].til) === Date.parse(TIL), JSON.stringify(starter[2]));
+      starter[2] && Date.parse(starter[2].fra) === mid && Date.parse(starter[2].til) === Date.parse(TIL) + 1000, JSON.stringify(starter[2]));
+    paastand('hele perioden har luft utenfor første og siste tidspunkt (ingen tap om fra/til er utelukkende)',
+      starter[1] && starter[2] && Date.parse(starter[1].fra) < Date.parse(FRA) && Date.parse(starter[2].til) > Date.parse(TIL));
     paastand('periodens ytterkanter kommer fra koder-lista (null hoppes over)', f.logg.some(c => c.hva === 'koder'));
     paastand('framdrift sier fra om delingen', tekster.some(t => /deler|i deler/i.test(t)), JSON.stringify(tekster));
   }
@@ -579,7 +581,7 @@ console.log('\n11. Klienten: hentEksport');
     const starter = f.logg.filter(c => c.hva === 'start').map(c => c.kropp);
     const ti = new Date(NA); ti.setUTCFullYear(ti.getUTCFullYear() - 10);
     paastand('uten tidspunkt i koder deles de siste 10 årene til nå',
-      starter.length === 3 && Date.parse(starter[1].fra) === ti.getTime() && Date.parse(starter[2].til) === NA, JSON.stringify(starter));
+      starter.length === 3 && Date.parse(starter[1].fra) === ti.getTime() - 1000 && Date.parse(starter[2].til) === NA + 1000, JSON.stringify(starter));
   }
 
   /* 11g: deler videre til hver del er under grensen, men aldri smalere enn ett døgn */
@@ -604,10 +606,22 @@ console.log('\n11. Klienten: hentEksport');
       if (k.hva === 'start') return fsvar(200, { eksport: ++id2 });
       const k0 = f2.logg.filter(c => c.hva === 'start')[Number(k.q.eksport) - 1].kropp;
       const dogn = !k0.fra ? 99 : (Date.parse(k0.til) - Date.parse(k0.fra)) / 86400000;
-      return dogn > 2 ? fsvar(413, { feil: 'for stor' }) : klarSvar('d' + k.q.eksport + '.sos');
+      return dogn > 2.01 ? fsvar(413, { feil: 'for stor' }) : klarSvar('d' + k.q.eksport + '.sos');
     });
     const ut = await lagKlient(f2).hentEksport(parm);
     paastand('deler til hver del er under grensen og gir alle delene', ut.filer.length === 4 && ut.filer.every(x => x.tekst.length > 0), String(ut.filer.length));
+  }
+
+  /* 11i: filer som ikke lar seg lese, og svar vi ikke kjenner, er «makin» – aldri et rått unntak */
+  {
+    const med = svar => lagRouter(k => k.hva === 'start' ? fsvar(200, { eksport: 1 }) : svar);
+    await kasterArt('ugyldig base64 kaster «makin»', () => lagKlient(med(fsvar(200, { status: 'klar', filer: [{ navn: 'a.sos', base64: '%%%ikke base64%%%' }] }))).hentEksport(parm), 'makin');
+    await kasterArt('klar uten filer-liste kaster «makin»', () => lagKlient(med(fsvar(200, { status: 'klar', filer: 'a.sos' }))).hentEksport(parm), 'makin');
+    await kasterArt('fil uten base64 kaster «makin»', () => lagKlient(med(fsvar(200, { status: 'klar', filer: [{ navn: 'a.sos' }] }))).hentEksport(parm), 'makin');
+    const f = med(fsvar(200, { status: 'ukjent' }));
+    const k = lagKlient(f);
+    await kasterArt('ukjent status kaster «makin» i stedet for å vente', () => k.hentEksport(parm), 'makin');
+    paastand('…uten å prøve igjen', f.logg.filter(c => c.hva === 'hent').length === 1 && k.ventet.length === 0);
   }
 
   /* 11h: andre feil underveis stopper */
