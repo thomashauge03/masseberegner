@@ -9466,6 +9466,9 @@ const Nettlesertest = {
         const tom = await MakinUI.hent(App.anlegg());
         this.sjekk('et svar uten punkter lar prosjektet stå byte-likt', tom === false && JSON.stringify(App.P) === bilde
           && App.historikk.bakover.length === poster, linje());
+        this.sjekk('og statuslinja sier at ingenting i anlegget er tømt',
+          linje() === '⚠ Makin sendte ingen innmålte punkt for de valgte maskinene og kodene – ingenting i anlegget er tømt eller endret',
+          linje());
         kø.push(new Makin.MakinFeil('Makin avviste nøkkelen. Legg inn nøkkelen på nytt.', 'nokkel'));
         const avvist = MakinUI.hent(App.anlegg());
         await venteTil(() => apen() && dialog().querySelector('#makinNokkel'));
@@ -9476,6 +9479,35 @@ const Nettlesertest = {
         document.getElementById('makinNokkelAvbryt').click();
         const ok3 = await avvist;
         this.sjekk('avbrutt: prosjektet står byte-likt', ok3 === false && JSON.stringify(App.P) === bilde && !apen());
+      }
+
+      /* ---- en tom tidsbolk stopper ikke hentingen ----
+         En stor eksport hentes i bolker, og en bolk uten innmålinger (en
+         ferie) kommer som en SOSI med bare hodet. */
+      {
+        kø.push([{ navn: 'eksport.sos', tekst: this._makinSosi([]) }, { navn: 'eksport.sos', tekst: this._makinSosi(sett(true)) }]);
+        const ok = await MakinUI.hent(App.anlegg());
+        this.sjekk('en tom bolk ved siden av en med punkter: hentingen går gjennom', ok === true
+          && App.anlegg().ror.punkter.length === 12, linje());
+        this.sjekk('  og statuslinja teller punktene', /^12 punkt fra Makin · 0 nye, 0 borte, 0 endret/.test(linje()), linje());
+      }
+
+      /* ---- «Rør fra Makin» på et prosjekt som alt er koblet ---- */
+      {
+        const antall = App.P.anlegg.length;
+        kø.push([{ navn: 'eksport.sos', tekst: this._makinSosi(sett(true)) }]);
+        const igjen = MakinUI.nyttAnlegg();
+        await venteTil(() => apen() && dialog().querySelector('#makinProsjekt option[value="' + PROSJEKT + '"]'));
+        const v = dialog().querySelector('#makinProsjekt');
+        v.value = PROSJEKT;
+        v.dispatchEvent(new Event('change'));
+        await venteTil(() => dialog().querySelectorAll('input[data-makinkode]').length === 2);
+        document.getElementById('makinHent').click();
+        const ok = await igjen;
+        this.sjekk('samme Makin-prosjekt gir ikke et anlegg til', ok === true && App.P.anlegg.length === antall,
+          `${antall} → ${App.P.anlegg.length}`);
+        this.sjekk('  og statuslinja sier hvor punktene havnet',
+          /· hentet inn i «Prøvefelt Makin», som alt var koblet til prosjektet$/.test(linje()), linje());
       }
 
       /* ---- bytt nøkkel fra rørfanen ---- */

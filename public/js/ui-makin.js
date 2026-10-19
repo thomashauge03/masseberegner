@@ -60,6 +60,9 @@ const MakinUI = {
     if (valg.glemt) { app.status('Makin-nøkkelen er glemt i denne nettleseren'); return false; }
     const finnes = app.P.anlegg.find(a => a.type === 'ror' && a.ror && a.ror.makin
       && a.ror.makin.orgId === valg.orgId && a.ror.makin.prosjektId === valg.prosjektId) || null;
+    /* Brukeren ba om rør fra Makin, og fikk dem i et anlegg som fantes – det
+       skal stå, ellers leter man etter et nytt anlegg som aldri kom. */
+    if (finnes) valg.tillegg = ` · hentet inn i «${finnes.navn || 'Rør'}», som alt var koblet til prosjektet`;
     return this._hent(finnes, valg, () => this.nyttAnlegg());
   },
 
@@ -125,25 +128,45 @@ const MakinUI = {
    * alt, så et tomt svar – en eksport som gikk galt hos Makin, eller maskiner
    * og koder som ikke har noe – ville tømt anlegget og tatt rettingene med
    * seg. Det skal ingen trykk på «Hent» gjøre uten et ord.
+   *
+   * MEN ÉN TOM FIL ER IKKE ET TOMT SVAR. En stor eksport hentes i tidsbolker,
+   * og en bolk kan være tom (en fellesferie uten innmålinger). `Ror.lesSOSI`
+   * kaster «Fant ingen innmålte punkter i fila» for en SOSI uten punkter – som
+   * feil ved import av én fil er det riktig, men her stoppet det hele
+   * hentingen, og et stort prosjekt kunne aldri hentes. En SOSI-fil uten
+   * punkter telles derfor som null punkt, og feilen kommer først når det er
+   * null punkt i ALLE filene. (lesSOSI selv står urørt til sonden har sett en
+   * ekte eksport.)
    */
   _les(filer) {
     const lest = [];
-    for (const f of filer || []) {
+    const liste = filer || [];
+    for (const f of liste) {
       let les;
       try { les = Ror.lesFil(f.tekst); }
-      catch (e) { throw new Error('Fila fra Makin kunne ikke leses: ' + e.message); }
+      catch (e) {
+        if (this._tomSosi(f.tekst, e)) continue;
+        throw new Error('Fila fra Makin kunne ikke leses: ' + e.message);
+      }
       const kk = Ror.sjekkKoordinater(les.punkter);
       if (kk.melding) throw new Error(kk.melding);
       les.punkter = kk.punkter;
       les.advarsler.utenforUtm = kk.utenfor;
       lest.push({ les, filnavn: f.navn });
     }
-    if (!lest.length) throw new Error('Makin sendte ingen fil – ingenting er endret');
-    const les = lest.length === 1 ? lest[0].les : Ror.slaSammenFiler(lest);
-    if (!les.punkter.length) {
-      throw new Error('Makin sendte ingen innmålte punkt for de valgte maskinene og kodene – ingenting er endret');
-    }
+    if (!liste.length) throw new Error('Makin sendte ingen fil – ingenting i anlegget er tømt eller endret');
+    const les = lest.length === 0 ? null : lest.length === 1 ? lest[0].les : Ror.slaSammenFiler(lest);
+    if (!les || !les.punkter.length) throw new Error(this.INGEN_PUNKT);
     return les;
+  },
+
+  INGEN_PUNKT: 'Makin sendte ingen innmålte punkt for de valgte maskinene og kodene – '
+    + 'ingenting i anlegget er tømt eller endret',
+
+  /** En SOSI-fil som bare mangler punkter – ikke en fil som ikke kan leses. */
+  _tomSosi(tekst, feil) {
+    return /^\s*\.HODE\b/.test(String(tekst || '').replace(/^﻿/, ''))
+      && /^Fant ingen innmålte punkter i fila/.test(feil && feil.message);
   },
 
   /**
@@ -225,7 +248,8 @@ const MakinUI = {
     app.status(`${bytte.punkter.length} punkt fra Makin · ${bytte.nye} nye, ${bytte.borte} borte, ${bytte.endret} endret`
       + (r ? ` · ${r} ${r === 1 ? 'retting' : 'rettinger'} falt bort` : '')
       + (fra !== til ? ` · regnet om fra UTM ${fra} til anleggets UTM ${til}` : '')
-      + (utenfor ? ` · ${utenfor} punkt utenfor UTM i Norge ble hoppet over` : ''));
+      + (utenfor ? ` · ${utenfor} punkt utenfor UTM i Norge ble hoppet over` : '')
+      + (valg.tillegg || ''));
   },
 
   /**
