@@ -846,9 +846,90 @@ console.log('\n22. Samme rør, ulike koder: forslag og sammenslåing');
 }
 
 /* ------------------------------------------------------------------ */
+console.log('\n23. Leica iCON: koden i navnet med teller, og linjene fra fila');
+{
+  /* Oppdiktet. Slik skriver iCON: CgPoint uten kode, koden som navn med en
+     teller rett bak («SP 160», «SP 1601» …), en ny serie med «(2)» etter,
+     linjene som PlanFeature med strekk som peker på punktene, og sonen i
+     HexagonLandXML. Spillvannsrøret er målt i en sikksakk som gjettingen ville
+     trukket annerledes: 0 → 2 → 1 (punkt 1 ligger nærmest punkt 0). */
+  const pkt = (navn, n, o, z) => `<CgPoint name="${navn}" oID="${navn}" timeStamp="2026-05-01T08:00:00">${n} ${o} ${z}</CgPoint>`;
+  const strekk = (a, b) => `<Line><Start pntRef="${a}">0 0 0</Start><End pntRef="${b}">0 0 0</End></Line>`;
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<LandXML version="1.2" date="2026-05-02" xmlns="http://www.landxml.org/schema/LandXML-1.2"><Units><Metric linearUnit="meter"/></Units>
+<CgPoints>${[
+    pkt('SP 160', 6600000, 500000, 100), pkt('SP 1601', 6600001, 500000, 100), pkt('SP 1602', 6600010, 500000, 99.9),
+    pkt('MUR', 6600000, 500050, 101), ...Array.from({ length: 10 }, (_, i) => pkt('MUR' + (i + 1), 6600000 + 3 * (i + 1), 500050, 101)),
+    pkt('GRØFT(2)', 6600100, 500100, 102), pkt('GRØFT1(2)', 6600105, 500100, 102), pkt('GRØFT13', 6600110, 500100, 102),
+    pkt('1487', 6600200, 500200, 90)].join('')}</CgPoints>
+<PlanFeatures>
+<PlanFeature name="SP 160-&gt;SP 1601"><CoordGeom>${strekk('SP 160', 'SP 1602')}${strekk('SP 1602', 'SP 1601')}</CoordGeom></PlanFeature>
+<PlanFeature name="MUR-&gt;MUR10"><CoordGeom>${Array.from({ length: 10 }, (_, i) => strekk(i ? 'MUR' + i : 'MUR', 'MUR' + (i + 1))).join('')}</CoordGeom></PlanFeature>
+<PlanFeature name="KANT"><CoordGeom>${strekk('GRØFT(2)', 'GRØFT1(2)')}${strekk('GRØFT1(2)', 'GRØFT13')}${strekk('GRØFT13', 'FINNES IKKE')}</CoordGeom></PlanFeature>
+</PlanFeatures>
+<HexagonLandXML><CoordinateSystem name="Euref89 UTM32Utv." type="classic"></CoordinateSystem></HexagonLandXML>
+</LandXML>`;
+  const les = Ror.lesFil(xml);
+  const kode = id => (les.punkter.find(p => p.id === id) || {}).kode;
+  paastand('«SP 1601» og «SP 1602» er «SP 160» – ikke «SP»', kode('SP 1601') === 'SP 160' && kode('SP 1602') === 'SP 160',
+    kode('SP 1601') + ' / ' + kode('SP 1602'));
+  paastand('«MUR10» er «MUR», ikke «MUR1»', kode('MUR10') === 'MUR', kode('MUR10'));
+  paastand('en ny serie med «(2)» har samme kode', kode('GRØFT1(2)') === 'GRØFT' && kode('GRØFT13') === 'GRØFT',
+    kode('GRØFT1(2)') + ' / ' + kode('GRØFT13'));
+  paastand('et navn som bare er et tall, er et punktnummer', kode('1487') === 'UTEN KODE', kode('1487'));
+  paastand('navnet er id-en, uendret', les.punkter.some(p => p.id === 'SP 1601'));
+  sjekk('sonen fra HexagonLandXML («UTM32Utv.»)', les.epsg, 25832, 0);
+  paastand('programmet er Leica', les.program === 'Leica', les.program);
+  sjekk('tre linjer fra fila', les.linjer.length, 3, 0);
+  paastand('linja i fila sin rekkefølge', les.linjer[0].punkter.join(',') === 'SP 160,SP 1602,SP 1601', les.linjer[0].punkter.join(','));
+  paastand('et strekk til et punkt som ikke finnes, kortes av', les.linjer[2].punkter.length === 3, les.linjer[2].punkter.join(','));
+
+  const linjekoder = Ror.linjekoder(les.punkter, les.linjer);
+  paastand('kodene fila har målt som linjer', linjekoder.has('MUR') && linjekoder.has('SP 160') && linjekoder.has('GRØFT'));
+  const koder = Ror.koderFra(les.punkter, null, linjekoder);
+  paastand('«MUR» blir en linje selv om navnet ikke sier det', koder.MUR.form === 'linje' && koder.MUR.farge !== 'punkt',
+    JSON.stringify(koder.MUR));
+  const ror = { punkter: les.punkter, koder, retting: { av: [], brudd: [], koble: [] }, filLinjer: Ror.flettLinjer([], les.linjer) };
+  const xy = p => ({ x: p.o, y: p.n });
+  const b = Ror.byggLinjer(ror, Ror.StandardRormal, xy);
+  const sp = b.linjer.filter(l => l.kode === 'SP 160');
+  paastand('spillvannet trekkes som fila sier: 0 → 2 → 1', sp.length === 1 && sp[0].punkter.map(p => p.id).join(',') === 'SP 160,SP 1602,SP 1601',
+    JSON.stringify(sp.map(l => l.punkter.map(p => p.id))));
+  sjekk('og lengden er den målte sikksakken', sp[0].lengde, 19, 1e-6);
+  paastand('muren er én linje med elleve punkt', b.linjer.filter(l => l.kode === 'MUR').length === 1
+    && b.linjer.find(l => l.kode === 'MUR').punkter.length === 11);
+  paastand('punktnummeret er et punkt, ikke en linje', b.objekter.some(p => p.id === '1487'));
+  // av og brudd deler linja
+  const ror2 = Object.assign({}, ror, { retting: { av: ['MUR5'], brudd: [['MUR8', 'MUR9']], koble: [] } });
+  const mur = Ror.byggLinjer(ror2, Ror.StandardRormal, xy).linjer.filter(l => l.kode === 'MUR');
+  paastand('et punkt slått av og et brudd deler muren i tre', mur.length === 3,
+    JSON.stringify(mur.map(l => l.punkter.map(p => p.id))));
+  // en kode tegnet som punkt i kodetabellen: linja fra fila tegnes ikke, punktene står
+  const ror3 = Object.assign({}, ror, { koder: Object.assign({}, koder, { MUR: Object.assign({}, koder.MUR, { form: 'punkt' }) }) });
+  const b3 = Ror.byggLinjer(ror3, Ror.StandardRormal, xy);
+  paastand('«Tegnes som punkt» gjelder linjene fra fila også', !b3.linjer.some(l => l.kode === 'MUR')
+    && b3.objekter.filter(p => p.kode === 'MUR').length === 11);
+  // samme fil to ganger: linjene én gang
+  sjekk('samme fil lagt til igjen gir ingen doble linjer', Ror.flettLinjer(ror.filLinjer, les.linjer).length, 3, 0);
+  const sam = Ror.slaSammenFiler([{ les, filnavn: 'a.xml' }, { les, filnavn: 'b.xml' }]);
+  sjekk('flere filer: linjene flettes', sam.linjer.length, 3, 0);
+  // kodetolkningen: forkortelsen sist
+  const t = Ror.tolkKode('110 MM SP');
+  paastand('«110 MM SP» er spillvann 110', t.system === 'spill' && t.dim === 110 && t.form === 'linje', JSON.stringify(t));
+  paastand('«160 MM OV» er overvann 160', Ror.tolkKode('160 MM OV').system === 'overvann');
+  // prosjektfila tar vare på linjene og rydder i dem
+  const PF = require(js('prosjektform.js'));
+  const P = { anlegg: [{ id: 'a', type: 'ror', ror: { punkter: les.punkter.slice(0, 3),
+    filLinjer: [{ navn: 'x', punkter: ['SP 160', 'SP 1601'] }, { punkter: ['bare ett'] }, 'tull', { punkter: [{}, 'a', 'b'] }] } }] };
+  PF.klargjor(P);
+  paastand('fila: linjene beholdes, ugyldige tas bort', JSON.stringify(P.anlegg[0].ror.filLinjer)
+    === '[{"navn":"x","punkter":["SP 160","SP 1601"]},{"navn":"","punkter":["a","b"]}]', JSON.stringify(P.anlegg[0].ror.filLinjer));
+}
+
+/* ------------------------------------------------------------------ */
 /* DEN EKTE FILA – bare når stien er gitt. Kundens data ligger ikke i repoet. */
 if (process.env.ROR_FIL) {
-  console.log('\n23. Den ekte fila (ROR_FIL)');
+  console.log('\n24. Den ekte fila (ROR_FIL)');
   const les = Ror.lesFil(Ror.dekod(fs.readFileSync(process.env.ROR_FIL)));
   const ror = { punkter: les.punkter, koder: Ror.koderFra(les.punkter), retting: { av: [], brudd: [], koble: [] } };
   const b = Ror.byggLinjer(ror, Ror.StandardRormal, iFila);

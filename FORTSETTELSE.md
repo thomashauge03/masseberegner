@@ -23,14 +23,14 @@ Nettlesertesten kjøres ved å åpne programmet med `?test=1`, eller fra konsoll
 med `Nettlesertest.kjor()`. Utviklingstjeneren startes med `node server.js`
 (port 5178). Programmet ligger også på https://masseberegner.vercel.app.
 
-Ved siste lagring: **963 prøver i selvtesten, 280 i rørprøven
+Ved siste lagring: **963 prøver i selvtesten, 303 i rørprøven
 (`test/rorprove.js`), 219 i grøfteprøven (`test/groftprove.js`), 183 i
 planprøven (`test/rorplanprove.js`), 91 i eksportprøven
 (`test/roreksportprove.js`), 77 i avviksprøven (`test/roravvikprove.js`), 45 i
 traseprøven (`test/traseimportprove.js`), 68 i stikkrenneprøven
-(`test/stikkrenneprove.js`), 11 i utsnittprøven (`test/stikkutsnittprove.js`), 195 i
+(`test/stikkrenneprove.js`), 11 i utsnittprøven (`test/stikkutsnittprove.js`), 264 i
 Makin-prøven (`test/makinprove.js`), 61 i anleggsprøven og 258 i tomteprøven, alle
-grønne; 1680 av 1680 i nettlesertesten (på grenen `makin-henting`).** «Klikk i modellen flytter snittet
+grønne; nettlesertesten grønn etter at Makin og Leica iCON ble flettet sammen.** «Klikk i modellen flytter snittet
 dit» i `veg3d` kan feile når vinduet emuleres 1440 × 900 i en mindre rute –
 klikket lander én rad ved siden av; det gjør den likt på `main`. «og merknaden
 sier det som gjelder nå» i `flereAnlegg` feilet én gang i hele runden og aldri
@@ -59,12 +59,11 @@ Underveis ba brukeren om et **oversiktskart for rørene** – ett kart med alle
 typene i hver sin farge og tegnforklaring, og ett kart per type. Det kom foran
 resten av «Utenfor 3a».
 
-### Hent fra Makin – bygd, ikke prøvd mot en ekte eksport
+### Hent fra Makin – i `main`, ikke prøvd mot en ekte eksport
 
 Spec: `docs/superpowers/specs/2026-10-19-makin-henting-design.md`. Plan:
-`docs/superpowers/plans/2026-10-19-makin-henting.md`. Grenen `makin-henting`
-(worktree), **ikke flettet inn i `main` og ikke pushet** – push til `main`
-deployer, så det venter på brukerens ja.
+`docs/superpowers/plans/2026-10-19-makin-henting.md`. Flettet inn i `main` og
+pushet 2026-10-19 etter brukerens ønske, før sonden er kjørt – se «Gjenstår».
 
 Brukeren ba 2026-10-19 om å hente innmålingene rett fra Makin' 3D sin sky-API (ny
 nøkkeltype) i stedet for via filer. Delene:
@@ -115,6 +114,22 @@ nøkkeltype) i stedet for via filer. Delene:
 - «Lag en kopi» ligger i Retting-raden i Rør-fanen; kanskje den bør stå mer
   framme.
 - Med ekte nøkkel er ingenting prøvd – det gjør brukeren selv.
+
+### Rør fra Leica iCON: koden med teller, og linjene fra fila
+
+2026-10-14: «jeg målte inn med icon og da ser du at alt blir punkter men er egt
+linjer … 110 mm SP og samme med 1 tall etter … blir tolket som noe nytt, kan du
+få med linjene som eksisterer». iCON-fila (LandXML + HexagonLandXML) har tom
+kode, koden i navnet med teller («110 MM SP1», «GRØFT1(2)»), og linjene som
+`PlanFeature` med `pntRef`. `Ror._kodeLeica` finner det korteste navnet i fila
+punktet bygger på; `_planlinjer` leser linjene, som lagres i `ror.filLinjer`
+(flettes ved ny import, ryddes i prosjektform) og trekkes først i
+`byggLinjer`, i fila sin rekkefølge – av/brudd deler dem, «Tegnes som punkt»
+gjelder dem også. `koderFra` får kodene fra fila sine linjer som linje.
+`tolkKode` leser systemforkortelsen også sist («110 MM SP»). Sonen fra navnet
+på koordinatsystemet. Og etter ønske samme dag: «Marker alle» / «Fjern alle»
+over kodetabellen (importdialogen og Koder-fanen). Med den ekte fila: 109 punkt
+ble 10 koder i stedet for 109, og alle 10 linjene står som målt.
 
 ### Utsnitt til stikning
 

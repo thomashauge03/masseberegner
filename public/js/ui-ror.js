@@ -20,6 +20,22 @@ const RorUI = {
   init(app) {
     this.app = app;
     const id = x => document.getElementById(x);
+    /* «Marker alle» / «Fjern alle» over kodetabellen – i importdialogen og i
+       Koder-fanen. Tabellen står rett under knappene. */
+    document.addEventListener('click', e => {
+      const b = e.target && e.target.closest ? e.target.closest('[data-kodevalg]') : null;
+      if (!b) return;
+      let tabell = b.parentElement && b.parentElement.nextElementSibling;
+      while (tabell && !(tabell.matches && tabell.matches('table.rorkoder'))) tabell = tabell.nextElementSibling;
+      if (!tabell) return;
+      const pa = b.dataset.kodevalg === 'alle';
+      let endret = null;
+      for (const c of tabell.querySelectorAll('input[data-felt="vis"]')) {
+        if (c.checked !== pa) { c.checked = pa; endret = c; }
+      }
+      // én endring holder: Koder-fanen leser hele tabellen på nytt, og det er én angrepost
+      if (endret) endret.dispatchEvent(new Event('change', { bubbles: true }));
+    });
     const fil = id('rorFil');
     if (fil) {
       fil.onchange = async () => {
@@ -277,7 +293,8 @@ const RorUI = {
        et nytt anlegg alle kodene til det gamle, med null punkt hver. Legges
        fila til, beholder anlegget sine egne uansett. */
     const iFila = new Set(les.punkter.map(p => p.kode));
-    const koder = Object.fromEntries(Object.entries(Ror.koderFra(les.punkter, aktivtRor ? aktivtRor.ror.koder : null))
+    const koder = Object.fromEntries(Object.entries(Ror.koderFra(les.punkter, aktivtRor ? aktivtRor.ror.koder : null,
+      Ror.linjekoder(les.punkter, les.linjer)))
       .filter(([kode]) => iFila.has(kode)));
     const svar = svarUtenDialog
       ? Object.assign({ koder }, svarUtenDialog)
@@ -514,7 +531,14 @@ const RorUI = {
           <input id="${id}v" type="checkbox" data-felt="vis"${k.vis !== false ? ' checked' : ''}></td>
       </tr>`;
     }).join('');
-    return `<table class="rorkoder"><thead><tr><th scope="col">Kode</th><th scope="col">${escapeHtml(enhet)}</th>
+    /* «MARKER ALLE» OG «FJERN ALLE». Skulle man bare ha to rør av tjue, måtte
+       man krysse av atten bokser én og én. Knappene setter alle «Med» og sender
+       en endring, så Koder-fanen oppdaterer seg som etter et vanlig kryss. */
+    const valg2 = Object.keys(koder).length > 1
+      ? '<div class="knapperad kodevalg"><button type="button" class="knapp liten" data-kodevalg="alle">Marker alle</button>'
+        + '<button type="button" class="knapp liten" data-kodevalg="ingen">Fjern alle</button></div>'
+      : '';
+    return `${valg2}<table class="rorkoder"><thead><tr><th scope="col">Kode</th><th scope="col">${escapeHtml(enhet)}</th>
       <th scope="col">Tegnes som</th><th scope="col">⌀ mm</th><th scope="col">Farge</th><th scope="col">Med</th>
       </tr></thead><tbody>${rader}</tbody></table>`;
   },
@@ -571,6 +595,8 @@ const RorUI = {
       });
       const sam = Ror.slaSammen(a.ror.punkter, nye);
       a.ror.punkter = sam.punkter;
+      // linjene fila har målt (Leica iCON) – de nye legges til, de som finnes står
+      a.ror.filLinjer = Ror.flettLinjer(a.ror.filLinjer, les.linjer);
       /* Kodene i dialogen bygde på det aktive anleggets. Er målet et annet,
          beholder det sine egne – bare nye koder kommer til. */
       a.ror.koder = a.id === svar.kodeGrunnlag
@@ -590,6 +616,7 @@ const RorUI = {
       a = app.nyttAnlegg('ror', navn);
       a.ror.sone = svar.sone;
       a.ror.punkter = les.punkter.map(p => Object.assign({}, p));
+      a.ror.filLinjer = Ror.flettLinjer([], les.linjer);
       a.ror.koder = svar.koder;
       a.ror.kilder = kilder;
       /* ET NYTT PROSJEKT SOM IKKE HAR BESTEMT SEG, OG DER DET ENE ANLEGGET ER

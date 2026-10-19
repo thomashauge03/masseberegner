@@ -269,6 +269,12 @@ function _rettRorfelt(a, R) {
   }
   a.ror.alias = alias;
   a.ror.ikkeSamme = Array.isArray(a.ror.ikkeSamme) ? a.ror.ikkeSamme.filter(x => typeof x === 'string') : [];
+  /* Linjene fila målte (Leica iCON): punkt-id-er i rekkefølge. Bare tekst, og
+     minst to – en linje med ett punkt er ingen linje. */
+  a.ror.filLinjer = (Array.isArray(a.ror.filLinjer) ? a.ror.filLinjer : [])
+    .filter(l => erObjekt(l) && Array.isArray(l.punkter))
+    .map(l => ({ navn: typeof l.navn === 'string' ? l.navn : '', punkter: l.punkter.filter(id).map(String) }))
+    .filter(l => l.punkter.length >= 2);
   // en kode punktene har, men tabellen mangler, får tolkningen sin
   a.ror.koder = R.koderFra(a.ror.punkter, a.ror.koder);
   a.ror.kilder = a.ror.kilder.filter(erObjekt);
