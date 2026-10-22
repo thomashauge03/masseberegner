@@ -483,9 +483,14 @@ filer som rørene – og lager en trekantflate av dem.
 * **Masser-fanen** viser flaten mot DTM1: areal, hvor mye som ligger over (fylt)
   og under (gravd), netto, største fyllhøyde og usikkerheten. Kartet farger
   trekantene grønne der det er fylt og røde der det er gravd.
-* **Bruk som terreng** er knappen som gjør punktene til bakken. Når den er på,
-  regnes tomt og veg i prosjektet mot flaten innenfor ytterkanten, og mot DTM1
-  utenfor – profiler og 3D likeså. Den slås aldri på av seg selv.
+* **3D før godkjenning:** «Ovenfra», «Fly» og «Gå» over punkttabellen viser
+  flaten mot DTM1 i samme 3D-motor som tomta – grønt der det er lagt til, rødt
+  der det er fjernet. «Før» er DTM1, «Etter» er punktene.
+* **Godkjenn og bruk som terreng** er knappen som gjør punktene til bakken. Når
+  den er på, regnes tomt og veg i prosjektet mot flaten innenfor ytterkanten, og
+  mot DTM1 utenfor – Foreslå kote, Massebalanse, Optimaliser, profiler og 3D
+  likeså. Den slås aldri på av seg selv. «⬟ Tegn tomt her» lager en tomt oppå,
+  og tomta sier i merknadene om den regnes mot punktene eller mot DTM1.
 * **Berget måles fra den gamle bakken.** Fjelldybden gjelder fra DTM1, så masse
   som er kjørt på siden, regnes ikke som sprengning.
 * **Mistenkelige punkter** – et punkt som står mer enn 1,5 m fra snittet av
@@ -754,6 +759,7 @@ public/js/vertikalprofil.js  lengdeprofil, retting mot kravene, innlesing av hø
 public/js/terreng.js     terrengmodell i nettleseren, bilineær interpolasjon, innmålt terreng oppå
 public/js/triangulering.js  innmålte punkter til trekantflate: Delaunay, ytterkant, volum mot DTM1
 public/js/ui-tin.js      Triangulering i skjermen: filen, Masser-fanen, knappene, punkttabellen
+public/js/ui-tin3d.js    det innmålte terrenget i 3D før godkjenning: lagt til og fjernet mot DTM1
 public/js/masser.js      tverrprofil og volumberegning
 public/js/stikkrenner.js stikkrennene: endene, lengden, høydene og overdekningen av tverrsnittet
 public/js/veiklasser.js  veiklassene fra landbruksveinormalen

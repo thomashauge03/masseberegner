@@ -922,11 +922,37 @@
        punkt ut av flaten. Tallene og «Bruk som terreng» står i Masser-fanen. -->
   <section class="panel tinpanel">
     <div class="panelhode">
-      <span>Innmålte punkter</span>
+      <span>Innmålt terreng</span>
       <button class="utvidknapp" data-utvid="tin" title="Stor visning">⤢</button>
-      <span class="hjelpetekst">Klikk et punkt i kartet eller «Ta ut» for å holde det utenfor flaten</span>
+      <!-- Tabellen eller 3D – samme kameraer som tomta: Ovenfra, Fly, Gå. -->
+      <div class="visvalg">
+        <button id="tinVisTabell" class="verktoyknapp aktiv" title="Punktene med høyde, DTM1 og hvor langt over">Punkter</button>
+        <button id="tinVis3d" class="verktoyknapp" title="Se hva som er lagt til og fjernet mot DTM1, ovenfra og skrått">Ovenfra</button>
+        <button id="tin3_fly" class="verktoyknapp" aria-pressed="false" title="Fly fritt over flaten. W A S D flyr, Q og E hever og senker, musa styrer.">Fly</button>
+        <button id="tin3_bakken" class="verktoyknapp" aria-pressed="false" title="Gå på flaten. W A S D går, musa ser seg rundt.">Gå</button>
+      </div>
+      <span id="tin3dverktoy" class="verktoygruppe skjult">
+        <span class="synvalg" role="radiogroup" aria-label="Hva modellen viser">
+          <button id="tin3_foer" class="verktoyknapp" aria-pressed="false" title="Kartverkets DTM1 – bakken slik den var da den ble skannet">Før</button>
+          <button id="tin3_vanlig" class="verktoyknapp aktiv" aria-pressed="true" title="Lagt til (grønt) og fjernet (rødt) mellom DTM1 og punktene">Endring</button>
+          <button id="tin3_etter" class="verktoyknapp" aria-pressed="false" title="Bakken i dag: de innmålte punktene, DTM1 utenfor">Etter</button>
+        </span>
+        <select id="tin3_overdriv" class="minivalg" title="Overdriv høyden så endringen blir lettere å se">
+          <option value="1">Høyde 1×</option>
+          <option value="2" selected>Høyde 2×</option>
+          <option value="3">Høyde 3×</option>
+          <option value="5">Høyde 5×</option>
+        </select>
+        <button id="tin3_nullstill" class="verktoyknapp" title="Tilbake til utgangsstillingen">↺</button>
+        <span class="hjelpetekst">Dra snur · høyreklikk-dra flytter · hjul zoomer</span>
+      </span>
+      <span id="tinhjelp" class="hjelpetekst">Klikk et punkt i kartet eller «Ta ut» for å holde det utenfor flaten</span>
     </div>
-    <div id="tinpunkter" class="tininnhold"></div>
+    <div class="tininnhold">
+      <div id="tinpunkter" class="tintabellboks"></div>
+      <canvas id="tin3d" class="skjult"></canvas>
+      <canvas id="tin3dover" class="skjult" tabindex="0"></canvas>
+    </div>
   </section>
 
   <!-- ---------------- Sidepanel ---------------- -->
@@ -1287,6 +1313,7 @@
 <script src="js/ui-ror.js"></script>
 <script src="js/ui-makin.js"></script>
 <script src="js/ui-tin.js"></script>
+<script src="js/ui-tin3d.js"></script>
 <script src="js/ui-groft.js"></script>
 <script src="js/ui-rorplan.js"></script>
 <script src="js/ui-rorprofil.js"></script>

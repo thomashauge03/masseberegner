@@ -1104,8 +1104,9 @@ const App = {
     if (this._terreng && this._terreng instanceof Terreng) this._terreng.overlag = this.tinOverlag();
     this._ferdigflater = null;
     if (typeof Tegner3d !== 'undefined') { Tegner3d._fulle = null; Tegner3d._fulleUtelatt = null; }
-    if (typeof Veg3d !== 'undefined') Veg3d.glemBakgrunn();
-    if (typeof Tomt3d !== 'undefined') Tomt3d.glemBakgrunn();
+    if (typeof Veg3d !== 'undefined') { Veg3d.glemBakgrunn(); Veg3d._traerFor = null; Veg3d._gitterFor = null; }
+    if (typeof Tomt3d !== 'undefined') { Tomt3d.glemBakgrunn(); Tomt3d._traerFor = null; Tomt3d._gitterFor = null; }
+    if (typeof Tin3d !== 'undefined') Tin3d.glem();
     if (regn) this.planlegg(30);
   },
 
@@ -1122,6 +1123,7 @@ const App = {
     const vis = () => {
       Kart.tegn();
       if (typeof TinUI !== 'undefined') TinUI.vis();
+      if (typeof Tin3d !== 'undefined' && Tin3d.aktiv) Tin3d.tegn();
       this.visNokkeltal();
       this.visProsjektmasser();
     };
@@ -1208,7 +1210,41 @@ const App = {
        graver fra hvem. Derfor: bare selve merknaden om hva tallene står mot
        henger på `navn`, resten av rutinen kjører uansett. */
     if (navn.length) this._naboTekst(res, navn);
+    this._tinMerknad(res, mitt);
     this._ubyggeligMerknad(res);
+  },
+
+  /**
+   * HVILKEN BAKKE TALLENE STÅR MOT, NÅR DET FINNES ET INNMÅLT TERRENG HER.
+   *
+   * Knappen «Bruk som terreng» sitter i et annet anlegg. Sto den av, regnet
+   * tomta mot DTM1 – fyllinga som er kjørt på siden fantes ikke – og ingenting
+   * i tomtebildet sa fra. Sto den på, var tallene noe annet enn kartet over
+   * Kartverkets terreng får en til å tro. Begge deler skal stå her, men bare
+   * når punktene faktisk ligger der anlegget er (samme regel som naboene).
+   */
+  _tinMerknad(res, mitt) {
+    if (!res || !Array.isArray(res.merknader) || !this.P || !Array.isArray(this.P.anlegg)) return;
+    for (const a of this.P.anlegg) {
+      if (a.type !== 'tin' || a.id === this.P.aktivt) continue;
+      const f = this.tinFlate(a);
+      if (!f || !f.kant.length) continue;
+      const fra = a.tin.sone || this.sone;
+      let minX = Infinity, maksX = -Infinity, minY = Infinity, maksY = -Infinity;
+      for (const i of f.kant) {
+        let x = f.punkter[i].e, y = f.punkter[i].n;
+        if (fra !== this.sone) { const g = Geo.fraUtm(x, y, fra), u = Geo.tilUtm(g.lat, g.lon, this.sone); x = u.x; y = u.y; }
+        minX = Math.min(minX, x); maksX = Math.max(maksX, x); minY = Math.min(minY, y); maksY = Math.max(maksY, y);
+      }
+      if (mitt && (minX > mitt.maksX || maksX < mitt.minX || minY > mitt.maksY || maksY < mitt.minY)) continue;
+      const navn = '«' + (a.navn || 'Innmålt terreng') + '»';
+      res.merknader.push({ type: 'innmalt',
+        tekst: a.tin.bruk
+          ? `Regnet mot det innmålte terrenget ${navn} der punktene ligger, og mot Kartverkets DTM1 utenfor. `
+            + 'Masse som er kjørt på eller gravd bort siden DTM1 ble skannet, er dermed med – berget måles fra den gamle bakken.'
+          : `${navn} er målt inn her, men ikke godkjent som terreng. Tallene står mot Kartverkets DTM1, slik marka var `
+            + 'da den ble skannet. Trykk «Godkjenn og bruk som terreng» i det anlegget for å regne mot terrenget i dag.' });
+    }
   },
 
   /** Merknaden om hva tallene står mot – bare når noe faktisk står foran. */

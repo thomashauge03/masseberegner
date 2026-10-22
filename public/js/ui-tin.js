@@ -7,7 +7,9 @@
  * flaten ligger over og under Kartverkets DTM1, og har de tre knappene som
  * endrer noe:
  *
- *   «Bruk som terreng» – først da er flaten bakken for tomta og vegen.
+ *   «Godkjenn og bruk som terreng» – først da er flaten bakken for tomta,
+ *   vegen og 3D. Før det kan 3D-modellen i panelet vise hva som er lagt til
+ *   og fjernet mot DTM1 (se Tin3d).
  *   Ta ut / ta med et punkt – en feilmåling skal ikke bære flaten.
  *   Lengste kant – hvor langt ytterkanten skrelles inn fra det konvekse.
  *
@@ -37,6 +39,7 @@ const TinUI = {
       else if (hva === 'tauttalle') this.taUt((this.app.resultat && this.app.resultat.mistenkelige || []).map(m => m.navn));
       else if (hva === 'nyfil') this.velgFil();
       else if (hva === 'kantforslag') this.settMakskant(null);
+      else if (hva === 'nytomt') this.nyTomt();
     });
     document.addEventListener('change', e => {
       const i = e.target;
@@ -44,6 +47,62 @@ const TinUI = {
       const v = parseFloat(String(i.value).replace(',', '.'));
       this.settMakskant(Number.isFinite(v) && v >= 0 ? v : null);
     });
+    this._koble3d();
+  },
+
+  /**
+   * Knappene for 3D-modellen i panelet. Samme oppførsel som tomtas: tre
+   * kameraer som slår hverandre av, og Før · Endring · Etter som leser
+   * tilstanden ut av visningen (se App sin kobling av t3_-knappene).
+   */
+  _koble3d() {
+    if (typeof Tin3d === 'undefined') return;
+    const v = Tin3d.init(this.app);
+    const id = i => document.getElementById(i);
+    const hjelp = id('tinhjelp');
+    if (id('tinVisTabell')) id('tinVisTabell').onclick = () => { v.aktiver(false); if (hjelp) hjelp.classList.remove('skjult'); vis3(); };
+    const kOpp = id('tinVis3d'), kGaa = id('tin3_bakken'), kFly = id('tin3_fly');
+    const vis3 = () => {
+      const paaGaa = v.aktiv && v.modus === 'bakken' && v.ferd === 'gaa';
+      const paaFly = v.aktiv && v.modus === 'bakken' && v.ferd === 'fly';
+      for (const [k, pa] of [[kGaa, paaGaa], [kFly, paaFly]]) {
+        if (!k) continue;
+        k.classList.toggle('aktiv', pa);
+        k.setAttribute('aria-pressed', pa ? 'true' : 'false');
+      }
+      if (kOpp) kOpp.classList.toggle('aktiv', v.aktiv && v.modus !== 'bakken');
+    };
+    v.paaModus = () => vis3();
+    v.paaFerd = () => vis3();
+    if (kOpp) kOpp.onclick = () => {
+      if (hjelp) hjelp.classList.add('skjult');
+      v.aktiver(true);
+      v.settModus('oversikt');
+      vis3();
+    };
+    const inn = ferd => {
+      if (!v.aktiv && kOpp) kOpp.click();
+      v.settFerd(ferd);
+      v.settModus('bakken');
+      vis3();
+      const o = id('tin3dover');
+      if (o) o.focus();
+    };
+    if (kGaa) kGaa.onclick = () => (v.modus === 'bakken' && v.ferd === 'gaa' ? v.settModus('oversikt') : inn('gaa'));
+    if (kFly) kFly.onclick = () => (v.modus === 'bakken' && v.ferd === 'fly' ? v.settModus('oversikt') : inn('fly'));
+    const knapper = [['tin3_foer', 'foer'], ['tin3_vanlig', 'vanlig'], ['tin3_etter', 'etter']]
+      .map(([i, verdi]) => [id(i), verdi]).filter(([e]) => e);
+    v.paaVisning = () => {
+      for (const [e, verdi] of knapper) {
+        const pa = v.visning === verdi;
+        e.classList.toggle('aktiv', pa);
+        e.setAttribute('aria-pressed', pa ? 'true' : 'false');
+      }
+    };
+    for (const [e, verdi] of knapper) e.onclick = () => v.settVisning(verdi);
+    if (id('tin3_overdriv')) id('tin3_overdriv').onchange = e => { v.overdriv = parseFloat(e.target.value) || 1; v.tegn(); };
+    if (id('tin3_nullstill')) id('tin3_nullstill').onclick = () => v.nullstill();
+    vis3();
   },
 
   velgFil() {
@@ -113,7 +172,7 @@ const TinUI = {
     app.status(`${punkter.length} punkt lest fra ${filnavn} (UTM ${sone})`
       + (mist.length ? ` · ${mist.length} mistenkelig${mist.length > 1 ? 'e' : ''} – se Masser-fanen` : '')
       + (utenfor ? ` · ${utenfor} punkt utenfor UTM i Norge ble hoppet over` : '')
-      + ' · Trykk «Bruk som terreng» for å regne tomta mot punktene.');
+      + ' · Se over tallene og 3D-modellen, og trykk «Godkjenn og bruk som terreng» for å regne tomta mot punktene.');
     return true;
   },
 
@@ -129,12 +188,12 @@ const TinUI = {
 
   settBruk(pa) {
     const app = this.app;
-    app.merk(pa ? 'bruk innmålt terreng' : 'slå av innmålt terreng');
+    app.merk(pa ? 'godkjenn innmålt terreng' : 'angre godkjenning av innmålt terreng');
     app.P.tin.bruk = !!pa;
     app.tinEndret();
     app.status(pa
-      ? 'Det innmålte terrenget er nå bakken innenfor punktene – tomt og veg regnes mot det. Utenfor gjelder DTM1.'
-      : 'Det innmålte terrenget er slått av – alt regnes mot Kartverkets DTM1 igjen.');
+      ? 'Godkjent: det innmålte terrenget er nå bakken innenfor punktene – tomt, veg og 3D regnes mot det. Utenfor gjelder DTM1.'
+      : 'Godkjenningen er tatt bort – alt regnes mot Kartverkets DTM1 igjen.');
     this.vis();
     Kart.tegn();
   },
@@ -159,6 +218,21 @@ const TinUI = {
     t.utelatt = [...new Set((t.utelatt || []).concat(navn))];
     this.app.tinEndret();
     this.app.status(`${navn.length} punkt tatt ut av flaten`);
+  },
+
+  /**
+   * Neste steg etter innmålingen: en tomt oppå, tegnet i kartet. Den legges
+   * ETTER det innmålte terrenget i lista og regnes mot punktene så lenge
+   * «Bruk som terreng» er på – Foreslå, Massebalanse og Optimaliser likeså.
+   * Knappen slår ikke på «Bruk som terreng»; det er en egen knapp.
+   */
+  nyTomt() {
+    const app = this.app;
+    const bruk = !!(app.P.tin && app.P.tin.bruk);
+    app.leggTilAnlegg('tomt');
+    app.status('Ny tomt. Klikk rundt den i kartet, dobbeltklikk for å lukke. '
+      + (bruk ? 'Den regnes mot de innmålte punktene der de ligger, og mot DTM1 utenfor.'
+        : 'Det innmålte terrenget er ikke godkjent ennå – tomta regnes mot DTM1 til du godkjenner det.'));
   },
 
   settMakskant(v) {
@@ -187,10 +261,13 @@ const TinUI = {
       let ut = `<h3>△ ${escapeHtml(app.anlegg().navn || 'Innmålt terreng')}</h3>`;
       ut += `<button class="knapp${t.bruk ? ' primaer' : ''}" data-tin="bruk" aria-pressed="${t.bruk ? 'true' : 'false'}" `
         + `title="Når den er på, er punktene bakken innenfor ytterkanten – for tomt, veg, profiler og 3D. Utenfor gjelder DTM1.">`
-        + (t.bruk ? '✓ Brukes som terreng' : 'Bruk som terreng') + '</button>';
+        + (t.bruk ? '✓ Godkjent – brukes som terreng' : 'Godkjenn og bruk som terreng') + '</button>';
       ut += `<p class="notis">${t.bruk
-        ? 'Tomt og veg i prosjektet regnes mot punktene der de ligger, og mot DTM1 utenfor.'
-        : 'Av: alt regnes fortsatt mot Kartverkets DTM1. Slå på når punktene er fasiten.'}</p>`;
+        ? 'Tomt og veg i prosjektet regnes mot punktene der de ligger, og mot DTM1 utenfor. Trykk igjen for å angre godkjenningen.'
+        : 'Ikke godkjent: alt regnes fortsatt mot Kartverkets DTM1. Se over tallene og 3D-modellen (Ovenfra under kartet) – '
+          + 'hva som er lagt til og fjernet – og godkjenn når punktene er fasiten.'}</p>`;
+      ut += '<button class="knapp" data-tin="nytomt" title="Tegn en tomt i kartet. Foreslå kote, Massebalanse og Optimaliser '
+        + 'regner da mot punktene der de ligger, og mot DTM1 utenfor.">⬟ Tegn tomt her</button>';
       if (!r) {
         ut += '<p class="notis">Regner …</p>';
       } else {

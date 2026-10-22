@@ -581,6 +581,8 @@ const Tegner3d = {
       const liste = [];
       for (const a of app.P.anlegg) {
         if (a.id === foer || this.anleggAv(a.id)) continue;
+        // et innmålt terreng er bakken selv (Terreng.overlag), ikke et anlegg oppå den
+        if (a.type === 'tin') continue;
         if (kanRegnes(a)) liste.push(a);
         else {
           utelatt.push((a.navn || a.type) + ' – '
@@ -862,6 +864,10 @@ const Tegner3d = {
       /* Valgt bort er ikke det samme som «lot seg ikke tegne», og skal derfor
          heller ikke meldes som det. Det var brukerens eget valg. */
       if (this.anleggAv(a.id)) continue;
+      /* Et innmålt terreng tegnes ikke som et anlegg oppå bakken: når det er
+         i bruk, ER det bakken – terrenget i hvert gitter går gjennom
+         `Terreng.z` – og når det ikke er det, er det ikke noe å vise her. */
+      if (a.type === 'tin') continue;
       /* ER DET ET FULLT GITTER, ER DET DET SOM SKAL BRUKES.
          Det er bygd av den samme koden som anlegget får når det er oppe, og
          bærer terreng, masser og skråninger. Skissen er reserven. */
@@ -2043,6 +2049,13 @@ const Tegner3d = {
       return ((x ^ (x >>> 16)) >>> 0) / 4294967296;
     };
     const avst = (a, b) => Math.hypot(g.wx[a] - g.wx[b], g.wy[a] - g.wy[b]);
+    /* IKKE SKOG PÅ MASSE SOM ER KJØRT PÅ SIDEN. Arealdekket er like gammelt som
+       DTM1. Der et godkjent innmålt terreng ligger mer enn 0,3 m fra DTM1, er
+       det fylt eller gravd – og der står det ingen gran, uansett hva AR5 sier. */
+    const terr = this.app && this.app.terreng;
+    const endret = (terr && terr.zDtm && terr.overlag && terr.overlag.length)
+      ? (x, y) => { const a = terr.z(x, y), b = terr.zDtm(x, y); return Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) > 0.3; }
+      : null;
     const naerArbeid = (i, j, mi, mj) => {
       for (let jj = Math.max(0, j - mj); jj <= Math.min(nh - 1, j + mj); jj++) {
         for (let ii = Math.max(0, i - mi); ii <= Math.min(nb - 1, i + mi); ii++) {
@@ -2063,6 +2076,7 @@ const Tegner3d = {
         const y = g.wy[k] + (g.wy[k + 1] - g.wy[k]) * u + (g.wy[k + nb] - g.wy[k]) * v;
         if (kart.kodeVed(x, y) !== 30) continue;
         if (arbeid.length && naerArbeid(i, j, Math.ceil(3 / di), Math.ceil(3 / dj))) continue;
+        if (endret && endret(x, y)) continue;
         const z = g.zT[k] + (g.zT[k + 1] - g.zT[k]) * u + (g.zT[k + nb] - g.zT[k]) * v;
         if (!Number.isFinite(z)) continue;
         const gran = hash(k, 4) < 0.7;

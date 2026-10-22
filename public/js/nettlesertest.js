@@ -13427,6 +13427,19 @@ const Nettlesertest = {
       this.sjekk('Masser-fanen har knappen og tallene', !!document.querySelector('#massesammendrag [data-tin="bruk"]')
         && /Over DTM1/.test(document.getElementById('massesammendrag').textContent));
 
+      // 3D før godkjenning: lagt til og fjernet mot DTM1
+      document.getElementById('tinVis3d').click();
+      await this.vent(300);
+      const g3 = Tin3d._sisteGitter;
+      this.sjekk('«Ovenfra» viser det innmålte terrenget i 3D', Tin3d.aktiv && !!g3 && g3.celler > 100
+        && !document.getElementById('tin3d').classList.contains('skjult'), g3 ? String(g3.celler) : 'ingen gitter');
+      let lagtTil = 0;
+      if (g3) for (let k = 0; k < g3.nb * g3.nh; k++) if (g3.harGrav[k] && g3.d[k] < 0) lagtTil++;
+      this.sjekk('fyllinga står som lagt til (samme fortegn som tomtas fylling)', lagtTil > g3.celler * 0.5, `${lagtTil} av ${g3 && g3.celler}`);
+      this.sjekk('tallene over modellen er de samme som i fanen', Tin3d._hudLinjer(g3)[0].includes(Rapport.tall(r.tin.fyll)));
+      document.getElementById('tinVisTabell').click();
+      this.sjekk('og «Punkter» tar tabellen tilbake', !Tin3d.aktiv && !document.getElementById('tinpunkter').classList.contains('skjult'));
+
       const x = E + 5.1, y = N + 9.3, ute = E - 20;
       this.sjekk('knappen av: terrenget er DTM1', App.terreng.z(x, y) === App.terreng.zDtm(x, y));
       document.querySelector('#massesammendrag [data-tin="veksle"][data-navn="T22"]').click();
@@ -13446,7 +13459,10 @@ const Nettlesertest = {
 
       /* En tomt oppå, ferdig 1 m over den gamle bakken – altså 1 m ned i
          fyllinga. Med 0,5 m til fjell fra DTM1 når gravingen ikke berget. */
-      App.leggTilAnlegg('tomt');
+      document.querySelector('#massesammendrag [data-tin="nytomt"]').click();
+      this.sjekk('«Tegn tomt her» lager en tomt etter det innmålte terrenget, i tegnemodus',
+        App.erTomt() && App.P.anlegg.length === 2 && App.P.anlegg[1].type === 'tomt' && Kart.modus === 'tegnTomt', Kart.modus);
+      Kart.settModus('rediger');
       App.P.tomt.punkter = [[4, 4], [12, 4], [12, 12], [4, 12]].map(([dx, dy]) => {
         const g = Geo.fraUtm(E + dx, N + dy, 32); return { lat: g.lat, lon: g.lon };
       });
@@ -13455,6 +13471,8 @@ const Nettlesertest = {
       App.P.fjell.standarddybde = 0.5;
       await App.beregnTomt();
       const med = Object.assign({}, App.resultat.sum);
+      this.sjekk('tomta sier at den er regnet mot de innmålte punktene',
+        App.resultat.merknader.some(m => m.type === 'innmalt' && /Regnet mot det innmålte terrenget/.test(m.tekst)));
       this.sjekk('fyllmassene er ikke sprengning – berget måles fra den gamle bakken',
         med.skjaeringFjell < 1, String(med.skjaeringFjell));
       const ekteTillegg = App.tinTillegg;
@@ -13465,6 +13483,7 @@ const Nettlesertest = {
       tin.tin.bruk = false; App.tinEndret(false);
       await App.beregnTomt();
       const uten = App.resultat.sum;
+      this.sjekk('og sier fra når punktene ikke er godkjent', App.resultat.merknader.some(m => m.type === 'innmalt' && /ikke godkjent/.test(m.tekst)));
       /* Fyllinga sammenlignes ikke: masseutskiftingen graver løsmassene ut
          ned til berget og fyller igjen, og med 2 m kjørt på er det mer å
          skifte ut, ikke mindre. Det som må endre seg, er gravingen. */
