@@ -4434,22 +4434,82 @@ const Nettlesertest = {
 
                 /* MERKNADEN MÅ STÅ. Et tall som endrer seg med tre hundre
                    kubikk uten et ord er den slags som oppdages på plassen. */
-                /* Merknaden hentes fra `naboMerknad` selv, ikke fra det
-                   resultatet som tilfeldigvis ligger der. Bolken har pekt
-                   `P.aktivt` på et anlegg med noen foran seg uten å regne om –
-                   se over – så `App.resultat` er fra et annet anlegg. Å lese
-                   den ville prøvd feil ting, og å regne om ville kostet den
-                   tiden som nettopp felte prøven. */
+                /* SPØR FRA EN PRØVETOMT, IKKE FRA DET ANLEGGET BOLKEN PEKER PÅ.
+                   Her sto at merknaden ble hentet fra `naboMerknad` selv, og at
+                   det holdt `App.resultat`, som er fra et annet anlegg, utenfor.
+                   Det gjorde det ikke. `naboMerknad` nevner bare naboer som
+                   rører det aktive anleggets `_mittOmraade()`, og for en veg
+                   leser den `App.linje` og `App.resultat.profiler` – som
+                   fortsatt hører til Veg, den som sist ble regnet, for Veg 2 er
+                   pekt på uten å regnes om, se over. Målt i meter fra prøvens
+                   nullpunkt: fotavtrykket var [-10, -10, 108, 308], Vegs eget.
+                   Veg rørte det og ble nevnt, og begge prøvene sto grønne på en
+                   linje som ikke var Veg 2 sin.
+
+                   Å regne om er heller ikke svaret. Med sin egen linje rører
+                   Veg 2 ingen av dem foran seg – [212, 44, 319, 321] mot Vegs
+                   flate [-5, -2, 103, 299] og Lagerplass' [14, 499, 64, 559] –
+                   og da tier merknaden, og begge prøvene blir røde uten at noe
+                   er galt. Derfor spørres det fra en tomt som dekker den første
+                   naboflaten og står sist på lista, med alle de andre foran
+                   seg. En tomts fotavtrykk er omrisset pluss søkebredden, ikke
+                   noe som må regnes først: [-50, -47, 148, 344]. Den rører Veg,
+                   men verken Lagerplass eller Veg 2 ([217, 53, 314, 315]), så
+                   «og ingen andre» blir prøvd også. */
                 if (App._bygdFoer().length) {
+                  /* `_naboflater()` går i listerekkefølge, ikke i hurtiglagerets,
+                     så det er den samme naboen som dekkes hver gang. */
+                  const flN3 = [...App._naboflater().values()][0];
                   const res3 = { merknader: [], sum: {} };
-                  App.naboMerknad(res3);
+                  let brukt3 = new Map(), mitt3 = null, foran3 = [];
+                  if (flN3) {
+                    const ser3 = App.nyttAnlegg('tomt', '__ser_dem_foran');
+                    ser3.tomt.punkter = [[flN3.minX, flN3.minY], [flN3.maksX, flN3.minY],
+                      [flN3.maksX, flN3.maksY], [flN3.minX, flN3.maksY]]
+                      .map(([x, y]) => { const g = Geo.fraUtm(x, y, App.sone); return { lat: g.lat, lon: g.lon }; });
+                    const aktivt3 = App.P.aktivt;
+                    App.P.anlegg.push(ser3);
+                    App.P.aktivt = ser3.id;
+                    try {
+                      App.naboMerknad(res3);
+                      brukt3 = App._naboflater();
+                      mitt3 = App._mittOmraade();
+                      foran3 = App._bygdFoer();
+                    } finally {
+                      App.P.aktivt = aktivt3;
+                      App.P.anlegg.splice(App.P.anlegg.indexOf(ser3), 1);
+                    }
+                  }
+                  // samme prøve som i `naboMerknad`: randboksen mot fotavtrykket
+                  const roerer3 = fl => !!fl && (!mitt3 || !(fl.minX > mitt3.maksX
+                    || fl.maksX < mitt3.minX || fl.minY > mitt3.maksY || fl.maksY < mitt3.minY));
+                  const navn3 = a => a.navn || a.type;
+                  const liste3 = xs => xs.map(navn3).join(', ') || 'ingen';
+                  const ventet3 = foran3.filter(a => brukt3.has(a.id) && roerer3(brukt3.get(a.id)));
+                  this.sjekk('  og prøvetomta rører minst ett anlegg foran seg – ellers prøver merknaden ingenting',
+                    !!mitt3 && ventet3.length > 0,
+                    !flN3 ? 'ingen naboflate å dekke' : mitt3 ? 'rører ingen' : 'fikk intet fotavtrykk');
+                  /* Merknaden om hva tallene står mot – ikke den om to anlegg som
+                     møtes på samme bakke. Den er også 'naboanlegg' og navngir
+                     begge, enten de rører prøvetomta eller ikke. */
+                  const merknad3 = res3.merknader.find(q => q.type === 'naboanlegg'
+                    && q.tekst.startsWith('Regnet mot terrenget'));
                   this.sjekk('  og det står i merknadene at tallene er regnet mot naboene',
-                    res3.merknader.some(q => q.type === 'naboanlegg'),
-                    JSON.stringify(res3.merknader.map(q => q.type)));
+                    !!merknad3, JSON.stringify(res3.merknader.map(q => q.type)));
+                  /* Lengste navn først, og strøket ut når det er funnet: «Veg»
+                     står inne i «Veg 2» og ville ellers telt som nevnt der det
+                     bare er Veg 2 som er det. */
+                  let rest3 = merknad3 ? merknad3.tekst : '';
+                  const nevnt3 = new Set();
+                  for (const a of [...foran3].sort((p, q) => navn3(q).length - navn3(p).length)) {
+                    if (!rest3.includes(navn3(a))) continue;
+                    nevnt3.add(a);
+                    rest3 = rest3.split(navn3(a)).join('');
+                  }
                   this.sjekk('    og den navngir hvem som bygges først',
-                    res3.merknader.some(q => q.type === 'naboanlegg'
-                      && App._bygdFoer().some(a => q.tekst.includes(a.navn || a.type))),
-                    App._bygdFoer().map(a => a.navn || a.type).join(', '));
+                    foran3.every(a => nevnt3.has(a) === ventet3.includes(a)),
+                    'nevner ' + liste3(foran3.filter(a => nevnt3.has(a)))
+                    + ', mens de som rører prøvetomta, er ' + liste3(ventet3));
                 }
 
                 /* TO ANLEGG PÅ SAMME BAKKE ER ENTEN ET MØTE ELLER EN BEGRAVELSE.
