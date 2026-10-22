@@ -4169,9 +4169,20 @@ const Nettlesertest = {
                      helst flate fra hurtiglageret, kunne den treffe et anlegg
                      som står bak, og da er «flaten overstyrer bakken» usant
                      uten at noe er galt. */
-                  const foran = new Set(App._bygdFoer().map(a => a.id));
-                  const idA = [...f.keys()].find(k => k !== App.P.aktivt && foran.has(k));
-                  const anlA = App.P.anlegg.find(x => x.id === idA);
+                  /* OG DEN PLUKKES ETTER LISTA, IKKE ETTER HURTIGLAGERET.
+                     Her sto den første nøkkelen i `f` som sto foran. Et Map går
+                     i den rekkefølgen flatene ble lagt inn, og det avhenger av
+                     hva som tilfeldigvis ble regnet om når. Målt, tre kjøringer
+                     etter hverandre i samme fane: Lagerplass, Veg, Veg 2 den
+                     første gangen, Veg, Lagerplass, Veg 2 de to neste. Prøven
+                     redigerte da en tomt den ene gangen og en veg den andre, og
+                     påstanden om den nye høyden under, som bare gjelder en
+                     tomt, ble prøvd bare av og til. Nå tas tomta foran det
+                     aktive når det finnes en, fordi den også gir et tall å
+                     måle – ellers den første. */
+                  const foran = App._bygdFoer().filter(a => f.has(a.id));
+                  const anlA = foran.find(a => a.type === 'tomt') || foran[0];
+                  const idA = anlA && anlA.id;
                   const flA = f.get(idA);
                   this.sjekk('  hver ferdig flate bærer nøkkelen til anlegget den kom fra',
                     !!(flA && flA.nokkel), flA ? (flA.nokkel ? 'har nøkkel' : 'INGEN NØKKEL') : '–');
@@ -4242,13 +4253,57 @@ const Nettlesertest = {
                           : 'bygget om, men nøkkelen stemmer ikke med anlegget'));
                     /* Merknaden skal si det som gjelder NÅ. Er naboen fortsatt
                        terreng, skal den nevnes; er den falt bort, skal den ikke. */
+                    /* SPØR FRA ET ANLEGG SOM RØRER NABOEN, OG HOLD SVARET MOT DET
+                       MERKNADEN SELV GÅR ETTER.
+                       Her sto `nevnt9 === App._ferdigflater.has(idA)`, spurt fra
+                       det anlegget bolken peker på. Det var to ulike spørsmål:
+                       merknaden nevner bare naboer som står i `_naboflater()` OG
+                       rører det aktive anleggets `_mittOmraade()`, mens
+                       hurtiglageret bare sier at en flate finnes. Og det aktive
+                       er pekt på uten å regnes om – se over – så fotavtrykket ble
+                       målt med linja og profilene til vegen man kom fra. Målt i
+                       meter fra prøvens nullpunkt: [-10, -10, 108, 308], Vegs
+                       eget. Veg rørte det, Lagerplass gjorde det ikke, og den
+                       som tilfeldigvis lå først i hurtiglageret, avgjorde om
+                       prøven ble rød.
+
+                       Å regne om er ikke nok. Med sin egen linje rører Veg 2 ingen
+                       av dem foran seg (fotavtrykk [212, 44, 319, 321]), merknaden
+                       tier om begge, og prøven ville blitt grønn uten å ha prøvd
+                       noe. Derfor spørres det fra en prøvetomt som dekker naboens
+                       flate og står sist i lista. En tomts fotavtrykk er omrisset
+                       selv, ikke noe som må regnes først, så det er det samme hver
+                       gang – og naboen rører den, så svaret kan bli begge deler. */
+                    const ser9 = App.nyttAnlegg('tomt', '__ser_naboen');
+                    ser9.tomt.punkter = [[flA.minX, flA.minY], [flA.maksX, flA.minY],
+                      [flA.maksX, flA.maksY], [flA.minX, flA.maksY]]
+                      .map(([x, y]) => { const g = Geo.fraUtm(x, y, App.sone); return { lat: g.lat, lon: g.lon }; });
+                    const aktivt9 = App.P.aktivt;
                     const res9 = { merknader: [], sum: {} };
-                    App.naboMerknad(res9);
+                    let brukt9 = new Map(), mitt9 = null;
+                    App.P.anlegg.push(ser9);
+                    App.P.aktivt = ser9.id;
+                    try {
+                      App.naboMerknad(res9);
+                      brukt9 = App._naboflater();
+                      mitt9 = App._mittOmraade();
+                    } finally {
+                      App.P.aktivt = aktivt9;
+                      App.P.anlegg.splice(App.P.anlegg.indexOf(ser9), 1);
+                    }
+                    // samme prøve som i `naboMerknad`: randboksen mot fotavtrykket
+                    const roerer9 = fl => !!fl && (!mitt9 || !(fl.minX > mitt9.maksX
+                      || fl.maksX < mitt9.minX || fl.minY > mitt9.maksY || fl.maksY < mitt9.minY));
+                    this.sjekk('      og prøvetomta rører naboen – ellers prøver merknaden ingenting',
+                      !!mitt9 && roerer9(flA), mitt9 ? 'rører ikke' : 'fikk intet fotavtrykk');
                     const nevnt9 = res9.merknader.some(q => q.type === 'naboanlegg'
                       && q.tekst.indexOf(anlA.navn || anlA.type) >= 0);
+                    const gjelder9 = brukt9.has(idA) && roerer9(brukt9.get(idA));
                     this.sjekk('      og merknaden sier det som gjelder nå',
-                      nevnt9 === App._ferdigflater.has(idA),
-                      nevnt9 ? 'nevner naboen' : 'nevner den ikke');
+                      nevnt9 === gjelder9,
+                      (nevnt9 ? 'nevner naboen' : 'nevner den ikke') + ', men den '
+                      + (brukt9.has(idA) ? (gjelder9 ? 'er terreng og rører' : 'er terreng, rører ikke')
+                        : 'er falt bort'));
                     // legg tilbake
                     if (anlA.tomt && anlA.tomt.nivaa && angre != null) anlA.tomt.nivaa.kote = angre;
                     else if (anlA.mal && angre != null) anlA.mal.skjaeringLosmasse = angre;
