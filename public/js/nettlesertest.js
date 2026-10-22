@@ -13473,6 +13473,13 @@ const Nettlesertest = {
       const med = Object.assign({}, App.resultat.sum);
       this.sjekk('tomta sier at den er regnet mot de innmålte punktene',
         App.resultat.merknader.some(m => m.type === 'innmalt' && /Regnet mot det innmålte terrenget/.test(m.tekst)));
+      const mk = App.resultat.motKart;
+      this.sjekk('den samme tomta er regnet mot vanlig kart ved siden av', !!mk && mk.sum
+        && Math.abs((mk.sum.skjaering + mk.sum.rensk) - (med.skjaering + med.rensk)) > 20,
+        mk ? `kart ${mk.sum.skjaering.toFixed(0)}/${mk.sum.rensk.toFixed(0)} · punkter ${med.skjaering.toFixed(0)}/${med.rensk.toFixed(0)}` : 'mangler');
+      this.sjekk('og Masser-fanen viser hva som er spart og ekstra',
+        /Innmålt terreng mot vanlig kart/i.test(document.getElementById('massesammendrag').textContent)
+        && /spart|ekstra/.test(document.getElementById('massesammendrag').textContent));
       this.sjekk('fyllmassene er ikke sprengning – berget måles fra den gamle bakken',
         med.skjaeringFjell < 1, String(med.skjaeringFjell));
       const ekteTillegg = App.tinTillegg;
@@ -13484,6 +13491,7 @@ const Nettlesertest = {
       await App.beregnTomt();
       const uten = App.resultat.sum;
       this.sjekk('og sier fra når punktene ikke er godkjent', App.resultat.merknader.some(m => m.type === 'innmalt' && /ikke godkjent/.test(m.tekst)));
+      this.sjekk('uten godkjente punkter er det ingen sammenligning å vise', !App.resultat.motKart);
       /* Fyllinga sammenlignes ikke: masseutskiftingen graver løsmassene ut
          ned til berget og fyller igjen, og med 2 m kjørt på er det mer å
          skifte ut, ikke mindre. Det som må endre seg, er gravingen. */

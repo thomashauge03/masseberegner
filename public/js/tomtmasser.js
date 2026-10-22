@@ -92,6 +92,10 @@ function tilGrensa(grense, x, y, nx, ny) {
    uansett mur eller et annet niva, ikke et større tall. */
 const REKKEVIDDE_TAK = 150;
 
+/* Hvor mye over DTM1 et innmålt terreng må ligge før det regnes som kjørt på
+   masse – uten matjord. Under dette er det DTM1 sin egen usikkerhet. */
+const KJORT_PAA_GRENSE = 0.3;
+
 function naermestePaOmriss(p, x, y) {
   let best = { d: Infinity, kant: 0, u: 0, x: 0, y: 0 };
   for (let i = 0; i < p.length; i++) {
@@ -374,6 +378,7 @@ function beregnTomtemasser(o) {
 
   const cellA = ruteM * ruteM * arealFaktor;
   const matjord = Math.max(0, mal.matjordDybde || 0);
+  const kjortPaa = o.terreng && typeof o.terreng.kjortPaa === 'function' ? (x, y) => o.terreng.kjortPaa(x, y) : null;
   const renskDybde = Math.max(0, mal.renskDybde || 0);
   // se `utskifting` i tomtemalen – alt under tomta graves ned til fjell
   const utskifting = !!mal.utskifting;
@@ -483,7 +488,12 @@ function beregnTomtemasser(o) {
          Na skrapes matjorda av først, og skjæringen males fra den avskrapte
          flaten. Da er matjorda ute av skjæringen, og deponiet far den én gang. */
       const tilBerg = Math.max(0, zT - zFjell);
-      const matjordHer = Math.min(matjord, tilBerg);
+      /* PÅ FYLLMASSER ER DET INGEN MATJORD Å TA AV. Arealdekket og matjorddybden
+         gjelder bakken slik DTM1 viser den; der et godkjent innmålt terreng
+         ligger mer enn 0,3 m over (se Terreng.kjortPaa), er det kjørt på masse
+         siden. Ved en ekte fylling sto 265 m³ matjord oppå den. */
+      const kjort = kjortPaa ? kjortPaa(x, y) : 0;
+      const matjordHer = kjort > KJORT_PAA_GRENSE ? 0 : Math.min(matjord, tilBerg);
       s.matjord += matjordHer * cellA;
       const zAvdekket = zT - matjordHer;
 

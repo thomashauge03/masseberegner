@@ -493,6 +493,11 @@ filer som rørene – og lager en trekantflate av dem.
   og tomta sier i merknadene om den regnes mot punktene eller mot DTM1.
 * **Berget måles fra den gamle bakken.** Fjelldybden gjelder fra DTM1, så masse
   som er kjørt på siden, regnes ikke som sprengning.
+* **Ingen matjord på fyllmasser.** Der det godkjente terrenget ligger mer enn
+  0,3 m over DTM1, tar tomta ikke av matjord – den er kjørt på siden.
+* **Spart eller ekstra:** tomtas Masser-fane har boksen «Innmålt terreng mot
+  vanlig kart», med den samme tomta regnet mot DTM1 og forskjellen for
+  skjæring, sprengning, fylling, matjord, rensk, det som må kjøres inn og deponi.
 * **Mistenkelige punkter** – et punkt som står mer enn 1,5 m fra snittet av
   naboene – merkes oransje. De er med i flaten til du tar dem ut med «Ta ut» i
   fanen eller tabellen, eller ved å klikke punktet i kartet.
@@ -727,7 +732,7 @@ feilmeldingene), alt mot en falsk `fetch` og laget testdata – Makin kalles ald
 Triangulering (`test/trianguleringprove.js`): Delaunay, ytterkanten på en
 L-form, volumet mot et kjent terreng (1 m over 20 × 20 m er 400 m³), merking av
 feilpunkt, LandXML og sonen fra Leica-projeksjonen, terrenget med overlag,
-fjelldybden under en fylling og prosjektfila. `npm test` kjører alle elleve.
+fjelldybden og matjorda under en fylling og prosjektfila. `npm test` kjører alle elleve.
 
 `test/makin-sonde.js` er ikke en del av `npm test`: en prøve du kjører selv, med
 din egen nøkkel i `MAKIN_NOKKEL`, mot en ekte eksport. Den skriver bare

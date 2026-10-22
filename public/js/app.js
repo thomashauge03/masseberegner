@@ -1024,7 +1024,9 @@ const App = {
         return this._grunn.z(x, y);
       },
       dekning(...a) { return this._grunn.dekning.apply(this._grunn, a); },
-      lastOmraade(...a) { return this._grunn.lastOmraade.apply(this._grunn, a); }
+      lastOmraade(...a) { return this._grunn.lastOmraade.apply(this._grunn, a); },
+      // masse kjørt på siden DTM1 – se Terreng.kjortPaa og matjorda i tomtmasser
+      kjortPaa(x, y) { return this._grunn.kjortPaa ? this._grunn.kjortPaa(x, y) : 0; }
     };
   },
 
@@ -1079,20 +1081,46 @@ const App = {
   },
 
   /**
+   * Den samme tomta regnet mot vanlig kart (DTM1), uten det innmålte terrenget.
+   *
+   * Forskjellen er det punktene endrer i prisgrunnlaget: masse som er spart
+   * fordi det alt er fylt, eller som kommer i tillegg. Uten den er det godkjente
+   * terrenget et tall som bare er annerledes – ingen ser hvor mye det betyr.
+   * Overlaget tas av mens det regnes og settes tilbake; fjellmodellen følger
+   * med (se `tinTillegg`). Null når det ikke finnes noe innmålt terreng i bruk,
+   * eller når det ikke rører tomta.
+   */
+  tinMotKart(polygon, t) {
+    const terr = this._terreng;
+    if (!terr || !terr.overlag || !terr.overlag.length || !this.resultat || !this.resultat.sum) return null;
+    const lagret = terr.overlag;
+    let raa;
+    try {
+      terr.overlag = [];
+      raa = Tomtmasser.beregnTomtemasser({
+        tomt: { punkter: polygon, kanter: t.kanter, nivaa: this.tomtenivaaIUtm(t) },
+        mal: this.P.mal, faktorer: this.P.faktorer,
+        terreng: this.prosjektterreng(), fjell: this.fjellmodellIUtm(),
+        grense: t.omrissBetyr === 'yttergrense' ? this.tomtIUtm(t) : null,
+        rutestorrelse: this.P.mal.rutestorrelse, bakkefaktor: this.bakkefaktor()
+      });
+    } catch (e) { return null; } finally { terr.overlag = lagret; }
+    if (!raa || !raa.sum) return null;
+    const n = this.resultat.sum;
+    const noe = ['skjaering', 'fylling', 'matjord', 'skjaeringFjell', 'rensk', 'utskifting']
+      .some(f => Math.abs((n[f] || 0) - (raa.sum[f] || 0)) > 0.5);
+    return noe ? { sum: raa.sum, balanse: this.tomtebalanse(raa.sum) } : null;
+  },
+
+  /**
    * Hvor mye bakken ligger over DTM1 – til fjellmodellen, så berget måles
    * fra den gamle bakken og ikke fra toppen av en fylling (se
    * Fjellmodell.tillegg). Null når ingen innmålt flate er i bruk.
    */
   tinTillegg() {
     const t = this._terreng;
-    if (!t || !t.zDtm || !t.overlag || !t.overlag.length) return null;
-    return (x, y) => {
-      for (const o of t.overlag) {
-        const zz = o.ved(x, y);
-        if (Number.isFinite(zz)) { const g = t.zDtm(x, y); return Number.isFinite(g) ? zz - g : 0; }
-      }
-      return 0;
-    };
+    if (!t || !t.kjortPaa || !t.overlag || !t.overlag.length) return null;
+    return (x, y) => t.kjortPaa(x, y);
   },
 
   /**
@@ -2232,6 +2260,36 @@ const App = {
     ut += rad('<span class="merke-fylling">Fylling</span>',
       `<span class="merke-fylling">${tall(s.fylling)} m³</span>`, 'stor');
     ut += '</div>';
+
+    /* HVA DET INNMÅLTE TERRENGET BETYR I KUBIKK.
+       Tallene over står mot punktene. Her står den samme tomta mot vanlig kart
+       (DTM1), og forskjellen sier rett ut hva som er spart og hva som kommer i
+       tillegg – se `tinMotKart`. */
+    if (r.motKart) {
+      const k = r.motKart.sum, bk = r.motKart.balanse;
+      const forskjell = (navn, naa, kart, tittel) => {
+        const d = (naa || 0) - (kart || 0);
+        if (Math.abs(d) < 0.5 && Math.abs(kart || 0) < 0.5) return '';
+        const tekst = Math.abs(d) < 0.5 ? 'likt'
+          : d < 0 ? `<span class="merke-fylling">spart ${tall(-d)} m³</span>` : `<span class="merke-skjaering">${tall(d)} m³ ekstra</span>`;
+        return rad(navn, `${tekst} <small>kart ${tall(kart || 0)} → ${tall(naa || 0)}</small>`, null, tittel);
+      };
+      ut += '<div class="sumkort"><h4>Innmålt terreng mot vanlig kart</h4>';
+      ut += forskjell('Skjæring', s.skjaering, k.skjaering);
+      ut += forskjell('&nbsp;&nbsp;– fjell (sprengning)', s.skjaeringFjell, k.skjaeringFjell);
+      ut += forskjell('Fylling', s.fylling, k.fylling);
+      ut += forskjell('Matjord som tas av', s.matjord, k.matjord);
+      ut += forskjell('Rensk mot fjell', s.rensk, k.rensk);
+      if (b && bk) {
+        ut += '<div class="strek"></div>';
+        ut += forskjell('Må kjøres inn', b.manglerTotalt, bk.manglerTotalt,
+          'Fyllingsmangel pluss overbygningen – det som må kjøpes og kjøres inn.');
+        ut += forskjell('Til deponi', b.tilDeponi, bk.tilDeponi);
+      }
+      ut += '<p class="notis">«Kart» er den samme tomta regnet mot Kartverkets DTM1, slik marka var da den ble '
+        + 'skannet. «Spart» er mindre enn mot kartet, «ekstra» er mer.</p>';
+      ut += '</div>';
+    }
 
     /* Muren er to poster folk glemmer nar de bytter skraning med mur:
        grøfta under den og den drenerende bakfyllinga bak. Begge ma kjøres. */
@@ -3847,6 +3905,7 @@ const App = {
     }
     this.resultat.balanse = this.tomtebalanse(this.resultat.sum);
     this.resultat.naboTok = this.naboOverlapp(bruktPolygon, t);
+    this.resultat.motKart = this.tinMotKart(bruktPolygon, t);
     this.merkResultat();
     this.naboMerknad(this.resultat);
     /* Sider der skraningen ikke far plass innenfor grensa.

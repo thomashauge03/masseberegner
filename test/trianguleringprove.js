@@ -161,6 +161,36 @@ console.log('Fjellmodellen under en fylling');
   paastand('gravd dypere enn berget: dybden er null, aldri negativ', gravd.dybde(0, 0, 0) === 0);
 }
 
+console.log('Matjord på fyllmasser');
+{
+  const Tm = require('../public/js/tomtmasser.js');
+  const Tomt = require('../public/js/tomt.js');
+  const { Fjellmodell } = require('../public/js/masser.js');
+  const mal = Object.assign({}, Tomt.StandardTomtemal, {
+    matjordDybde: 0.3, renskDybde: 0, slitelagTykkelse: 0, baerelagTykkelse: 0, forsterkningslag: 0,
+    frostsikring: 0, avrettingslag: 0, overberg: 0, maksSokebredde: 60, maksSkjaeringsdybde: 0,
+    maksFyllingshoyde: 0, maksVeggHoyde: 0, minAvstandTilBerg: 0, utskifting: false });
+  const kjor = terreng => Tm.beregnTomtemasser({
+    tomt: { punkter: [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 10 }, { x: 0, y: 10 }], kanter: [], nivaa: { modus: 'flat', kote: 99 } },
+    mal, terreng, fjell: new Fjellmodell({ standarddybde: 100 }), rutestorrelse: 0.5, bakkefaktor: 1 });
+  const urort = kjor({ z: () => 100 });
+  // den vestre halvdelen (x < 10) er fylt 2 m siden DTM1, den østre er urørt
+  const fylt = kjor({ z: () => 100, kjortPaa: x => (x < 10 ? 2 : 0) });
+  const litt = kjor({ z: () => 100, kjortPaa: () => 0.2 });
+  paastand('urørt mark: matjord over hele tomta', urort.sum.matjord > 59, String(urort.sum.matjord));
+  paastand('på fyllinga er det ingen matjord å ta av', fylt.sum.matjord < urort.sum.matjord * 0.6 && fylt.sum.matjord > urort.sum.matjord * 0.35,
+    `${fylt.sum.matjord} mot ${urort.sum.matjord}`);
+  paastand('0,2 m over DTM1 er usikkerhet – matjorda står', Math.abs(litt.sum.matjord - urort.sum.matjord) < 1e-9);
+  const { Terreng } = require('../public/js/terreng.js');
+  const t = new Terreng(32, 1);
+  t.fliser.set(t.nøkkel(Math.floor(E0 / 256), Math.floor(N0 / 256)), new Float32Array(256 * 256).fill(50));
+  const f = T.lagFlate(nett(4, 4, 2, () => 52.5), { makskant: 0 });
+  paastand('uten innmålt terreng er ingenting kjørt på', t.kjortPaa(E0 + 3, N0 + 3) === 0);
+  t.overlag = [{ ved: (a, b) => T.hoyde(f, a, b) }];
+  paastand('Terreng.kjortPaa er høyden over DTM1 innenfor flaten', Math.abs(t.kjortPaa(E0 + 3, N0 + 3) - 2.5) < 1e-6);
+  paastand('og 0 utenfor', t.kjortPaa(E0 + 40, N0 + 3) === 0);
+}
+
 console.log('Prosjektfila');
 {
   const Pf = require('../public/js/prosjektform.js');

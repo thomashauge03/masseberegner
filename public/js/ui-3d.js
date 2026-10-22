@@ -2053,8 +2053,8 @@ const Tegner3d = {
        DTM1. Der et godkjent innmålt terreng ligger mer enn 0,3 m fra DTM1, er
        det fylt eller gravd – og der står det ingen gran, uansett hva AR5 sier. */
     const terr = this.app && this.app.terreng;
-    const endret = (terr && terr.zDtm && terr.overlag && terr.overlag.length)
-      ? (x, y) => { const a = terr.z(x, y), b = terr.zDtm(x, y); return Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) > 0.3; }
+    const endret = (terr && terr.kjortPaa && terr.overlag && terr.overlag.length)
+      ? (x, y) => Math.abs(terr.kjortPaa(x, y)) > 0.3
       : null;
     const naerArbeid = (i, j, mi, mj) => {
       for (let jj = Math.max(0, j - mj); jj <= Math.min(nh - 1, j + mj); jj++) {

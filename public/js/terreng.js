@@ -277,6 +277,21 @@ class Terreng {
     return this.zDtm(x, y);
   }
 
+  /**
+   * Hvor mye bakken ligger over DTM1 her fordi et innmålt terreng sier det –
+   * masse kjørt på (positivt) eller gravd bort (negativt) siden Kartverket
+   * skannet. 0 der ingen innmålt flate gjelder, eller DTM1 mangler.
+   */
+  kjortPaa(x, y) {
+    const o = this.overlag;
+    if (!o || !o.length) return 0;
+    for (let i = 0; i < o.length; i++) {
+      const zz = o[i].ved(x, y);
+      if (zz === zz) { const g = this.zDtm(x, y); return g === g ? zz - g : 0; }
+    }
+    return 0;
+  }
+
   /** Kartverkets høyde med bilineær interpolasjon, uten innmålt terreng. NaN dersom data mangler. */
   zDtm(x, y) {
     const r = this.res;
