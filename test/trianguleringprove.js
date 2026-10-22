@@ -161,7 +161,7 @@ console.log('Fjellmodellen under en fylling');
   paastand('gravd dypere enn berget: dybden er null, aldri negativ', gravd.dybde(0, 0, 0) === 0);
 }
 
-console.log('Matjord på fyllmasser');
+console.log('Matjord og masseutskifting på fyllmasser');
 {
   const Tm = require('../public/js/tomtmasser.js');
   const Tomt = require('../public/js/tomt.js');
@@ -181,6 +181,16 @@ console.log('Matjord på fyllmasser');
   paastand('på fyllinga er det ingen matjord å ta av', fylt.sum.matjord < urort.sum.matjord * 0.6 && fylt.sum.matjord > urort.sum.matjord * 0.35,
     `${fylt.sum.matjord} mot ${urort.sum.matjord}`);
   paastand('0,2 m over DTM1 er usikkerhet – matjorda står', Math.abs(litt.sum.matjord - urort.sum.matjord) < 1e-9);
+
+  // masseutskifting ned til berget 3 m under DTM1, høyst 4 m
+  const malU = Object.assign({}, mal, { matjordDybde: 0, utskifting: true, maksUtskifting: 4, utskiftingUtenfor: 0, utskiftingHelning: 0 });
+  const kjorU = terreng => Tm.beregnTomtemasser({
+    tomt: { punkter: [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 10 }, { x: 0, y: 10 }], kanter: [], nivaa: { modus: 'flat', kote: 100 } },
+    mal: malU, terreng, fjell: new Fjellmodell({ standarddybde: 3 }), rutestorrelse: 0.5, bakkefaktor: 1 });
+  const uU = kjorU({ z: () => 100 });
+  const fU = kjorU({ z: () => 100, kjortPaa: x => (x < 10 ? 2 : 0) });
+  paastand('urørt mark: løsmassen under tomta skiftes ut (20 × 10 × 3 m)', Math.abs(uU.sum.utskifting - 600) < 1, String(uU.sum.utskifting));
+  paastand('fyllmassene skiftes ikke ut – bare den urørte halvdelen', Math.abs(fU.sum.utskifting - 300) < 1, String(fU.sum.utskifting));
   const { Terreng } = require('../public/js/terreng.js');
   const t = new Terreng(32, 1);
   t.fliser.set(t.nøkkel(Math.floor(E0 / 256), Math.floor(N0 / 256)), new Float32Array(256 * 256).fill(50));

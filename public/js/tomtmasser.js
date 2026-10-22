@@ -493,7 +493,8 @@ function beregnTomtemasser(o) {
          ligger mer enn 0,3 m over (se Terreng.kjortPaa), er det kjørt på masse
          siden. Ved en ekte fylling sto 265 m³ matjord oppå den. */
       const kjort = kjortPaa ? kjortPaa(x, y) : 0;
-      const matjordHer = kjort > KJORT_PAA_GRENSE ? 0 : Math.min(matjord, tilBerg);
+      const paaFylling = kjort > KJORT_PAA_GRENSE;
+      const matjordHer = paaFylling ? 0 : Math.min(matjord, tilBerg);
       s.matjord += matjordHer * cellA;
       const zAvdekket = zT - matjordHer;
 
@@ -511,12 +512,19 @@ function beregnTomtemasser(o) {
          skråner veggen opp mot terrenget med `utskiftingHelning`.
 
          Trauet blir aldri grunnere enn den avdekte flaten, og aldri dypere enn
-         `maksUtskifting` under bakken – se tomtemalen. */
+         `maksUtskifting` under bakken – se tomtemalen.
+
+         FYLLMASSER SKIFTES IKKE UT. Der et godkjent innmålt terreng ligger
+         mer enn 0,3 m over DTM1, er det kjørt på masse siden – det er den man
+         bygger på, ikke skrotet man graver bort. Uten unntaket gravde trauet seg
+         gjennom hele fyllinga og fylte den inn igjen: ved en ekte fylling sto
+         234 m³ mer «rensk mot fjell» enn mot vanlig kart. Ligger det løsmasse
+         under fyllinga, får den ligge. */
       const utAvstand = iTomta ? 0 : naer.d;      // meter ut fra tomtekanten
       const bunnFull = maksUtskift > 0 ? Math.max(zFjell, zT - maksUtskift) : zFjell;
       let zTrau = zAvdekket;
       let iTrauet = false;
-      if (utskifting) {
+      if (utskifting && !paaFylling) {
         if (utAvstand <= utUtenfor + 1e-9) {
           zTrau = Math.min(zAvdekket, bunnFull);
           iTrauet = true;
@@ -542,7 +550,7 @@ function beregnTomtemasser(o) {
       /* Resten gjelder BUNNEN, ikke veggen: under skråningen er det ikke
          meningen å komme ned til fjell, så det som ligger igjen der er ikke
          en rest noen har gitt opp - det er utenfor tomta. */
-      if (utskifting && iTomta && maksUtskift > 0) {
+      if (utskifting && !paaFylling && iTomta && maksUtskift > 0) {
         const rest = Math.max(0, (zT - maksUtskift) - zFjell);
         if (rest > 0.05) forDyptTilFjell += cellA;
         if (rest > utskiftingRest) utskiftingRest = rest;

@@ -2146,9 +2146,21 @@ const App = {
    * verdi - sa skrift, avstander og farger blir identiske. Her sto det en egen
    * tabell med egen stil, og da sa tomta ut som et annet program.
    */
+  /** Knappen «Masseutskifting» i tomtepanelet viser det malen sier. */
+  visUtskiftingKnapp() {
+    const k = document.getElementById('tm_utskifting');
+    if (!k || !this.erTomt()) return;
+    const pa = !!this.P.mal.utskifting;
+    k.classList.toggle('aktiv', pa);
+    k.setAttribute('aria-pressed', pa ? 'true' : 'false');
+    k.textContent = pa ? '✓ Masseutskifting' : 'Masseutskifting av';
+  },
+
   visTomtemasser() {
     const boks = document.getElementById('massesammendrag');
     if (!boks || !this.erTomt()) return;
+    // malen kan være endret i Tomtemal, angret eller byttet med anlegget
+    this.visUtskiftingKnapp();
     /* TALLENE FOR TOMTA MÅ OGSÅ TELLE MED I PROSJEKTSUMMEN.
        Her sto ingen ting: topplinja ble bare oppdatert fra vegens beregning, så
        en tomt kunne være ferdig regnet mens summen fortsatt sa «1 av 2». Målt:
@@ -8135,6 +8147,21 @@ const App = {
     id('knappOptimaliser').onclick = () => this.optimaliser();
     if (id('knappUtenSprengning')) id('knappUtenSprengning').onclick = () => this.rettOpp('sprengning');
     if (id('tm_utenSprengning')) id('tm_utenSprengning').onclick = () => this.sprengfriTomt();
+    /* MASSEUTSKIFTING AV OG PÅ, DER MAN REGNER. Bryteren sto bare i Tomtemal,
+       mellom tjue tallfelt, og ble ikke funnet når grunnen var god nok –
+       for eksempel på en fylling som er kjørt på og komprimert. Knappen er den
+       samme innstillingen (`mal.utskifting`), og skjemaet følger med. */
+    if (id('tm_utskifting')) id('tm_utskifting').onclick = () => {
+      if (!this.erTomt()) return;
+      this.merk('masseutskifting ' + (this.P.mal.utskifting ? 'av' : 'på'));
+      this.P.mal.utskifting = !this.P.mal.utskifting;
+      this.tomtemalTilSkjema();
+      this.visUtskiftingKnapp();
+      this.tomtEndret();
+      this.status(this.P.mal.utskifting
+        ? 'Masseutskifting på: løsmassen under tomta graves ut ned til fjell og fylles igjen.'
+        : 'Masseutskifting av: tomta bygges på grunnen som ligger der.');
+    };
     /* K settes pa knekkpunktene som far bestemme seg selv - ikke pa de laste.
        En last høyde har K=0 nettopp fordi veglinjen skal ga nøyaktig gjennom
        den, slik det ogsa star i teksten over høydetabellen. Med K=2 pa et last

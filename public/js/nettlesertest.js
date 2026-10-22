@@ -13492,6 +13492,19 @@ const Nettlesertest = {
       const uten = App.resultat.sum;
       this.sjekk('og sier fra når punktene ikke er godkjent', App.resultat.merknader.some(m => m.type === 'innmalt' && /ikke godkjent/.test(m.tekst)));
       this.sjekk('uten godkjente punkter er det ingen sammenligning å vise', !App.resultat.motKart);
+
+      // «Masseutskifting» av og på fra tomtepanelet
+      const knappU = document.getElementById('tm_utskifting');
+      this.sjekk('knappen «Masseutskifting» står på, som malen', !!knappU && knappU.getAttribute('aria-pressed') === 'true'
+        && App.P.mal.utskifting === true && uten.utskifting > 1, String(uten.utskifting));
+      knappU.click();
+      await App.beregnTomt();
+      this.sjekk('av: ingenting skiftes ut, og knappen viser det', App.P.mal.utskifting === false
+        && App.resultat.sum.utskifting < 0.5 && knappU.getAttribute('aria-pressed') === 'false', String(App.resultat.sum.utskifting));
+      await App.angre();
+      await App.beregnTomt();
+      this.sjekk('angre slår den på igjen', App.P.mal.utskifting === true && knappU.getAttribute('aria-pressed') === 'true'
+        && Math.abs(App.resultat.sum.utskifting - uten.utskifting) < 0.5);
       /* Fyllinga sammenlignes ikke: masseutskiftingen graver løsmassene ut
          ned til berget og fyller igjen, og med 2 m kjørt på er det mer å
          skifte ut, ikke mindre. Det som må endre seg, er gravingen. */
@@ -13499,9 +13512,11 @@ const Nettlesertest = {
         (uten.skjaering + uten.rensk) + 50 < (med.skjaering + med.rensk),
         `med ${med.skjaering.toFixed(0)}/${med.rensk.toFixed(0)}/${med.fylling.toFixed(0)} · uten ${uten.skjaering.toFixed(0)}/${uten.rensk.toFixed(0)}/${uten.fylling.toFixed(0)}`);
       this.sjekk('et innmålt terreng står ikke i prosjektsummen', App.P.anlegg.filter(a => App.erMasseanlegg(a)).length === 1);
-      tin.tin.bruk = true; App.tinEndret(false);
+      // angre over byttet ut prosjektobjektet – hent anlegget på nytt
+      const tinNy = App.P.anlegg.find(a => a.type === 'tin');
+      tinNy.tin.bruk = true; App.tinEndret(false);
 
-      App.byttAnlegg(tin.id);
+      App.byttAnlegg(tinNy.id);
       await this.ventPaBeregning();
       TinUI.settBruk(false);
       await App.angre();
