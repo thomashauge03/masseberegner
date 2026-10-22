@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node test/selftest.js && node test/rorprove.js && node test/groftprove.js && node test/rorplanprove.js && node test/roreksportprove.js && node test/roravvikprove.js && node test/traseimportprove.js && node test/stikkrenneprove.js && node test/stikkutsnittprove.js && node test/makinprove.js"
+    "test": "node test/selftest.js && node test/rorprove.js && node test/groftprove.js && node test/rorplanprove.js && node test/roreksportprove.js && node test/roravvikprove.js && node test/traseimportprove.js && node test/stikkrenneprove.js && node test/stikkutsnittprove.js && node test/makinprove.js && node test/trianguleringprove.js"
   },
   "private": true
 }

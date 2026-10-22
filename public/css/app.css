@@ -446,6 +446,35 @@ body {
 .rute.rormodus.uten-side { grid-template-areas: "kart" "ror"; }
 .rute.rormodus.uten-side.stor-kart { grid-template-areas: "kart"; }
 .rute.rormodus.uten-side.stor-ror { grid-template-areas: "ror"; }
+/* INNMÅLT TERRENG (Triangulering): kartet med trekantene, og punkttabellen
+   under. Samme oppsett og samme `:not()`-grunn som rør og tomt over. */
+.rute:not(.tinmodus) .tinpanel { display: none; }
+.tinpanel { grid-area: tin; }
+.rute.tinmodus {
+  grid-template-rows: minmax(180px, 1.6fr) minmax(160px, 1fr);
+  grid-template-areas: "kart side" "tin side";
+}
+.rute.tinmodus .profilpanel,
+.rute.tinmodus .tverrpanel { display: none; }
+.rute.tinmodus .tinpanel { display: flex; flex-direction: column; }
+.rute.tinmodus.stor-kart { grid-template-rows: 1fr; grid-template-areas: "kart side"; }
+.rute.tinmodus.stor-tin { grid-template-rows: 1fr; grid-template-areas: "tin side"; }
+.rute.tinmodus.stor-kart .tinpanel,
+.rute.tinmodus.stor-tin .kartpanel { display: none; }
+.rute.tinmodus.uten-side { grid-template-areas: "kart" "tin"; }
+.rute.tinmodus.uten-side.stor-kart { grid-template-areas: "kart"; }
+.rute.tinmodus.uten-side.stor-tin { grid-template-areas: "tin"; }
+.tininnhold { flex: 1 1 auto; overflow: auto; min-height: 100px; padding: 0 8px 8px; }
+.tintabell { border-collapse: collapse; width: 100%; font-size: 12px; font-variant-numeric: tabular-nums; }
+.tintabell th, .tintabell td { padding: 3px 8px; border-bottom: 1px solid rgba(255,255,255,.08); text-align: right; white-space: nowrap; }
+.tintabell th:first-child, .tintabell td:first-child, .tintabell td:nth-child(2), .tintabell th:nth-child(2) { text-align: left; }
+.tintabell thead th { position: sticky; top: 0; background: var(--panel, #141414); }
+.tintabell tr.ute td { opacity: .45; text-decoration: line-through; }
+.tintabell tr.ute td:last-child { opacity: 1; text-decoration: none; }
+.tintabell tr.mistenkelig td:first-child { color: #e67e22; }
+.tintabell td.fyll { color: #4caf50; }
+.tintabell td.skj { color: #e05a4a; }
+
 .rorinnhold { display: flex; overflow: hidden; flex: 1 1 auto; min-height: 110px; position: relative; }
 #rorprofil { flex: 1; min-width: 0; display: block; }
 .rute.rormodus .rorpanel .panelhode > span:first-child { flex: none; white-space: nowrap; }

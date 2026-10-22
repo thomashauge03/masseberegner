@@ -552,6 +552,7 @@
         <button id="verktoyKum" class="verktoyknapp skjult" aria-pressed="false" title="Klikk et punkt på en trase for å sette en kum – eller ta den bort">◯ Kum</button>
         <button id="verktoySnu" class="verktoyknapp skjult" aria-pressed="false" title="Klikk en trase for å snu fallretningen for rørene i den">⇄ Snu fallretning</button>
         <input type="file" id="rorFil" accept=".xml,.sos,.kof,application/xml,text/xml" multiple hidden>
+        <input type="file" id="tinFil" accept=".xml,.sos,.kof,application/xml,text/xml" hidden>
         <button id="verktoyFlytt" class="verktoyknapp aktiv" title="Flytt og rediger punkt">✥ Rediger</button>
         <button id="verktoySondering" class="verktoyknapp" title="Registrer observert dybde til fjell">⛏ Fjellpunkt</button>
         <!-- SNUPLASSEN ER IKKE ET EGET ANLEGG. Den er vegen som er bredere på
@@ -587,6 +588,7 @@
           <button class="knapp primaer" data-velg="makin" title="Koble til et prosjekt i Makin 3D og hent innmålingene derfra">☁ Rør fra Makin</button>
           <button class="knapp primaer" data-velg="rorplan">✎ Rør (tegn)</button>
           <button class="knapp primaer" data-velg="rorskisse" title="Bare streker med rørtype – ingen høyder, ingen grøft">✎ Rørskisse</button>
+          <button class="knapp primaer" data-velg="tin" title="Innmålte terrengpunkter (LandXML, KOF eller SOSI) blir en trekantflate – terrenget i dag, i stedet for Kartverkets">△ Triangulering</button>
         </div>
         <div class="velgnotis">Du kan legge til flere av hvert slag etterpå.</div>
       </div>
@@ -913,6 +915,18 @@
       <canvas id="ror3dover" class="skjult" tabindex="0"></canvas>
       <div id="rorEtikett" class="avlesning">–</div>
     </div>
+  </section>
+
+  <!-- ---------------- Innmålt terreng (Triangulering) ----------------
+       Punktene med høyde, DTM1 og hvor langt over – og knappen som tar et
+       punkt ut av flaten. Tallene og «Bruk som terreng» står i Masser-fanen. -->
+  <section class="panel tinpanel">
+    <div class="panelhode">
+      <span>Innmålte punkter</span>
+      <button class="utvidknapp" data-utvid="tin" title="Stor visning">⤢</button>
+      <span class="hjelpetekst">Klikk et punkt i kartet eller «Ta ut» for å holde det utenfor flaten</span>
+    </div>
+    <div id="tinpunkter" class="tininnhold"></div>
   </section>
 
   <!-- ---------------- Sidepanel ---------------- -->
@@ -1246,6 +1260,7 @@
 <!-- Rørene fra maskinstyringen: innlesing, koder og linjer. Ren logikk uten
      skjerm – prøvene i test/rorprove.js laster den samme fila. -->
 <script src="js/ror.js"></script>
+<script src="js/triangulering.js"></script>
 <!-- Klienten mot Makin 3D (via /api/makin): nøkkel i lageret, start og henting
      av eksport. Ren logikk – prøvene i test/makinprove.js laster den samme fila. -->
 <script src="js/makin.js"></script>
@@ -1271,6 +1286,7 @@
 <script src="js/ui-veg3d.js"></script>
 <script src="js/ui-ror.js"></script>
 <script src="js/ui-makin.js"></script>
+<script src="js/ui-tin.js"></script>
 <script src="js/ui-groft.js"></script>
 <script src="js/ui-rorplan.js"></script>
 <script src="js/ui-rorprofil.js"></script>

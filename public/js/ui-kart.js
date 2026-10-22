@@ -1467,6 +1467,16 @@ const Kart = {
           .addTo(this.lag.andre);
         f.on('click', bytt);
         midt = f.getBounds().getCenter();
+      } else if (a.type === 'tin' && a.tin && a.tin.punkter && a.tin.punkter.length > 2) {
+        // ytterkanten av det innmålte terrenget
+        const fl = app.tinFlate(a), sone = a.tin.sone || app.sone;
+        if (fl && fl.kant.length > 2) {
+          const p = fl.kant.map(i => { const g = Geo.fraUtm(fl.punkter[i].e, fl.punkter[i].n, sone); return [g.lat, g.lon]; });
+          const f = L.polygon(p, Object.assign({ fillColor: Farger.blekkSvak, fillOpacity: a.tin.bruk ? 0.12 : 0.03 }, stil))
+            .addTo(this.lag.andre);
+          f.on('click', bytt);
+          midt = f.getBounds().getCenter();
+        }
       } else if (a.type === 'veg' && a.ip && a.ip.length > 1) {
         /* SENTERLINJA, IKKE KNEKKPUNKTLINJA.
            Her sto de rå ip-punktene bundet sammen med rette streker. Den aktive
@@ -1519,7 +1529,8 @@ const Kart = {
     this.tegnAndreAnlegg();
     this.tegnTomt();
     this.tegnRor();
-    if (app.erTomt() || app.erRor()) {
+    this.tegnTin();
+    if (app.erTomt() || app.erRor() || app.erTin()) {
       // vegens lag skal ikke henge igjen fra forrige anlegg
       this.ipMarkorer.forEach(m => this.kart.removeLayer(m));
       this.ipMarkorer = [];
@@ -1527,9 +1538,10 @@ const Kart = {
       this.lag.vegkant.clearLayers();
       this.lag.stasjoner.clearLayers();
       this.lag.stikkrenner.clearLayers();
-      if (app.erRor()) {
-        /* Tomtas lag og vegens markører hører ikke til rørbildet. Se
-           kommentaren under om lag som henger igjen fra forrige anlegg. */
+      if (app.erRor() || app.erTin()) {
+        /* Tomtas lag og vegens markører hører ikke til rørbildet – og heller
+           ikke til et innmålt terreng. Se kommentaren under om lag som henger
+           igjen fra forrige anlegg. */
         if (this.lag.tomtemal) this.lag.tomtemal.clearLayers();
         if (this.lag.skraningsfot) this.lag.skraningsfot.clearLayers();
         if (this.lag.tomtefarger) { this.kart.removeLayer(this.lag.tomtefarger); this.lag.tomtefarger = null; }
@@ -1807,6 +1819,60 @@ const Kart = {
    * Bygd i regnesonen, som beregningen, så lengdene er de samme som i
    * rapporten.
    */
+  /**
+   * Det innmålte terrenget: trekantene farget etter hvor langt de ligger over
+   * eller under DTM1 (fyllingsgrønt, skjæringsrødt), og punktene. Et klikk på
+   * et punkt tar det ut av flaten eller inn igjen – det er brukerens knapp,
+   * aldri programmets. Mistenkelige punkter har en oransje ring.
+   */
+  tegnTin() {
+    const app = this.app;
+    if (!this.lag.tin) this.lag.tin = L.layerGroup().addTo(this.kart);
+    this.lag.tin.clearLayers();
+    if (!app.erTin() || !app.P.tin) return;
+    const t = app.P.tin;
+    const res = app.resultat && app.resultat.type === 'tin' ? app.resultat : null;
+    const f = app.tinFlate(app.anlegg());
+    const sone = t.sone || app.sone;
+    const ll = p => { const g = Geo.fraUtm(p.e, p.n, sone); return [g.lat, g.lon]; };
+    const farge = d => {
+      if (!Number.isFinite(d)) return '#999999';
+      const k = Math.max(-1, Math.min(1, d / (d > 0 ? 3 : 1)));
+      const mot = k > 0 ? [46, 139, 62] : [192, 57, 43], lys = [236, 232, 222], a = Math.sqrt(Math.abs(k));
+      return 'rgb(' + lys.map((v, i) => Math.round(v + (mot[i] - v) * a)).join(',') + ')';
+    };
+    const tall = v => Rapport.tall(v, 2);
+    if (f) {
+      for (const tr of f.tri) {
+        const q = tr.map(i => f.punkter[i]);
+        let d = NaN;
+        if (res) {
+          const e = (q[0].e + q[1].e + q[2].e) / 3, n = (q[0].n + q[1].n + q[2].n) / 3;
+          d = Triangulering.hoyde(f, e, n) - res.dtm(e, n);
+        }
+        L.polygon(q.map(ll), { color: '#1d1d1b', weight: 0.7, opacity: 0.6, fillColor: farge(d), fillOpacity: 0.6, interactive: false })
+          .addTo(this.lag.tin);
+      }
+      L.polygon(f.kant.map(i => ll(f.punkter[i])), { color: '#1d1d1b', weight: 2, fill: false, interactive: false }).addTo(this.lag.tin);
+    }
+    const ute = new Set(t.utelatt || []);
+    const mist = new Map(((res && res.mistenkelige) || []).map(m => [m.navn, m.avvik]));
+    for (const p of t.punkter) {
+      const erUte = ute.has(p.navn), m = mist.get(p.navn);
+      const dtm = res ? res.dtm(p.e, p.n) : NaN;
+      const mk = L.circleMarker(ll(p), {
+        radius: erUte ? 6 : 4.5, weight: m != null || erUte ? 2.5 : 1,
+        color: erUte ? '#c0392b' : m != null ? '#e67e22' : '#1d1d1b',
+        fillColor: erUte ? '#ffffff' : '#1d1d1b', fillOpacity: erUte ? 0.4 : 0.9
+      }).addTo(this.lag.tin);
+      mk.bindTooltip(`<b>${escapeHtml(p.navn)}</b>${p.kode ? ' · ' + escapeHtml(p.kode) : ''}<br>`
+        + `Høyde ${tall(p.z)}` + (Number.isFinite(dtm) ? ` · DTM1 ${tall(dtm)} · ${p.z - dtm >= 0 ? '+' : ''}${tall(p.z - dtm)} m` : '')
+        + (m != null ? `<br>⚠ ${tall(Math.abs(m))} m ${m < 0 ? 'under' : 'over'} naboene` : '')
+        + `<br><i>${erUte ? 'Tatt ut – klikk for å ta med' : 'Klikk for å ta ut av flaten'}</i>`);
+      mk.on('click', e => { L.DomEvent.stop(e); TinUI.veksle(p.navn); });
+    }
+  },
+
   tegnRor() {
     const app = this.app;
     if (!this.lag.ror) this.lag.ror = L.layerGroup().addTo(this.kart);

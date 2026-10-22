@@ -12,7 +12,17 @@ const App = {
   sone: 32,
   linje: null,
   vprofil: null,
-  terreng: null,
+  _terreng: null,
+  /* TERRENGET FÅR DET INNMÅLTE MED SEG, UANSETT HVOR DET LAGES.
+     `this.terreng = new Terreng(...)` står i vegen, tomta og rørene. Gikk et
+     nytt terreng ut uten overlaget, regnet tomta plutselig mot DTM1 igjen –
+     helt stille, med knappen «Bruk som terreng» fortsatt på. Prøvenes falske
+     terreng (vanlige objekter) slipper gjennom urørt. */
+  get terreng() { return this._terreng; },
+  set terreng(t) {
+    this._terreng = t;
+    if (t && typeof Terreng !== 'undefined' && t instanceof Terreng) t.overlag = this.tinOverlag();
+  },
   terrengProfil: null,
   fjellmodell: null,
   resultat: null,
@@ -207,10 +217,17 @@ const App = {
     const ror = type === 'ror' || type === 'rorplan' || type === 'rorskisse';
     const a = {
       id: id || this._nyId(),
-      type: type === 'tomt' ? 'tomt' : ror ? 'ror' : 'veg',
-      navn: navn || (type === 'tomt' ? 'Tomt' : type === 'rorplan' ? 'Planlagte rør' : type === 'rorskisse' ? 'Rørskisse' : ror ? 'Rør' : 'Veg')
+      type: type === 'tomt' ? 'tomt' : ror ? 'ror' : type === 'tin' ? 'tin' : 'veg',
+      navn: navn || (type === 'tomt' ? 'Tomt' : type === 'rorplan' ? 'Planlagte rør' : type === 'rorskisse' ? 'Rørskisse'
+        : ror ? 'Rør' : type === 'tin' ? 'Innmålt terreng' : 'Veg')
     };
-    if (a.type === 'tomt') {
+    if (a.type === 'tin') {
+      // punktene kommer fra en fil – se TinUI.leggInn. Vegmalen av samme grunn som i prosjektform.
+      a.tin = Triangulering.nyTin();
+      a.mal = Object.assign({}, StandardMal);
+      a.ip = [];
+      a.vip = [];
+    } else if (a.type === 'tomt') {
       a.tomt = nyTomt();
       a.mal = Object.assign({}, StandardTomtemal);
       /* En tomt har ingen senterlinje, men den far tomme lister likevel.
@@ -328,6 +345,12 @@ const App = {
     this._ferdigflater = null;
     // sonen hører til geometrien i DETTE prosjektet – se `_settSone`
     this._soneSatt = false;
+    /* Det innmålte terrenget likeså – og det sitter inne i selve terrenget.
+       Angre og åpne kommer begge hit, så her byttes overlaget ut. */
+    this._tinflater = null;
+    if (this._terreng && typeof Terreng !== 'undefined' && this._terreng instanceof Terreng) {
+      this._terreng.overlag = this.tinOverlag(P);
+    }
     /* ET PROSJEKT MED GEOMETRI ER IKKE «UBESTEMT».
        Flagget slettes med `delete` når man velger type, så det står ikke i den
        lagrede fila – og åpningen bygger prosjektet som
@@ -384,6 +407,16 @@ const App = {
   /** Er det en rørskisse – streker med type, uten høyder og grøft? Se RorPlan.bygg. */
   erSkisse() { return this.erPlan() && !!this.anlegg().ror.plan.skisse; },
 
+  /** Er det et innmålt terreng (Triangulering) vi ser på nå? */
+  erTin() { const a = this.anlegg(); return !!a && a.type === 'tin'; },
+
+  /**
+   * Om anlegget har masser som skal summeres – en veg eller en tomt.
+   * Rør har grøftemasser for seg; et innmålt terreng er bakken, ikke et
+   * inngrep, og skal verken stå i prosjektsummen eller bli en «ferdig flate».
+   */
+  erMasseanlegg(a) { return !!a && a.type !== 'ror' && a.type !== 'tin'; },
+
   /**
    * Har anlegget noe tegnet eller importert – en veg, en tomt, innmålte eller
    * tegnede rør? Kjøres på fila FØR den er ryddet (se `klargjorProsjekt`), så
@@ -393,7 +426,8 @@ const App = {
   _harGeometri(a) {
     const n = v => (Array.isArray(v) ? v.length : 0);
     return !!a && !!(n(a.ip) || (a.tomt && n(a.tomt.punkter))
-      || (a.ror && n(a.ror.punkter)) || (a.ror && a.ror.plan && n(a.ror.plan.traseer)));
+      || (a.ror && n(a.ror.punkter)) || (a.ror && a.ror.plan && n(a.ror.plan.traseer))
+      || (a.tin && n(a.tin.punkter)));
   },
 
   /* ================================================================
@@ -796,8 +830,10 @@ const App = {
     if (!this.P || !Array.isArray(this.P.anlegg)) return f;
     const T = (typeof Tegner3d !== 'undefined') ? Tegner3d : null;
     for (const a of this._bygdFoer()) {
-      // rør er ingen flate – de er under bakken og endrer ikke terrenget for noen
-      if (a.type === 'ror') continue;
+      /* rør er ingen flate – de er under bakken og endrer ikke terrenget for
+         noen. Et innmålt terreng ER bakken, og ligger i selve terrenget (se
+         `tinOverlag`), ikke som en ferdig flate oppå. */
+      if (!this.erMasseanlegg(a)) continue;
       /* Bygges ÉN gang per tilstand. `prosjektterreng` kalles inne i
          massebalansens halveringssøk – uten hurtiglageret ville hele naboen
          blitt regnet om for hver eneste prøvekote. */
@@ -990,6 +1026,141 @@ const App = {
       dekning(...a) { return this._grunn.dekning.apply(this._grunn, a); },
       lastOmraade(...a) { return this._grunn.lastOmraade.apply(this._grunn, a); }
     };
+  },
+
+  /* ================================================================
+     INNMÅLT TERRENG (TRIANGULERING)
+
+     Kartverkets DTM1 er bakken slik den var da området sist ble skannet. Er
+     det fylt eller gravd siden, regner tomta på terreng som ikke finnes. Et
+     innmålt terreng er punktene fra i dag, triangulert – og når brukeren slår
+     på «Bruk som terreng», er det bakken innenfor ytterkanten av punktene.
+     Utenfor står DTM1 som før.
+
+     Flaten legges i selve terrenget (`Terreng.overlag`), ikke i
+     `prosjektterreng`: den er rå bakke, og alt som leser rå bakke – naboenes
+     ferdige flater, profilene, 3D – skal se den. Se `Terreng.z`.
+     ================================================================ */
+
+  /** Trekantflaten til et innmålt terreng, bygget én gang per tilstand. */
+  tinFlate(a) {
+    if (!a || !a.tin || !Array.isArray(a.tin.punkter) || a.tin.punkter.length < 3) return null;
+    const t = a.tin, P = t.punkter;
+    const nokkel = [P.length, P[0].e, P[0].n, P[P.length - 1].e, P[P.length - 1].z,
+      (t.utelatt || []).join(','), t.makskant, t.sone].join('|');
+    if (!this._tinflater) this._tinflater = new Map();
+    const b = this._tinflater.get(a.id);
+    if (b && b.nokkel === nokkel) return b.flate;
+    const flate = Triangulering.lagFlate(P, { utelatt: t.utelatt, makskant: t.makskant });
+    this._tinflater.set(a.id, { nokkel, flate });
+    return flate;
+  },
+
+  /**
+   * Flatene som er bakken nå: de innmålte terrengene der «Bruk som terreng»
+   * er på, som oppslag i prosjektets sone. Ligger punktene i en annen sone,
+   * regnes hvert oppslag om – sjelden, og bare innenfor rammen.
+   */
+  tinOverlag(P = this.P) {
+    const ut = [];
+    if (!P || !Array.isArray(P.anlegg)) return ut;
+    for (const a of P.anlegg) {
+      if (!a || a.type !== 'tin' || !a.tin || a.tin.bruk !== true) continue;
+      const f = this.tinFlate(a);
+      if (!f || !f.boks) continue;
+      const fra = this.sone, til = a.tin.sone || this.sone;
+      if (fra === til) {
+        ut.push({ ved: (x, y) => Triangulering.hoyde(f, x, y) });
+      } else {
+        ut.push({ ved: (x, y) => { const g = Geo.fraUtm(x, y, fra), u = Geo.tilUtm(g.lat, g.lon, til); return Triangulering.hoyde(f, u.x, u.y); } });
+      }
+    }
+    return ut;
+  },
+
+  /**
+   * Hvor mye bakken ligger over DTM1 – til fjellmodellen, så berget måles
+   * fra den gamle bakken og ikke fra toppen av en fylling (se
+   * Fjellmodell.tillegg). Null når ingen innmålt flate er i bruk.
+   */
+  tinTillegg() {
+    const t = this._terreng;
+    if (!t || !t.zDtm || !t.overlag || !t.overlag.length) return null;
+    return (x, y) => {
+      for (const o of t.overlag) {
+        const zz = o.ved(x, y);
+        if (Number.isFinite(zz)) { const g = t.zDtm(x, y); return Number.isFinite(g) ? zz - g : 0; }
+      }
+      return 0;
+    };
+  },
+
+  /**
+   * Noe ved et innmålt terreng er endret: punktene, et utelatt punkt,
+   * kantlengden eller knappen. Overlaget byttes, og alt som har bygget på
+   * den gamle bakken glemmes – naboflatene og 3D-bakgrunnene.
+   */
+  tinEndret(regn = true) {
+    if (this._terreng && this._terreng instanceof Terreng) this._terreng.overlag = this.tinOverlag();
+    this._ferdigflater = null;
+    if (typeof Tegner3d !== 'undefined') { Tegner3d._fulle = null; Tegner3d._fulleUtelatt = null; }
+    if (typeof Veg3d !== 'undefined') Veg3d.glemBakgrunn();
+    if (typeof Tomt3d !== 'undefined') Tomt3d.glemBakgrunn();
+    if (regn) this.planlegg(30);
+  },
+
+  /**
+   * Regner det innmålte terrenget mot DTM1: hvor mye som er fylt eller
+   * gravd siden Kartverket skannet. Sammenligningen er alltid mot DTM1 –
+   * ellers ville flaten blitt målt mot seg selv i det øyeblikket den ble
+   * brukt som terreng.
+   */
+  async beregnTin() {
+    if (!this.erTin()) return null;
+    const runde = this._tinRunde = (this._tinRunde || 0) + 1;
+    const a = this.anlegg(), t = a.tin;
+    const vis = () => {
+      Kart.tegn();
+      if (typeof TinUI !== 'undefined') TinUI.vis();
+      this.visNokkeltal();
+      this.visProsjektmasser();
+    };
+    const f = this.tinFlate(a);
+    if (!f || !f.tri.length) { this.resultat = null; vis(); return null; }
+    if (!this._soneSatt && t.sone) { this.sone = t.sone; this._soneSatt = true; }
+    if (!this.terreng || this.terreng.sone !== this.sone || this.terreng.res !== 1) {
+      this.terreng = new Terreng(this.sone, 1);
+      this._terrengnokkel = '';
+    }
+    /* Rammen rundt punktene i prosjektets sone. Et par meter klaring, så
+       oppslagene langs kanten har alle fire DTM-rutene. */
+    const tilProsjekt = (t.sone && t.sone !== this.sone)
+      ? p => { const g = Geo.fraUtm(p.e, p.n, t.sone), u = Geo.tilUtm(g.lat, g.lon, this.sone); return { x: u.x, y: u.y }; }
+      : p => ({ x: p.e, y: p.n });
+    const omriss = f.kant.map(i => tilProsjekt(f.punkter[i]));
+    const nokkel = 'tin#' + this.sone + '#' + omriss.map(q => q.x.toFixed(1) + ',' + q.y.toFixed(1)).join('|');
+    const anleggFoer = this.P.aktivt;
+    if (nokkel !== this._terrengnokkel) {
+      await this.medHenteboks('Henter terrengdata fra Kartverket',
+        fram => this.terreng.lastOmraade(omriss, 15, fram));
+      if (this.P.aktivt !== anleggFoer || runde !== this._tinRunde) return null;
+      this._terrengnokkel = nokkel;
+      if (this.terreng.mangler.size) {
+        this.status(`⚠ Fikk ikke ${this.terreng.mangler.size} terrengfliser – deler av flaten mangler DTM1`);
+      }
+    }
+    const dtm = (t.sone && t.sone !== this.sone)
+      ? (e, n) => { const g = Geo.fraUtm(e, n, t.sone), u = Geo.tilUtm(g.lat, g.lon, this.sone); return this.terreng.zDtm(u.x, u.y); }
+      : (e, n) => this.terreng.zDtm(e, n);
+    const sum = Triangulering.regnMot(f, dtm);
+    const punkter = t.punkter.map(p => ({ navn: p.navn, e: p.e, n: p.n, z: p.z, dtm: dtm(p.e, p.n),
+      ute: (t.utelatt || []).includes(p.navn) }));
+    this.resultat = { type: 'tin', flate: f, sum: null, tin: sum, punkter,
+      mistenkelige: Triangulering.mistenkelige(t.punkter.filter(p => !(t.utelatt || []).includes(p.navn))),
+      sone: this.sone, dtm };
+    this.merkResultat();
+    vis();
+    return this.resultat;
   },
 
   /**
@@ -1305,6 +1476,8 @@ const App = {
     if (type === 'ror') { RorUI.velgFil({}); return; }
     // samme for Makin: prosjektet blir bestemt når hentingen er lagt inn (MakinUI._leggInn)
     if (type === 'makin') { MakinUI.nyttAnlegg(); return; }
+    // og for et innmålt terreng: bestemt når punktene er lagt inn (TinUI.leggInn)
+    if (type === 'tin') { TinUI.velgFil(); return; }
     delete this.P.ubestemt;
     const a = this.anlegg();
     /* MEN BARE HVIS DET FAKTISK ER TOMT.
@@ -1343,7 +1516,7 @@ const App = {
   },
 
   /** Merket foran et anlegg i lista – samme tegn som den gamle bryteren brukte. Rør er ⌀. */
-  anleggsmerke(a) { return a && a.type === 'tomt' ? '⬟' : a && a.type === 'ror' ? '⌀' : '▬'; },
+  anleggsmerke(a) { return a && a.type === 'tomt' ? '⬟' : a && a.type === 'ror' ? '⌀' : a && a.type === 'tin' ? '△' : '▬'; },
 
   /**
    * Anleggslista: hvert anlegg i prosjektet, med en vei inn til hvert av dem.
@@ -1359,22 +1532,24 @@ const App = {
    */
   visAnleggsvelger() {
     if (!this.P) return;
-    const tomt = this.erTomt(), ror = this.erRor();
+    const tomt = this.erTomt(), ror = this.erRor(), tin = this.erTin();
     const rute = document.querySelector('.rute');
     rute.classList.toggle('tomtemodus', tomt);
     rute.classList.toggle('rormodus', ror);
+    rute.classList.toggle('tinmodus', tin);
     const m = (id, pa) => { const e = document.getElementById(id); if (e) e.classList.toggle('aktiv', pa); };
-    m('modusVeg', !tomt && !ror);
+    m('modusVeg', !tomt && !ror && !tin);
     m('modusTomt', tomt);
     const bytt = (id, vis) => { const e = document.getElementById(id); if (e) e.classList.toggle('skjult', !vis); };
-    bytt('verktoyTegn', !tomt && !ror);
+    bytt('verktoyTegn', !tomt && !ror && !tin);
     bytt('verktoyTomt', tomt);
     /* Fjellpunkt og snuplass hører til vegen og tomta. I rørbildet tegnes de
-       ikke, og en knapp som legger inn noe man ikke ser, er verre enn ingen. */
-    bytt('verktoySondering', !ror);
-    bytt('verktoyPlass', !ror);
+       ikke, og en knapp som legger inn noe man ikke ser, er verre enn ingen.
+       Det samme gjelder et innmålt terreng: der er punktene det eneste. */
+    bytt('verktoySondering', !ror && !tin);
+    bytt('verktoyPlass', !ror && !tin);
     // en stikkrenne går under en veg – en tomt har ingen
-    bytt('verktoyStikkrenne', !ror && !tomt);
+    bytt('verktoyStikkrenne', !ror && !tomt && !tin);
     /* Et tegnet anlegg har ingen fil å importere eller punkt å rette – det har
        traseene og kummene. Grøfteverktøyene gjelder begge. */
     const plan = this.erPlan();
@@ -1397,6 +1572,7 @@ const App = {
     bytt('verktoyUtsnitt', ror);
     if (tomt) { this.tomtTilSkjema(); this.visTomtemasser(); }
     if (ror && typeof RorUI !== 'undefined') RorUI.vis();
+    if (tin && typeof TinUI !== 'undefined') TinUI.vis();
 
     const knapp = document.getElementById('anleggsknapp');
     const panel = document.getElementById('anleggspanel');
@@ -1442,6 +1618,7 @@ const App = {
       + '<button class="kartknapp" data-nyttmakin="1" title="Koble til et prosjekt i Makin 3D og hent innmålingene derfra">⌀ Rør fra Makin</button>'
       + '<button class="kartknapp" data-nyttplan="1">⌀ Planlagte rør (tegn)</button>'
       + '<button class="kartknapp" data-nyttplan="rorskisse" title="Bare streker med rørtype – ingen høyder, ingen grøft">✎ Rørskisse (tegn)</button>'
+      + '<button class="kartknapp" data-nytttin="1" title="Innmålte terrengpunkter (LandXML, KOF eller SOSI) som terreng i stedet for Kartverkets">△ Triangulering (fra fil)</button>'
       + '</div>';
     for (const b of panel.querySelectorAll('[data-bytt]')) {
       b.onclick = () => { this.byttAnlegg(b.dataset.bytt); this._lukkAnleggspanel(); };
@@ -1454,6 +1631,9 @@ const App = {
     }
     for (const b of panel.querySelectorAll('[data-nyttmakin]')) {
       b.onclick = () => { this._lukkAnleggspanel(); MakinUI.nyttAnlegg(); };
+    }
+    for (const b of panel.querySelectorAll('[data-nytttin]')) {
+      b.onclick = () => { this._lukkAnleggspanel(); TinUI.velgFil(); };
     }
     for (const b of panel.querySelectorAll('[data-nyttplan]')) {
       /* Står førstevalget oppe, er det ene anlegget tomt: det byttes ut, som
@@ -1589,6 +1769,8 @@ const App = {
        et bilde og en merknad kunne bygge på et anlegg som ikke finnes. */
     if (this._ferdigflater) this._ferdigflater.delete(id);
     if (typeof Tegner3d !== 'undefined' && Tegner3d._fulle) Tegner3d._fulle.delete(id);
+    // et slettet innmålt terreng er ikke bakken lenger
+    if (a.type === 'tin') this.tinEndret(false);
     /* Var det aktive som ble slettet, må noe annet bli aktivt FØR noe tegnes –
        ellers slår aksessorene opp i et anlegg som ikke finnes. */
     if (this.P.aktivt === id) {
@@ -2264,6 +2446,7 @@ const App = {
     PdfUI.init(this);
     RorUI.init(this);
     MakinUI.init(this);
+    TinUI.init(this);
     GroftUI.init(this);
     RorPlanUI.init(this);
     RorkartUI.init(this);
@@ -2361,8 +2544,12 @@ const App = {
   forutsetningsnokkel() {
     const f = this.P.faktorer || {};
     const fj = this.P.fjell || {};
+    /* Bakken er en forutsetning: slås et innmålt terreng på eller av, er de
+       andre anleggenes lagrede tall regnet mot en annen mark. */
+    const tin = (this.P.anlegg || []).filter(a => a.type === 'tin' && a.tin && a.tin.bruk)
+      .map(a => [a.id, a.tin.punkter.length, (a.tin.utelatt || []).join(','), a.tin.makskant]);
     return JSON.stringify([f, fj.standarddybde, (fj.punkter || []).length,
-      (fj.strekninger || []).length, !!this.P.bakkekorreksjon]);
+      (fj.strekninger || []).length, !!this.P.bakkekorreksjon].concat(tin.length ? [tin] : []));
   },
 
   /**
@@ -2410,8 +2597,9 @@ const App = {
       nr++;
       /* Grøftemassene til rør er en annen sort enn skjæring og fylling, og hører
          ikke hjemme i denne summen – de står i rørets egen rad i rapporten. Rør
-         skal heller ikke meldes som uregnet her. */
-      if (a.type === 'ror') continue;
+         skal heller ikke meldes som uregnet her. Et innmålt terreng har ingen
+         masser å summere – det er bakken de andre regnes mot. */
+      if (!this.erMasseanlegg(a)) continue;
       if (med && !med.has(a.id)) continue;
       const erAktivt = a.id === this.P.aktivt && this.resultat && this.resultat.sum;
       const s = erAktivt ? this.resultat.sum : a._sum;
@@ -2485,7 +2673,7 @@ const App = {
     const e = document.getElementById('prosjektmasser');
     if (!e) return;
     if (!this.P || !Array.isArray(this.P.anlegg)
-      || this.P.anlegg.filter(a => a.type !== 'ror').length < 2) {
+      || this.P.anlegg.filter(a => this.erMasseanlegg(a)).length < 2) {
       e.innerHTML = ''; return;
     }
     const p = this.prosjektsum();
@@ -2562,9 +2750,22 @@ const App = {
       ]);
       return;
     }
+    // et innmålt terreng: hvor mye som er fylt eller gravd siden DTM1
+    if (this.erTin()) {
+      const r = this.resultat;
+      if (!r || r.type !== 'tin') { e.className = 'nokkeltal tom'; e.innerHTML = ''; return; }
+      const s = r.tin;
+      this._skrivNokkeltal(e, [
+        ['Innmålt areal', Rapport.tall(s.areal), 'm²', false],
+        ['Over DTM1', Rapport.tall(s.fyll), 'm³', false],
+        ['Under DTM1', Rapport.tall(s.skjæring), 'm³', false],
+        ['Netto', Rapport.tall(s.netto), 'm³', false]
+      ]);
+      return;
+    }
     const r = this.resultat;
     const flere = this.P && Array.isArray(this.P.anlegg)
-      && this.P.anlegg.filter(a => a.type !== 'ror').length > 1;
+      && this.P.anlegg.filter(a => this.erMasseanlegg(a)).length > 1;
     const t = v => Rapport.tall(v);
     if (!flere) {
       if (!r || !r.sum) { e.className = 'nokkeltal tom'; e.innerHTML = ''; return; }
@@ -3014,6 +3215,7 @@ const App = {
        alle tallene forsvant. */
     if (this.erTomt()) { await this.beregnTomt(); return; }
     if (this.erRor()) { await this.beregnRor(); return; }
+    if (this.erTin()) { await this.beregnTin(); return; }
     this.byggLinje();
     Kart.tegn();
     if (!this.linje || this.linje.lengde <= 1) {
@@ -3065,6 +3267,7 @@ const App = {
       rekkevidde: f.rekkevidde,
       strekninger: f.strekninger,
       soner: f.soner,
+      tillegg: this.tinTillegg(),
       punkter: (f.punkter || []).map(p => {
         const u = Geo.tilUtm(p.lat, p.lon, this.sone);
         return { x: u.x, y: u.y, dybde: p.dybde };
@@ -3290,6 +3493,7 @@ const App = {
       standarddybde: Math.max(0, this.P.fjell.standarddybde + tillegg),
       rekkevidde: this.P.fjell.rekkevidde,
       strekninger: (this.P.fjell.strekninger || []).map(s => ({ fra: s.fra, til: s.til, dybde: Math.max(0, s.dybde + tillegg) })),
+      tillegg: this.tinTillegg(),
       punkter: this.P.fjell.punkter.map(p => {
         const u = Geo.tilUtm(p.lat, p.lon, this.sone);
         return { x: u.x, y: u.y, dybde: Math.max(0, p.dybde + tillegg) };
@@ -5860,7 +6064,8 @@ const App = {
       let maks = 0, sum = 0, m = 0, kilder = new Set();
       svar.forEach((p, i) => {
         if (p.z == null) return;
-        const z = this.terreng.z(punkter[i][0], punkter[i][1]);
+        // modellen mot Kartverket – et innmålt terreng skal ikke måles mot dem
+        const z = this.terreng.zDtm ? this.terreng.zDtm(punkter[i][0], punkter[i][1]) : this.terreng.z(punkter[i][0], punkter[i][1]);
         if (!isFinite(z)) return;
         const d = Math.abs(z - p.z);
         maks = Math.max(maks, d); sum += d; m++;
@@ -5967,21 +6172,24 @@ const App = {
    * den er i stykker. I stedet far tomta sin egen malfane.
    */
   visMalfane() {
-    const tomt = this.erTomt(), ror = this.erRor();
+    const tomt = this.erTomt(), ror = this.erRor(), tin = this.erTin();
     const vis = (velger, pa) => {
       const e = document.querySelector(velger);
       if (e) e.classList.toggle('skjult', !pa);
     };
+    /* ET INNMÅLT TERRENG HAR BARE MASSER-FANEN: tallene mot DTM1 og knappene
+       (se TinUI.vis). Vegmalen, grunnforholdene og eksporten gjelder inngrep,
+       og det er ikke noe inngrep her. */
     /* RØRENE HAR SINE MASSER I RØR-FANEN OG INGEN VEGMAL Å FYLLE UT. Fanene
        for det ville stått tomme, og en tom fane ser ut som en som er i
        stykker. De får Rør og Koder i stedet; Forklaring er felles – og fra
        etappe 3b Eksport, med rørenes egne filer. */
     vis('.fane[data-fane="masser"]', !ror);
-    vis('.fane[data-fane="grunn"]', !ror);
-    vis('.fane[data-fane="eksport"]', true);
-    vis('.fane[data-fane="hoyder"]', !tomt && !ror);
-    vis('.fane[data-fane="linje"]', !tomt && !ror);
-    vis('.fane[data-fane="mal"]', !tomt && !ror);
+    vis('.fane[data-fane="grunn"]', !ror && !tin);
+    vis('.fane[data-fane="eksport"]', !tin);
+    vis('.fane[data-fane="hoyder"]', !tomt && !ror && !tin);
+    vis('.fane[data-fane="linje"]', !tomt && !ror && !tin);
+    vis('.fane[data-fane="mal"]', !tomt && !ror && !tin);
     vis('.fane[data-fane="tomtemal"]', tomt);
     vis('.fane[data-fane="tomthoyde"]', tomt);
     vis('.fane[data-fane="ror"]', ror);
@@ -7967,7 +8175,7 @@ const App = {
      *   Uten den veksler den, som knappen alltid har gjort.
      */
     const settStor = (navn, tvang) => {
-      const alt = ['kart', 'profil', 'tverr', 'tomt', 'ror'];
+      const alt = ['kart', 'profil', 'tverr', 'tomt', 'ror', 'tin'];
       const alleredePa = rute.classList.contains('stor-' + navn);
       const skalPa = tvang === undefined ? !alleredePa : !!tvang;
       alt.forEach(n2 => rute.classList.remove('stor-' + n2));

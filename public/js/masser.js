@@ -200,6 +200,14 @@ class Fjellmodell {
     this.strekninger = o.strekninger || [];
     this.punkter = o.punkter || [];
     this.rekkevidde = o.rekkevidde || 60;
+    /* MASSE SOM ER KJØRT PÅ SIDEN KARTVERKET SKANNET, ER IKKE BERG.
+       Dybdene over gjelder fra bakken slik DTM1 viser den. Brukes et innmålt
+       terreng (Triangulering), ligger bakken høyere der det er fylt – og uten
+       tillegget ble berget antatt 0,5 m under TOPPEN av fyllinga. Målt ved en
+       fylling på opptil 3 m: 241 m³ sprengning i masser som ble kjørt på i
+       fjor. `tillegg(x, y)` er hvor mye bakken ligger over DTM1 der (negativt
+       der det er gravd); dybden blir da målt fra den gamle bakken. */
+    this.tillegg = typeof o.tillegg === 'function' ? o.tillegg : null;
   }
 
   /**
@@ -222,6 +230,13 @@ class Fjellmodell {
    * 1,0 m, ga 1,5 m midt imellom.)
    */
   dybde(x, y, s) {
+    const d = this._dybde(x, y, s);
+    if (!this.tillegg) return d;
+    const t = this.tillegg(x, y);
+    return Number.isFinite(t) && Number.isFinite(d) ? Math.max(0, d + t) : d;
+  }
+
+  _dybde(x, y, s) {
     const bakgrunn = this._bakgrunn(s);
     if (this.punkter.length) {
       const R = this.rekkevidde;

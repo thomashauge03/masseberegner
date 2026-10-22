@@ -37,6 +37,10 @@ function _ror() {
   if (typeof Ror !== 'undefined') return Ror;
   return require('./ror.js');
 }
+function _tin() {
+  if (typeof Triangulering !== 'undefined') return Triangulering;
+  return require('./triangulering.js');
+}
 function _groft() {
   if (typeof Groft !== 'undefined') return Groft;
   return require('./groft.js');
@@ -409,7 +413,8 @@ function klargjor(P) {
      nettopp da spørsmålet er på sin plass. */
   if (Array.isArray(P.anlegg) && P.anlegg.some(a => (a.ip && a.ip.length)
     || (a.tomt && a.tomt.punkter && a.tomt.punkter.length)
-    || (a.ror && a.ror.punkter && a.ror.punkter.length))) {
+    || (a.ror && a.ror.punkter && a.ror.punkter.length)
+    || (a.tin && a.tin.punkter && a.tin.punkter.length))) {
     delete P.ubestemt;
   }
 
@@ -449,7 +454,7 @@ function klargjor(P) {
   const manglerUtskifting = P.anlegg.some(a => a && a.type !== 'ror' && !a.ror && a.mal
     && typeof a.mal === 'object' && !('utskifting' in a.mal));
   for (const a of P.anlegg) {
-    if (!a.type) a.type = a.tomt ? 'tomt' : a.ror ? 'ror' : 'veg';
+    if (!a.type) a.type = a.tomt ? 'tomt' : a.ror ? 'ror' : a.tin ? 'tin' : 'veg';
     if (a.type === 'tomt') {
       a.mal = Object.assign({}, StandardTomtemal, a.mal || {});
       /* Nivaet ma flettes for seg. Object.assign gar bare ett niva ned, sa
@@ -483,6 +488,20 @@ function klargjor(P) {
       // et tegnet anlegg har en plan; et innmålt får ingen
       if (a.ror.plan) _rettPlan(a, _rorplan());
       a.ip = a.ip || [];      // se nyttAnlegg: tomme lister, ikke undefined
+      a.vip = a.vip || [];
+    } else if (a.type === 'tin') {
+      /* INNMÅLT TERRENG ER IKKE EN VEG.
+         Uten greina falt typen i `else` under og ble behandlet som veg – og
+         nyttAnlegg gjorde det samme med alt den ikke kjente. Lagret man,
+         kom punktene tilbake som en tom veg. Malen er vegmalen: den brukes
+         ikke, men skjemaene leser `P.mal` uansett hva som er oppe. */
+      const T = _tin();
+      a.tin = Object.assign(T.nyTin(), a.tin || {});
+      if (!Array.isArray(a.tin.punkter)) a.tin.punkter = [];
+      if (!Array.isArray(a.tin.utelatt)) a.tin.utelatt = [];
+      a.tin.bruk = a.tin.bruk === true;
+      a.mal = Object.assign({}, StandardMal, moderniserMal(a.mal || {}));
+      a.ip = a.ip || [];
       a.vip = a.vip || [];
     } else {
       // en vegmal fra en eldre fil kan ligge inne i anlegget ogsa
@@ -575,7 +594,7 @@ function klargjor(P) {
 /* Feltene som er VINDUER inn i det aktive anlegget. Lista står her og ikke
    inne i løkka, så en prøve kan lese den og kreve at hvert felt virker – da
    kan ikke et nytt felt legges til uten at det blir prøvd. */
-const FELT = ['ip', 'vip', 'mal', 'tomt', 'ror', 'tverrfall', 'plasser', 'stikkrenner'];
+const FELT = ['ip', 'vip', 'mal', 'tomt', 'ror', 'tin', 'tverrfall', 'plasser', 'stikkrenner'];
 
 const Prosjektform = { klargjor, moderniserMal, FELT };
 

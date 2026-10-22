@@ -253,8 +253,32 @@ class Terreng {
     return flis[j * P + i];
   }
 
-  /** Terrenghøyde med bilineær interpolasjon. NaN dersom data mangler. */
+  /**
+   * Terrenghøyden slik prosjektet ser den: et innmålt terreng der det finnes
+   * (se Triangulering), ellers Kartverkets modell.
+   *
+   * HVORFOR HER OG IKKE I PROSJEKTTERRENGET.
+   * Over tretti steder leser `App.terreng.z` direkte – rå bakke for naboenes
+   * ferdige flater, profilene, 3D, kartets avlesning. Et innmålt terreng ER
+   * rå bakke i dag, så det må gjelde alle sammen. Lagt bare i
+   * `prosjektterreng` ville tomta regnet mot punktene mens profilen og 3D
+   * tegnet DTM1 under den.
+   * `overlag` er en liste av flater med `ved(x, y)` som svarer NaN utenfor
+   * seg selv. Den settes av App og er tom ellers.
+   */
   z(x, y) {
+    const o = this.overlag;
+    if (o && o.length) {
+      for (let i = 0; i < o.length; i++) {
+        const zz = o[i].ved(x, y);
+        if (zz === zz) return zz;            // ikke NaN
+      }
+    }
+    return this.zDtm(x, y);
+  }
+
+  /** Kartverkets høyde med bilineær interpolasjon, uten innmålt terreng. NaN dersom data mangler. */
+  zDtm(x, y) {
     const r = this.res;
     const fx = x / r - 0.5;
     const fy = -y / r - 0.5;

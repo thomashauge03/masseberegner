@@ -472,6 +472,34 @@ Ingen høyder, ingen kummer, ingen grøft – og ingen terreng hentes.
   `skisse: true`. Fila sier at det er en skisse. Stikningsdata og grøftemasser
   finnes ikke for en skisse – det er ingen høyder å stikke ut.
 
+## Triangulering – innmålt terreng
+
+Kartverkets DTM1 viser bakken slik den var da området sist ble skannet. Er det
+fylt eller gravd siden, regner tomta på terreng som ikke finnes lenger.
+**△ Triangulering** i førstevalget (eller «△ Triangulering (fra fil)» i
+anleggslista) leser innmålte terrengpunkter – LandXML, KOF eller SOSI, samme
+filer som rørene – og lager en trekantflate av dem.
+
+* **Masser-fanen** viser flaten mot DTM1: areal, hvor mye som ligger over (fylt)
+  og under (gravd), netto, største fyllhøyde og usikkerheten. Kartet farger
+  trekantene grønne der det er fylt og røde der det er gravd.
+* **Bruk som terreng** er knappen som gjør punktene til bakken. Når den er på,
+  regnes tomt og veg i prosjektet mot flaten innenfor ytterkanten, og mot DTM1
+  utenfor – profiler og 3D likeså. Den slås aldri på av seg selv.
+* **Berget måles fra den gamle bakken.** Fjelldybden gjelder fra DTM1, så masse
+  som er kjørt på siden, regnes ikke som sprengning.
+* **Mistenkelige punkter** – et punkt som står mer enn 1,5 m fra snittet av
+  naboene – merkes oransje. De er med i flaten til du tar dem ut med «Ta ut» i
+  fanen eller tabellen, eller ved å klikke punktet i kartet.
+* **Ytterkanten** skrelles inn fra det konvekse hylsteret, så det ikke regnes
+  kubikk over hjørner ingen har målt. Lengste kant settes ut fra avstanden
+  mellom punktene, og kan endres i fanen.
+* Punktene står i fila sin sone. Leica sier sonen bare som en projeksjon
+  (sentralmeridian 9° = UTM 32); det leses også.
+
+Flaten er rett mellom punktene. Er kanten målt på toppen av en fylling, er
+skråningen ned til foten utenfor og ikke med.
+
 ## Hva «billigst» betyr
 
 Optimaliseringen vekter, i den rekkefølgen det gjør vondt:
@@ -691,7 +719,10 @@ Hent fra Makin: ZIP-leseren, proxyen (hvilke kall som slippes gjennom, adressene
 bygd av validerte parametre, `no-store`, at nøkkelen aldri står i et svar) og
 klienten (nøkkelen i lageret, ventingen på eksporten, deling i tidsbolker og
 feilmeldingene), alt mot en falsk `fetch` og laget testdata – Makin kalles aldri.
-`npm test` kjører alle ti.
+Triangulering (`test/trianguleringprove.js`): Delaunay, ytterkanten på en
+L-form, volumet mot et kjent terreng (1 m over 20 × 20 m er 400 m³), merking av
+feilpunkt, LandXML og sonen fra Leica-projeksjonen, terrenget med overlag,
+fjelldybden under en fylling og prosjektfila. `npm test` kjører alle elleve.
 
 `test/makin-sonde.js` er ikke en del av `npm test`: en prøve du kjører selv, med
 din egen nøkkel i `MAKIN_NOKKEL`, mot en ekte eksport. Den skriver bare
@@ -720,7 +751,9 @@ vercel.json              utlegging
 public/js/geo.js         UTM-projeksjon (Krüger, 4. orden) og målestokkfaktor
 public/js/linjeforing.js horisontal linjeføring med sirkelkurver
 public/js/vertikalprofil.js  lengdeprofil, retting mot kravene, innlesing av høydetabell
-public/js/terreng.js     terrengmodell i nettleseren, bilineær interpolasjon
+public/js/terreng.js     terrengmodell i nettleseren, bilineær interpolasjon, innmålt terreng oppå
+public/js/triangulering.js  innmålte punkter til trekantflate: Delaunay, ytterkant, volum mot DTM1
+public/js/ui-tin.js      Triangulering i skjermen: filen, Masser-fanen, knappene, punkttabellen
 public/js/masser.js      tverrprofil og volumberegning
 public/js/stikkrenner.js stikkrennene: endene, lengden, høydene og overdekningen av tverrsnittet
 public/js/veiklasser.js  veiklassene fra landbruksveinormalen

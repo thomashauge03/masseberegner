@@ -2249,7 +2249,7 @@ const Tegner3d = {
     const app = this.app || (typeof App !== 'undefined' ? App : null);
     /* Rørene teller ikke: de er ingen flate å vise i veg- eller tomtebildet. */
     const antall = (app && app.P && Array.isArray(app.P.anlegg))
-      ? app.P.anlegg.filter(a => a.type !== 'ror').length : 0;
+      ? app.P.anlegg.filter(a => a.type !== 'ror' && a.type !== 'tin').length : 0;
     this._autoAndre(antall);
     this._planleggFullDetalj(antall);
     const paa = !!(typeof Veg3d !== 'undefined' && Veg3d.lag && Veg3d.lag.andre);

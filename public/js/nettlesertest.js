@@ -202,7 +202,7 @@ const Nettlesertest = {
       'grensesnittbredder', 'panelhoder',
       'tomt', 'tomteksport', 'tomterydding', 'tomtsnittOverbygning',
       'gl3d', 'tomt3d', 'veg3d', 'gpuSammeBilde', 'gpuGlatt', 'gpuReserve', 'gpuLysOgLuft', 'gpuMaterialer', 'kartlag',
-      'rorArbeidsbilde', 'rorBeregning', 'rorImport', 'makinHenting', 'makinLaas', 'rorSone', 'rorKart', 'rorFane', 'rorRetting', 'rorEndre',
+      'rorArbeidsbilde', 'rorBeregning', 'rorImport', 'makinHenting', 'makinLaas', 'triangulering', 'rorSone', 'rorKart', 'rorFane', 'rorRetting', 'rorEndre',
       'rorProfil', 'ror3d', 'rorRapport', 'rorPdf', 'rorForklaring',
       'groftBeregning', 'groftFane', 'groftKoder', 'groftVerktoy', 'groftKnutepunkt', 'groftProfil', 'groft3d',
       'groftRapport', 'groftAvstiving',
@@ -13372,6 +13372,119 @@ const Nettlesertest = {
    * midt i NESTE prøve og skrev «Beregnet 49 profiler» over statuslinja den
    * prøven skulle lese – `lovlighet` ble rød i hele runden og grønn alene.
    */
+  /**
+   * Triangulering: innmålte terrengpunkter som terreng.
+   *
+   * Oppdiktede punkter ved Ydestad, der terrenget finnes: et rutenett på
+   * 16 × 16 m, 2 m over DTM1 – en fylling – og ett punkt midt i som står
+   * 6 m for lavt, som en feilmåling. Prøven følger
+   * hele veien: førstevalget, flaten mot DTM1, at feilpunktet merkes uten å
+   * tas ut, knappen «Bruk som terreng», at en tomt oppå regnes mot punktene
+   * – og at berget måles fra den gamle bakken, ikke fra toppen av fyllinga.
+   */
+  async triangulering() {
+    const foer = JSON.stringify(App.P);
+    try {
+      App.P = App.nyttProsjekt();
+      App.visAnleggsvelger(); App.visAnleggsvalg(); App.malTilSkjema();
+      const knapp = document.querySelector('#velganlegg [data-velg="tin"]');
+      this.sjekk('førstevalget har «△ Triangulering»', !!knapp
+        && !document.getElementById('velganlegg').classList.contains('skjult'));
+      let apnet = false;
+      const ekte = TinUI.velgFil;
+      TinUI.velgFil = function () { apnet = true; };
+      try { knapp.click(); } finally { TinUI.velgFil = ekte; }
+      this.sjekk('og knappen der åpner filvelgeren', apnet);
+
+      const o = Geo.tilUtm(58.1412, 7.0705, 32);
+      const E = o.x + 300, N = o.y + 40;
+      // DTM1 der punktene skal stå, så fyllinga blir 2 m overalt
+      const dtm = new Terreng(32, 1);
+      await dtm.lastOmraade([{ x: E, y: N }, { x: E + 16, y: N }, { x: E + 16, y: N + 16 }, { x: E, y: N + 16 }], 5);
+      const rader = [], zPkt = {};
+      for (let j = 0; j <= 4; j++) for (let i = 0; i <= 4; i++) {
+        const z = dtm.zDtm(E + i * 4, N + j * 4) + (i === 2 && j === 2 ? -4 : 2);
+        zPkt['T' + i + j] = z;
+        rader.push(`<CgPoint name="T${i}${j}">${(N + j * 4).toFixed(3)} ${(E + i * 4).toFixed(3)} ${z.toFixed(3)}</CgPoint>`);
+      }
+      const xml = '<?xml version="1.0"?><LandXML xmlns="http://www.landxml.org/schema/LandXML-1.2" version="1.2">'
+        + '<Units><Metric linearUnit="meter" areaUnit="squareMeter" volumeUnit="cubicMeter"/></Units>'
+        + '<CoordinateSystem name="EUREF89 UTM32"/><CgPoints>' + rader.join('') + '</CgPoints></LandXML>';
+      const ok = TinUI.importerTekst(xml, 'Prove_terreng.xml');
+      this.sjekk('fila ble lest', ok === true);
+      this.sjekk('det tomme anlegget ble byttet ut med et innmålt terreng',
+        App.P.anlegg.length === 1 && App.erTin() && App.anlegg().navn === 'Prove_terreng', App.P.anlegg.map(a => a.type).join(','));
+      this.sjekk('punktene, sonen og knappen av', App.P.tin.punkter.length === 25 && App.P.tin.sone === 32 && App.P.tin.bruk === false);
+      this.sjekk('tinmodus med punkttabellen', document.querySelector('.rute').classList.contains('tinmodus')
+        && document.querySelectorAll('#tinpunkter tbody tr').length === 25);
+      await this.ventPaBeregning();
+      const r = App.resultat;
+      this.sjekk('flaten er regnet mot DTM1', r && r.type === 'tin' && r.tin.fyll > 100, r && r.tin && String(r.tin.fyll));
+      this.naer('arealet er 16 × 16 m', r.tin.areal, 256, 1e-6);
+      this.naer('største fyllhøyde er rundt 2 m', r.tin.maksFyll, 2, 0.6);
+      this.sjekk('feilpunktet merkes', r.mistenkelige.length === 1 && r.mistenkelige[0].navn === 'T22', JSON.stringify(r.mistenkelige));
+      this.sjekk('men det står i flaten til brukeren tar det ut', !(App.P.tin.utelatt || []).length);
+      this.sjekk('Masser-fanen har knappen og tallene', !!document.querySelector('#massesammendrag [data-tin="bruk"]')
+        && /Over DTM1/.test(document.getElementById('massesammendrag').textContent));
+
+      const x = E + 5.1, y = N + 9.3, ute = E - 20;
+      this.sjekk('knappen av: terrenget er DTM1', App.terreng.z(x, y) === App.terreng.zDtm(x, y));
+      document.querySelector('#massesammendrag [data-tin="veksle"][data-navn="T22"]').click();
+      this.sjekk('«Ta ut» tar punktet ut', App.P.tin.utelatt.includes('T22'));
+      document.querySelector('#massesammendrag [data-tin="bruk"]').click();
+      this.sjekk('knappen på', App.P.tin.bruk === true);
+      const zFlate = Triangulering.hoyde(App.tinFlate(App.anlegg()), x, y);
+      this.naer('innenfor punktene er terrenget den innmålte flaten', App.terreng.z(x, y), zFlate, 1e-9);
+      this.sjekk('og den ligger over DTM1', zFlate - App.terreng.zDtm(x, y) > 1, String(zFlate - App.terreng.zDtm(x, y)));
+      this.sjekk('utenfor er det DTM1', App.terreng.z(ute, y) === App.terreng.zDtm(ute, y));
+      await this.ventPaBeregning();
+      this.sjekk('uten feilpunktet er ingen mistenkelige igjen', App.resultat.type === 'tin' && !App.resultat.mistenkelige.length);
+
+      const lagret = JSON.parse(JSON.stringify(App.P));
+      this.sjekk('lagringen tar med punktene, utelatt og knappen', lagret.anlegg[0].type === 'tin'
+        && lagret.anlegg[0].tin.bruk === true && lagret.anlegg[0].tin.utelatt[0] === 'T22');
+
+      /* En tomt oppå, ferdig 1 m over den gamle bakken – altså 1 m ned i
+         fyllinga. Med 0,5 m til fjell fra DTM1 når gravingen ikke berget. */
+      App.leggTilAnlegg('tomt');
+      App.P.tomt.punkter = [[4, 4], [12, 4], [12, 12], [4, 12]].map(([dx, dy]) => {
+        const g = Geo.fraUtm(E + dx, N + dy, 32); return { lat: g.lat, lon: g.lon };
+      });
+      const snitt = ['T11', 'T21', 'T31', 'T12', 'T32', 'T13', 'T23', 'T33'].reduce((s, k) => s + zPkt[k] - 2, 0) / 8;
+      App.P.tomt.nivaa.kote = Math.round((snitt + 1) * 100) / 100;
+      App.P.fjell.standarddybde = 0.5;
+      await App.beregnTomt();
+      const med = Object.assign({}, App.resultat.sum);
+      this.sjekk('fyllmassene er ikke sprengning – berget måles fra den gamle bakken',
+        med.skjaeringFjell < 1, String(med.skjaeringFjell));
+      const ekteTillegg = App.tinTillegg;
+      App.tinTillegg = () => null;
+      try { await App.beregnTomt(); } finally { App.tinTillegg = ekteTillegg; }
+      this.sjekk('  (uten rettingen ble det sprengning i fyllinga)', App.resultat.sum.skjaeringFjell > 5, String(App.resultat.sum.skjaeringFjell));
+      const tin = App.P.anlegg.find(a => a.type === 'tin');
+      tin.tin.bruk = false; App.tinEndret(false);
+      await App.beregnTomt();
+      const uten = App.resultat.sum;
+      /* Fyllinga sammenlignes ikke: masseutskiftingen graver løsmassene ut
+         ned til berget og fyller igjen, og med 2 m kjørt på er det mer å
+         skifte ut, ikke mindre. Det som må endre seg, er gravingen. */
+      this.sjekk('med knappen av regnes tomta mot DTM1: langt mindre å grave',
+        (uten.skjaering + uten.rensk) + 50 < (med.skjaering + med.rensk),
+        `med ${med.skjaering.toFixed(0)}/${med.rensk.toFixed(0)}/${med.fylling.toFixed(0)} · uten ${uten.skjaering.toFixed(0)}/${uten.rensk.toFixed(0)}/${uten.fylling.toFixed(0)}`);
+      this.sjekk('et innmålt terreng står ikke i prosjektsummen', App.P.anlegg.filter(a => App.erMasseanlegg(a)).length === 1);
+      tin.tin.bruk = true; App.tinEndret(false);
+
+      App.byttAnlegg(tin.id);
+      await this.ventPaBeregning();
+      TinUI.settBruk(false);
+      await App.angre();
+      this.sjekk('angre slår knappen på igjen og terrenget følger med',
+        App.P.anlegg.find(a => a.type === 'tin').tin.bruk === true && Math.abs(App.terreng.z(x, y) - zFlate) < 1e-9);
+    } finally {
+      await this._rorTilbake(foer);
+    }
+  },
+
   async _rorTilbake(foer) {
     clearTimeout(App._tidsavbrudd);
     if (typeof Ror3d !== 'undefined' && Ror3d.aktiv) Ror3d.aktiver(false);
