@@ -1088,6 +1088,11 @@ ul.groftjusteringer li { margin: 3px 0; }
 /* Tegnede rør: punktene på traseen, og radene i «Rør i traseen» */
 .plan-punkt { width: 11px; height: 11px; border-radius: 50%; background: var(--flate); border: 2px solid var(--blekk); box-sizing: border-box; }
 .plan-punkt.valgt { background: var(--data-skjaering); }
+/* «Endre rør»: målte punkt fylt i rørets farge, flyttede med hvit ring, nye hvite med farget kant */
+.ror-endre { width: 12px; height: 12px; border-radius: 50%; border: 2px solid #0b0b0c; box-sizing: border-box; cursor: grab; }
+.ror-endre.flyttet { box-shadow: 0 0 0 2px #ffffff; }
+.ror-endre.ny { background: #ffffff !important; border-width: 3px; }
+.ror-endre.av { opacity: 0.45; }
 .planrad { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0; }
 .planrad input {
   background: var(--flate-opp); color: var(--blekk); border: 2px solid var(--kant);

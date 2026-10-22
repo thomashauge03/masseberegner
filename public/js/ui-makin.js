@@ -263,6 +263,8 @@ const MakinUI = {
     const bytte = Ror.byttPunkter(a.ror, punkter);
     a.ror.punkter = bytte.punkter;
     Ror.rensRetting(a.ror, new Set(bytte.punkter.map(p => p.id)));
+    // punktene brukeren har flyttet eller lagt til, står slik brukeren satte dem
+    Ror.brukRetting(a.ror);
     // nye koder får et forslag; det brukeren har satt opp, står
     a.ror.koder = Ror.koderFra(bytte.punkter, a.ror.koder);
     const importert = new Date().toISOString();

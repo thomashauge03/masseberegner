@@ -235,6 +235,11 @@ function _rettRorfelt(a, R) {
     p.id = p.id != null && String(p.id) ? String(p.id) : `${p.kode}|${n.toFixed(3)}|${o.toFixed(3)}|${z.toFixed(3)}`;
     const nr = tall(p.nr);
     p.nr = nr !== null ? nr : punkter.length + 1;
+    // der et flyttet punkt ble målt – uten to tall er det ikke noe å flytte det tilbake til
+    if (p.innmaalt !== undefined) {
+      const io = erObjekt(p.innmaalt) ? tall(p.innmaalt.o) : null, inn = erObjekt(p.innmaalt) ? tall(p.innmaalt.n) : null;
+      if (io !== null && inn !== null) p.innmaalt = { o: io, n: inn }; else delete p.innmaalt;
+    }
     punkter.push(p);
   }
   a.ror.punkter = punkter;
@@ -246,6 +251,23 @@ function _rettRorfelt(a, R) {
   ret.av = ret.av.filter(id).map(String);
   ret.brudd = ret.brudd.filter(par).map(v => v.map(String));
   ret.koble = ret.koble.filter(par).map(v => v.map(String));
+  /* Flyttede punkt (id → o, n) og punkt brukeren har lagt til. Et punkt uten
+     tre tall kan ikke tegnes, og en flytting uten to tall ville sendt punktet
+     til NaN. Så gjøres punktene like rettingene – se Ror.brukRetting. */
+  const flytt = {};
+  for (const [pid, f] of Object.entries(ret.flytt)) {
+    const o = erObjekt(f) ? tall(f.o) : null, n = erObjekt(f) ? tall(f.n) : null;
+    if (o !== null && n !== null) flytt[String(pid)] = { o, n };
+  }
+  ret.flytt = flytt;
+  ret.nye = ret.nye.filter(erObjekt).map(q => {
+    const o = tall(q.o), n = tall(q.n), z = tall(q.z), nr = tall(q.nr);
+    if (!id(q.id) || o === null || n === null || z === null) return null;
+    const ut = { id: String(q.id), nr: nr !== null ? nr : 0, kode: q.kode != null && String(q.kode).trim() ? String(q.kode) : 'UTEN KODE', o, n, z };
+    if (par(q.paaStrekk)) ut.paaStrekk = q.paaStrekk.map(String);
+    return ut;
+  }).filter(Boolean);
+  R.brukRetting(a.ror);
   for (const kode of Object.keys(a.ror.koder)) {
     const k = a.ror.koder[kode];
     if (!k || typeof k !== 'object' || Array.isArray(k)) { delete a.ror.koder[kode]; continue; }
@@ -452,8 +474,10 @@ function klargjor(P) {
       if (!Array.isArray(a.ror.punkter)) a.ror.punkter = [];
       if (!Array.isArray(a.ror.kilder)) a.ror.kilder = [];
       if (!a.ror.koder || typeof a.ror.koder !== 'object') a.ror.koder = {};
-      a.ror.retting = Object.assign({ av: [], brudd: [], koble: [] }, a.ror.retting || {});
-      for (const k of ['av', 'brudd', 'koble']) if (!Array.isArray(a.ror.retting[k])) a.ror.retting[k] = [];
+      a.ror.retting = Object.assign(R.nyRetting(), a.ror.retting || {});
+      for (const k of ['av', 'brudd', 'koble', 'nye']) if (!Array.isArray(a.ror.retting[k])) a.ror.retting[k] = [];
+      const fl = a.ror.retting.flytt;
+      if (!fl || typeof fl !== 'object' || Array.isArray(fl)) a.ror.retting.flytt = {};
       _rettRorfelt(a, R);
       _rettGroft(a, _groft());
       // et tegnet anlegg har en plan; et innmålt får ingen

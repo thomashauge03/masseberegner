@@ -235,6 +235,12 @@ anleggslista, «Rør (fra filer)» i førstevalget, eller slipp filene på karte
 * **Kobler programmet feil**, rettes det i kartet: slå av et punkt, bryt en
   strek, koble to ender. Rettingene står seg når en nyere fil importeres –
   punktene kjennes igjen på id-en i fila, og ingenting slettes stille.
+* **Endre rør** gjør resten for hånd: dra et punkt dit røret faktisk går, klikk
+  på en rørstrek for å sette inn et nytt punkt (høyden ligger på streken), eller
+  ved enden for å forlenge røret. Et klikk på et punkt åpner det – et nytt punkt
+  kan få en annen høyde eller tas bort, et flyttet kan flyttes tilbake. Målte
+  høyder endres aldri; bare hvor punktet står. Også dette er rettinger, som står
+  seg ved ny import og ny henting fra Makin.
 
 ### Hent fra Makin
 

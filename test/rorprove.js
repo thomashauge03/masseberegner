@@ -502,7 +502,7 @@ console.log('\n14. Røranlegget i prosjektfila');
     && hr.punkter[1].kode === 'UTEN KODE', hr && JSON.stringify(hr.punkter[1]));
   paastand('tall som tekst blir tall', !!hr && hr.punkter[1].n === 6488855.3);
   paastand('rettingene blir id-er og par av id-er', !!hr && JSON.stringify(hr.retting)
-    === JSON.stringify({ av: ['a', '7'], brudd: [['a', 'b']], koble: [['x', 'y']] }), hr && JSON.stringify(hr.retting));
+    === JSON.stringify({ av: ['a', '7'], brudd: [['a', 'b']], koble: [['x', 'y']], flytt: {}, nye: [] }), hr && JSON.stringify(hr.retting));
   let bKast = null;
   try { if (hr) Ror.byggLinjer(hr, H.anlegg[0].mal, iFila); } catch (e) { bKast = e.message; }
   paastand('og linjene kan bygges', !bKast, bKast);
@@ -927,9 +927,125 @@ console.log('\n23. Leica iCON: koden i navnet med teller, og linjene fra fila');
 }
 
 /* ------------------------------------------------------------------ */
+console.log('\n24. Endre rør: koble linjer fra fila, flytte punkt, nye punkt');
+{
+  const P = (id, o, kode = 'VA 110') => ({ id, nr: +id.slice(1), kode, o, n: 0, z: 10 + o / 10 });
+  const lag = () => [P('a1', 0), P('a2', 5), P('a3', 10), P('a4', 60), P('a5', 65), P('a6', 70)];
+  const rorAv = (pts, filLinjer, retting) => ({ punkter: pts, koder: Ror.koderFra(pts), alias: {},
+    retting: Object.assign(Ror.nyRetting(), retting), filLinjer });
+  const ider = l => l.punkter.map(p => p.id).join('-');
+  const to = [{ punkter: ['a1', 'a2', 'a3'] }, { punkter: ['a4', 'a5', 'a6'] }];
+  const mal = { maksAvstand: 25 };
+
+  // KOBLE: virket bare i treet – to linjer fra fila ble stående hver for seg
+  let b = Ror.byggLinjer(rorAv(lag(), to, { koble: [['a3', 'a4']] }), mal, iFila);
+  paastand('koble: to linjer fra fila blir ett rør', b.linjer.length === 1 && ider(b.linjer[0]) === 'a1-a2-a3-a4-a5-a6',
+    b.linjer.map(ider).join(' | '));
+  paastand('  og koblingen har treff', b.koblingUtenTreff === 0);
+  b = Ror.byggLinjer(rorAv(lag(), to, { koble: [['a4', 'a1']] }), mal, iFila);
+  paastand('koble: endene i hvilken som helst rekkefølge', b.linjer.length === 1 && ider(b.linjer[0]) === 'a3-a2-a1-a4-a5-a6',
+    b.linjer.map(ider).join(' | '));
+  b = Ror.byggLinjer(rorAv(lag(), [to[0]], { koble: [['a3', 'a4']] }), mal, iFila);
+  paastand('koble: en linje fra fila og et rør fra treet blir ett', b.linjer.length === 1 && b.linjer[0].punkter.length === 6,
+    b.linjer.map(ider).join(' | '));
+  b = Ror.byggLinjer(rorAv(lag(), [to[0]], { koble: [['a2', 'a4']] }), mal, iFila);
+  paastand('koble: midt i en linje kobles ikke', b.linjer.length === 2 && b.koblingUtenTreff === 1, b.linjer.map(ider).join(' | '));
+  const ulik = lag();
+  ulik[3].kode = ulik[4].kode = ulik[5].kode = 'vann 110';
+  const ra = rorAv(ulik, to, { koble: [['a3', 'a4']] });
+  ra.alias = { 'vann 110': 'VA 110' };
+  b = Ror.byggLinjer(ra, mal, iFila);
+  paastand('koble: koder som er slått sammen, kobles', b.linjer.length === 1, b.linjer.map(ider).join(' | '));
+
+  // FLYTTE: o og n, aldri z – og tilbake når flyttingen tas bort
+  const r = rorAv(lag(), to, { flytt: { a2: { o: 5, n: 3 } } });
+  Ror.brukRetting(r);
+  const a2 = r.punkter.find(p => p.id === 'a2');
+  paastand('flytt: punktet står der brukeren satte det', a2.o === 5 && a2.n === 3 && a2.z === 10.5, JSON.stringify(a2));
+  paastand('  og husker der det ble målt', a2.innmaalt && a2.innmaalt.n === 0);
+  Ror.brukRetting(r);
+  paastand('  to ganger er som én', a2.n === 3 && a2.innmaalt.n === 0);
+  b = Ror.byggLinjer(r, mal, iFila);
+  sjekk('  røret går om det flyttede punktet', b.linjer[0].lengde, 2 * Math.hypot(5, 3), 1e-9);
+  delete r.retting.flytt.a2;
+  Ror.brukRetting(r);
+  paastand('  tatt bort: tilbake der det ble målt', a2.n === 0 && !a2.innmaalt);
+
+  // NYE PUNKT: satt inn på en strek i en linje fra fila, og i treet
+  for (const [navn, fil] of [['linje fra fila', to], ['treet', []]]) {
+    const rn = rorAv(lag(), fil, { nye: [{ id: '+1', nr: 2.5, kode: 'VA 110', o: 7, n: 1, z: 10.7, paaStrekk: ['a2', 'a3'] }] });
+    Ror.brukRetting(rn);
+    b = Ror.byggLinjer(rn, mal, iFila);
+    const l = b.linjer.find(x => x.punkter.some(p => p.id === 'a1'));
+    paastand(`nytt punkt (${navn}): står mellom de to`, ider(l).startsWith('a1-a2-+1-a3'), b.linjer.map(ider).join(' | '));
+    // et punkt satt inn mellom a2 og det nye
+    rn.retting.nye.push({ id: '+2', nr: 2.2, kode: 'VA 110', o: 6, n: 0.5, z: 10.6, paaStrekk: ['a2', '+1'] });
+    Ror.brukRetting(rn);
+    b = Ror.byggLinjer(rn, mal, iFila);
+    const l2 = b.linjer.find(x => x.punkter.some(p => p.id === 'a1'));
+    paastand(`  og et til mellom det og naboen (${navn})`, ider(l2).startsWith('a1-a2-+2-+1-a3'), b.linjer.map(ider).join(' | '));
+  }
+  // en strek som er en kobling over maks avstand: det nye punktet havner likevel på den
+  const lang = rorAv(lag(), [], { koble: [['a3', 'a4']], nye: [{ id: '+1', nr: 3.5, kode: 'VA 110', o: 35, n: 0, z: 13.5, paaStrekk: ['a3', 'a4'] }] });
+  Ror.brukRetting(lang);
+  b = Ror.byggLinjer(lang, mal, iFila);
+  paastand('nytt punkt midt på en lang kobling står i røret', b.linjer.length === 1 && ider(b.linjer[0]) === 'a1-a2-a3-+1-a4-a5-a6',
+    b.linjer.map(ider).join(' | '));
+  // forlengelse: et nytt punkt koblet til enden av en linje fra fila
+  const fo = rorAv(lag(), to, { koble: [['a6', '+1']], nye: [{ id: '+1', nr: 6.5, kode: 'VA 110', o: 120, n: 0, z: 17 }] });
+  Ror.brukRetting(fo);
+  b = Ror.byggLinjer(fo, mal, iFila);
+  paastand('forlengelse: enden av en linje fra fila får det nye punktet', b.linjer.some(l => ider(l) === 'a4-a5-a6-+1'),
+    b.linjer.map(ider).join(' | '));
+  paastand('nyPunktId er ledig', Ror.nyPunktId(fo) === '+2');
+
+  // NY IMPORT OG MAKIN: rettingene står
+  const im = rorAv(lag(), to, { flytt: { a2: { o: 5, n: 3 } }, nye: [{ id: '+1', nr: 9, kode: 'VA 110', o: 90, n: 0, z: 19 }] });
+  Ror.brukRetting(im);
+  const sam = Ror.slaSammen(im.punkter, lag());
+  paastand('ny import: et flyttet punkt med samme tall er ikke endret', sam.endret === 0, String(sam.endret));
+  im.punkter = sam.punkter;
+  Ror.brukRetting(im);
+  paastand('  og står fortsatt flyttet', im.punkter.find(p => p.id === 'a2').n === 3);
+  paastand('  og det nye punktet er med', im.punkter.some(p => p.id === '+1' && p.lagtTil));
+  const nyere = lag();
+  nyere[1] = Object.assign({}, nyere[1], { n: 0.2 });
+  const sam2 = Ror.slaSammen(im.punkter, nyere);
+  im.punkter = sam2.punkter;
+  Ror.brukRetting(im);
+  const a2b = im.punkter.find(p => p.id === 'a2');
+  paastand('ny import med nye tall: flyttingen står, og det målte er det nye', sam2.endret === 1 && a2b.n === 3 && a2b.innmaalt.n === 0.2,
+    JSON.stringify(a2b));
+  const bytte = Ror.byttPunkter(im, nyere);
+  paastand('makin: likt Makin er likt, med flyttede og nye punkt', !bytte.nye && !bytte.borte && !bytte.endret && !bytte.rettingerBorte,
+    JSON.stringify({ nye: bytte.nye, borte: bytte.borte, endret: bytte.endret, ret: bytte.rettingerBorte }));
+  im.retting.koble.push(['a6', '+1']);
+  im.punkter = bytte.punkter;
+  Ror.rensRetting(im, new Set(bytte.punkter.map(p => p.id)));
+  Ror.brukRetting(im);
+  paastand('makin: koblingen til det nye punktet står etter hentingen', im.retting.koble.length === 1);
+  paastand('  og det nye punktet og flyttingen er med', im.punkter.some(p => p.id === '+1') && im.punkter.find(p => p.id === 'a2').n === 3);
+
+  // PROSJEKTFILA
+  const Prosjektform = require(js('prosjektform.js'));
+  const PF = Prosjektform.klargjor({ navn: 'x', aktivt: 'r1', anlegg: [{ id: 'r1', type: 'ror', ror: { sone: 32,
+    punkter: lag(), retting: { av: [], brudd: [], koble: [], flytt: { a2: { o: 5, n: '3' }, a3: { o: 'tull' } },
+      nye: [{ id: '+1', kode: 'VA 110', o: 1, n: 2, z: 3, paaStrekk: ['a1', 'a2'] }, { id: '+2', o: 'x' }, null] } } }] });
+  const pr = PF.anlegg[0].ror;
+  paastand('prosjektfila: gyldige flyttinger og nye punkt står, ugyldige tas bort',
+    JSON.stringify(pr.retting.flytt) === '{"a2":{"o":5,"n":3}}' && pr.retting.nye.length === 1, JSON.stringify(pr.retting));
+  paastand('  og punktene er som rettingene sier', pr.punkter.find(p => p.id === 'a2').n === 3
+    && pr.punkter.some(p => p.id === '+1' && p.lagtTil), JSON.stringify(pr.punkter.slice(-2)));
+  const gammel = Prosjektform.klargjor({ navn: 'x', aktivt: 'r1', anlegg: [{ id: 'r1', type: 'ror', ror: { sone: 32,
+    punkter: lag(), retting: { av: [], brudd: [], koble: [] } } }] });
+  paastand('prosjektfila: en eldre fil får tomme flyttinger og nye punkt',
+    JSON.stringify(gammel.anlegg[0].ror.retting.flytt) === '{}' && Array.isArray(gammel.anlegg[0].ror.retting.nye));
+}
+
+/* ------------------------------------------------------------------ */
 /* DEN EKTE FILA – bare når stien er gitt. Kundens data ligger ikke i repoet. */
 if (process.env.ROR_FIL) {
-  console.log('\n24. Den ekte fila (ROR_FIL)');
+  console.log('\n25. Den ekte fila (ROR_FIL)');
   const les = Ror.lesFil(Ror.dekod(fs.readFileSync(process.env.ROR_FIL)));
   const ror = { punkter: les.punkter, koder: Ror.koderFra(les.punkter), retting: { av: [], brudd: [], koble: [] } };
   const b = Ror.byggLinjer(ror, Ror.StandardRormal, iFila);

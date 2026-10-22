@@ -202,7 +202,7 @@ const Nettlesertest = {
       'grensesnittbredder', 'panelhoder',
       'tomt', 'tomteksport', 'tomterydding', 'tomtsnittOverbygning',
       'gl3d', 'tomt3d', 'veg3d', 'gpuSammeBilde', 'gpuGlatt', 'gpuReserve', 'gpuLysOgLuft', 'gpuMaterialer', 'kartlag',
-      'rorArbeidsbilde', 'rorBeregning', 'rorImport', 'makinHenting', 'makinLaas', 'rorSone', 'rorKart', 'rorFane', 'rorRetting',
+      'rorArbeidsbilde', 'rorBeregning', 'rorImport', 'makinHenting', 'makinLaas', 'rorSone', 'rorKart', 'rorFane', 'rorRetting', 'rorEndre',
       'rorProfil', 'ror3d', 'rorRapport', 'rorPdf', 'rorForklaring',
       'groftBeregning', 'groftFane', 'groftKoder', 'groftVerktoy', 'groftKnutepunkt', 'groftProfil', 'groft3d',
       'groftRapport', 'groftAvstiving',
@@ -9800,7 +9800,7 @@ const Nettlesertest = {
         && !!fane().querySelector('#makinFaneBytt'));
       this.sjekk('«Importer nyere fil» finnes ikke på Makin-anlegget', !fane().querySelector('#rorImportNy'));
       this.sjekk('kartknappen «Importer rør» er skjult, «Hent fra Makin» vises', !synlig('verktoyRorImport') && synlig('verktoyRorMakin'));
-      this.sjekk('rettingsknappene vises som før', ['verktoyRorAv', 'verktoyRorBryt', 'verktoyRorKoble'].every(synlig));
+      this.sjekk('rettingsknappene vises som før', ['verktoyRorAv', 'verktoyRorBryt', 'verktoyRorKoble', 'verktoyRorEndre'].every(synlig));
 
       /* ---- importdialogen: Makin-anlegget er ikke et mål ---- */
       {
@@ -10205,6 +10205,71 @@ const Nettlesertest = {
       this.sjekk('angre slår det av igjen', App.P.ror.retting.av.length === 1);
       Kart.settModus('rediger');
       this.sjekk('Rediger slår av rettingsmodusen', !document.getElementById('verktoyRorAv').classList.contains('aktiv'));
+    } finally {
+      await this._rorTilbake(foer);
+    }
+  },
+
+  /** «Endre rør»: dra et målt punkt, sett inn et nytt, forleng et rør – og angre. */
+  async rorEndre() {
+    const foer = JSON.stringify(App.P);
+    try {
+      App.P = App.nyttProsjekt();
+      await RorUI.importerTekst(this._rorXml(), 'asbuilts_Prove.xml', {}, { sone: 32, maal: 'nytt' });
+      await this.ventPaBeregning(30000);
+      const o = Geo.tilUtm(58.1412, 7.0705, 32);
+      const ll = (x, y) => { const g = Geo.fraUtm(o.x + x, o.y + y, 32); return L.latLng(g.lat, g.lon); };
+      const r = () => App.P.ror;
+      this.sjekk('knappen «Endre rør» vises', !document.getElementById('verktoyRorEndre').classList.contains('skjult'));
+      Kart.kart.setView(ll(55, 0), 19);
+      Kart.settModus('rorEndre');
+      let dra = 0;
+      Kart.lag.ror.eachLayer(l => { if (l.options && l.options.draggable) dra++; });
+      this.sjekk('hvert målt punkt kan dras', dra === r().punkter.length, `${dra} av ${r().punkter.length}`);
+      // et klikk på 90PE mellom 50 og 60 setter inn et punkt der, med høyden på streken
+      RorUI.kartklikk('rorEndre', ll(55, 0.1));
+      const ny = r().retting.nye[0];
+      this.sjekk('et klikk på røret setter inn et punkt', r().retting.nye.length === 1 && ny.kode === '90PE'
+        && Math.abs(ny.z - 19.45) < 0.002, JSON.stringify(ny));
+      const linje = Ror.byggLinjer(r(), App.P.mal, p => ({ x: p.o, y: p.n })).linjer.find(l => l.punkter.some(p => p.id === ny.id));
+      const i = linje ? linje.punkter.findIndex(p => p.id === ny.id) : -1;
+      this.sjekk('  og det står mellom de to punktene', i > 0 && Math.abs(linje.punkter[i - 1].o - o.x - 50) < 0.01
+        && Math.abs(linje.punkter[i + 1].o - o.x - 60) < 0.01, linje && linje.punkter.map(p => (p.o - o.x).toFixed(0)).join(','));
+      // dra et målt punkt: o og n flyttes, høyden står
+      const maalt = r().punkter.find(p => !p.lagtTil && p.kode === '90PE' && Math.abs(p.o - o.x - 30) < 0.01 && Math.abs(p.n - o.y) < 0.01);
+      const z = maalt.z;
+      App.merk('flyttet målt punkt');
+      RorUI.flyttPunkt(maalt.id, ll(30, 2));
+      this.sjekk('et dratt punkt står der det ble sluppet', Math.abs(maalt.n - o.y - 2) < 0.01 && maalt.z === z && !!maalt.innmaalt,
+        JSON.stringify(maalt));
+      this.sjekk('  og flyttingen er en retting', !!r().retting.flytt[maalt.id]);
+      // forlenge: utenfor røret, nær enden ved 560
+      Kart.kart.setView(ll(570, 0), 19);
+      RorUI.kartklikk('rorEndre', ll(575, 3));
+      await this.vent(600);
+      const fo = r().retting.nye[1];
+      this.sjekk('et klikk ved enden forlenger røret', !!fo && r().retting.koble.some(par => par.includes(fo.id)) && fo.z === 15,
+        JSON.stringify(fo));
+      this.sjekk('  og røret går dit', App.resultat.linjer.some(l => l.punkter.some(p => p.id === fo.id) && l.punkter.length === 8),
+        App.resultat.linjer.map(l => l.punkter.length).join(','));
+      // punktet åpnes: ny høyde
+      RorUI.punktDialog(fo.id);
+      const felt = document.getElementById('rorPunktZ');
+      this.sjekk('et nytt punkt kan få en annen høyde', !!felt);
+      if (felt) {
+        felt.value = '14.5';
+        document.getElementById('rorPunktOk').click();
+        this.sjekk('  og høyden lagres', r().retting.nye[1].z === 14.5 && r().punkter.find(p => p.id === fo.id).z === 14.5);
+      }
+      RorUI.punktDialog(maalt.id);
+      this.sjekk('et målt punkt har ikke høydefelt', !document.getElementById('rorPunktZ'));
+      document.getElementById('rorPunktTilbake').click();
+      this.sjekk('«Flytt tilbake» setter det der det ble målt', Math.abs(maalt.n - o.y) < 0.01 && !maalt.innmaalt
+        && !r().retting.flytt[maalt.id]);
+      await App.angre();
+      const etter = r().punkter.find(p => p.id === maalt.id);
+      this.sjekk('angre flytter det ut igjen', Math.abs(etter.n - o.y - 2) < 0.01, String(etter.n - o.y));
+      Kart.settModus('rediger');
     } finally {
       await this._rorTilbake(foer);
     }

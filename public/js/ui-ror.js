@@ -70,7 +70,7 @@ const RorUI = {
     if (id('ror_forrige')) id('ror_forrige').onclick = () => this.blaa(-1);
     if (id('ror_neste')) id('ror_neste').onclick = () => this.blaa(1);
     for (const [knapp, modus] of [['verktoyRorAv', 'rorAv'], ['verktoyRorBryt', 'rorBryt'],
-      ['verktoyRorKoble', 'rorKoble']]) {
+      ['verktoyRorKoble', 'rorKoble'], ['verktoyRorEndre', 'rorEndre']]) {
       if (id(knapp)) id(knapp).onclick = () => Kart.settModus(Kart.modus === modus ? 'rediger' : modus);
     }
     // Profil eller 3D i rørpanelet
@@ -169,8 +169,9 @@ const RorUI = {
       const a = this._kobleFra;
       this._kobleFra = null;
       if (a.p.id === best.p.id) { app.status('Det var samme ende – velg en annen'); Kart.tegnRor(); return; }
-      if (a.p.kode !== best.p.kode) {
-        app.status(`Kan ikke koble ${a.p.kode} til ${best.p.kode} – bare rør med samme kode`);
+      // koder som er slått sammen, er samme rør – det er dem linjene trekkes etter
+      if (Ror.kanonisk(r, a.p.kode) !== Ror.kanonisk(r, best.p.kode)) {
+        app.status(`Kan ikke koble ${a.p.kode} til ${best.p.kode} – bare rør med samme kode (slå kodene sammen i Rør-fanen først)`);
         Kart.tegnRor();
         return;
       }
@@ -179,10 +180,164 @@ const RorUI = {
       r.retting.koble.push([a.p.id, best.p.id]);
       r.retting.brudd = r.retting.brudd.filter(k => !par(a.p.id, best.p.id)(k));
       app.status(`${a.p.kode} er koblet sammen`);
+    } else if (modus === 'rorEndre') {
+      if (!this._nyttPunkt(r, u, tol, iFila)) return;
     }
     Kart.tegn();
     this.vis();
     app.planlegg(30);
+  },
+
+  /**
+   * «Endre rør»: et klikk på en rørstrek setter inn et punkt der, et klikk
+   * utenfor forlenger det nærmeste røret dit. Høyden til et innsatt punkt
+   * ligger på streken mellom de to naboene; et punkt i forlengelsen får
+   * høyden til enden – begge kan rettes ved å klikke på punktet. Ingen målte
+   * høyder endres. Gir false når klikket ikke traff noe.
+   */
+  _nyttPunkt(r, u, tol, iFila) {
+    const app = this.app;
+    const bygg = Ror.byggLinjer(r, app.P.mal, iFila);
+    const ret = r.retting;
+    if (!ret.nye) ret.nye = [];
+    const t = v => Rapport.tall(v, 2);
+    let best = null;
+    for (const l of bygg.linjer) {
+      for (let k = 1; k < l.xy.length; k++) {
+        const d = Ror.avstandTilStrekk(u, l.xy[k - 1], l.xy[k]);
+        if (d <= tol && (!best || d < best.d)) best = { a: l.punkter[k - 1], b: l.punkter[k], d };
+      }
+    }
+    if (best) {
+      const { a, b } = best;
+      const dx = b.o - a.o, dy = b.n - a.n, L2 = dx * dx + dy * dy;
+      const s = L2 > 0 ? Math.max(0, Math.min(1, ((u.x - a.o) * dx + (u.y - a.n) * dy) / L2)) : 0.5;
+      const id = Ror.nyPunktId(r);
+      app.merk('satte inn punkt');
+      ret.nye.push({ id, nr: (a.nr + b.nr) / 2, kode: a.kode, o: +(a.o + s * dx).toFixed(3), n: +(a.n + s * dy).toFixed(3),
+        z: +(a.z + s * (b.z - a.z)).toFixed(3), paaStrekk: [a.id, b.id] });
+      Ror.brukRetting(r);
+      app.status(`Nytt punkt på ${a.kode} mellom punkt ${a.nr} og ${b.nr} – høyden ${t(a.z + s * (b.z - a.z))} ligger på streken. `
+        + 'Dra det dit røret går, eller klikk på det for å endre høyden.');
+      return true;
+    }
+    // utenfor røret: forleng det nærmeste – enden av et rør, eller et enslig punkt
+    const maks = 4 * app.P.mal.maksAvstand;
+    let ende = null;
+    const prove = (p, forst) => {
+      const d = Math.hypot(p.o - u.x, p.n - u.y);
+      if (d <= maks && (!ende || d < ende.d)) ende = { p, forst, d };
+    };
+    for (const l of bygg.linjer) { prove(l.punkter[0], true); prove(l.punkter[l.punkter.length - 1], false); }
+    for (const p of bygg.enslige) prove(p, false);
+    if (!ende) { app.status(`Klikk på et rør for å sette inn et punkt, eller innen ${maks} m fra enden av et rør for å forlenge det`); return false; }
+    const e = ende.p, id = Ror.nyPunktId(r);
+    app.merk('forlenget rør');
+    ret.nye.push({ id, nr: e.nr + (ende.forst ? -0.5 : 0.5), kode: e.kode, o: +u.x.toFixed(3), n: +u.y.toFixed(3), z: e.z });
+    ret.koble.push([e.id, id]);
+    Ror.brukRetting(r);
+    app.status(`${e.kode} er forlenget ${Rapport.tall(ende.d, 1)} m med et nytt punkt. Det har høyden til enden (${t(e.z)}) – `
+      + 'klikk på punktet for å endre den.');
+    return true;
+  },
+
+  /** Et punkt er dratt i «Endre rør». Bare o og n – høyden står. */
+  flyttPunkt(id, latlng) {
+    const app = this.app, r = app.P.ror;
+    const p = r.punkter.find(q => q.id === id);
+    if (!p) return;
+    const u = Geo.tilUtm(latlng.lat, latlng.lng, r.sone);
+    const o = +u.x.toFixed(3), n = +u.y.toFixed(3);
+    if (p.lagtTil) {
+      const q = r.retting.nye.find(x => x.id === id);
+      if (q) { q.o = o; q.n = n; }
+    } else {
+      if (!r.retting.flytt) r.retting.flytt = {};
+      const m = Ror.innmalt(p);
+      // tilbake der det ble målt (innen en centimeter) er ingen flytting
+      if (Math.hypot(m.o - o, m.n - n) < 0.01) delete r.retting.flytt[id];
+      else r.retting.flytt[id] = { o, n };
+    }
+    Ror.brukRetting(r);
+    const fra = Ror.innmalt(p);
+    app.status(p.lagtTil ? `Flyttet det nye punktet på ${p.kode}`
+      : `${p.kode}, punkt ${p.nr}: flyttet ${Rapport.tall(Math.hypot(fra.o - p.o, fra.n - p.n), 2)} m fra der det ble målt – høyden står`);
+    Kart.tegn();
+    this.vis();
+    app.planlegg(30);
+  },
+
+  /**
+   * Et klikk på et punkt i «Endre rør»: hva punktet er, og det som kan gjøres
+   * med det. Et nytt punkt kan få en annen høyde eller tas bort; et flyttet
+   * målt punkt kan flyttes tilbake. Målte høyder kan ikke endres her.
+   */
+  punktDialog(id) {
+    const app = this.app, r = app.P.ror;
+    const p = r.punkter.find(q => q.id === id);
+    if (!p) return;
+    const boks = document.getElementById('dialog');
+    const innhold = document.getElementById('dialoginnhold');
+    const lukkeknapp = document.getElementById('dialogLukk');
+    const t = (v, d) => Rapport.tall(v, d);
+    const fra = Ror.innmalt(p);
+    const flyttet = !p.lagtTil && !!p.innmaalt;
+    document.getElementById('dialogtittel').textContent = p.lagtTil ? 'Nytt punkt' : `Punkt ${p.nr}`;
+    innhold.innerHTML = `
+      <p class="notis" style="font-size:13px">${escapeHtml(p.kode)}${p.lagtTil ? ' · lagt til her, ikke målt' : ' · målt'}
+        ${flyttet ? ` · flyttet ${t(Math.hypot(fra.o - p.o, fra.n - p.n), 2)} m fra der det ble målt` : ''}</p>
+      ${p.lagtTil
+        ? `<div class="rorinnstilling"><label for="rorPunktZ">Høyde (topp rør)</label>
+            <input id="rorPunktZ" class="minitall" type="number" step="0.01" value="${+p.z.toFixed(3)}"> moh</div>`
+        : `<p class="notis">Høyde ${t(p.z, 3)} moh – målte høyder endres ikke.</p>`}
+      <div class="knapperad" style="justify-content:flex-end">
+        ${p.lagtTil ? '<button class="knapp" id="rorPunktBort">Ta bort punktet</button>' : ''}
+        ${flyttet ? '<button class="knapp" id="rorPunktTilbake">Flytt tilbake dit det ble målt</button>' : ''}
+        <button class="knapp primaer" id="rorPunktOk">${p.lagtTil ? 'Lagre' : 'Lukk'}</button>
+      </div>`;
+    const gammelLukk = lukkeknapp.onclick;
+    const lukk = () => { boks.classList.add('skjult'); lukkeknapp.onclick = gammelLukk; };
+    lukkeknapp.onclick = lukk;
+    const etter = tekst => { lukk(); Ror.brukRetting(r); app.status(tekst); app.tegnAlt(); app.planlegg(30); };
+    const q = p.lagtTil ? r.retting.nye.find(x => x.id === id) : null;
+    innhold.querySelector('#rorPunktOk').onclick = () => {
+      const felt = innhold.querySelector('#rorPunktZ');
+      const z = felt ? parseFloat(String(felt.value).replace(',', '.')) : NaN;
+      if (!q || !Number.isFinite(z) || Math.abs(z - q.z) < 0.0005) { lukk(); return; }
+      app.merk('endret høyde på nytt punkt');
+      q.z = +z.toFixed(3);
+      etter(`Det nye punktet på ${p.kode} har nå høyden ${t(q.z, 3)}`);
+    };
+    const bort = innhold.querySelector('#rorPunktBort');
+    if (bort) bort.onclick = () => {
+      app.merk('tok bort nytt punkt');
+      const ret = r.retting;
+      ret.nye = ret.nye.filter(x => x.id !== id);
+      // sto punktet i en kjede av koblinger (en forlengelse forlenget), kobles naboene til hverandre
+      const naboer = ret.koble.filter(par => par.includes(id)).map(par => par.find(y => y !== id));
+      ret.koble = ret.koble.filter(par => !par.includes(id));
+      if (naboer.length === 2) ret.koble.push(naboer);
+      ret.brudd = ret.brudd.filter(par => !par.includes(id));
+      ret.av = ret.av.filter(x => x !== id);
+      // et punkt satt inn på en strek til dette, settes inn på strekket dette selv sto på
+      for (const x of ret.nye) {
+        if (!x.paaStrekk || !x.paaStrekk.includes(id)) continue;
+        const annen = x.paaStrekk.find(y => y !== id);
+        const erstatt = q && q.paaStrekk ? q.paaStrekk.find(y => y !== annen) : null;
+        if (erstatt) x.paaStrekk = x.paaStrekk.map(y => (y === id ? erstatt : y));
+        else delete x.paaStrekk;
+      }
+      etter(`Tok bort det nye punktet på ${p.kode}`);
+    };
+    const tilbake = innhold.querySelector('#rorPunktTilbake');
+    if (tilbake) tilbake.onclick = () => {
+      app.merk('flyttet punkt tilbake');
+      delete r.retting.flytt[id];
+      etter(`${p.kode}, punkt ${p.nr} står der det ble målt igjen`);
+    };
+    boks.classList.remove('skjult');
+    const z = innhold.querySelector('#rorPunktZ');
+    (z || innhold.querySelector('#rorPunktOk')).focus();
   },
 
   /** Åpner filvelgeren. `valg` følger med til importen. */
@@ -595,6 +750,7 @@ const RorUI = {
       });
       const sam = Ror.slaSammen(a.ror.punkter, nye);
       a.ror.punkter = sam.punkter;
+      Ror.brukRetting(a.ror);
       // linjene fila har målt (Leica iCON) – de nye legges til, de som finnes står
       a.ror.filLinjer = Ror.flettLinjer(a.ror.filLinjer, les.linjer);
       /* Kodene i dialogen bygde på det aktive anleggets. Er målet et annet,
@@ -823,12 +979,14 @@ const RorUI = {
       <div class="rorinnstilling"><label for="rorMaksAvstand">Største avstand mellom punkt på samme rør</label>
         <input id="rorMaksAvstand" class="minitall" type="number" min="5" max="200" step="1" value="${app.P.mal.maksAvstand}"> m</div>
       <h3>Retting</h3>
-      <p class="notis">Slått av: ${ret.av.length} punkt · brudd: ${ret.brudd.length} · koblinger: ${ret.koble.length}.
-        Bruk knappene i kartet for å rette.</p>
+      <p class="notis">Slått av: ${ret.av.length} punkt · brudd: ${ret.brudd.length} · koblinger: ${ret.koble.length}
+        · flyttet: ${Object.keys(ret.flytt || {}).length} punkt · lagt til: ${(ret.nye || []).length} punkt.
+        Bruk knappene i kartet for å rette – med «Endre rør» drar du punktene, og et klikk på røret setter inn et nytt.</p>
       ${laast ? `<p class="notis">Punktene kommer fra Makin og byttes bare ut av «Hent fra Makin». Skal en annen
         fil inn, eller vil du ha et øyeblikksbilde som står stille, lag en kopi – den er et vanlig røranlegg.</p>` : ''}
       <div class="knapperad">
-        <button class="knapp" id="rorTilbakestill"${ret.av.length + ret.brudd.length + ret.koble.length ? '' : ' disabled'}>Tilbakestill rettinger</button>
+        <button class="knapp" id="rorTilbakestill"${ret.av.length + ret.brudd.length + ret.koble.length
+          + Object.keys(ret.flytt || {}).length + (ret.nye || []).length ? '' : ' disabled'}>Tilbakestill rettinger</button>
         ${laast ? '<button class="knapp" id="makinFaneKopi">Lag en kopi</button>'
           : '<button class="knapp" id="rorImportNy">Importer nyere fil…</button>'}
       </div>`;
@@ -853,9 +1011,10 @@ const RorUI = {
     };
     e.querySelector('#rorTilbakestill').onclick = async () => {
       if (!await app.bekreft('Ta bort alle rettingene? Punktene som er slått av kommer tilbake, '
-        + 'og brudd og koblinger forsvinner – men du kan angre etterpå.', 'Tilbakestill')) return;
+        + 'brudd og koblinger forsvinner, flyttede punkt går tilbake dit de ble målt, og punktene du har lagt til forsvinner – men du kan angre etterpå.', 'Tilbakestill')) return;
       app.merk('tilbakestilte rettinger');
-      r.retting = { av: [], brudd: [], koble: [] };
+      r.retting = Ror.nyRetting();
+      Ror.brukRetting(r);
       app.tegnAlt();
       app.planlegg(30);
     };

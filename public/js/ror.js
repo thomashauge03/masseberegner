@@ -655,7 +655,12 @@ const Ror = (() => {
 
   /** Dataene til et nytt røranlegg. Linjene lagres ikke – de regnes av dette. */
   function nyRor() {
-    return { sone: 32, kilder: [], punkter: [], koder: {}, retting: { av: [], brudd: [], koble: [] }, filLinjer: [] };
+    return { sone: 32, kilder: [], punkter: [], koder: {}, retting: nyRetting(), filLinjer: [] };
+  }
+
+  /** Rettingene til et anlegg som ikke er rettet. `flytt` og `nye` – se `brukRetting`. */
+  function nyRetting() {
+    return { av: [], brudd: [], koble: [], flytt: {}, nye: [] };
   }
 
   /* ---------------- linjene ---------------- */
@@ -684,6 +689,14 @@ const Ror = (() => {
    *   treet bare rundt bruddet via nærmeste nabo – på et rør med 10 m mellom
    *   punktene er 90 → 110 bare 20 m, og streken flytter seg i stedet for å
    *   brytes. Tatt ut etterpå deler den treet, og det er det brukeren ba om.
+   * - `nye`: et punkt brukeren har satt inn på en strek (`paaStrekk`), står
+   *   mellom de to punktene også i en linje fra fila. Flyttede og nye punkt
+   *   står alt i `ror.punkter` – se `brukRetting`.
+   *
+   * En kobling der den ene enden er i en linje fra fila, eller i et annet
+   * rør enn treet, kobles til slutt: rørene med de to endene blir ett. Før
+   * ble den bare telt som en kobling uten treff, og «Koble» gjorde ingenting
+   * på filer som har linjene sine med (Xsite, Leica iCON).
    *
    * @param {{punkter, koder, retting}} ror
    * @param {{maksAvstand:number}} mal
@@ -707,6 +720,35 @@ const Ror = (() => {
        er ikke med i gjettingen under. */
     const fraFil = [], iFilLinje = new Set();
     const punktAv = new Map(((ror && ror.punkter) || []).map(p => [p.id, p]));
+    // punktene brukeren har satt inn, per strekk – nærmest det første punktet først
+    const innsatt = new Map();
+    for (const q of retting.nye || []) {
+      const p = punktAv.get(q.id);
+      if (!p || !Array.isArray(q.paaStrekk) || q.paaStrekk.length !== 2) continue;
+      const [a, b] = q.paaStrekk;
+      if (!innsatt.has(_par(a, b))) innsatt.set(_par(a, b), []);
+      innsatt.get(_par(a, b)).push(p);
+    }
+    // runde for runde: et punkt kan være satt inn på en strek som selv går til et innsatt punkt
+    const settInn = ider => {
+      let ut = ider;
+      for (let runde = 0; runde < 100 && innsatt.size; runde++) {
+        const med = new Set(ut), ny = [ut[0]];
+        for (let i = 1; i < ut.length; i++) {
+          const her = innsatt.get(_par(ut[i - 1], ut[i]));
+          const a = punktAv.get(ut[i - 1]);
+          if (her && a) {
+            const inn = her.filter(p => !med.has(p.id))
+              .sort((x, y) => Math.hypot(x.o - a.o, x.n - a.n) - Math.hypot(y.o - a.o, y.n - a.n));
+            for (const p of inn) { med.add(p.id); ny.push(p.id); }
+          }
+          ny.push(ut[i]);
+        }
+        if (ny.length === ut.length) break;
+        ut = ny;
+      }
+      return ut;
+    };
     for (const fl of (ror && ror.filLinjer) || []) {
       const telle = new Map();
       for (const id of fl.punkter) {
@@ -720,7 +762,7 @@ const Ror = (() => {
       if (k.vis === false || k.form !== 'linje') continue;
       const biter = [];
       let bit = [];
-      for (const id of fl.punkter) {
+      for (const id of settInn(fl.punkter)) {
         const p = punktAv.get(id);
         if (!p || av.has(id)) { biter.push(bit); bit = []; continue; }
         const forrige = bit[bit.length - 1];
@@ -798,6 +840,17 @@ const Ror = (() => {
         far[a] = b; nabo[i].push(j); nabo[j].push(i);
         return true;
       };
+      /* Et punkt satt inn på en strek, står mellom de to punktene – også når
+         streken var en kobling lenger enn maks avstand. Den gamle kanten blir
+         da en ring, og treet tar den ikke. Det sist innsatte først: et punkt
+         satt inn mellom a og et innsatt punkt p, skal stå mellom dem – ikke
+         henge på p når a–p–b alt er knyttet. */
+      for (const q of (retting.nye || []).slice().reverse()) {
+        if (!Array.isArray(q.paaStrekk) || !plass.has(q.id)) continue;
+        const i = plass.get(q.id), a = plass.get(q.paaStrekk[0]), b = plass.get(q.paaStrekk[1]);
+        if (a !== undefined) knytt(a, i);
+        if (b !== undefined) knytt(i, b);
+      }
       for (const [a, b] of koble) {
         const i = plass.get(a), j = plass.get(b);
         if (i === undefined || j === undefined) continue;
@@ -846,6 +899,42 @@ const Ror = (() => {
            spiller inn. */
         const ender = [lp[0].id, lp[lp.length - 1].id].sort();
         linjer.push({ id: kode + ':' + ender.join('~'), kode, punkter: lp, xy: lxy, lengde, lengde3d });
+      }
+    }
+    /* KOBLINGENE TREET IKKE NÅDDE: én ende i en linje fra fila, i et annet
+       rør, eller et enslig punkt. Rørene med de to endene blir ett – runde for
+       runde, så en kjede av koblinger blir ett rør uansett rekkefølge. */
+    const enslig = id => enslige.findIndex(p => p.id === id);
+    const endeAv = id => {
+      for (const l of linjer) {
+        if (l.punkter[0].id === id) return { l, forst: true };
+        if (l.punkter[l.punkter.length - 1].id === id) return { l, forst: false };
+      }
+      return null;
+    };
+    for (let igjen = true; igjen;) {
+      igjen = false;
+      for (const [a, b] of koble) {
+        if (koblingTraff.has(_par(a, b))) continue;
+        let ea = endeAv(a), eb = endeAv(b);
+        const ia = ea ? -1 : enslig(a), ib = eb ? -1 : enslig(b);
+        if ((!ea && ia < 0) || (!eb && ib < 0) || (ea && eb && ea.l === eb.l)) continue;
+        const kode = ea ? ea.l.kode : eb ? eb.l.kode : kanonisk(ror, enslige[ia].kode);
+        if ((ea ? ea.l.kode : kanonisk(ror, enslige[ia].kode)) !== kode
+          || (eb ? eb.l.kode : kanonisk(ror, enslige[ib].kode)) !== kode) continue;
+        // a sist i den første, b først i den andre
+        const del = (e, i, forst) => (e ? (e.forst === forst ? e.l.punkter.slice() : e.l.punkter.slice().reverse()) : [enslige[i]]);
+        let lp = del(ea, ia, false).concat(del(eb, ib, true));
+        if (lp[lp.length - 1].nr < lp[0].nr) lp = lp.reverse();
+        for (const e of [ea, eb]) if (e) linjer.splice(linjer.indexOf(e.l), 1);
+        for (const id of [a, b]) { const i = enslig(id); if (i >= 0) enslige.splice(i, 1); }
+        const lxy = lp.map(tilXY);
+        const ender = [lp[0].id, lp[lp.length - 1].id].sort();
+        let id = kode + ':' + ender.join('~');
+        for (let n = 2; linjer.some(l => l.id === id); n++) id = kode + ':' + ender.join('~') + '#' + n;
+        linjer.push(Object.assign({ id, kode, punkter: lp, xy: lxy }, maal(lp, lxy)));
+        koblingTraff.add(_par(a, b));
+        igjen = true;
       }
     }
     linjer.sort((a, b) => (a.kode < b.kode ? -1 : a.kode > b.kode ? 1 : b.lengde - a.lengde));
@@ -1144,8 +1233,12 @@ const Ror = (() => {
       const g = ut.get(p.id);
       if (!g) { ut.set(p.id, Object.assign({}, p)); antallNye++; continue; }
       kjente++;
-      if (g.n !== p.n || g.o !== p.o || g.z !== p.z || g.kode !== p.kode) {
-        ut.set(p.id, Object.assign({}, g, p));
+      // et punkt brukeren har flyttet, sammenlignes med der det ble målt – `brukRetting` flytter det igjen
+      const m = innmalt(g);
+      if (m.n !== p.n || m.o !== p.o || m.z !== p.z || m.kode !== p.kode) {
+        const ny = Object.assign({}, g, p);
+        delete ny.innmaalt;
+        ut.set(p.id, ny);
         endret++;
       }
     }
@@ -1162,17 +1255,19 @@ const Ror = (() => {
    * fjerner nettopp dem.
    */
   function byttPunkter(ror, nye) {
-    const gamle = new Map(((ror && ror.punkter) || []).map(p => [p.id, p]));
-    const finnes = new Set((nye || []).map(p => p.id));
+    // punktene brukeren har lagt til, er ikke Makins – de verken telles eller forsvinner
+    const gamle = new Map(((ror && ror.punkter) || []).filter(p => !p.lagtTil).map(p => [p.id, p]));
+    const r = (ror && ror.retting) || {};
+    const finnes = new Set((nye || []).map(p => p.id).concat((r.nye || []).map(p => p.id)));
     let antallNye = 0, endret = 0;
     for (const p of nye || []) {
       const g = gamle.get(p.id);
+      const m = g && innmalt(g);
       if (!g) antallNye++;
-      else if (g.n !== p.n || g.o !== p.o || g.z !== p.z || g.kode !== p.kode) endret++;
+      else if (m.n !== p.n || m.o !== p.o || m.z !== p.z || m.kode !== p.kode) endret++;
     }
     let borte = 0;
     for (const id of gamle.keys()) if (!finnes.has(id)) borte++;
-    const r = (ror && ror.retting) || {};
     const rettingerBorte = (r.av || []).filter(id => !finnes.has(id)).length
       + (r.brudd || []).filter(par => !par.every(id => finnes.has(id))).length
       + (r.koble || []).filter(par => !par.every(id => finnes.has(id))).length;
@@ -1187,9 +1282,68 @@ const Ror = (() => {
   function rensRetting(ror, ider) {
     const r = ror && ror.retting;
     if (!r) return;
+    // et punkt brukeren har lagt til, finnes like fullt
+    ider = new Set([...ider].concat((r.nye || []).map(p => p.id)));
     if (r.av) r.av = r.av.filter(id => ider.has(id));
     if (r.brudd) r.brudd = r.brudd.filter(par => par.every(id => ider.has(id)));
     if (r.koble) r.koble = r.koble.filter(par => par.every(id => ider.has(id)));
+    if (r.flytt) for (const id of Object.keys(r.flytt)) if (!ider.has(id)) delete r.flytt[id];
+  }
+
+  /*
+   * FLYTTEDE OG NYE PUNKT. Brukeren kan dra et målt punkt dit røret faktisk
+   * ligger, og sette inn punkt der det mangler. Det er rettinger som de andre:
+   * de står i `retting.flytt` (id → ny o/n) og `retting.nye` (hele punktet),
+   * så de overlever en ny import og en henting fra Makin, og kan tas bort.
+   *
+   * Punktene i `ror.punkter` er slik rettingene sier – alt annet i programmet
+   * leser dem derfra. Et flyttet punkt har der det ble målt i `innmaalt`, et
+   * nytt har `lagtTil`. HØYDEN TIL ET MÅLT PUNKT RØRES ALDRI: bare o og n
+   * flyttes.
+   */
+
+  /** Punktet slik det ble målt – med o og n fra før det ble flyttet. */
+  function innmalt(p) {
+    return p && p.innmaalt ? Object.assign({}, p, p.innmaalt) : p;
+  }
+
+  /**
+   * Gjør `ror.punkter` lik rettingene: flytter de flyttede (og tilbake de som
+   * ikke er det lenger), legger til de nye og tar bort de som er tatt bort.
+   * Kan kalles så ofte man vil – andre gang endrer den ingenting.
+   */
+  function brukRetting(ror) {
+    if (!ror || !Array.isArray(ror.punkter)) return;
+    const r = ror.retting || {};
+    const flytt = r.flytt || {};
+    const nye = new Map((r.nye || []).map(q => [q.id, q]));
+    ror.punkter = ror.punkter.filter(p => !p.lagtTil || nye.has(p.id));
+    const har = new Map(ror.punkter.map(p => [p.id, p]));
+    for (const p of ror.punkter) {
+      if (p.lagtTil) continue;
+      const f = Object.prototype.hasOwnProperty.call(flytt, p.id) ? flytt[p.id] : null;
+      if (f) {
+        if (!p.innmaalt) p.innmaalt = { o: p.o, n: p.n };
+        p.o = f.o; p.n = f.n;
+      } else if (p.innmaalt) {
+        p.o = p.innmaalt.o; p.n = p.innmaalt.n;
+        delete p.innmaalt;
+      }
+    }
+    for (const q of nye.values()) {
+      const p = { id: q.id, nr: q.nr, kode: q.kode, o: q.o, n: q.n, z: q.z, lagtTil: true };
+      if (har.has(q.id)) Object.assign(har.get(q.id), p);
+      else ror.punkter.push(p);
+    }
+  }
+
+  /** En ledig id til et punkt brukeren legger til: «+1», «+2» … */
+  function nyPunktId(ror) {
+    const brukt = new Set(((ror && ror.punkter) || []).map(p => p.id)
+      .concat(((ror && ror.retting && ror.retting.nye) || []).map(p => p.id)));
+    let n = 1;
+    while (brukt.has('+' + n)) n++;
+    return '+' + n;
   }
 
   /**
@@ -1497,7 +1651,7 @@ const Ror = (() => {
     kanonisk, forslagSammen, slaaSammenKoder, skillKode, ikkeSamme,
     lagTilXY, tilLatLon, erUtm, sjekkKoordinater, gjettSone, slaSammen, byttPunkter, rensRetting, slaSammenFiler, dimensjon, hoppetOver, kildetekst, navnFraFil,
     korridor, profil, objekterLangs, objekterPaaLinjer, sammendrag, merknader, spenn,
-    nyRor, StandardRormal, FARGER
+    nyRor, nyRetting, brukRetting, innmalt, nyPunktId, StandardRormal, FARGER
   };
 })();
 

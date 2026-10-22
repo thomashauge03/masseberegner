@@ -566,7 +566,7 @@ const Kart = {
     for (const [id, navn] of [['verktoyTegn', 'tegn'], ['verktoyFlytt', 'rediger'],
       ['verktoySondering', 'sondering'], ['verktoyPlass', 'plass'], ['verktoyStikkrenne', 'stikkrenne'], ['verktoyTomt', 'tegnTomt'],
       ['verktoyMaal', 'maal'], ['verktoyRorAv', 'rorAv'], ['verktoyRorBryt', 'rorBryt'],
-      ['verktoyRorKoble', 'rorKoble'], ['verktoyGroftStrekning', 'groftStrekning'], ['verktoyGroftSammen', 'groftSammen'],
+      ['verktoyRorKoble', 'rorKoble'], ['verktoyRorEndre', 'rorEndre'], ['verktoyGroftStrekning', 'groftStrekning'], ['verktoyGroftSammen', 'groftSammen'],
       ['verktoyTrase', 'tegnTrase'], ['verktoyKum', 'kum'], ['verktoySnu', 'snuTrase']]) {
       const el = document.getElementById(id);
       if (el) {
@@ -592,6 +592,10 @@ const Kart = {
     if (m === 'rorAv') this.app.status('Klikk på et målt punkt for å slå det av eller på. Rediger avslutter.');
     if (m === 'rorBryt') this.app.status('Klikk på rørstreken der den ikke skal henge sammen.');
     if (m === 'rorKoble') this.app.status('Klikk på enden av det ene røret, så på enden av det andre.');
+    if (m === 'rorEndre') {
+      this.app.status('Dra et punkt dit røret går. Klikk på røret for et nytt punkt, ved enden for å forlenge det, '
+        + 'på et punkt for å endre det. Rediger avslutter.');
+    }
     if (m === 'groftStrekning') {
       this.app.status('Klikk på et målt punkt, så på et annet på samme rør – mellom dem kan grøfta få egne mål.');
     }
@@ -848,7 +852,7 @@ const Kart = {
     if (this.modus === 'utsnitt') return;
     if (this.modus === 'tegnTrase') { RorPlanUI.tegnKlikk(e.latlng); return; }
     if (this.modus === 'kum' || this.modus === 'snuTrase') { RorPlanUI.kartklikk(this.modus, e.latlng); return; }
-    if (this.modus === 'rorAv' || this.modus === 'rorBryt' || this.modus === 'rorKoble') {
+    if (this.modus === 'rorAv' || this.modus === 'rorBryt' || this.modus === 'rorKoble' || this.modus === 'rorEndre') {
       RorUI.kartklikk(this.modus, e.latlng);
       return;
     }
@@ -1816,7 +1820,7 @@ const Kart = {
     const t = (v, d) => Rapport.tall(v, d);
     const bf = (res && res.bakkefaktor) || 1;
     // punktene vises også når man velger strekning – det er dem man klikker på
-    const rett = ['rorAv', 'rorBryt', 'rorKoble', 'groftStrekning'].includes(this.modus);
+    const rett = ['rorAv', 'rorBryt', 'rorKoble', 'rorEndre', 'groftStrekning'].includes(this.modus);
     // med et verktøy på er et klikk på røret til verktøyet, ikke et valg av røret
     const verktoy = rett || this.modus === 'groftSammen';
     /* GRØFTEKANTEN – der gravingen møter terrenget. Regnes én gang per
@@ -1910,9 +1914,27 @@ const Kart = {
       /* Et tegnet anlegg har ingen målte punkt – der er det knekkpunktene på
          linjene som kan velges. Mellompunktene flytter seg med terrenget. */
       const kilde = r.plan ? bygg.linjer.flatMap(l => l.punkter.filter(p => !p.mellom)) : r.punkter;
+      /* «ENDRE RØR»: punktene kan dras. Bare o og n flyttes – se RorUI.flyttPunkt.
+         Et klikk på punktet åpner det; markøren tar klikket, så det setter ikke
+         inn et nytt punkt i kartet under. */
+      const endre = this.modus === 'rorEndre' && !r.plan;
       for (const p of kilde) {
         if (paaRor && !paaRor.has(p.id)) continue;
         const er = av.has(p.id);
+        if (endre) {
+          const farge = Farger.ror(kode(p.kode).farge);
+          const klasse = 'ror-endre' + (p.lagtTil ? ' ny' : '') + (p.innmaalt ? ' flyttet' : '') + (er ? ' av' : '');
+          const m = L.marker(ll(p), {
+            draggable: true, keyboard: false,
+            icon: L.divIcon({ className: '', html: `<div class="${klasse}" style="background:${farge};border-color:${p.lagtTil ? farge : '#0b0b0c'}"></div>`,
+              iconSize: [12, 12], iconAnchor: [6, 6] })
+          }).bindTooltip(`${escapeHtml(p.kode)} · ${p.lagtTil ? 'nytt punkt' : 'punkt ' + escapeHtml(String(p.nr))} · ${t(p.z, 2)} moh`
+            + (p.innmaalt ? ' · flyttet' : ''), { direction: 'top' }).addTo(this.lag.ror);
+          m.on('dragstart', () => app.merk(p.lagtTil ? 'flyttet nytt punkt' : 'flyttet målt punkt'));
+          m.on('dragend', ev => RorUI.flyttPunkt(p.id, ev.target.getLatLng()));
+          m.on('click', () => RorUI.punktDialog(p.id));
+          continue;
+        }
         L.circleMarker(ll(p), {
           radius: er ? 4 : 3, color: er ? '#9a9aa3' : '#0b0b0c', weight: er ? 1.5 : 1,
           fillColor: er ? '#ffffff' : Farger.ror(kode(p.kode).farge), fillOpacity: er ? 0.25 : 1,
