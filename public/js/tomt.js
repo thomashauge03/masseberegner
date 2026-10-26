@@ -177,6 +177,10 @@ const StandardTomtemal = {
      utskiftingen der: da bærer massen under seg selv, og resten blir meldt. */
   utskifting: true,
   maksUtskifting: 4.0,
+  /* HVOR LANGT NED, NÅR DET IKKE SKAL TIL FJELL. 0 betyr ned til fjell (med
+     grensen over). Er tomta delvis byggeklar, settes dybden her – målt fra
+     terrenget, og aldri dypere enn fjellet. */
+  utskiftingDybde: 0,
   /* GROPA STOPPER IKKE VED HUSVEGGEN.
      Skråningen utenfor står på det som ligger der, og er det myr, siger den ut.
      Så bunnen går `utskiftingUtenfor` meter forbi tomtekanten, og derfra

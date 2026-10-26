@@ -550,7 +550,9 @@ const Pdfrapport = {
            sammendrag som fortsatt sa «0,20 m» ville oppgitt en dybde som ikke
            har noe a gjøre med kubikken ved siden av. */
         [m.utskifting
-          ? `Masseutskifting ned til fjell (maks ${t(m.maksUtskifting, 1)} m)`
+          ? (m.utskiftingDybde > 0
+            ? `Masseutskifting ${t(m.utskiftingDybde, 1)} m ned (ikke til fjell)`
+            : `Masseutskifting ned til fjell (maks ${t(m.maksUtskifting, 1)} m)`)
           : `Rensk / avdekking (${t(m.renskDybde, 2)} m)`, t(s.rensk) + ' m³'],
         ['Skjæring i løsmasse', t(s.skjaeringLosmasse) + ' p.f.m³'],
         ['Skjæring i fjell (sprengning)', t(s.skjaeringFjell) + ' p.f.m³'],

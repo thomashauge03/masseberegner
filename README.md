@@ -496,7 +496,10 @@ filer som rørene – og lager en trekantflate av dem.
 * **Fyllmasser er byggegrunn.** Der det godkjente terrenget ligger mer enn
   0,3 m over DTM1, tar tomta ikke av matjord og skifter ikke ut massene – de er
   kjørt på siden. Knappen **Masseutskifting** i tomtepanelet slår utskiftingen
-  av og på for hele tomta (samme bryter som i Tomtemal).
+  av og på for hele tomta (samme bryter som i Tomtemal). Listen ved siden av
+  velger hvor langt ned: «ned til fjell» (som før), eller en fast dybde på
+  0,3–3 m for tomter som er delvis byggeklare. Andre dybder settes i Tomtemal
+  («Skift ut bare ned til»). Det som blir liggende under, står i merknadene.
 * **Spart eller ekstra:** tomtas Masser-fane har boksen «Innmålt terreng mot
   vanlig kart», med den samme tomta regnet mot DTM1 og forskjellen for
   skjæring, sprengning, fylling, matjord, rensk, det som må kjøres inn og deponi.

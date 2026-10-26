@@ -382,7 +382,12 @@ function beregnTomtemasser(o) {
   const renskDybde = Math.max(0, mal.renskDybde || 0);
   // se `utskifting` i tomtemalen – alt under tomta graves ned til fjell
   const utskifting = !!mal.utskifting;
-  const maksUtskift = Math.max(0, mal.maksUtskifting || 0);
+  /* VALGT DYBDE GÅR FORAN GRENSEN. En tomt som er delvis byggeklar trenger
+     ikke renskes ned til fjell – da settes `utskiftingDybde`, og trauet går
+     så langt og ikke lenger. Det er et valg, ikke en sperre som slo inn, så
+     det som blir liggende under meldes som valgt, ikke som en advarsel. */
+  const valgtDybde = Math.max(0, mal.utskiftingDybde || 0);
+  const maksUtskift = valgtDybde > 0 ? valgtDybde : Math.max(0, mal.maksUtskifting || 0);
   /* Hvor langt bunnen går forbi tomtekanten, og helningen på veggen opp
      derfra – se kommentaren ved `zTrau`. */
   const utUtenfor = Math.max(0, mal.utskiftingUtenfor || 0);
@@ -1067,7 +1072,14 @@ function beregnTomtemasser(o) {
      den styrende, skal det stå i rapporten hvor mye løsmasse den lar bli
      liggende igjen under tomta - areal OG verste dybde, av samme grunn som
      over: et rutetall sier ingenting. */
-  if (utskifting && forDyptTilFjell > 0) {
+  if (utskifting && valgtDybde > 0) {
+    merknader.push({ type: 'utskifting',
+      tekst: `Masseutskiftingen er satt til ${kom(valgtDybde, 1)} m under terrenget, `
+        + 'ikke ned til fjell' + (forDyptTilFjell > 0
+          ? ` – på ${kom(forDyptTilFjell, 0)} m² av tomta blir inntil `
+            + `${kom(utskiftingRest, 1)} m løsmasse liggende under trauet`
+          : '') });
+  } else if (utskifting && forDyptTilFjell > 0) {
     merknader.push({ type: 'utskifting',
       tekst: `${kom(forDyptTilFjell, 0)} m² av tomta har fjellet dypere enn `
         + `grensen på ${kom(maksUtskift, 1)} m – der blir inntil `

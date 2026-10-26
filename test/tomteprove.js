@@ -1759,6 +1759,24 @@ console.log('\n31. Masseutskifting – alt under tomta ned til fjell');
   sjekk('  grensen er styrende, ikke fjellet: 8 m gir samme tall som 6',
     kjorU(8).sum.rensk, dypt.sum.rensk, 1e-6);
 
+  /* VALGT DYBDE: DELVIS BYGGEKLAR TOMT.
+     Fjellet 2 m nede, men det skal bare skiftes ut 1 m: 1 x 2 400 = 2 400 m³,
+     og 1 m løsmasse blir liggende. Det er et valg, så merknaden sier det – den
+     melder ikke en grense som slo inn. */
+  const valgt = kjorU(2, { utskiftingDybde: 1 });
+  sjekk('valgt dybde 1 m med fjell 2 m nede: 1 x 2 400', valgt.sum.rensk, 2400, 1);
+  sjekk('  og like mye fylles tilbake', valgt.sum.fylling, 2400, 1);
+  sjekk('  og 1 m blir liggende', valgt.utskiftingRest, 1.0, 1e-6);
+  const valgtTekst = ((valgt.merknader || []).find(m => m.type === 'utskifting') || {}).tekst || '';
+  paastand('  og merknaden sier at dybden er valgt',
+    /satt til 1,0 m/.test(valgtTekst) && !/grensen/.test(valgtTekst), valgtTekst);
+  sjekk('  valgt dybde går foran grensen: 6 m med grense 4 gir 6 x 2 400',
+    kjorU(8, { utskiftingDybde: 6 }).sum.rensk, 14400, 1);
+  sjekk('  og graver aldri under fjellet: 3 m valgt, fjell 0,5 m nede',
+    kjorU(0.5, { utskiftingDybde: 3 }).sum.rensk, halv.sum.rensk, 1e-6);
+  sjekk('  0 betyr ned til fjell, som før',
+    kjorU(2, { utskiftingDybde: 0 }).sum.rensk, myr.sum.rensk, 1e-6);
+
   /* GROPA STOPPER IKKE VED HUSVEGGEN – OG DET ER IKKE EN DETALJ.
      Skråningen utenfor står på det som ligger der. Er det myr, siger den ut, og
      den gode massen man nettopp fylte i har ingenting å bære seg mot. Så bunnen

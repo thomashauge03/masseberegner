@@ -13505,6 +13505,22 @@ const Nettlesertest = {
       await App.beregnTomt();
       this.sjekk('angre slår den på igjen', App.P.mal.utskifting === true && knappU.getAttribute('aria-pressed') === 'true'
         && Math.abs(App.resultat.sum.utskifting - uten.utskifting) < 0.5);
+
+      // dybden ved siden av: delvis byggeklar tomt skal ikke til fjell
+      const valgD = document.getElementById('tm_utskiftingDybde');
+      this.sjekk('dybdevalget står på «ned til fjell»', !!valgD && valgD.value === '0' && !valgD.disabled);
+      valgD.value = '0.3';
+      valgD.dispatchEvent(new Event('change'));
+      await App.beregnTomt();
+      this.sjekk('0,3 m ned skifter ut mindre, og sier det i merknadene', App.P.mal.utskiftingDybde === 0.3
+        && App.resultat.sum.utskifting < uten.utskifting - 1
+        && App.resultat.merknader.some(m => m.type === 'utskifting' && /satt til 0,3 m/.test(m.tekst)),
+        `${App.resultat.sum.utskifting.toFixed(0)} mot ${uten.utskifting.toFixed(0)}`);
+      await App.angre();
+      await App.beregnTomt();
+      this.sjekk('angre setter dybden tilbake til fjell', !App.P.mal.utskiftingDybde
+        && document.getElementById('tm_utskiftingDybde').value === '0'
+        && Math.abs(App.resultat.sum.utskifting - uten.utskifting) < 0.5);
       /* Fyllinga sammenlignes ikke: masseutskiftingen graver løsmassene ut
          ned til berget og fyller igjen, og med 2 m kjørt på er det mer å
          skifte ut, ikke mindre. Det som må endre seg, er gravingen. */

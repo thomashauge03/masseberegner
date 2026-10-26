@@ -2154,6 +2154,19 @@ const App = {
     k.classList.toggle('aktiv', pa);
     k.setAttribute('aria-pressed', pa ? 'true' : 'false');
     k.textContent = pa ? '✓ Masseutskifting' : 'Masseutskifting av';
+    /* Dybden fra Tomtemal kan være et tall listen ikke har – da legges det
+       til, ellers ville listen vist «ned til fjell» for en tomt som stopper
+       på 0,8 m. */
+    const valg = document.getElementById('tm_utskiftingDybde');
+    if (!valg) return;
+    const d = Math.max(0, +this.P.mal.utskiftingDybde || 0);
+    let o = [...valg.options].find(x => Math.abs(+x.value - d) < 1e-9);
+    if (!o) {
+      o = new Option(`${Rapport.tall(d, 2)} m ned`, String(d));
+      valg.add(o);
+    }
+    valg.value = o.value;
+    valg.disabled = !pa;
   },
 
   visTomtemasser() {
@@ -6659,6 +6672,7 @@ const App = {
       ['h3', 'Lag under ferdig nivå'],
       ['m', 'matjordDybde', 'Matjord som tas av', 0, 1, 0.05],
       ['bryter', 'utskifting', 'Masseutskifting ned til fjell'],
+      ['m', 'utskiftingDybde', 'Skift ut bare ned til (0 = fjell)', 0, 15, 0.1],
       ['m', 'maksUtskifting', 'Stopp utskiftingen på', 0, 15, 0.5],
       ['m', 'utskiftingUtenfor', 'Trauet går forbi tomtekanten', 0, 10, 0.25],
       ['los', 'utskiftingHelning', 'Helning på trauveggen', 0, 5, 0.1],
@@ -8161,6 +8175,21 @@ const App = {
       this.status(this.P.mal.utskifting
         ? 'Masseutskifting på: løsmassen under tomta graves ut ned til fjell og fylles igjen.'
         : 'Masseutskifting av: tomta bygges på grunnen som ligger der.');
+    };
+    /* HVOR LANGT NED. Ikke alle tomter skal renskes til fjell – er den delvis
+       byggeklar, holder det å skifte ut den øverste meteren. Samme innstilling
+       som `utskiftingDybde` i Tomtemal. */
+    if (id('tm_utskiftingDybde')) id('tm_utskiftingDybde').onchange = (e) => {
+      if (!this.erTomt()) return;
+      const d = Math.max(0, parseFloat(e.target.value) || 0);
+      this.merk('utskiftingsdybde');
+      this.P.mal.utskiftingDybde = d;
+      this.tomtemalTilSkjema();
+      this.visUtskiftingKnapp();
+      this.tomtEndret();
+      this.status(d > 0
+        ? `Masseutskifting ${Rapport.tall(d, 1)} m ned – ikke ned til fjell. Det som ligger under, blir liggende.`
+        : 'Masseutskifting ned til fjell.');
     };
     /* K settes pa knekkpunktene som far bestemme seg selv - ikke pa de laste.
        En last høyde har K=0 nettopp fordi veglinjen skal ga nøyaktig gjennom
