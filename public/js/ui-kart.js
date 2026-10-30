@@ -446,6 +446,8 @@ const Kart = {
       else if (this.modus === 'tegnTrase') RorPlanUI.avsluttTrase();
       else if (this.modus === 'maal') this._avsluttMaal();
     });
+    // høyreklikk – eller hold inne på telefonen – gir koordinatene til punktet der
+    kart.on('contextmenu', e => this.visKoordinater(e.latlng));
 
     this.koblingerUI();
     return this;
@@ -1027,6 +1029,98 @@ const Kart = {
       if (pr.avstand < 60) tekst += `   ·   Profil ${pr.s.toFixed(1)}  avvik ${pr.avvik.toFixed(1)} m`;
     }
     document.getElementById('kartinfo').textContent = tekst;
+  },
+
+  /**
+   * Punktene i anlegget man står i, med koordinatene slik de står i fila.
+   *
+   * Bygges fra prosjektet når man spør, ikke fra markørene i kartet: et
+   * innmålt rør tegnes som en strek uten punkt utenfor rettingen, og det er
+   * nettopp punktene på streken man vil ha tallene til. `e`/`n` mangler for
+   * det som er tegnet i kartet (knekkpunkt, tomtehjørner, traser) – de regnes
+   * fra grader i prosjektets sone.
+   */
+  punkterHer() {
+    const app = this.app, P = app.P;
+    if (app.erTin()) {
+      const t = P.tin;
+      if (!t) return [];
+      return t.punkter.map(p => ({ navn: p.navn + (p.kode ? ' · ' + p.kode : ''), e: p.e, n: p.n, z: p.z, sone: t.sone || app.sone }));
+    }
+    if (app.erRor()) {
+      const r = P.ror;
+      if (!r) return [];
+      const ut = [];
+      if (r.plan) {
+        const bygg = app.byggRor();
+        for (const l of bygg.linjer) {
+          for (const p of l.punkter) {
+            if (!p.mellom) ut.push({ navn: l.kode, e: p.o, n: p.n, z: p.z, sone: r.sone, regnet: true });
+          }
+        }
+        for (const k of bygg.kummer || []) {
+          ut.push({ navn: 'Kum ' + k.id, e: k.o, n: k.n, z: k.bunnlop, zNavn: 'Bunnløp', sone: r.sone, regnet: true });
+        }
+      } else {
+        for (const p of r.punkter) ut.push({ navn: `${p.kode} · punkt ${p.nr}`, e: p.o, n: p.n, z: p.z, sone: r.sone });
+      }
+      return ut;
+    }
+    if (app.erTomt()) return ((P.tomt && P.tomt.punkter) || []).map((p, i) => ({ navn: 'Hjørne ' + (i + 1), lat: p.lat, lon: p.lon }));
+    return (P.ip || []).map((p, i) => ({ navn: 'Knekkpunkt ' + (i + 1), lat: p.lat, lon: p.lon }));
+  },
+
+  /**
+   * Nord, øst og høyde for punktet nærmest der man høyreklikket, med en knapp
+   * som kopierer dem. Tallene er fra fila – ikke en omregning fra kartet –
+   * med tre desimaler, slik stikningslistene har dem. Ligger ikke noe punkt
+   * innen et par fingerbredder, gjelder det stedet man klikket.
+   */
+  visKoordinater(latlng) {
+    const app = this.app, kart = this.kart;
+    const her = kart.latLngToContainerPoint(latlng);
+    let beste = null, bestAvst = 16;
+    for (const p of this.punkterHer()) {
+      const sone = p.sone || app.sone;
+      if (!Number.isFinite(p.e)) {
+        const u = Geo.tilUtm(p.lat, p.lon, sone);
+        Object.assign(p, { e: u.x, n: u.y, sone, regnet: true });
+      }
+      const g = Number.isFinite(p.lat) ? p : Geo.fraUtm(p.e, p.n, sone);
+      const d = kart.latLngToContainerPoint([g.lat, g.lon]).distanceTo(her);
+      if (d < bestAvst) { bestAvst = d; beste = Object.assign(p, { lat: g.lat, lon: g.lon, sone }); }
+    }
+    if (!beste) {
+      const u = Geo.tilUtm(latlng.lat, latlng.lng, app.sone);
+      beste = { navn: 'Her', e: u.x, n: u.y, sone: app.sone, regnet: true, lat: latlng.lat, lon: latlng.lng };
+    }
+    if (!Number.isFinite(beste.z) && app.terreng) {
+      const z = app.terreng.z(beste.e, beste.n);
+      if (Number.isFinite(z)) Object.assign(beste, { z, zNavn: 'Terreng' });
+    }
+    // fra fila: millimeter; tegnet eller klikket i kartet: centimeter er mer enn nok
+    const des = beste.regnet ? 2 : 3;
+    const vis = v => Rapport.tall(v, des);
+    const kopi = v => (Number.isFinite(v) ? v.toFixed(des).replace('.', ',') : '');
+    const d = document.createElement('div');
+    d.className = 'koordinatboks';
+    d.innerHTML = `<b>${escapeHtml(beste.navn)}</b><br>`
+      + `N ${vis(beste.n)}<br>Ø ${vis(beste.e)}<br>`
+      + (Number.isFinite(beste.z) ? `${beste.zNavn || 'Høyde'} ${Rapport.tall(beste.z, des)} moh<br>` : '')
+      + `<span class="sone">EUREF89 UTM${beste.sone}</span><br>`;
+    const knapp = document.createElement('button');
+    knapp.className = 'knapp';
+    knapp.textContent = 'Kopier';
+    knapp.title = 'Navn, nord, øst og høyde med tabulator mellom – limes inn som fire kolonner i et regneark';
+    knapp.onclick = () => {
+      const tekst = [beste.navn, kopi(beste.n), kopi(beste.e), kopi(beste.z)].join('\t');
+      const ok = () => { knapp.textContent = 'Kopiert ✓'; app.status('Kopierte koordinatene til ' + beste.navn); };
+      const feil = () => app.status('Fikk ikke kopiert – merk tallene i boksen og kopier dem selv');
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(tekst).then(ok, feil);
+      else feil();
+    };
+    d.appendChild(knapp);
+    L.popup({ autoPanPadding: [20, 20] }).setLatLng([beste.lat, beste.lon]).setContent(d).openOn(kart);
   },
 
   /** Tegner linjeføring, knekkpunkt og fotavtrykk pa nytt. */

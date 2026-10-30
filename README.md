@@ -55,6 +55,14 @@ se «Videre arbeid» nederst.
    Observasjonene vektes med avstand og overstyrer standardverdien i nærheten.
 6. **Les massene** i sidepanelet, og trykk **Rapport** for et utskriftsklart sammendrag.
 
+**Koordinatene til et punkt:** høyreklikk på punktet i kartet (hold inne på
+telefonen). Du får nord, øst og høyde og en **Kopier**-knapp som legger navn,
+nord, øst og høyde i utklippstavla med tabulator mellom, så de havner i hver sin
+kolonne når du limer dem inn i et regneark. Det virker for innmålte rørpunkt, planlagte rør og kummer,
+innmålte terrengpunkt, knekkpunkt på vegen og tomtehjørner. Tallene fra en fil
+står slik de er i fila, med tre desimaler og i fila sin sone. Er det ikke noe
+punkt der du klikker, får du koordinatene og terrenghøyden for selve stedet.
+
 **3D-modellen** (veg, tomt og rør) tegnes av skjermkortet – ovenfra, når du
 flyr og når du går – i full oppløsning hele tiden, med myk skyggelegging og
 glatte kanter og slagskygger fra sola. Står du i modellen (Fly og Gå), får
