@@ -1169,6 +1169,18 @@ table.avvikliste tr.utenfor td { color: var(--data-skjaering); font-weight: 600;
 /* koordinatene skal kunne merkes og kopieres for hånd, og sifrene stå under hverandre */
 .koordinatboks { font-variant-numeric: tabular-nums; user-select: text; }
 .koordinatboks .sone { color: var(--blekk-svak, inherit); font-size: 11px; }
+/* stikkpunktet: et kryss i en ring, med navnet ved siden av */
+.stikk-markor {
+  width: 14px; height: 14px; box-sizing: border-box; border-radius: 50%;
+  border: 2px solid var(--hm-raud, #c0392b); background: rgba(255, 255, 255, 0.85); cursor: pointer;
+  background-image: linear-gradient(var(--hm-raud, #c0392b), var(--hm-raud, #c0392b)), linear-gradient(var(--hm-raud, #c0392b), var(--hm-raud, #c0392b));
+  background-size: 2px 100%, 100% 2px; background-position: center; background-repeat: no-repeat;
+}
+.leaflet-tooltip.stikketikett {
+  background: var(--flate-opp); color: var(--blekk); border: 1px solid var(--kant-sterk);
+  border-radius: 0; box-shadow: none; padding: 0 4px; font-size: 11px; font-weight: 600;
+}
+.leaflet-tooltip.stikketikett::before { display: none; }
 .leaflet-bar a { background: var(--flate-opp); color: var(--blekk); border-color: var(--kant); }
 .leaflet-bar a:hover { background: var(--kant); }
 .leaflet-control-attribution { background: rgba(11,11,12,.7) !important; color: #a1a1aa !important; }

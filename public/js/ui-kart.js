@@ -396,6 +396,8 @@ const Kart = {
        strek tvers over kartet for å se hvor langt det er til bekken uten å
        røre en eneste linje som betyr noe. */
     this.lag.maal = L.layerGroup().addTo(kart);
+    // stikkpunktene man setter selv – se settStikkpunkt
+    this.lag.stikk = L.layerGroup().addTo(kart);
 
     this.byggKartvalg();
     this.koblLagvelger();
@@ -463,6 +465,7 @@ const Kart = {
     if (p('verktoyStikkrenne')) p('verktoyStikkrenne').onclick = () => this.settModus(this.modus === 'stikkrenne' ? 'rediger' : 'stikkrenne');
     if (p('verktoyMaal')) p('verktoyMaal').onclick = () => this.settModus('maal');
     if (p('verktoyMaalTom')) p('verktoyMaalTom').onclick = () => this.tomMaal();
+    if (p('verktoyStikk')) p('verktoyStikk').onclick = () => this.settModus(this.modus === 'settPunkt' ? 'rediger' : 'settPunkt');
     if (p('modusVeg')) p('modusVeg').onclick = () => this.app.settModus('veg');
     if (p('modusTomt')) p('modusTomt').onclick = () => this.app.settModus('tomt');
     /* Anleggslista. Samme oppførsel som lagvelgeren på kartet: lukker seg ved
@@ -569,7 +572,7 @@ const Kart = {
       ['verktoySondering', 'sondering'], ['verktoyPlass', 'plass'], ['verktoyStikkrenne', 'stikkrenne'], ['verktoyTomt', 'tegnTomt'],
       ['verktoyMaal', 'maal'], ['verktoyRorAv', 'rorAv'], ['verktoyRorBryt', 'rorBryt'],
       ['verktoyRorKoble', 'rorKoble'], ['verktoyRorEndre', 'rorEndre'], ['verktoyGroftStrekning', 'groftStrekning'], ['verktoyGroftSammen', 'groftSammen'],
-      ['verktoyTrase', 'tegnTrase'], ['verktoyKum', 'kum'], ['verktoySnu', 'snuTrase']]) {
+      ['verktoyTrase', 'tegnTrase'], ['verktoyKum', 'kum'], ['verktoySnu', 'snuTrase'], ['verktoyStikk', 'settPunkt']]) {
       const el = document.getElementById(id);
       if (el) {
         el.classList.toggle('aktiv', navn === m);
@@ -591,6 +594,9 @@ const Kart = {
       this._avsluttMaal();
     }
     if (m === 'stikkrenne') this.app.status('Klikk på vegen der stikkrenna skal krysse.');
+    if (m === 'settPunkt') {
+      this.app.status('Klikk der du vil ha et punkt. Klikk på et punkt for koordinatene, dra det for å flytte. Rediger avslutter.');
+    }
     if (m === 'rorAv') this.app.status('Klikk på et målt punkt for å slå det av eller på. Rediger avslutter.');
     if (m === 'rorBryt') this.app.status('Klikk på rørstreken der den ikke skal henge sammen.');
     if (m === 'rorKoble') this.app.status('Klikk på enden av det ene røret, så på enden av det andre.');
@@ -852,6 +858,7 @@ const Kart = {
     const P = this.app.P;
     // rektangelet til stikning dras med musa – klikket etter at man slipper, er ikke et punkt
     if (this.modus === 'utsnitt') return;
+    if (this.modus === 'settPunkt') { this.settStikkpunkt(e.latlng); return; }
     if (this.modus === 'tegnTrase') { RorPlanUI.tegnKlikk(e.latlng); return; }
     if (this.modus === 'kum' || this.modus === 'snuTrase') { RorPlanUI.kartklikk(this.modus, e.latlng); return; }
     if (this.modus === 'rorAv' || this.modus === 'rorBryt' || this.modus === 'rorKoble' || this.modus === 'rorEndre') {
@@ -1041,6 +1048,12 @@ const Kart = {
    * fra grader i prosjektets sone.
    */
   punkterHer() {
+    // stikkpunktene først: de står i hvert anlegg, og det er dem man har satt selv
+    const stikk = this.stikkpunkter().map(p => ({ navn: p.navn, lat: p.lat, lon: p.lon, stikk: p }));
+    return stikk.concat(this.anleggspunkter());
+  },
+
+  anleggspunkter() {
     const app = this.app, P = app.P;
     if (app.erTin()) {
       const t = P.tin;
@@ -1108,19 +1121,132 @@ const Kart = {
       + `N ${vis(beste.n)}<br>Ø ${vis(beste.e)}<br>`
       + (Number.isFinite(beste.z) ? `${beste.zNavn || 'Høyde'} ${Rapport.tall(beste.z, des)} moh<br>` : '')
       + `<span class="sone">EUREF89 UTM${beste.sone}</span><br>`;
-    const knapp = document.createElement('button');
-    knapp.className = 'knapp';
-    knapp.textContent = 'Kopier';
-    knapp.title = 'Navn, nord, øst og høyde med tabulator mellom – limes inn som fire kolonner i et regneark';
-    knapp.onclick = () => {
-      const tekst = [beste.navn, kopi(beste.n), kopi(beste.e), kopi(beste.z)].join('\t');
-      const ok = () => { knapp.textContent = 'Kopiert ✓'; app.status('Kopierte koordinatene til ' + beste.navn); };
-      const feil = () => app.status('Fikk ikke kopiert – merk tallene i boksen og kopier dem selv');
-      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(tekst).then(ok, feil);
-      else feil();
+    const knapp = (tekst, tittel, gjor) => {
+      const b = document.createElement('button');
+      b.className = 'knapp';
+      b.textContent = tekst;
+      b.title = tittel;
+      b.onclick = () => gjor(b);
+      d.appendChild(b);
+      d.appendChild(document.createTextNode(' '));
     };
-    d.appendChild(knapp);
+    knapp('Kopier', 'Navn, nord, øst og høyde med tabulator mellom – limes inn som fire kolonner i et regneark',
+      b => this._kopier([beste.navn, kopi(beste.n), kopi(beste.e), kopi(beste.z)].join('\t'), b, 'Kopierte koordinatene til ' + beste.navn));
+    if (beste.stikk) {
+      const alle = this.stikkpunkter().length;
+      if (alle > 1) {
+        knapp(`Kopier alle ${alle}`, 'Alle punktene du har satt, én linje per punkt – limes inn i et regneark',
+          b => this._kopier(this.stikkTabell(), b, `Kopierte ${alle} punkt`));
+      }
+      knapp('KOF', 'Last ned punktene du har satt som KOF – til GPS-en eller totalstasjonen', () => this.lastNedStikkKof());
+      knapp('Slett', 'Ta bort punktet', () => { kart.closePopup(); this.slettStikkpunkt(beste.stikk); });
+    }
     L.popup({ autoPanPadding: [20, 20] }).setLatLng([beste.lat, beste.lon]).setContent(d).openOn(kart);
+  },
+
+  _kopier(tekst, knapp, melding) {
+    const app = this.app;
+    const ok = () => { knapp.textContent = 'Kopiert ✓'; app.status(melding); };
+    const feil = () => app.status('Fikk ikke kopiert – merk tallene i boksen og kopier dem selv');
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(tekst).then(ok, feil);
+    else feil();
+  },
+
+  /* ---------------- stikkpunkt ---------------- */
+
+  /**
+   * Punkt man setter selv i kartet for å stikke ut: S1, S2, …
+   *
+   * Der målestrekene er en blyantstrek, er disse en del av prosjektet – de
+   * lagres og kan angres. De står i hvert anlegg, for et punkt man skal sette
+   * ut hører til stedet, ikke til vegen eller tomta. Bare gradene lagres;
+   * nord og øst regnes i prosjektets sone når man ber om dem, og høyden er
+   * terrenget der punktet står – den finnes bare der terrenget er hentet.
+   */
+  stikkpunkter() { return (this.app.P && this.app.P.stikkpunkter) || []; },
+
+  stikkKoordinater(p) {
+    const app = this.app, u = Geo.tilUtm(p.lat, p.lon, app.sone);
+    const z = app.terreng ? app.terreng.z(u.x, u.y) : NaN;
+    return { navn: p.navn, n: u.y, e: u.x, z: Number.isFinite(z) ? z : NaN };
+  },
+
+  settStikkpunkt(latlng) {
+    const app = this.app, P = app.P;
+    app.merk('nytt stikkpunkt');
+    if (!Array.isArray(P.stikkpunkter)) P.stikkpunkter = [];
+    /* Neste nummer etter det høyeste. Er S3 slettet, skal ikke et nytt punkt
+       hete S3 – det gamle kan alt stå ute med det navnet på en plugg. */
+    const nr = P.stikkpunkter.reduce((m, p) => Math.max(m, parseInt(String(p.navn).slice(1), 10) || 0), 0) + 1;
+    const p = { navn: 'S' + nr, lat: latlng.lat, lon: latlng.lng };
+    P.stikkpunkter.push(p);
+    this.tegnStikkpunkter();
+    app.planleggAutolagring();
+    const k = this.stikkKoordinater(p);
+    app.status(`${p.navn}: N ${Rapport.tall(k.n, 2)}  Ø ${Rapport.tall(k.e, 2)}`
+      + (Number.isFinite(k.z) ? `  ·  terreng ${Rapport.tall(k.z, 2)} moh` : '')
+      + '  –  klikk på punktet for å kopiere, dra det for å flytte');
+  },
+
+  slettStikkpunkt(p) {
+    const app = this.app, liste = app.P.stikkpunkter || [];
+    const i = liste.indexOf(p);
+    if (i < 0) return;
+    app.merk('slett stikkpunkt');
+    liste.splice(i, 1);
+    this.tegnStikkpunkter();
+    app.planleggAutolagring();
+    app.status(`Tok bort ${p.navn}`);
+  },
+
+  tegnStikkpunkter() {
+    if (!this.lag.stikk) return;
+    this.lag.stikk.clearLayers();
+    for (const p of this.stikkpunkter()) {
+      const m = L.marker([p.lat, p.lon], {
+        draggable: true, keyboard: false,
+        icon: L.divIcon({ className: '', html: '<div class="stikk-markor"></div>', iconSize: [14, 14], iconAnchor: [7, 7] })
+      }).bindTooltip(escapeHtml(p.navn), { permanent: true, direction: 'right', offset: [8, 0], className: 'stikketikett' })
+        .addTo(this.lag.stikk);
+      // klikket er punktets – i «Sett punkt» skal det ikke bli et nytt punkt oppå
+      m.on('click', e => { L.DomEvent.stop(e); this.visKoordinater(m.getLatLng()); });
+      m.on('dragstart', () => this.app.merk('flyttet stikkpunkt'));
+      m.on('dragend', () => {
+        const ll = m.getLatLng();
+        p.lat = ll.lat; p.lon = ll.lng;
+        this.app.planleggAutolagring();
+        this.visKoordinater(ll);
+      });
+    }
+  },
+
+  /** Alle stikkpunktene som tabell: overskrift og én linje per punkt, tabulator mellom. */
+  stikkTabell() {
+    const t = v => (Number.isFinite(v) ? v.toFixed(2).replace('.', ',') : '');
+    return ['Punkt\tNord\tØst\tHøyde'].concat(this.stikkpunkter().map(p => {
+      const k = this.stikkKoordinater(p);
+      return [k.navn, t(k.n), t(k.e), t(k.z)].join('\t');
+    })).join('\n');
+  },
+
+  /**
+   * Stikkpunktene som KOF, kode STIKK. KOF krever høyde i hvert punkt, så et
+   * punkt utenfor det hentede terrenget kan ikke være med – det står i
+   * svaret, ikke skrevet med en høyde som ikke finnes.
+   */
+  lastNedStikkKof() {
+    const app = this.app;
+    const alle = this.stikkpunkter().map(p => this.stikkKoordinater(p));
+    const med = alle.filter(k => Number.isFinite(k.z)), uten = alle.filter(k => !Number.isFinite(k.z));
+    if (!med.length) { app.status('Ingen av punktene har høyde ennå – terrenget er ikke hentet der de står'); return; }
+    let rader;
+    try {
+      rader = Eksport.kofHode(app, uten.length ? [`Uten høyde, ikke med: ${uten.map(k => k.navn).join(', ')}`] : []);
+    } catch (e) { app.status(e.message); return; }
+    for (const k of med) rader.push(Eksport.kofPunkt(k.navn, 'STIKK', k.n, k.e, k.z));
+    Rapport.lastNed(Rapport.filnavn('_stikkpunkt.kof'), rader.join('\r\n') + '\r\n', 'text/plain;charset=utf-8');
+    app.status(`Lastet ned ${med.length} stikkpunkt som KOF`
+      + (uten.length ? ` – ${uten.map(k => k.navn).join(', ')} mangler høyde og er ikke med` : ''));
   },
 
   /** Tegner linjeføring, knekkpunkt og fotavtrykk pa nytt. */
@@ -1620,6 +1746,7 @@ const Kart = {
   tegn() {
     const app = this.app, P = app.P;
 
+    this.tegnStikkpunkter();
     this.tegnAndreAnlegg();
     this.tegnTomt();
     this.tegnRor();

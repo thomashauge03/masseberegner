@@ -63,6 +63,16 @@ innmålte terrengpunkt, knekkpunkt på vegen og tomtehjørner. Tallene fra en fi
 står slik de er i fila, med tre desimaler og i fila sin sone. Er det ikke noe
 punkt der du klikker, får du koordinatene og terrenghøyden for selve stedet.
 
+**📍 Sett punkt** – egne punkt å stikke ut: klikk i kartet, og hvert klikk blir
+et punkt S1, S2, … med nord, øst og terrenghøyde. Klikk på et punkt for
+koordinatene, dra det for å flytte det. I boksen kan du kopiere ett punkt,
+kopiere alle (en tabell med overskrift, rett inn i et regneark), laste dem ned
+som **KOF** (kode `STIKK`, til GPS-en eller totalstasjonen) eller slette punktet.
+Punktene lagres med prosjektet, kan angres og står i hvert anlegg. Et slettet
+nummer brukes ikke på nytt, så S3 er alltid det samme punktet. Høyden er
+terrenget der punktet står, og den finnes bare der terrenget er hentet. Et
+punkt uten høyde kommer ikke med i KOF-fila, og svaret sier fra om det.
+
 **3D-modellen** (veg, tomt og rør) tegnes av skjermkortet – ovenfra, når du
 flyr og når du går – i full oppløsning hele tiden, med myk skyggelegging og
 glatte kanter og slagskygger fra sola. Står du i modellen (Fly og Gå), får
