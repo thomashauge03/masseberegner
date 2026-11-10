@@ -603,13 +603,13 @@ const Kart = {
     }
     if (m === 'rorAv') this.app.status('Klikk på et målt punkt for å slå det av eller på. Rediger avslutter.');
     if (m === 'rorBryt') this.app.status('Klikk på rørstreken der den ikke skal henge sammen.');
-    if (m === 'rorKoble') this.app.status('Klikk på enden av det ene røret, så på enden av det andre.');
+    if (m === 'rorKoble') this.app.status('Klikk på det ene røret nær enden, så på det andre – endene nærmest der du klikker, kobles.');
     if (m === 'rorEndre') {
       this.app.status('Dra et punkt dit røret går. Klikk på røret for et nytt punkt, ved enden for å forlenge det, '
         + 'på et punkt for å endre det. Rediger avslutter.');
     }
     if (m === 'rorRett') {
-      this.app.status('Klikk på et punkt på røret, så på et annet på samme rør – punktene imellom flyttes inn på '
+      this.app.status('Klikk på røret der det skal begynne å gå rett, så der det skal slutte – punktene imellom flyttes inn på '
         + 'den rette linja mellom dem. Høydene står. Rediger avslutter.');
     }
     if (m === 'groftStrekning') {

@@ -10455,7 +10455,8 @@ const Nettlesertest = {
       this.sjekk('knappen «Rett ut» vises', !document.getElementById('verktoyRorRett').classList.contains('skjult'));
       // en sikksakk: tre punkt på 90PE flyttes ut til sidene
       App.merk('prøve');
-      for (const [x, y] of [[40, 3], [50, -2], [60, 4]]) Ror.flyttTil(r(), punkt('90PE', x).id, o.x + x, o.y + y);
+      // ut på sørsiden – 180 PE går parallelt én meter nord for 90PE
+      for (const [x, y] of [[40, -3], [50, -5], [60, -4]]) Ror.flyttTil(r(), punkt('90PE', x).id, o.x + x, o.y + y);
       Ror.brukRetting(r());
       const hoyder = r().punkter.map(p => p.z).join(',');
       Kart.settModus('rorRett');
@@ -10481,8 +10482,46 @@ const Nettlesertest = {
       this.sjekk('valget er nullstilt etterpå', !RorUI._rettFra);
       await App.angre();
       await this.vent(400);
-      this.sjekk('angre gir sikksakken tilbake', Math.abs(punkt('90PE', 50).n - o.y + 2) < 0.002,
+      this.sjekk('angre gir sikksakken tilbake', Math.abs(punkt('90PE', 50).n - o.y + 5) < 0.002,
         String((punkt('90PE', 50).n - o.y).toFixed(3)));
+
+      /* MED MUSA, PÅ STREKEN MELLOM PUNKTENE. Det er ikke alltid et punkt der
+         man vil klikke, og da skjedde det ingenting. Klikket sendes til det
+         som ligger øverst i kartet på stedet – slik en mus gjør – så prøven
+         også fanger et lag som tar klikket. */
+      const mus = async (x, y) => {
+        Kart.kart.setView(ll(x, y), 19, { animate: false });
+        await this.vent(80);
+        const k = Kart.kart.latLngToContainerPoint(ll(x, y)), rute = Kart.kart.getContainer().getBoundingClientRect();
+        const cx = rute.left + k.x, cy = rute.top + k.y;
+        const el = document.elementFromPoint(cx, cy);
+        for (const type of ['mousedown', 'mouseup', 'click']) {
+          el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, clientX: cx, clientY: cy, button: 0 }));
+        }
+        await this.vent(80);
+      };
+      await mus(35, -1.5);                      // midt på strekket 30 → 40
+      this.sjekk('et klikk på streken mellom to punkt velger stedet', !!RorUI._rettFra && !RorUI._rettFra.id,
+        JSON.stringify(RorUI._rettFra && RorUI._rettFra.p));
+      await mus(65, -2);                        // midt på strekket 60 → 70
+      await this.ventPaBeregning(30000);
+      await this.vent(300);
+      // linja fra (35, −1,5) til (65, −2): punktet ved 50 skal stå på den
+      const p50 = punkt('90PE', 50), n50 = -1.5 + (p50.o - o.x - 35) * (-0.5 / 30);
+      this.sjekk('  og to klikk på streken retter ut punktene mellom stedene', Math.abs(p50.n - o.y - n50) < 0.05,
+        `${(p50.n - o.y).toFixed(3)} m, ventet ${n50.toFixed(3)}`);
+      await App.angre();
+      await this.vent(400);
+
+      Kart.settModus('rorKoble');
+      await mus(50, 9.5);                       // på 32PE, nærmest enden ved 12
+      this.sjekk('«Koble»: et klikk på røret velger enden nærmest klikket',
+        !!RorUI._kobleFra && Math.abs(RorUI._kobleFra.p.n - o.y - 12) < 0.01,
+        JSON.stringify(RorUI._kobleFra && { o: RorUI._kobleFra.p.o - o.x, n: RorUI._kobleFra.p.n - o.y }));
+      const kobleFoer = r().retting.koble.length;
+      await mus(186, 1);                        // på 180 PE, nærmest enden ved 192
+      this.sjekk('  og et klikk på det andre røret kobler endene', r().retting.koble.length === kobleFoer + 1 && !RorUI._kobleFra,
+        JSON.stringify(r().retting.koble));
       Kart.settModus('rediger');
       this.sjekk('Rediger slår av modusen og valget', !document.getElementById('verktoyRorRett').classList.contains('aktiv')
         && !RorUI._rettFra);

@@ -159,9 +159,28 @@ const RorUI = {
         const d = avstand(e.p);
         if (d <= tol && (!best || d < best.d)) best = Object.assign({ d }, e);
       }
+      /* KLIKK PÅ RØRET, IKKE BARE PÅ ENDEN. Det er ikke alltid et punkt der
+         man klikker; traff klikket ikke enden, skjedde det ingenting. Nå er
+         det enden av røret som er nærmest langs røret. */
       if (!best) {
-        app.status(this._kobleFra ? `Klikk på enden av et rør – enden av ${this._kobleFra.p.kode} er fortsatt valgt`
-          : 'Klikk på enden av et rør');
+        const t = this._paaRoret(bygg, u, tol);
+        const l = t && (t.l || bygg.linjer.find(x => t.linjer.includes(x.id)));
+        if (l) {
+          const pk = l.punkter;
+          const i = t.l ? t.s : pk.findIndex(q => q.id === t.id);
+          let foer = 0, etter = 0;
+          for (let k = 1; k < pk.length; k++) {
+            const d = Math.hypot(pk[k].o - pk[k - 1].o, pk[k].n - pk[k - 1].n);
+            const del = Math.max(0, Math.min(1, i - (k - 1)));
+            foer += d * del; etter += d * (1 - del);
+          }
+          const p = foer <= etter ? pk[0] : pk[pk.length - 1];
+          best = { p, l, d: avstand(p) };
+        }
+      }
+      if (!best) {
+        app.status(this._kobleFra ? `Klikk på et rør nær enden – enden av ${this._kobleFra.p.kode} er fortsatt valgt`
+          : 'Klikk på et rør nær enden');
         return;
       }
       if (!this._kobleFra) {
@@ -192,7 +211,7 @@ const RorUI = {
     } else if (modus === 'rorEndre') {
       if (!this._nyttPunkt(r, u, tol, iFila)) return;
     } else if (modus === 'rorRett') {
-      if (!this._rettUt(r, avstand, tol, iFila)) return;
+      if (!this._rettUt(r, u, tol, iFila)) return;
     }
     Kart.tegn();
     this.vis();
@@ -259,35 +278,30 @@ const RorUI = {
    * første fortsatt valgt; et klikk på samme punkt velger det bort. Gir false
    * når ingenting er endret.
    */
-  _rettUt(r, avstand, tol, iFila) {
+  _rettUt(r, u, tol, iFila) {
     const app = this.app;
     const bygg = Ror.byggLinjer(r, app.P.mal, iFila);
-    let best = null;
-    for (const l of bygg.linjer) {
-      for (const p of l.punkter) {
-        const d = avstand(p);
-        if (d <= tol && (!best || d < best.d)) best = { p, d };
-      }
-    }
     const fra = this._rettFra;
-    const navn = p => `${p.kode}, ${p.lagtTil ? 'nytt punkt' : 'punkt ' + p.nr}`;
-    if (!best) {
-      app.status(fra ? `Klikk på et punkt på røret – ${navn(fra.p)} er fortsatt valgt` : 'Klikk på et punkt på røret');
+    const treff = this._paaRoret(bygg, u, tol);
+    const navn = t => (t.id ? `${t.p.kode}, ${t.p.lagtTil ? 'nytt punkt' : 'punkt ' + t.p.nr}` : `et sted på ${t.p.kode}`);
+    if (!treff) {
+      app.status(fra ? `Klikk på røret – ${navn(fra)} er fortsatt valgt` : 'Klikk på røret der det skal begynne å gå rett');
       return false;
     }
     if (!fra) {
-      this._rettFra = best;
-      app.status(`Valgte ${navn(best.p)} – klikk på det andre punktet. Punktene imellom flyttes inn på linja mellom dem.`);
+      this._rettFra = treff;
+      app.status(`Valgte ${navn(treff)} – klikk der røret skal slutte å gå rett. Punktene imellom flyttes inn på linja.`);
       Kart.tegnRor();
       return false;
     }
-    if (fra.p.id === best.p.id) { this._rettFra = null; app.status('Valgte bort punktet'); Kart.tegnRor(); return false; }
-    const linje = bygg.linjer.find(l => l.punkter.some(p => p.id === fra.p.id) && l.punkter.some(p => p.id === best.p.id));
+    if (fra.id && fra.id === treff.id) { this._rettFra = null; app.status('Valgte bort punktet'); Kart.tegnRor(); return false; }
+    // et punkt i en knute er med i flere rør – det er røret begge klikkene er på, som rettes
+    const linje = bygg.linjer.find(l => fra.linjer.includes(l.id) && treff.linjer.includes(l.id));
     if (!linje) {
-      app.status(`De to punktene er ikke på samme rør – ${navn(fra.p)} er fortsatt valgt`);
+      app.status(`Det er ikke samme rør – ${navn(fra)} er fortsatt valgt`);
       return false;
     }
-    const flytt = Ror.rettUt(linje, fra.p.id, best.p.id) || [];
+    const flytt = Ror.rettUt(linje, fra.id || fra.p, treff.id || treff.p) || [];
     this._rettFra = null;
     if (!flytt.length) { app.status('Det er ingen punkt mellom de to'); Kart.tegnRor(); return false; }
     app.merk('rettet ut rør');
@@ -297,6 +311,41 @@ const RorUI = {
     app.status(`Rettet ut ${flytt.length} punkt på ${linje.kode} – det lengste ble flyttet ${Rapport.tall(lengst, 2)} m. `
       + 'Høydene står. Angre, eller flytt et punkt tilbake i «Endre rør».');
     return true;
+  },
+
+  /**
+   * Hva et klikk traff på rørene: et punkt (innen `tol`), ellers et sted på
+   * en rørstrek (innen `tol`). Det er ikke alltid et punkt der man vil
+   * klikke – før skjedde det ingenting da, og det så ut som om knappen ikke
+   * virket.
+   * @returns {?{id?:string, p:{o,n,kode,nr?}, linjer:string[], d:number}}
+   *   `id` bare når det er et punkt; `p` er punktet eller stedet på streken
+   */
+  _paaRoret(bygg, u, tol) {
+    const avstand = p => Math.hypot(p.o - u.x, p.n - u.y);
+    let punkt = null;
+    for (const l of bygg.linjer) {
+      for (const p of l.punkter) {
+        const d = avstand(p);
+        if (d <= tol && (!punkt || d < punkt.d)) punkt = { id: p.id, p, d };
+      }
+    }
+    if (punkt) {
+      punkt.linjer = bygg.linjer.filter(l => l.punkter.some(q => q.id === punkt.id)).map(l => l.id);
+      return punkt;
+    }
+    let sted = null;
+    for (const l of bygg.linjer) {
+      for (let k = 1; k < l.punkter.length; k++) {
+        const a = l.punkter[k - 1], b = l.punkter[k], dx = b.o - a.o, dy = b.n - a.n, L2 = dx * dx + dy * dy;
+        const t = L2 > 0 ? Math.max(0, Math.min(1, ((u.x - a.o) * dx + (u.y - a.n) * dy) / L2)) : 0;
+        const q = { o: a.o + t * dx, n: a.n + t * dy, kode: l.kode };
+        const d = avstand(q);
+        // `s`: hvor langt langs røret stedet er, målt i strekk – Koble bruker den til å finne nærmeste ende
+        if (d <= tol && (!sted || d < sted.d)) sted = { p: q, d, linjer: [l.id], l, s: k - 1 + t };
+      }
+    }
+    return sted;
   },
 
   /** Et punkt er dratt i «Endre rør». Bare o og n – høyden står. */

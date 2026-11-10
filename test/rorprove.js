@@ -395,6 +395,18 @@ console.log('\n7d. Rett ut et rør mellom to punkt');
     && paaLinja(del[0]) && vinkelrett(del[0]), JSON.stringify(del));
   paastand('et punkt som ikke er på røret gir ingenting', Ror.rettUt(linje(lag()), 's0', 'finnes-ikke') === null);
   sjekk('to naboer har ingenting imellom', Ror.rettUt(linje(lag()), 's0', 's1').length, 0, 0);
+  /* KLIKK PÅ STREKEN, IKKE BARE PÅ ET PUNKT. Det er ikke alltid et punkt der
+     røret skal begynne å gå rett – da er det stedet på røret som teller. */
+  const mellom = Ror.rettUt(linje(lag()), { o: 5, n: 1.5 }, { o: 45, n: 0 });
+  paastand('to steder på streken: punktene mellom dem flyttes', mellom && mellom.map(f => f.id).join(',') === 's1,s2,s3,s4',
+    JSON.stringify(mellom));
+  const paaLinja2 = f => Math.abs((f.o - 5) * (0 - 1.5) - (f.n - 1.5) * (45 - 5)) / Math.hypot(40, 1.5) < 0.002;
+  paastand('  inn på linja mellom de to stedene', mellom.every(paaLinja2), JSON.stringify(mellom));
+  // (5, 30) ligger nærmest knekken i s1 – stedet blir s1, og s1 står
+  const utenfor = Ror.rettUt(linje(lag()), { o: 5, n: 30 }, { o: 45, n: 0 });
+  paastand('  et sted ved siden av røret blir det nærmeste stedet på røret', utenfor && utenfor.map(f => f.id).join(',') === 's2,s3,s4',
+    JSON.stringify(utenfor));
+  paastand('  et sted og et punkt kan blandes', Ror.rettUt(linje(lag()), { o: 15, n: 0.5 }, 's4').map(f => f.id).join(',') === 's2,s3');
   // tilbake der det ble målt er ingen flytting
   const r2 = lag();
   Ror.flyttTil(r2, 's1', 12, 1);

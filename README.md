@@ -302,13 +302,16 @@ anleggslista, «Rør (fra filer)» i førstevalget, eller slipp filene på karte
   kan få en annen høyde eller tas bort, et flyttet kan flyttes tilbake. Målte
   høyder endres aldri; bare hvor punktet står. Også dette er rettinger, som står
   seg ved ny import og ny henting fra Makin.
-* **Rett ut** retter opp en innmåling som har gått i sikksakk. Klikk på et
-  punkt på røret og så på et annet punkt på samme rør. Da flyttes alle
-  punktene imellom inn på den rette linja mellom dem, rett på tvers, slik at
-  hvert punkt flyttes så lite som mulig. De to punktene du klikket på, blir
+* **Rett ut** retter opp en innmåling som har gått i sikksakk. Klikk på røret
+  der det skal begynne å gå rett, og så der det skal slutte. Du kan klikke på
+  et punkt eller hvor som helst på streken mellom to punkter. Da flyttes alle
+  punktene imellom inn på den rette linja mellom de to stedene, rett på tvers,
+  slik at hvert punkt flyttes så lite som mulig. Punktene du klikket på, blir
   stående, og det gjør høydene også. Det er ett angresteg, og hvert punkt kan
-  flyttes tilbake i «Endre rør». Er det andre punktet på et annet rør, står
+  flyttes tilbake i «Endre rør». Er det andre klikket på et annet rør, står
   det første fortsatt valgt. Klikker du på samme punkt igjen, velges det bort.
+* **Koble** tar også et klikk på selve røret, ikke bare på enden: da velges
+  den enden av røret som er nærmest der du klikket, regnet langs røret.
 
 ### Hent fra Makin
 

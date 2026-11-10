@@ -1491,20 +1491,47 @@ const Ror = (() => {
    * står seg ved ny import og ny henting fra Makin, og hvert punkt kan
    * flyttes tilbake.
    *
+   * ET STED PÅ STREKEN, IKKE BARE ET PUNKT. Det er ikke alltid et målt punkt
+   * der røret skal begynne å gå rett. `fra` og `til` kan derfor være en
+   * punkt-id eller et sted {o, n}; et sted legges på det nærmeste stedet på
+   * røret, og linja går derfra.
+   *
    * @param {{punkter}} linje  et rør fra `byggLinjer`
+   * @param {string|{o:number,n:number}} fra
+   * @param {string|{o:number,n:number}} til
    * @returns {?Array<{id, o, n, d:number}>} ny plass for hvert punkt imellom
    *   og hvor langt det flyttes – eller null når et av punktene ikke er på røret
    */
-  function rettUt(linje, fraId, tilId) {
+  function rettUt(linje, fra, til) {
     const pk = (linje && linje.punkter) || [];
-    const i = pk.findIndex(p => p.id === fraId), j = pk.findIndex(p => p.id === tilId);
-    if (i < 0 || j < 0 || i === j) return null;
-    const [a, b] = i < j ? [i, j] : [j, i];
-    const A = pk[a], B = pk[b];
+    if (pk.length < 2) return null;
+    // hvor langt langs røret hvert punkt står
+    const s = [0];
+    for (let k = 1; k < pk.length; k++) s.push(s[k - 1] + Math.hypot(pk[k].o - pk[k - 1].o, pk[k].n - pk[k - 1].n));
+    const sted = q => {
+      if (typeof q === 'string') {
+        const i = pk.findIndex(p => p.id === q);
+        return i < 0 ? null : { s: s[i], o: pk[i].o, n: pk[i].n };
+      }
+      if (!q || !Number.isFinite(q.o) || !Number.isFinite(q.n)) return null;
+      let best = null;
+      for (let k = 1; k < pk.length; k++) {
+        const a = pk[k - 1], b = pk[k], dx = b.o - a.o, dy = b.n - a.n, L2 = dx * dx + dy * dy;
+        const t = L2 > 0 ? Math.max(0, Math.min(1, ((q.o - a.o) * dx + (q.n - a.n) * dy) / L2)) : 0;
+        const o = a.o + t * dx, n = a.n + t * dy, d = Math.hypot(q.o - o, q.n - n);
+        if (!best || d < best.d) best = { s: s[k - 1] + t * Math.sqrt(L2), o, n, d };
+      }
+      return best;
+    };
+    const x = sted(fra), y = sted(til);
+    if (!x || !y) return null;
+    const [A, B] = x.s <= y.s ? [x, y] : [y, x];
     const dx = B.o - A.o, dy = B.n - A.n, L2 = dx * dx + dy * dy;
     if (!(L2 > 0)) return null;
     const ut = [];
-    for (let k = a + 1; k < b; k++) {
+    for (let k = 0; k < pk.length; k++) {
+      // bare punktene mellom de to stedene – de to selv står
+      if (!(s[k] > A.s + 1e-6 && s[k] < B.s - 1e-6)) continue;
       const p = pk[k];
       const t = Math.max(0, Math.min(1, ((p.o - A.o) * dx + (p.n - A.n) * dy) / L2));
       const o = +(A.o + t * dx).toFixed(3), n = +(A.n + t * dy).toFixed(3);
