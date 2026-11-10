@@ -786,6 +786,10 @@ const Ror = (() => {
       if (!perKode.has(kode)) perKode.set(kode, []);
       perKode.get(kode).push(p);
     }
+    /* MUFFER OG BEND SOM BRO – bare med knappen på (`mal.muffeBro`). Se
+       `_muffeBro`. Av er det nøyaktig som før. */
+    const broer = mal && mal.muffeBro && objekter.length && perKode.size
+      ? _muffeBro(perKode, objekter, maks, tilXY, koden) : [];
     const linjer = [], enslige = [];
     const maal = (lp, lxy) => {
       let lengde = 0, lengde3d = 0;
@@ -809,28 +813,7 @@ const Ror = (() => {
       const n = pts.length;
       const xy = pts.map(tilXY);
       const plass = new Map(pts.map((p, i) => [p.id, i]));
-      // kandidatene: alle par innen maks avstand, funnet i et rutenett så det ikke blir n²
-      const ruter = new Map();
-      xy.forEach((q, i) => {
-        const k = Math.floor(q.x / maks) + ',' + Math.floor(q.y / maks);
-        if (!ruter.has(k)) ruter.set(k, []);
-        ruter.get(k).push(i);
-      });
-      const kanter = [];
-      for (let i = 0; i < n; i++) {
-        const cx = Math.floor(xy[i].x / maks), cy = Math.floor(xy[i].y / maks);
-        for (let dx = -1; dx <= 1; dx++) {
-          for (let dy = -1; dy <= 1; dy++) {
-            for (const j of ruter.get((cx + dx) + ',' + (cy + dy)) || []) {
-              if (j <= i) continue;
-              const d = Math.hypot(xy[i].x - xy[j].x, xy[i].y - xy[j].y);
-              if (d <= maks) kanter.push([d, i, j]);
-            }
-          }
-        }
-      }
-      // lik avstand avgjøres av rekkefølgen i fila – samme svar hver gang
-      kanter.sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]);
+      const kanter = _naerPar(xy, maks);
       const far = Array.from({ length: n }, (_, i) => i);
       const rotAv = x => { while (far[x] !== x) { far[x] = far[far[x]]; x = far[x]; } return x; };
       const nabo = Array.from({ length: n }, () => []);
@@ -939,10 +922,142 @@ const Ror = (() => {
     }
     linjer.sort((a, b) => (a.kode < b.kode ? -1 : a.kode > b.kode ? 1 : b.lengde - a.lengde));
     return {
-      linjer, enslige, objekter,
+      linjer, enslige, objekter, broer,
       bruddUtenTreff: (retting.brudd || []).filter(([a, b]) => !bruddTraff.has(_par(a, b))).length,
       koblingUtenTreff: koble.filter(([a, b]) => !koblingTraff.has(_par(a, b))).length
     };
+  }
+
+  /**
+   * Alle par innen maks avstand, funnet i et rutenett så det ikke blir n² –
+   * sortert etter avstand. Lik avstand avgjøres av rekkefølgen i fila, så
+   * svaret er det samme hver gang.
+   * @returns {Array<[number, number, number]>} [avstand, i, j] med i < j
+   */
+  function _naerPar(xy, maks) {
+    const ruter = new Map();
+    xy.forEach((q, i) => {
+      const k = Math.floor(q.x / maks) + ',' + Math.floor(q.y / maks);
+      if (!ruter.has(k)) ruter.set(k, []);
+      ruter.get(k).push(i);
+    });
+    const kanter = [];
+    for (let i = 0; i < xy.length; i++) {
+      const cx = Math.floor(xy[i].x / maks), cy = Math.floor(xy[i].y / maks);
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          for (const j of ruter.get((cx + dx) + ',' + (cy + dy)) || []) {
+            if (j <= i) continue;
+            const d = Math.hypot(xy[i].x - xy[j].x, xy[i].y - xy[j].y);
+            if (d <= maks) kanter.push([d, i, j]);
+          }
+        }
+      }
+    }
+    kanter.sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]);
+    return kanter;
+  }
+
+  /**
+   * MUFFER OG BEND SOM BRO OVER HULL – knappen «Muffer og bend binder rørene
+   * sammen» (`mal.muffeBro`).
+   *
+   * HVORFOR. Operatøren måler skjøten som et punkt – «vann 110 sveisemuffe»,
+   * «el muffe 160 vann», «110 bend» – og ikke som et punkt på røret. Et
+   * punktobjekt er ikke en del av røret, så der dagens innmåling slutter og
+   * neste begynner, står det gjerne 26–30 m mellom de to nærmeste
+   * rørpunktene og muffen midt imellom. Det er over maks avstand, og røret
+   * står i to biter selv om alt er målt.
+   *
+   * REGELEN. En muffe kan stå på et rør når
+   *   · systemet og dimensjonen passer (som for «samme rør», se `_forenlig`) –
+   *     en spillvannsmuffe binder ikke vannrøret, og en 160-muffe ikke et
+   *     110-rør. Passer den på flere, er det røret med nærmeste punkt;
+   *   · den BINDER TO BITER SAMMEN – alene eller sammen med andre muffer på
+   *     rad, hver innen maks avstand av den neste. En muffe ved enden av et
+   *     rør, eller ved siden av et rør som alt henger sammen, er ikke med:
+   *     den ville bare blitt en stubb ut fra røret.
+   * Muffen står fortsatt som punktobjekt i kartet; den er bare også et punkt
+   * på røret, med den høyden den ble målt med. Ingen punkt eller koder
+   * endres.
+   *
+   * Legger muffene til i `perKode` (det er det som gjør dem til rørpunkt).
+   * @returns {Array<{id, kode, ror}>} muffene som bygger bro, og røret de står på
+   */
+  function _muffeBro(perKode, objekter, maks, tilXY, koden) {
+    const koder = [...perKode.keys()];
+    const xyAv = new Map([...perKode].map(([k, pts]) => [k, pts.map(tilXY)]));
+    const avst = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+    // 1. Hver muffe til det nærmeste røret den passer på. Runde for runde: en
+    //    muffe midt i en rekke når røret gjennom muffen ved siden av.
+    const kand = objekter.map(o => ({ o, xy: tilXY(o), t: koden(o.kode), kode: null, d: Infinity }));
+    const passer = new Map();
+    for (const c of kand) passer.set(c, koder.filter(k => _forenlig(c.t, koden(k))));
+    for (let endret = true; endret;) {
+      endret = false;
+      for (const c of kand) {
+        for (const kode of passer.get(c)) {
+          let d = Infinity;
+          for (const q of xyAv.get(kode)) d = Math.min(d, avst(q, c.xy));
+          for (const x of kand) if (x !== c && x.kode === kode) d = Math.min(d, avst(x.xy, c.xy));
+          if (d <= maks && (d < c.d - 1e-9 || (Math.abs(d - c.d) <= 1e-9 && c.kode !== null && kode < c.kode))) {
+            if (c.kode !== kode) endret = true;
+            c.kode = kode; c.d = d;
+          }
+        }
+      }
+    }
+    const broer = [];
+    for (const kode of koder) {
+      const her = kand.filter(c => c.kode === kode);
+      if (!her.length) continue;
+      const pts = perKode.get(kode), xy = xyAv.get(kode);
+      // 2. Bitene røret står i uten muffene
+      const far = Array.from({ length: xy.length }, (_, i) => i);
+      const rot = (f, x) => { while (f[x] !== x) { f[x] = f[f[x]]; x = f[x]; } return x; };
+      for (const [, i, j] of _naerPar(xy, maks)) { const a = rot(far, i), b = rot(far, j); if (a !== b) far[a] = b; }
+      const nrAv = new Map();
+      const bit = xy.map((_, i) => { const r = rot(far, i); if (!nrAv.has(r)) nrAv.set(r, nrAv.size); return nrAv.get(r); });
+      // 3. Et tre over bitene og muffene: én node per bit, så muffene
+      const K = nrAv.size, M = her.length;
+      const kanter = [];
+      her.forEach((c, a) => {
+        const naer = new Map();
+        xy.forEach((q, i) => {
+          const d = avst(q, c.xy);
+          if (d <= maks && (!naer.has(bit[i]) || d < naer.get(bit[i]))) naer.set(bit[i], d);
+        });
+        for (const [b, d] of naer) kanter.push([d, K + a, b]);
+        for (let b = a + 1; b < M; b++) {
+          const d = avst(c.xy, her[b].xy);
+          if (d <= maks) kanter.push([d, K + a, K + b]);
+        }
+      });
+      kanter.sort((x, y) => x[0] - y[0] || x[1] - y[1] || x[2] - y[2]);
+      const f2 = Array.from({ length: K + M }, (_, i) => i);
+      const nabo = Array.from({ length: K + M }, () => []);
+      for (const [, a, b] of kanter) {
+        const ra = rot(f2, a), rb = rot(f2, b);
+        if (ra === rb) continue;
+        f2[ra] = rb; nabo[a].push(b); nabo[b].push(a);
+      }
+      // 4. Muffene som henger løst – en stubb ut fra én bit – tas bort, til
+      //    bare de som binder biter sammen står igjen
+      const ute = new Set();
+      for (let endret = true; endret;) {
+        endret = false;
+        for (let a = K; a < K + M; a++) {
+          if (!ute.has(a) && nabo[a].filter(b => !ute.has(b)).length < 2) { ute.add(a); endret = true; }
+        }
+      }
+      for (let a = K; a < K + M; a++) {
+        if (ute.has(a)) continue;
+        const { o } = her[a - K];
+        pts.push(o);
+        broer.push({ id: o.id, kode: o.kode, ror: kode });
+      }
+    }
+    return broer;
   }
 
   /* ---------------- samme rør, ulike koder ---------------- */

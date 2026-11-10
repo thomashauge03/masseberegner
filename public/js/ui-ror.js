@@ -916,6 +916,7 @@ const RorUI = {
     const bf = (res && res.bakkefaktor) || 1;
     const kode = k => r.koder[k] || Ror.tolkKode(k);
     const s = res ? Ror.sammendrag(res) : null;
+    const broer = (bygg && bygg.broer) || [];
     const grupper = new Map();
     for (const l of bygg.linjer) {
       if (!grupper.has(l.kode)) grupper.set(l.kode, []);
@@ -978,6 +979,13 @@ const RorUI = {
           `<option value="${z}"${z === r.sone ? ' selected' : ''}>EUREF89 UTM ${z}</option>`).join('')}</select></div>
       <div class="rorinnstilling"><label for="rorMaksAvstand">Største avstand mellom punkt på samme rør</label>
         <input id="rorMaksAvstand" class="minitall" type="number" min="5" max="200" step="1" value="${app.P.mal.maksAvstand}"> m</div>
+      <div class="rorinnstilling"><label><input type="checkbox" id="rorMuffeBro"${app.P.mal.muffeBro ? ' checked' : ''}>
+        Muffer og bend binder rørene sammen</label></div>
+      <p class="notis">${app.P.mal.muffeBro
+        ? (broer.length
+          ? `${broer.length} punkt binder ${broer.length === 1 ? 'et hull' : 'hull'}: ${broer.slice(0, 6).map(b => `«${escapeHtml(b.kode)}» på «${escapeHtml(b.ror)}»`).join(', ')}${broer.length > 6 ? ' …' : ''}. Sjekk dem i kartet.`
+          : 'Ingen muffe eller bend står i et hull i dette anlegget.')
+        : 'En muffe eller et bend som er målt som eget punkt midt i et hull, blir et punkt på røret – når systemet og dimensjonen passer, og bare der det binder to biter sammen.'}</p>
       <h3>Retting</h3>
       <p class="notis">Slått av: ${ret.av.length} punkt · brudd: ${ret.brudd.length} · koblinger: ${ret.koble.length}
         · flyttet: ${Object.keys(ret.flytt || {}).length} punkt · lagt til: ${(ret.nye || []).length} punkt.
@@ -1006,6 +1014,12 @@ const RorUI = {
       if (!(v >= 5 && v <= 200)) { ev.target.value = app.P.mal.maksAvstand; return; }
       app.merk('endret maks avstand');
       app.P.mal.maksAvstand = v;
+      app.tegnAlt();
+      app.planlegg(30);
+    };
+    e.querySelector('#rorMuffeBro').onchange = ev => {
+      app.merk(ev.target.checked ? 'muffer binder rørene' : 'muffer binder ikke rørene');
+      app.P.mal.muffeBro = ev.target.checked;
       app.tegnAlt();
       app.planlegg(30);
     };

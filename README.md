@@ -265,6 +265,16 @@ anleggslista, «Rør (fra filer)» i førstevalget, eller slipp filene på karte
   ikke brukes. Programmet trekker linjene etter hvor punktene ligger: punkt med
   samme kode som ligger høyst 25 m fra hverandre, henger sammen (minste
   spenntre). Avstanden kan endres i Rør-fanen.
+* **Muffer og bend binder rørene sammen** (knapp i Rør-fanen, av som standard).
+  Skjøten blir ofte målt som et eget punkt, for eksempel «vann 110 sveisemuffe»,
+  «el muffe 160 vann» eller «110 bend», og ikke som et punkt på røret. Er det
+  da over 25 m mellom rørpunktene på hver side, står røret i to biter selv om
+  alt er målt. Med knappen på blir en slik muffe et punkt på røret. Det skjer
+  bare når systemet og dimensjonen passer (en spillvannsmuffe binder ikke
+  vannrøret), og bare der muffen binder to biter sammen, alene eller med flere
+  muffer på rad. En muffe ved enden av et rør eller ved siden av et rør som
+  alt henger sammen, blir stående som punkt. Fanen lister muffene som binder.
+  Ingen punkt, koder eller høyder endres, og knappen kan angres.
 * **Punktene er toppen av røret, målt midt over senterlinja.** Sett ovenfra ligger
   de i senter av røret; i høyden er de topp rør. Senter er en halv diameter lenger
   ned, bunnen en hel.

@@ -10317,6 +10317,23 @@ const Nettlesertest = {
       await App.angre();
       await this.vent(400);
       this.sjekk('angre gir 25 m tilbake', App.P.mal.maksAvstand === 25);
+      /* MUFFER SOM BRO: av fra start, på med knappen, angre tar den av igjen.
+         Selve regelen prøves i test/rorprove.js (7b). */
+      App.visFane('ror');
+      const bro = document.getElementById('rorMuffeBro');
+      this.sjekk('knappen «Muffer og bend binder rørene sammen» står i fanen', !!bro);
+      if (bro) {
+        this.sjekk('  og er av fra start', !bro.checked && !App.P.mal.muffeBro);
+        bro.checked = true; bro.dispatchEvent(new Event('change'));
+        await this.ventPaBeregning(30000);
+        await this.vent(300);
+        this.sjekk('  på lagres i malen', App.P.mal.muffeBro === true);
+        this.sjekk('  og fanen sier hva den gjorde', /binder|Ingen muffe/.test(document.getElementById('rorInnhold').textContent));
+        this.sjekk('  og beregningen gikk gjennom', !!App.resultat && Array.isArray(App.resultat.bygg.broer));
+        await App.angre();
+        await this.vent(400);
+        this.sjekk('  angre slår den av igjen', !App.P.mal.muffeBro);
+      }
       App.visFane('rorkoder');
       const kodeVis = document.querySelector('#rorKoder tr[data-kode="32PE"] [data-felt="vis"]');
       this.sjekk('Koder-fanen har tabellen', !!kodeVis);

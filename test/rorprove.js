@@ -272,6 +272,66 @@ console.log('\n7. Retting: av, brudd og kobling');
     .linjer.filter(l => l.kode === '90PE').length, 0, 0);
 }
 
+console.log('\n7b. Muffer og bend som bro over hull (knappen)');
+{
+  /* Operatøren målte skjøten som et punkt («vann 110 sveisemuffe») midt i et
+     hull på 28 m. Punktobjektet er ikke en del av røret, og avstanden er over
+     maks – røret står i to biter, selv om alt er målt. Med knappen på kan
+     muffen stå på røret og bygge bro. Oppdiktede punkt. */
+  const pts = [];
+  let nr = 0;
+  const p = (kode, x, y) => pts.push({ id: 'b' + String(++nr).padStart(2, '0'), kode, n: y, o: x, z: 1, tid: '', nr });
+  for (let x = 0; x <= 40; x += 10) { p('vann 110', x, 0); p('160 spillvann', x, 1.5); }
+  for (let x = 68; x <= 100; x += 8) { p('vann 110', x, 0); p('160 spillvann', x, 1.5); }
+  p('vann 110 sveisemuffe', 54, 0.2);
+  p('sveisemuffe 160 spillvann', 54, 1.4);
+  p('110 bend', 100, 6);                            // ved enden – ingenting å bygge bro over
+  const ror = () => ({ punkter: pts, koder: Ror.koderFra(pts), retting: { av: [], brudd: [], koble: [] } });
+  const telle = (b, kode) => b.linjer.filter(l => l.kode === kode).length;
+
+  const av = Ror.byggLinjer(ror(), { maksAvstand: 25 }, iFila);
+  sjekk('uten knappen: vannet står i to biter', telle(av, 'vann 110'), 2, 0);
+  sjekk('  og spillvannet også', telle(av, '160 spillvann'), 2, 0);
+  sjekk('  og ingen bro', (av.broer || []).length, 0, 0);
+
+  const paa = Ror.byggLinjer(ror(), { maksAvstand: 25, muffeBro: true }, iFila);
+  sjekk('med knappen: vannet er ett rør', telle(paa, 'vann 110'), 1, 0);
+  sjekk('  og spillvannet også', telle(paa, '160 spillvann'), 1, 0);
+  const vann = paa.linjer.find(l => l.kode === 'vann 110');
+  paastand('  gjennom vannmuffen', vann.punkter.some(q => q.kode === 'vann 110 sveisemuffe'));
+  paastand('  ikke gjennom spillvannsmuffen', !vann.punkter.some(q => q.kode === 'sveisemuffe 160 spillvann'));
+  sjekk('  over hele lengden', vann.lengde, 100, 0.01);
+  sjekk('to muffer bygger bro', paa.broer.length, 2, 0);
+  paastand('  og hver sier hvilket rør', paa.broer.some(b => b.kode === 'vann 110 sveisemuffe' && b.ror === 'vann 110')
+    && paa.broer.some(b => b.kode === 'sveisemuffe 160 spillvann' && b.ror === '160 spillvann'), JSON.stringify(paa.broer));
+  paastand('bendet ved enden bygger ikke bro', !paa.broer.some(b => b.kode === '110 bend'));
+  sjekk('muffene står fortsatt som punktobjekt', paa.objekter.length, 3, 0);
+
+  // en kode som er slått av, bygger ikke bro
+  const skjult = ror();
+  skjult.koder['vann 110 sveisemuffe'].vis = false;
+  sjekk('en skjult muffe bygger ikke bro', telle(Ror.byggLinjer(skjult, { maksAvstand: 25, muffeBro: true }, iFila), 'vann 110'), 2, 0);
+  // et punkt som er slått av, heller ikke
+  const avslatt = ror();
+  avslatt.retting.av.push(pts.find(q => q.kode === 'vann 110 sveisemuffe').id);
+  sjekk('en muffe som er slått av, bygger ikke bro', telle(Ror.byggLinjer(avslatt, { maksAvstand: 25, muffeBro: true }, iFila), 'vann 110'), 2, 0);
+  // feil dimensjon: en 160-muffe på et 110-rør
+  const feilDim = pts.map(q => (q.kode === 'vann 110 sveisemuffe' ? Object.assign({}, q, { kode: 'vann 160 sveisemuffe' }) : q));
+  const fd = { punkter: feilDim, koder: Ror.koderFra(feilDim), retting: { av: [], brudd: [], koble: [] } };
+  sjekk('en muffe med annen dimensjon bygger ikke bro', telle(Ror.byggLinjer(fd, { maksAvstand: 25, muffeBro: true }, iFila), 'vann 110'), 2, 0);
+  // to muffer på rad i et hull på 45 m
+  const lang = [];
+  let m = 0;
+  const q = (kode, x) => lang.push({ id: 'l' + (++m), kode, n: 0, o: x, z: 1, tid: '', nr: m });
+  for (let x = 0; x <= 30; x += 10) q('vann 110', x);
+  for (let x = 75; x <= 105; x += 10) q('vann 110', x);
+  q('vann 110 muffe', 48); q('el muffe 110 vann', 60);
+  const lr = { punkter: lang, koder: Ror.koderFra(lang), retting: { av: [], brudd: [], koble: [] } };
+  sjekk('to muffer på rad bygger bro sammen', telle(Ror.byggLinjer(lr, { maksAvstand: 25, muffeBro: true }, iFila), 'vann 110'), 1, 0);
+  paastand('samme svar to ganger', JSON.stringify(Ror.byggLinjer(ror(), { maksAvstand: 25, muffeBro: true }, iFila))
+    === JSON.stringify(paa));
+}
+
 /* ------------------------------------------------------------------ */
 console.log('\n8. Koordinater og sone');
 {
