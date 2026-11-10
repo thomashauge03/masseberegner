@@ -6342,6 +6342,8 @@ const App = {
       alle ? alletekst : (tomt ? tomtetekst : ror ? rortekst : vegtekst);
     tekst('knappEksportKof', navn('Stikningsdata (KOF)', 'Hjørner og utslag (KOF)',
       'Stikningsdata, alle (KOF)', 'Stikningspunkt for rørene (KOF)'));
+    tekst('knappEksportIcon', navn('Stikningsdata til iCON', 'Hjørner og utslag til iCON',
+      'Stikningsdata, alle, til iCON', 'Stikningspunkt for rørene til iCON'));
     tekst('knappEksportLandxml', navn('Linjeføring og profil (LandXML)', 'Flater og utslag (LandXML)',
       'Linjer og flater, alle (LandXML)', 'Rørene som 3D-linjer (LandXML)'));
     tekst('knappEksportSosi', navn('Kartdata (SOSI)', 'Tomteflate (SOSI)',
@@ -8308,7 +8310,7 @@ const App = {
     for (const b of document.querySelectorAll('#eksportomfang [data-omfang]')) {
       b.onclick = () => this.settEksportomfang(b.dataset.omfang);
     }
-    for (const [knapp, format] of [['knappEksportKof', 'kof'], ['knappEksportLandxml', 'landxml'],
+    for (const [knapp, format] of [['knappEksportKof', 'kof'], ['knappEksportIcon', 'icon'], ['knappEksportLandxml', 'landxml'],
     ['knappEksportSosi', 'sosi'], ['knappEksportDxf', 'dxf']]) {
       id(knapp).onclick = () => this.alleAnlegg()
         ? Rapport.eksporterAlle(format) : Rapport.eksporter(format);

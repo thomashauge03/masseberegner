@@ -242,6 +242,82 @@ const Eksport = {
     return ut;
   },
 
+  /**
+   * KOF-ens 05-linjer tilbake til punkt: {navn, kode, n, e, z}.
+   *
+   * iCON-fila skal ha nøyaktig de punktene KOF-fila har – samme navn, samme
+   * koder, samme utvalg for veg, tomt og rør. Å skrive et eget utvalg for
+   * iCON ville gitt to filer som var uenige om hva som skal settes ut. Feltene
+   * står fast (navn 10, kode 8), og et punkt uten høyde (rørskissen) har bare
+   * nord og øst.
+   */
+  kofTilPunkter(tekst) {
+    const ut = [];
+    for (const r of String(tekst).split(/\r?\n/)) {
+      if (!r.startsWith(' 05 ')) continue;
+      const t = r.slice(24).trim().split(/\s+/).map(Number);
+      if (!Number.isFinite(t[0]) || !Number.isFinite(t[1])) continue;
+      ut.push({ navn: r.slice(4, 14).trim(), kode: r.slice(15, 23).trim(), n: t[0], e: t[1], z: Number.isFinite(t[2]) ? t[2] : NaN });
+    }
+    return ut;
+  },
+
+  /**
+   * Punkt i Leica iCON sitt eget format – slik iCON selv skriver en jobb:
+   * LandXML 1.2 med HeXML, samme hode og enheter, tre mellomroms innrykk og
+   * CRLF. Hvert punkt står to steder, som hos iCON: som `<CgPoint>` («nord øst
+   * høyde») og som Hexagon-`<Point>` med `<Grid e n hghthO>` – øst, nord og
+   * ortometrisk høyde – og koden i `<PointCode>`. Ingen `<CoordinateSystem>`:
+   * iCON sine egne filer har ingen, og punktene havner i jobbens system.
+   *
+   * Navnet er punktets id i iCON, og to like ville vært ett punkt. Kommer et
+   * navn igjen, får det siste `.2`, `.3` … – de første beholder sitt, så den
+   * som legger stikkpunktene først, får dem med navnet som står på pluggen.
+   *
+   * @param {Array<{navn:string,kode?:string,n:number,e:number,z?:number}>} punkter
+   * @returns {{tekst:string, antall:number, uten:string[], omdopt:string[]}}
+   */
+  icon(punkter) {
+    const x = s => this.xml(s), d = v => v.toFixed(6), har = p => Number.isFinite(p.z);
+    const brukt = new Set(), omdopt = [];
+    const pk = punkter.filter(p => Number.isFinite(p.n) && Number.isFinite(p.e)).map(p => {
+      let navn = String(p.navn);
+      for (let i = 2; brukt.has(navn); i++) navn = p.navn + '.' + i;
+      if (navn !== p.navn) omdopt.push(`${p.navn} → ${navn}`);
+      brukt.add(navn);
+      return Object.assign({}, p, { navn });
+    });
+    const nå = new Date(), to = v => String(v).padStart(2, '0');
+    const dato = `${nå.getFullYear()}-${to(nå.getMonth() + 1)}-${to(nå.getDate())}`;
+    const tid = `${to(nå.getHours())}:${to(nå.getMinutes())}:${to(nå.getSeconds())}`;
+    const l = [
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      '<LandXML xsi:schemaLocation="http://www.landxml.org/schema/LandXML-1.2 http://www.landxml.org/schema/LandXML-1.2/LandXML-1.2.xsd'
+        + ' http://xml.hexagon.com/schema/HeXML-1.8 http://xml.hexagon.com/schema/HeXML-1.8.xsd"'
+        + ` version="1.2" time="${tid}" date="${dato}" xmlns:xsd="http://www.w3.org/2001/XMLSchema"`
+        + ' xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://www.landxml.org/schema/LandXML-1.2">',
+      '   <Units>',
+      '      <Metric areaUnit="squareMeter" linearUnit="meter" volumeUnit="cubicMeter" temperatureUnit="kelvin" pressureUnit="HPA"'
+        + ' diameterUnit="meter" angularUnit="radians" heightUnit="meter" latLongAngularUnit="radians"></Metric>',
+      '   </Units>',
+      '   <CgPoints>'
+    ];
+    for (const p of pk) l.push(`      <CgPoint name="${x(p.navn)}">${d(p.n)} ${d(p.e)}${har(p) ? ' ' + d(p.z) : ''}</CgPoint>`);
+    l.push('   </CgPoints>', '   <HexagonLandXML xmlns="http://xml.hexagon.com/schema/HeXML-1.9">');
+    for (const p of pk) {
+      l.push(`      <Point uniqueID="${x(p.navn)}" class="control">`,
+        '         <Coordinates originalCoordSysKind="Grid" originalGeodeticDatumKind="Local" originalHeightKind="orthometric">',
+        '            <Local>',
+        `               <Grid e="${d(p.e)}" n="${d(p.n)}"${har(p) ? ` hghthO="${d(p.z)}"` : ''}></Grid>`,
+        '            </Local>',
+        '         </Coordinates>',
+        `         <PointCode code="${x(p.kode || '')}"></PointCode>`,
+        '      </Point>');
+    }
+    l.push('   </HexagonLandXML>', '</LandXML>');
+    return { tekst: l.join('\r\n') + '\r\n', antall: pk.length, uten: pk.filter(p => !har(p)).map(p => p.navn), omdopt };
+  },
+
   kof(app, res) {
     const rader = this.kofHode(app);
     for (const r of this.kofKroppVeg(app, res, this.kofNavner())) rader.push(r);

@@ -1303,50 +1303,9 @@ const Kart = {
       + (uten.length ? ` – ${uten.map(k => k.navn).join(', ')} mangler høyde og er ikke med` : ''));
   },
 
-  /**
-   * Stikkpunktene i iCON sitt eget format – slik Leica iCON selv skriver en
-   * jobb ut: LandXML 1.2 med HeXML. Hvert punkt står to steder, som hos iCON:
-   * som `<CgPoint>` («nord øst høyde») og som Hexagon-`<Point>` med
-   * `<Grid e n hghthO>` – øst, nord og ortometrisk høyde. Samme hode, samme
-   * enheter, samme innrykk og CRLF. Ingen `<CoordinateSystem>`: iCON sine egne
-   * filer har ingen, og punktene havner i jobbens system (her EUREF89 UTM i
-   * prosjektets sone).
-   * Der KOF må ha høyde, kan iCON ta et punkt med bare nord og øst. Et punkt
-   * uten terrenghøyde kommer derfor med som 2D-punkt, og svaret sier hvilke.
-   */
-  stikkLandxml() {
-    const alle = this.stikkpunkter().map(p => this.stikkKoordinater(p));
-    const x = s => Eksport.xml(s), d = v => v.toFixed(6);
-    const nå = new Date(), to = v => String(v).padStart(2, '0');
-    const dato = `${nå.getFullYear()}-${to(nå.getMonth() + 1)}-${to(nå.getDate())}`;
-    const tid = `${to(nå.getHours())}:${to(nå.getMinutes())}:${to(nå.getSeconds())}`;
-    const har = k => Number.isFinite(k.z);
-    const l = [
-      '<?xml version="1.0" encoding="UTF-8"?>',
-      '<LandXML xsi:schemaLocation="http://www.landxml.org/schema/LandXML-1.2 http://www.landxml.org/schema/LandXML-1.2/LandXML-1.2.xsd'
-        + ' http://xml.hexagon.com/schema/HeXML-1.8 http://xml.hexagon.com/schema/HeXML-1.8.xsd"'
-        + ` version="1.2" time="${tid}" date="${dato}" xmlns:xsd="http://www.w3.org/2001/XMLSchema"`
-        + ' xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://www.landxml.org/schema/LandXML-1.2">',
-      '   <Units>',
-      '      <Metric areaUnit="squareMeter" linearUnit="meter" volumeUnit="cubicMeter" temperatureUnit="kelvin" pressureUnit="HPA"'
-        + ' diameterUnit="meter" angularUnit="radians" heightUnit="meter" latLongAngularUnit="radians"></Metric>',
-      '   </Units>',
-      '   <CgPoints>'
-    ];
-    for (const k of alle) l.push(`      <CgPoint name="${x(k.navn)}">${d(k.n)} ${d(k.e)}${har(k) ? ' ' + d(k.z) : ''}</CgPoint>`);
-    l.push('   </CgPoints>', '   <HexagonLandXML xmlns="http://xml.hexagon.com/schema/HeXML-1.9">');
-    for (const k of alle) {
-      l.push(`      <Point uniqueID="${x(k.navn)}" class="control">`,
-        `         <Coordinates originalCoordSysKind="Grid" originalGeodeticDatumKind="Local" originalHeightKind="orthometric">`,
-        '            <Local>',
-        `               <Grid e="${d(k.e)}" n="${d(k.n)}"${har(k) ? ` hghthO="${d(k.z)}"` : ''}></Grid>`,
-        '            </Local>',
-        '         </Coordinates>',
-        '         <PointCode code=""></PointCode>',
-        '      </Point>');
-    }
-    l.push('   </HexagonLandXML>', '</LandXML>');
-    return { tekst: l.join('\r\n') + '\r\n', antall: alle.length, uten: alle.filter(k => !har(k)).map(k => k.navn) };
+  /** Stikkpunktene som punkt til iCON-skriveren (Eksport.icon), kode STIKK som i KOF. */
+  stikkIconPunkter() {
+    return this.stikkpunkter().map(p => Object.assign(this.stikkKoordinater(p), { kode: 'STIKK' }));
   },
 
   async lastNedStikkIcon() {
@@ -1354,7 +1313,7 @@ const Kart = {
     if (!this.stikkpunkter().length) { app.status('Ingen punkt å laste ned – sett et punkt i kartet først'); return; }
     await this.hentStikkHoyder();
     let r;
-    try { r = this.stikkLandxml(); } catch (e) { app.status(e.message); return; }
+    try { r = Eksport.icon(this.stikkIconPunkter()); } catch (e) { app.status(e.message); return; }
     Rapport.lastNed(Rapport.filnavn('_stikkpunkt.xml'), r.tekst, 'application/xml;charset=utf-8');
     app.status(`Lastet ned ${r.antall} stikkpunkt for iCON (LandXML, EUREF89 UTM${app.sone})`
       + (r.uten.length ? ` – ${r.uten.join(', ')} har ikke høyde og står som 2D-punkt` : ''));

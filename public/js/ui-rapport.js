@@ -1696,6 +1696,7 @@ Lengdene er langs bakken i kartet.</p>
 
   /** Eksport til de andre filformatene. */
   eksporter(format) {
+    if (format === 'icon') return this.eksportIcon();
     const navn = { kof: 'KOF', landxml: 'LandXML', sosi: 'SOSI', dxf: 'DXF' }[format];
     if (!navn) return;
     this.kjorEksport(navn, form => {
@@ -1722,6 +1723,60 @@ Lengdene er langs bakken i kartet.</p>
       this.eksportsvar('Eksporterte ' + this.filnavn(endelse)
         + ' (' + Math.round(innhold.length / 1024) + ' kB)');
     }, format === 'sosi' ? RorEksport.sosiMerknader : RorEksport.mangler);
+  },
+
+  /** KOF-teksten for anlegget man står i – veg, tomt eller rør. */
+  kofTekst(form) {
+    const app = this.app, res = app.resultat;
+    return form === 'tomt' ? Eksport.kofTomt(app, res) : form === 'ror' ? RorEksport.kof(app, res) : Eksport.kof(app, res);
+  },
+
+  /** Stikkpunktene fra kartet, med høyden hentet der den manglet – først i iCON-fila. */
+  async stikkTilIcon() {
+    if (typeof Kart === 'undefined' || !Kart.stikkpunkter().length) return [];
+    await Kart.hentStikkHoyder();
+    return Kart.stikkIconPunkter();
+  },
+
+  /** Svaret etter en iCON-fil: hva som er med, og hva som ble endret eller mangler. */
+  iconSvar(fil, r, stikk, anlegg, grunn, flere = false) {
+    const deler = [];
+    if (anlegg) deler.push(anlegg + (flere ? ' fra anleggene' : ' fra anlegget'));
+    if (stikk) deler.push(stikk + ' stikkpunkt');
+    let s = `Eksporterte ${fil} – ${r.antall} punkt til iCON (${deler.join(' og ')}, EUREF89 UTM${this.app.sone})`;
+    if (r.uten.length) s += ` · uten høyde, står som 2D-punkt: ${r.uten.slice(0, 8).join(', ')}${r.uten.length > 8 ? ' …' : ''}`;
+    if (r.omdopt.length) s += ` · samme navn to ganger, fikk nytt: ${r.omdopt.slice(0, 5).join(', ')}${r.omdopt.length > 5 ? ' …' : ''}`;
+    if (grunn) s += ` · anlegget er ikke med: ${grunn}`;
+    this.eksportsvar(s, !!(grunn || r.omdopt.length));
+  },
+
+  /**
+   * Stikningspunkt til Leica iCON: de samme punktene som KOF-fila, i iCON
+   * sitt eget format (Eksport.icon), med stikkpunktene fra kartet først.
+   *
+   * Er anlegget ikke regnet ennå, men det står stikkpunkt i kartet, skrives
+   * de alene – et prosjekt der man bare skal sette ut punkt, har ingen
+   * beregning, og det er ingen grunn til å nekte det fila.
+   */
+  async eksportIcon() {
+    const app = this.app;
+    const stikk = await this.stikkTilIcon();
+    const kan = this.kanEksportere();
+    let anlegg = [], grunn = null;
+    if (kan.ok) {
+      try { anlegg = Eksport.kofTilPunkter(this.kofTekst(kan.form)); } catch (e) { grunn = e.message; }
+    } else grunn = kan.grunn;
+    if (!anlegg.length && !stikk.length) {
+      this.eksportsvar((grunn || 'Ingen punkt å ta med') + ' – eller sett punkt med «📍 Sett punkt» i kartet.', true);
+      return;
+    }
+    if (!app.sone) { this.eksportsvar('Koordinatsonen er ikke satt – sett et punkt i kartet først.', true); return; }
+    // et anlegg som ikke er regnet, er ikke noe å si fra om når man bare har satt punkt
+    if (!kan.ok && stikk.length && !app.resultat) grunn = null;
+    const r = Eksport.icon(stikk.concat(anlegg));
+    const fil = this.filnavn('_iCON.xml');
+    this.lastNed(fil, r.tekst, 'application/xml;charset=utf-8');
+    this.iconSvar(fil, r, stikk.length, anlegg.length, grunn);
   },
 
   eksportGeojson() {
@@ -2114,6 +2169,7 @@ ${tatt.map(x => x.bit.html).join('\n')}`;
     try {
       const oppsett = {
         kof: ['.KOF', 'KOF', 'text/plain;charset=utf-8'],
+        icon: ['_iCON.xml', 'iCON', 'application/xml;charset=utf-8'],
         landxml: ['.xml', 'LandXML', 'application/xml;charset=utf-8'],
         sosi: ['.sos', 'SOSI', 'text/plain;charset=utf-8'],
         dxf: ['.dxf', 'DXF', 'application/dxf'],
@@ -2125,7 +2181,11 @@ ${tatt.map(x => x.bit.html).join('\n')}`;
       /* Tilstanden som må leve på tvers av anleggene. KOF-navnegiveren eier
          settet med brukte punktnavn for HELE filen, og SOSI-telleren eier
          objektnummeret – begge må derfor lages her, ikke per anlegg. */
-      const navner = format === 'kof' ? Eksport.kofNavner() : null;
+      /* iCON-fila er KOF-ens punkt i et annet format – den går hele veien som
+         KOF, med samme navnegiver, og skrives om først til slutt. */
+      const somKof = format === 'kof' || format === 'icon';
+      const stikk = format === 'icon' ? await this.stikkTilIcon() : [];
+      const navner = somKof ? Eksport.kofNavner() : null;
       let sosiId = 1;
       const sosiOmr = { minN: Infinity, maksN: -Infinity, minO: Infinity, maksO: -Infinity };
       let sosiNiva = 2;
@@ -2157,7 +2217,7 @@ ${tatt.map(x => x.bit.html).join('\n')}`;
         }
         // SOSI-fila har bare innmålingen fra et innmålt anlegg – og sier da ingenting om gravebunnen
         if (ror) for (const m of (format === 'sosi' ? RorEksport.sosiMerknader : RorEksport.mangler)(a2, res)) notater.push(anleggsnavn + ': ' + m);
-        if (format === 'kof') {
+        if (somKof) {
           const pre = merke;
           if (ror) {
             const d = RorEksport.punkter(a2, res);
@@ -2208,6 +2268,18 @@ ${tatt.map(x => x.bit.html).join('\n')}`;
         return g.features;
       });
 
+      if (format === 'icon' && (tatt.length || stikk.length)) {
+        const anlegg = tatt.flatMap(t => Eksport.kofTilPunkter(t.bit.rader.join('\n')));
+        const r = Eksport.icon(stikk.concat(anlegg));
+        const fil = this.filnavn('_alle_iCON.xml');
+        this.lastNed(fil, r.tekst, 'application/xml;charset=utf-8');
+        this.iconSvar(fil, r, stikk.length, anlegg.length,
+          hoppet.length ? hoppet.map(h => (h.anlegg.navn || h.anlegg.type) + ': ' + h.grunn).join('; ') : null, true);
+        // bokstaven foran punktnavnet sier hvilket anlegg punktet er fra
+        const merk = tatt.map(t => t.bit.merke + ' = ' + t.bit.anleggsnavn).join(', ');
+        if (merk) this.eksportsvar(this._sistSvar + ' · ' + merk, !!hoppet.length || !!r.omdopt.length);
+        return;
+      }
       if (!tatt.length) {
         this.eksportsvar(navn + ': ingen av anleggene kunne skrives – '
           + hoppet.map(h => (h.anlegg.navn || h.anlegg.type) + ': ' + h.grunn).join('; '), true);

@@ -629,6 +629,7 @@ må du kontrollere mot befaring.
 | Format | Til hva |
 |---|---|
 | **KOF** | Stikningsdata til totalstasjon og maskinstyring |
+| **iCON** | De samme punktene som KOF-fila – med navn og kode – og stikkpunktene fra kartet først, i Leica iCON sitt eget format (LandXML/HeXML, slik iCON selv skriver en jobb). Punkt uten høyde står som 2D-punkt; kommer et navn igjen, får det siste `.2`. Gjelder også rør og «alle anlegg», og fungerer med bare stikkpunkt, uten et anlegg regnet |
 | **LandXML** | Linjeføring med kurveelementer og lengdeprofil – leses av de fleste maskinstyringer |
 | **SOSI** | Kartdata til kommune og Kartverket |
 | **DXF** | Tegning til AutoCAD og liknende |
@@ -798,7 +799,7 @@ public/js/masser.js      tverrprofil og volumberegning
 public/js/stikkrenner.js stikkrennene: endene, lengden, høydene og overdekningen av tverrsnittet
 public/js/veiklasser.js  veiklassene fra landbruksveinormalen
 public/js/lager.js       prosjektlager i nettleseren, import og eksport
-public/js/eksport.js     KOF, LandXML, SOSI og DXF
+public/js/eksport.js     KOF, iCON, LandXML, SOSI og DXF
 public/js/pdfimport.js   avlesning av tegnede kurver i en PDF
 public/js/ror.js         rørene: LandXML, koder, linjer, sone, profil
 public/js/groft.js       grøfta: rutenett, felles grøft, kummer, fjell, lag, dybdeklasser, balanse
