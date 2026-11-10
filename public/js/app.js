@@ -6344,6 +6344,8 @@ const App = {
       'Stikningsdata, alle (KOF)', 'Stikningspunkt for rørene (KOF)'));
     tekst('knappEksportIcon', navn('Stikningsdata til iCON', 'Hjørner og utslag til iCON',
       'Stikningsdata, alle, til iCON', 'Stikningspunkt for rørene til iCON'));
+    tekst('knappEksportMakin', navn('Stikningsdata til Makin-maskinen', 'Hjørner og utslag til Makin-maskinen',
+      'Stikningsdata, alle, til Makin-maskinen', 'Stikningspunkt for rørene til Makin-maskinen'));
     tekst('knappEksportLandxml', navn('Linjeføring og profil (LandXML)', 'Flater og utslag (LandXML)',
       'Linjer og flater, alle (LandXML)', 'Rørene som 3D-linjer (LandXML)'));
     tekst('knappEksportSosi', navn('Kartdata (SOSI)', 'Tomteflate (SOSI)',
@@ -8310,7 +8312,7 @@ const App = {
     for (const b of document.querySelectorAll('#eksportomfang [data-omfang]')) {
       b.onclick = () => this.settEksportomfang(b.dataset.omfang);
     }
-    for (const [knapp, format] of [['knappEksportKof', 'kof'], ['knappEksportIcon', 'icon'], ['knappEksportLandxml', 'landxml'],
+    for (const [knapp, format] of [['knappEksportKof', 'kof'], ['knappEksportIcon', 'icon'], ['knappEksportMakin', 'makin'],['knappEksportLandxml', 'landxml'],
     ['knappEksportSosi', 'sosi'], ['knappEksportDxf', 'dxf']]) {
       id(knapp).onclick = () => this.alleAnlegg()
         ? Rapport.eksporterAlle(format) : Rapport.eksporter(format);

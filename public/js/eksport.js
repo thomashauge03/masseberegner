@@ -277,8 +277,8 @@ const Eksport = {
    * @param {Array<{navn:string,kode?:string,n:number,e:number,z?:number}>} punkter
    * @returns {{tekst:string, antall:number, uten:string[], omdopt:string[]}}
    */
-  icon(punkter) {
-    const x = s => this.xml(s), d = v => v.toFixed(6), har = p => Number.isFinite(p.z);
+  /** Punkt med gyldig nord og øst, og ett navn per punkt – se `icon`. */
+  unikePunkt(punkter) {
     const brukt = new Set(), omdopt = [];
     const pk = punkter.filter(p => Number.isFinite(p.n) && Number.isFinite(p.e)).map(p => {
       let navn = String(p.navn);
@@ -287,6 +287,12 @@ const Eksport = {
       brukt.add(navn);
       return Object.assign({}, p, { navn });
     });
+    return { pk, omdopt };
+  },
+
+  icon(punkter) {
+    const x = s => this.xml(s), d = v => v.toFixed(6), har = p => Number.isFinite(p.z);
+    const { pk, omdopt } = this.unikePunkt(punkter);
     const nå = new Date(), to = v => String(v).padStart(2, '0');
     const dato = `${nå.getFullYear()}-${to(nå.getMonth() + 1)}-${to(nå.getDate())}`;
     const tid = `${to(nå.getHours())}:${to(nå.getMinutes())}:${to(nå.getSeconds())}`;
@@ -316,6 +322,51 @@ const Eksport = {
     }
     l.push('   </HexagonLandXML>', '</LandXML>');
     return { tekst: l.join('\r\n') + '\r\n', antall: pk.length, uten: pk.filter(p => !har(p)).map(p => p.navn), omdopt };
+  },
+
+  /**
+   * Punkt til Makin' 3D – lastes opp i prosjektets Filer og synkes ned til
+   * maskinen.
+   *
+   * Formen er tatt fra en fil Makin alt leser og viser i 3D: en plassering
+   * skrevet av Gemini Terrain. Vanlig LandXML 1.2 med `<CoordinateSystem>`
+   * (EPSG for sonen), og hvert punkt i sin egen `<CgPoints>` som
+   * `<CgPoint name code oID>` med «nord øst høyde». Ingen HeXML-del – den er
+   * iCON sin, og Makin har ikke vist at den tåler den.
+   *
+   * Maskinen styrer etter høyden, så et punkt uten høyde er ikke med; svaret
+   * sier hvilke. Navnene gjøres unike som i iCON-fila.
+   *
+   * @param {number} sone  UTM-sonen punktene står i
+   */
+  makin(punkter, sone) {
+    const x = s => this.xml(s), d = v => v.toFixed(6);
+    const alle = this.unikePunkt(punkter);
+    const pk = alle.pk.filter(p => Number.isFinite(p.z));
+    const uten = alle.pk.filter(p => !Number.isFinite(p.z)).map(p => p.navn);
+    const nå = new Date(), to = v => String(v).padStart(2, '0');
+    const dato = `${nå.getFullYear()}-${to(nå.getMonth() + 1)}-${to(nå.getDate())}`;
+    const tid = `${to(nå.getHours())}:${to(nå.getMinutes())}:${to(nå.getSeconds())}`;
+    const l = [
+      '<?xml version="1.0" encoding="UTF-8" standalone="no"?>',
+      '',
+      '<LandXML xmlns="http://www.landxml.org/schema/LandXML-1.2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
+        + ' xsi:schemaLocation="http://www.landxml.org/schema/LandXML-1.2 http://www.landxml.org/schema/LandXML-1.2/LandXML-1.2.xsd"'
+        + ` version="1.2" date="${dato}" time="${tid}" readOnly="false" language="English">`,
+      '  <Application name="Massekalk"/>',
+      '  <Project name="Stikningspunkt"/>',
+      '  <Units>',
+      '    <Metric linearUnit="meter" areaUnit="squareMeter" volumeUnit="cubicMeter" angularUnit="grads" pressureUnit="HPA" temperatureUnit="celsius"/>',
+      '  </Units>',
+      `  <CoordinateSystem fileLocation="" horizontalDatum="ETRS89/UTM SONE ${sone}N" verticalDatum="NN 2000 hoyder" epsgCode="${Geo.epsg(sone)}"/>`
+    ];
+    pk.forEach((p, i) => {
+      l.push('  <CgPoints>',
+        `    <CgPoint name="${x(p.navn)}" code="${x(p.kode || '')}" oID="${i + 1}">${d(p.n)} ${d(p.e)} ${d(p.z)}</CgPoint>`,
+        '  </CgPoints>');
+    });
+    l.push('</LandXML>');
+    return { tekst: l.join('\r\n') + '\r\n', antall: pk.length, uten, omdopt: alle.omdopt };
   },
 
   kof(app, res) {

@@ -8,6 +8,7 @@
  * Alle tall er oppdiktet.
  */
 const path = require('path');
+global.Geo = require(path.join(__dirname, '..', 'public', 'js', 'geo.js'));
 const Eksport = require(path.join(__dirname, '..', 'public', 'js', 'eksport.js'));
 
 let feil = 0, ok = 0;
@@ -57,6 +58,25 @@ console.log('iCON-skriveren');
     && r.omdopt.join() === 'S1 → S1.2', r.omdopt.join());
   paastand('navn skrives som XML', t.includes('name="A&amp;B"') && !t.includes('A&B'));
   paastand('like mange CgPoint som Point', (t.match(/<CgPoint /g) || []).length === 4 && (t.match(/<Point /g) || []).length === 4);
+}
+
+console.log('Makin-skriveren');
+{
+  const r = Eksport.makin([
+    { navn: 'S1', kode: 'STIKK', n: 6600000.1, e: 500000.2, z: 100.3 },
+    { navn: 'S2', kode: 'STIKK', n: 6600001, e: 500001, z: NaN },
+    { navn: 'S1', kode: 'SENTER', n: 6600002, e: 500002, z: 102 }
+  ], 32);
+  const t = r.tekst;
+  paastand('vanlig LandXML 1.2, ingen HeXML-del', t.includes('xmlns="http://www.landxml.org/schema/LandXML-1.2"') && !t.includes('hexagon'));
+  paastand('koordinatsystemet står med EPSG for sonen', t.includes('epsgCode="25832"') && t.includes('ETRS89/UTM SONE 32N'));
+  paastand('hvert punkt i sin egen CgPoints, med name, code og oID – som Gemini-fila Makin leser',
+    t.includes('  <CgPoints>\r\n    <CgPoint name="S1" code="STIKK" oID="1">6600000.100000 500000.200000 100.300000</CgPoint>\r\n  </CgPoints>'));
+  paastand('et punkt uten høyde er ikke med – maskinen styrer etter høyden', !t.includes('"S2"') && r.uten.join() === 'S2' && r.antall === 2,
+    `${r.antall} ${r.uten.join()}`);
+  paastand('oID teller bare punktene som er med', t.includes('name="S1.2" code="SENTER" oID="2"'));
+  paastand('like navn gjøres unike også her', r.omdopt.join() === 'S1 → S1.2', r.omdopt.join());
+  paastand('CRLF på hver linje', !/[^\r]\n/.test(t) && t.endsWith('</LandXML>\r\n'));
 }
 
 console.log(`\n${ok} ok, ${feil} feil`);

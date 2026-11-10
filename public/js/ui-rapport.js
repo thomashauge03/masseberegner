@@ -1696,7 +1696,7 @@ Lengdene er langs bakken i kartet.</p>
 
   /** Eksport til de andre filformatene. */
   eksporter(format) {
-    if (format === 'icon') return this.eksportIcon();
+    if (format === 'icon' || format === 'makin') return this.eksportPunktfil(format);
     const navn = { kof: 'KOF', landxml: 'LandXML', sosi: 'SOSI', dxf: 'DXF' }[format];
     if (!navn) return;
     this.kjorEksport(navn, form => {
@@ -1731,35 +1731,46 @@ Lengdene er langs bakken i kartet.</p>
     return form === 'tomt' ? Eksport.kofTomt(app, res) : form === 'ror' ? RorEksport.kof(app, res) : Eksport.kof(app, res);
   },
 
-  /** Stikkpunktene fra kartet, med høyden hentet der den manglet – først i iCON-fila. */
+  /** Stikkpunktene fra kartet, med høyden hentet der den manglet – først i punktfila. */
   async stikkTilIcon() {
     if (typeof Kart === 'undefined' || !Kart.stikkpunkter().length) return [];
     await Kart.hentStikkHoyder();
     return Kart.stikkIconPunkter();
   },
 
-  /** Svaret etter en iCON-fil: hva som er med, og hva som ble endret eller mangler. */
-  iconSvar(fil, r, stikk, anlegg, grunn, flere = false) {
-    const deler = [];
+  /**
+   * Punktfilene – samme punkt som KOF-fila, i formatet mottakeren leser.
+   * iCON tar et punkt uten høyde som 2D; Makin-maskinen styrer etter høyden,
+   * så der er punktet ikke med.
+   */
+  punktfiler: {
+    icon: { navn: 'iCON', endelse: '_iCON.xml', skriv: (p, sone) => Eksport.icon(p), uten: 'uten høyde, står som 2D-punkt' },
+    makin: { navn: 'Makin', endelse: '_Makin.xml', skriv: (p, sone) => Eksport.makin(p, sone), uten: 'uten høyde, ikke med' }
+  },
+
+  /** Svaret etter en punktfil: hva som er med, og hva som ble endret eller mangler. */
+  punktfilSvar(format, fil, r, stikk, anlegg, grunn, flere = false) {
+    const pf = this.punktfiler[format], deler = [];
     if (anlegg) deler.push(anlegg + (flere ? ' fra anleggene' : ' fra anlegget'));
     if (stikk) deler.push(stikk + ' stikkpunkt');
-    let s = `Eksporterte ${fil} – ${r.antall} punkt til iCON (${deler.join(' og ')}, EUREF89 UTM${this.app.sone})`;
-    if (r.uten.length) s += ` · uten høyde, står som 2D-punkt: ${r.uten.slice(0, 8).join(', ')}${r.uten.length > 8 ? ' …' : ''}`;
-    if (r.omdopt.length) s += ` · samme navn to ganger, fikk nytt: ${r.omdopt.slice(0, 5).join(', ')}${r.omdopt.length > 5 ? ' …' : ''}`;
+    const noen = (liste, maks) => liste.slice(0, maks).join(', ') + (liste.length > maks ? ' …' : '');
+    let s = `Eksporterte ${fil} – ${r.antall} punkt til ${pf.navn} (${deler.join(' og ')}, EUREF89 UTM${this.app.sone})`;
+    if (r.uten.length) s += ` · ${pf.uten}: ${noen(r.uten, 8)}`;
+    if (r.omdopt.length) s += ` · samme navn to ganger, fikk nytt: ${noen(r.omdopt, 5)}`;
     if (grunn) s += ` · anlegget er ikke med: ${grunn}`;
-    this.eksportsvar(s, !!(grunn || r.omdopt.length));
+    this.eksportsvar(s, !!(grunn || r.omdopt.length || (format === 'makin' && r.uten.length)));
   },
 
   /**
-   * Stikningspunkt til Leica iCON: de samme punktene som KOF-fila, i iCON
-   * sitt eget format (Eksport.icon), med stikkpunktene fra kartet først.
+   * Stikningspunkt til Leica iCON eller Makin-maskinen: de samme punktene som
+   * KOF-fila, med stikkpunktene fra kartet først.
    *
    * Er anlegget ikke regnet ennå, men det står stikkpunkt i kartet, skrives
    * de alene – et prosjekt der man bare skal sette ut punkt, har ingen
    * beregning, og det er ingen grunn til å nekte det fila.
    */
-  async eksportIcon() {
-    const app = this.app;
+  async eksportPunktfil(format) {
+    const app = this.app, pf = this.punktfiler[format];
     const stikk = await this.stikkTilIcon();
     const kan = this.kanEksportere();
     let anlegg = [], grunn = null;
@@ -1773,10 +1784,11 @@ Lengdene er langs bakken i kartet.</p>
     if (!app.sone) { this.eksportsvar('Koordinatsonen er ikke satt – sett et punkt i kartet først.', true); return; }
     // et anlegg som ikke er regnet, er ikke noe å si fra om når man bare har satt punkt
     if (!kan.ok && stikk.length && !app.resultat) grunn = null;
-    const r = Eksport.icon(stikk.concat(anlegg));
-    const fil = this.filnavn('_iCON.xml');
+    const r = pf.skriv(stikk.concat(anlegg), app.sone);
+    if (!r.antall) { this.eksportsvar(`Ingen av punktene har høyde – ${pf.navn}-fila ville vært tom`, true); return; }
+    const fil = this.filnavn(pf.endelse);
     this.lastNed(fil, r.tekst, 'application/xml;charset=utf-8');
-    this.iconSvar(fil, r, stikk.length, anlegg.length, grunn);
+    this.punktfilSvar(format, fil, r, stikk.length, anlegg.length, grunn);
   },
 
   eksportGeojson() {
@@ -2170,6 +2182,7 @@ ${tatt.map(x => x.bit.html).join('\n')}`;
       const oppsett = {
         kof: ['.KOF', 'KOF', 'text/plain;charset=utf-8'],
         icon: ['_iCON.xml', 'iCON', 'application/xml;charset=utf-8'],
+        makin: ['_Makin.xml', 'Makin', 'application/xml;charset=utf-8'],
         landxml: ['.xml', 'LandXML', 'application/xml;charset=utf-8'],
         sosi: ['.sos', 'SOSI', 'text/plain;charset=utf-8'],
         dxf: ['.dxf', 'DXF', 'application/dxf'],
@@ -2181,10 +2194,11 @@ ${tatt.map(x => x.bit.html).join('\n')}`;
       /* Tilstanden som må leve på tvers av anleggene. KOF-navnegiveren eier
          settet med brukte punktnavn for HELE filen, og SOSI-telleren eier
          objektnummeret – begge må derfor lages her, ikke per anlegg. */
-      /* iCON-fila er KOF-ens punkt i et annet format – den går hele veien som
-         KOF, med samme navnegiver, og skrives om først til slutt. */
-      const somKof = format === 'kof' || format === 'icon';
-      const stikk = format === 'icon' ? await this.stikkTilIcon() : [];
+      /* iCON- og Makin-fila er KOF-ens punkt i et annet format – de går hele
+         veien som KOF, med samme navnegiver, og skrives om først til slutt. */
+      const pf = this.punktfiler[format];
+      const somKof = format === 'kof' || !!pf;
+      const stikk = pf ? await this.stikkTilIcon() : [];
       const navner = somKof ? Eksport.kofNavner() : null;
       let sosiId = 1;
       const sosiOmr = { minN: Infinity, maksN: -Infinity, minO: Infinity, maksO: -Infinity };
@@ -2268,16 +2282,17 @@ ${tatt.map(x => x.bit.html).join('\n')}`;
         return g.features;
       });
 
-      if (format === 'icon' && (tatt.length || stikk.length)) {
+      if (pf && (tatt.length || stikk.length)) {
         const anlegg = tatt.flatMap(t => Eksport.kofTilPunkter(t.bit.rader.join('\n')));
-        const r = Eksport.icon(stikk.concat(anlegg));
-        const fil = this.filnavn('_alle_iCON.xml');
+        const r = pf.skriv(stikk.concat(anlegg), filsone || app.sone);
+        if (!r.antall) { this.eksportsvar(`Ingen av punktene har høyde – ${pf.navn}-fila ville vært tom`, true); return; }
+        const fil = this.filnavn('_alle' + pf.endelse);
         this.lastNed(fil, r.tekst, 'application/xml;charset=utf-8');
-        this.iconSvar(fil, r, stikk.length, anlegg.length,
+        this.punktfilSvar(format, fil, r, stikk.length, anlegg.length,
           hoppet.length ? hoppet.map(h => (h.anlegg.navn || h.anlegg.type) + ': ' + h.grunn).join('; ') : null, true);
         // bokstaven foran punktnavnet sier hvilket anlegg punktet er fra
         const merk = tatt.map(t => t.bit.merke + ' = ' + t.bit.anleggsnavn).join(', ');
-        if (merk) this.eksportsvar(this._sistSvar + ' · ' + merk, !!hoppet.length || !!r.omdopt.length);
+        if (merk) this.eksportsvar(this._sistSvar + ' · ' + merk, !!hoppet.length || !!r.omdopt.length || (format === 'makin' && r.uten.length > 0));
         return;
       }
       if (!tatt.length) {

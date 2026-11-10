@@ -1146,6 +1146,7 @@ const Kart = {
           b => this._kopier(this.stikkTabell(), b, `Kopierte ${alle} punkt`));
       }
       knapp('iCON', 'Last ned punktene du har satt som LandXML – det Leica iCON leser og skriver selv', () => this.lastNedStikkIcon());
+      knapp('Makin', 'Last ned punktene du har satt til Makin-maskinen – last fila opp i prosjektets Filer i Makin', () => this.lastNedStikkMakin());
       knapp('KOF', 'Last ned punktene du har satt som KOF – til GPS-en eller totalstasjonen', () => this.lastNedStikkKof());
       knapp('Slett', 'Ta bort punktet', () => { kart.closePopup(); this.slettStikkpunkt(beste.stikk); });
     }
@@ -1317,6 +1318,18 @@ const Kart = {
     Rapport.lastNed(Rapport.filnavn('_stikkpunkt.xml'), r.tekst, 'application/xml;charset=utf-8');
     app.status(`Lastet ned ${r.antall} stikkpunkt for iCON (LandXML, EUREF89 UTM${app.sone})`
       + (r.uten.length ? ` – ${r.uten.join(', ')} har ikke høyde og står som 2D-punkt` : ''));
+  },
+
+  /** Stikkpunktene til Makin-maskinen (Eksport.makin). Uten høyde er punktet ikke med. */
+  async lastNedStikkMakin() {
+    const app = this.app;
+    if (!this.stikkpunkter().length) { app.status('Ingen punkt å laste ned – sett et punkt i kartet først'); return; }
+    await this.hentStikkHoyder();
+    const r = Eksport.makin(this.stikkIconPunkter(), app.sone);
+    if (!r.antall) { app.status('Ingen av punktene har høyde – terrenget kunne ikke hentes der de står'); return; }
+    Rapport.lastNed(Rapport.filnavn('_stikkpunkt_Makin.xml'), r.tekst, 'application/xml;charset=utf-8');
+    app.status(`Lastet ned ${r.antall} stikkpunkt til Makin (EUREF89 UTM${app.sone}) – last fila opp i prosjektets Filer i Makin`
+      + (r.uten.length ? ` · ${r.uten.join(', ')} har ikke høyde og er ikke med` : ''));
   },
 
   /** Tegner linjeføring, knekkpunkt og fotavtrykk pa nytt. */
