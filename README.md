@@ -304,14 +304,20 @@ anleggslista, «Rør (fra filer)» i førstevalget, eller slipp filene på karte
   seg ved ny import og ny henting fra Makin.
 * **Rett ut** retter opp en innmåling som har gått i sikksakk. Klikk på røret
   der det skal begynne å gå rett, og så der det skal slutte. Du kan klikke på
-  et punkt eller hvor som helst på streken mellom to punkter. Da flyttes alle
-  punktene imellom inn på den rette linja mellom de to stedene, rett på tvers,
-  slik at hvert punkt flyttes så lite som mulig. Punktene du klikket på, blir
-  stående, og det gjør høydene også. Det er ett angresteg, og hvert punkt kan
-  flyttes tilbake i «Endre rør». Er det andre klikket på et annet rør, står
+  et punkt eller hvor som helst på streken mellom to punkter. Treffer du
+  streken, settes det inn et nytt punkt der, med høyden på streken, slik
+  «Endre rør» gjør. Så flyttes alle punktene imellom inn på den rette linja
+  mellom de to stedene, rett på tvers, slik at hvert punkt flyttes så lite som
+  mulig. Punktene du klikket på, blir stående, og det gjør de målte høydene
+  også. Det er ett angresteg, også for de nye punktene, og hvert punkt kan
+  flyttes tilbake eller tas bort i «Endre rør». Er det andre klikket på et annet rør, står
   det første fortsatt valgt. Klikker du på samme punkt igjen, velges det bort.
 * **Koble** tar også et klikk på selve røret, ikke bare på enden: da velges
   den enden av røret som er nærmest der du klikket, regnet langs røret.
+* **Svaret på et klikk står i kartet.** Med rørverktøyene (Slå av punkt, Bryt,
+  Koble, Endre rør, Rett ut) vises det klikket gjorde, eller hvorfor det ikke
+  gjorde noe, i en boks øverst i kartet i noen sekunder. Statuslinja er tynn og
+  kutter lange tekster, og der sto forklaringen før.
 
 ### Hent fra Makin
 

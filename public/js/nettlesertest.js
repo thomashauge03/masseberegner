@@ -10510,8 +10510,23 @@ const Nettlesertest = {
       const p50 = punkt('90PE', 50), n50 = -1.5 + (p50.o - o.x - 35) * (-0.5 / 30);
       this.sjekk('  og to klikk på streken retter ut punktene mellom stedene', Math.abs(p50.n - o.y - n50) < 0.05,
         `${(p50.n - o.y).toFixed(3)} m, ventet ${n50.toFixed(3)}`);
+      /* ET KLIKK PÅ STREKEN SETTER INN ET PUNKT DER – linja går fra og til
+         der man klikket, og punktet holder den der. */
+      const nyePkt = (r().retting.nye || []).filter(q => Array.isArray(q.paaStrekk));
+      this.sjekk('  og et nytt punkt står der hvert klikk traff streken', nyePkt.length === 2
+        && Math.abs(nyePkt[0].o - o.x - 35) < 0.3 && Math.abs(nyePkt[1].o - o.x - 65) < 0.3,
+        JSON.stringify(nyePkt.map(q => [q.o - o.x, q.n - o.y])));
+      const linjaNy = App.resultat.linjer.find(l => l.punkter.some(p => p.id === nyePkt[0].id));
+      this.sjekk('  og de nye punktene er med i røret', !!linjaNy && linjaNy.punkter.some(p => p.id === nyePkt[1].id));
+      const varsel = document.getElementById('kartvarsel');
+      this.sjekk('beskjeden står i kartet, ikke bare i statuslinja', !!varsel && !varsel.classList.contains('skjult')
+        && /Rettet ut/.test(varsel.textContent), varsel && varsel.textContent);
       await App.angre();
       await this.vent(400);
+      this.sjekk('angre tar bort de nye punktene også', !(r().retting.nye || []).length);
+      await mus(150, 30);                       // langt fra alle rør
+      this.sjekk('et klikk ved siden av rørene sier fra i kartet', /Klikk på røret/.test(varsel.textContent)
+        && !varsel.classList.contains('skjult'), varsel.textContent);
 
       Kart.settModus('rorKoble');
       await mus(50, 9.5);                       // på 32PE, nærmest enden ved 12

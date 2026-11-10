@@ -112,6 +112,17 @@ const RorUI = {
    * står seg når en nyere fil importeres.
    */
   kartklikk(modus, latlng) {
+    /* SVARET SKAL SES. Det klikket sa i statuslinja, vises også i kartet –
+       se App.varsle. Bommet man, sto forklaringen bare der øverst, avkuttet. */
+    const app = this.app, nr = app._statusNr;
+    try {
+      return this._kartklikk(modus, latlng);
+    } finally {
+      if (app._statusNr !== nr && app._sisteStatus && app.varsle) app.varsle(app._sisteStatus);
+    }
+  },
+
+  _kartklikk(modus, latlng) {
     const app = this.app;
     if (!app.erRor()) return;
     const r = app.P.ror;
@@ -301,15 +312,38 @@ const RorUI = {
       app.status(`Det er ikke samme rør – ${navn(fra)} er fortsatt valgt`);
       return false;
     }
-    const flytt = Ror.rettUt(linje, fra.id || fra.p, treff.id || treff.p) || [];
     this._rettFra = null;
-    if (!flytt.length) { app.status('Det er ingen punkt mellom de to'); Kart.tegnRor(); return false; }
+    // først: er det noe å rette ut? Da settes ingenting inn for ingenting
+    if (!(Ror.rettUt(linje, fra.id || fra.p, treff.id || treff.p) || []).length) {
+      app.status('Det er ingen punkt mellom de to stedene – klikk lenger fra hverandre');
+      Kart.tegnRor();
+      return false;
+    }
     app.merk('rettet ut rør');
+    /* ET KLIKK PÅ STREKEN SETTER INN ET PUNKT DER. Linja skal gå fra og til
+       der man klikket, og det er et punkt på røret som holder den der – ellers
+       sto røret og knakk mellom stedet og nabopunktet. Høyden ligger på
+       streken, som når «Endre rør» setter inn et punkt. */
+    let nye = 0;
+    const anker = t => {
+      if (t.id) return t.id;
+      const id = Ror.nyPunktId(r);
+      if (!r.retting.nye) r.retting.nye = [];
+      r.retting.nye.push({ id, nr: (t.a.nr + t.b.nr) / 2, kode: t.a.kode, o: +t.p.o.toFixed(3), n: +t.p.n.toFixed(3),
+        z: +(t.a.z + t.t * (t.b.z - t.a.z)).toFixed(3), paaStrekk: [t.a.id, t.b.id] });
+      Ror.brukRetting(r);
+      nye++;
+      return id;
+    };
+    const ia = anker(fra), ib = anker(treff);
+    const ny = Ror.byggLinjer(r, app.P.mal, iFila).linjer
+      .find(l => l.punkter.some(p => p.id === ia) && l.punkter.some(p => p.id === ib));
+    const flytt = (ny && Ror.rettUt(ny, ia, ib)) || [];
     for (const f of flytt) Ror.flyttTil(r, f.id, f.o, f.n);
     Ror.brukRetting(r);
-    const lengst = Math.max(...flytt.map(f => f.d));
-    app.status(`Rettet ut ${flytt.length} punkt på ${linje.kode} – det lengste ble flyttet ${Rapport.tall(lengst, 2)} m. `
-      + 'Høydene står. Angre, eller flytt et punkt tilbake i «Endre rør».');
+    const lengst = flytt.length ? Math.max(...flytt.map(f => f.d)) : 0;
+    app.status(`Rettet ut ${flytt.length} punkt på ${linje.kode}${nye ? ` og satte inn ${nye === 1 ? 'et nytt punkt' : nye + ' nye punkt'} der du klikket` : ''}`
+      + ` – det lengste ble flyttet ${Rapport.tall(lengst, 2)} m. Høydene står. Angre, eller endre punktene i «Endre rør».`);
     return true;
   },
 
@@ -341,8 +375,10 @@ const RorUI = {
         const t = L2 > 0 ? Math.max(0, Math.min(1, ((u.x - a.o) * dx + (u.y - a.n) * dy) / L2)) : 0;
         const q = { o: a.o + t * dx, n: a.n + t * dy, kode: l.kode };
         const d = avstand(q);
-        // `s`: hvor langt langs røret stedet er, målt i strekk – Koble bruker den til å finne nærmeste ende
-        if (d <= tol && (!sted || d < sted.d)) sted = { p: q, d, linjer: [l.id], l, s: k - 1 + t };
+        /* `s`: hvor langt langs røret stedet er, målt i strekk – Koble bruker den
+           til å finne nærmeste ende. `a`, `b` og `t`: strekket stedet ligger
+           på – «Rett ut» setter inn et punkt der. */
+        if (d <= tol && (!sted || d < sted.d)) sted = { p: q, d, linjer: [l.id], l, s: k - 1 + t, a, b, t };
       }
     }
     return sted;

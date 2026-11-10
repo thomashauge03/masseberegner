@@ -733,6 +733,15 @@ body {
 .leaflet-container { background: var(--flate-2); font-family: var(--skrift); }
 /* left klarer Leaflets egen zoomkontroll, som står i samme hjørne. */
 .kartsok { position: absolute; top: 12px; left: 56px; z-index: 500; width: 268px; }
+/* Svaret på et klikk med et verktøy – se App.varsle. Under søkefeltet, over
+   kartet; klikk går gjennom den, så den står aldri i veien. */
+.kartvarsel {
+  position: absolute; top: 56px; left: 56px; right: 56px; z-index: 600; max-width: 560px;
+  background: var(--flate-opp); border: 2px solid var(--kant-sterk); border-left: 5px solid var(--hm-raud);
+  color: var(--blekk); padding: 8px 12px; font-size: 13px; line-height: 1.45;
+  box-shadow: 3px 3px 0 0 rgba(0,0,0,.35); pointer-events: none;
+}
+.kartvarsel.skjult { display: none; }
 .kartsok input {
   width: 100%; background: var(--flate-opp); border: 2px solid var(--kant-sterk);
   color: var(--blekk); padding: 7px 10px; font-size: 12px; font-family: var(--skrift);

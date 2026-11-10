@@ -2593,7 +2593,29 @@ const App = {
     } catch (e) { /* uten lager virker programmet fortsatt, bare uten lagring */ }
   },
 
-  status(t) { document.getElementById('statuslinje').textContent = t; },
+  status(t) {
+    document.getElementById('statuslinje').textContent = t;
+    this._sisteStatus = t;
+    this._statusNr = (this._statusNr || 0) + 1;
+  },
+
+  /**
+   * En beskjed som SES – i kartet, der man klikket, i noen sekunder – og i
+   * statuslinja som før.
+   *
+   * Statuslinja er tynn og klipper lange tekster med «…». Til verktøyene i
+   * kartet var den det eneste svaret: klikket man feil, sto forklaringen der
+   * øverst, avkuttet, og det så ut som om ingenting skjedde.
+   */
+  varsle(t) {
+    this.status(t);
+    const e = document.getElementById('kartvarsel');
+    if (!e) return;
+    e.textContent = t;
+    e.classList.remove('skjult');
+    clearTimeout(this._varselTid);
+    this._varselTid = setTimeout(() => e.classList.add('skjult'), Math.min(9000, 3000 + 40 * t.length));
+  },
 
   /**
    * De fire tallene som avgjør, alltid synlige i topplinja.
