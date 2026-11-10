@@ -291,6 +291,11 @@ anleggslista, «Rør (fra filer)» i førstevalget, eller slipp filene på karte
 * **Kobler programmet feil**, rettes det i kartet: slå av et punkt, bryt en
   strek, koble to ender. Rettingene står seg når en nyere fil importeres –
   punktene kjennes igjen på id-en i fila, og ingenting slettes stille.
+  **Koble** virker også mellom to rør med ulik kode, for eksempel en overgang
+  fra «180 vann» til «160 vannrør» som ikke er målt. Da forlenges røret du
+  klikket først, til enden av det andre. De står som to rør som møtes, og
+  lengden telles på det første. Er begge endene på samme rør, står den første
+  fortsatt valgt, og et nytt klikk på samme ende velger den bort.
 * **Endre rør** gjør resten for hånd: dra et punkt dit røret faktisk går, klikk
   på en rørstrek for å sette inn et nytt punkt (høyden ligger på streken), eller
   ved enden for å forlenge røret. Et klikk på et punkt åpner det – et nytt punkt

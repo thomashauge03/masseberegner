@@ -902,15 +902,22 @@ const Ror = (() => {
         let ea = endeAv(a), eb = endeAv(b);
         const ia = ea ? -1 : enslig(a), ib = eb ? -1 : enslig(b);
         if ((!ea && ia < 0) || (!eb && ib < 0) || (ea && eb && ea.l === eb.l)) continue;
-        const kode = ea ? ea.l.kode : eb ? eb.l.kode : kanonisk(ror, enslige[ia].kode);
-        if ((ea ? ea.l.kode : kanonisk(ror, enslige[ia].kode)) !== kode
-          || (eb ? eb.l.kode : kanonisk(ror, enslige[ib].kode)) !== kode) continue;
+        const ka = ea ? ea.l.kode : kanonisk(ror, enslige[ia].kode);
+        const kb = eb ? eb.l.kode : kanonisk(ror, enslige[ib].kode);
+        const kode = ka;
         // a sist i den første, b først i den andre
         const del = (e, i, forst) => (e ? (e.forst === forst ? e.l.punkter.slice() : e.l.punkter.slice().reverse()) : [enslige[i]]);
-        let lp = del(ea, ia, false).concat(del(eb, ib, true));
+        /* ULIKE KODER: røret med a – enden som ble klikket først – forlenges
+           til punktet b. Røret med b står som det er, og de to møtes i
+           punktet, slik en overgang fra 180 til 160 eller en kabel som
+           fortsetter med en annen kode gjør. Her nektet «Koble» før, og den
+           valgte enden forsvant: det hullet kunne ikke lukkes i det hele tatt. */
+        const ulik = ka !== kb;
+        const pb = eb ? (eb.forst ? eb.l.punkter[0] : eb.l.punkter[eb.l.punkter.length - 1]) : enslige[ib];
+        let lp = del(ea, ia, false).concat(ulik ? [pb] : del(eb, ib, true));
         if (lp[lp.length - 1].nr < lp[0].nr) lp = lp.reverse();
-        for (const e of [ea, eb]) if (e) linjer.splice(linjer.indexOf(e.l), 1);
-        for (const id of [a, b]) { const i = enslig(id); if (i >= 0) enslige.splice(i, 1); }
+        for (const e of ulik ? [ea] : [ea, eb]) if (e) linjer.splice(linjer.indexOf(e.l), 1);
+        for (const id of ulik ? [a] : [a, b]) { const i = enslig(id); if (i >= 0) enslige.splice(i, 1); }
         const lxy = lp.map(tilXY);
         const ender = [lp[0].id, lp[lp.length - 1].id].sort();
         let id = kode + ':' + ender.join('~');

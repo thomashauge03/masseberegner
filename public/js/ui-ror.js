@@ -159,7 +159,11 @@ const RorUI = {
         const d = avstand(e.p);
         if (d <= tol && (!best || d < best.d)) best = Object.assign({ d }, e);
       }
-      if (!best) { app.status('Klikk på enden av et rør'); return; }
+      if (!best) {
+        app.status(this._kobleFra ? `Klikk på enden av et rør – enden av ${this._kobleFra.p.kode} er fortsatt valgt`
+          : 'Klikk på enden av et rør');
+        return;
+      }
       if (!this._kobleFra) {
         this._kobleFra = best;
         app.status(`Valgte enden av ${best.p.kode} – klikk på den andre enden`);
@@ -167,19 +171,24 @@ const RorUI = {
         return;
       }
       const a = this._kobleFra;
-      this._kobleFra = null;
-      if (a.p.id === best.p.id) { app.status('Det var samme ende – velg en annen'); Kart.tegnRor(); return; }
-      // koder som er slått sammen, er samme rør – det er dem linjene trekkes etter
-      if (Ror.kanonisk(r, a.p.kode) !== Ror.kanonisk(r, best.p.kode)) {
-        app.status(`Kan ikke koble ${a.p.kode} til ${best.p.kode} – bare rør med samme kode (slå kodene sammen i Rør-fanen først)`);
-        Kart.tegnRor();
+      // et nytt klikk på samme ende velger den bort
+      if (a.p.id === best.p.id) { this._kobleFra = null; app.status('Valgte bort enden'); Kart.tegnRor(); return; }
+      /* BEGGE ENDENE PÅ SAMME RØR: den første står fortsatt valgt, så man kan
+         klikke en annen. Her ble valget kastet ved hvert nei, og enden «datt
+         bort» uten at man så hvorfor. */
+      if (a.l && best.l && a.l.id === best.l.id) {
+        app.status(`Begge endene hører til samme rør – enden av ${a.p.kode} er fortsatt valgt`);
         return;
       }
-      if (a.l && best.l && a.l.id === best.l.id) { app.status('Begge endene hører til samme rør'); Kart.tegnRor(); return; }
+      this._kobleFra = null;
       app.merk('koblet to rør');
       r.retting.koble.push([a.p.id, best.p.id]);
       r.retting.brudd = r.retting.brudd.filter(k => !par(a.p.id, best.p.id)(k));
-      app.status(`${a.p.kode} er koblet sammen`);
+      // koder som er slått sammen, er samme rør – det er dem linjene trekkes etter
+      app.status(Ror.kanonisk(r, a.p.kode) === Ror.kanonisk(r, best.p.kode)
+        ? `${a.p.kode} er koblet sammen`
+        : `${a.p.kode} er forlenget til enden av ${best.p.kode} – to koder, så de står som to rør som møtes, `
+          + `og lengden telles på ${a.p.kode}`);
     } else if (modus === 'rorEndre') {
       if (!this._nyttPunkt(r, u, tol, iFila)) return;
     }

@@ -332,6 +332,36 @@ console.log('\n7b. Muffer og bend som bro over hull (knappen)');
     === JSON.stringify(paa));
 }
 
+console.log('\n7c. Koble to rør med ulik kode');
+{
+  /* «Koble» nektet rør med ulik kode, og den valgte enden forsvant: hullet
+     mellom «180 vann» og «160 vannrør» – en overgang som ikke er målt – kunne
+     ikke lukkes. Nå forlenges røret med den første enden til punktet på det
+     andre. Det andre røret står som det er; de to møtes i punktet. */
+  const pts = [];
+  let nr = 0;
+  const p = (kode, x) => pts.push({ id: 'k' + String(++nr).padStart(2, '0'), kode, n: 0, o: x, z: 1, tid: '', nr });
+  for (let x = 0; x <= 40; x += 10) p('180 vann', x);
+  for (let x = 70; x <= 100; x += 10) p('160 vannrør', x);
+  const a = pts.find(q => q.kode === '180 vann' && q.o === 40).id, b = pts.find(q => q.kode === '160 vannrør' && q.o === 70).id;
+  const ror = koble => ({ punkter: pts, koder: Ror.koderFra(pts), retting: { av: [], brudd: [], koble } });
+  const bygg = koble => Ror.byggLinjer(ror(koble), Ror.StandardRormal, iFila);
+
+  const b0 = bygg([]);
+  sjekk('uten kobling: to rør', b0.linjer.length, 2, 0);
+  const b1 = bygg([[a, b]]);
+  const stor = b1.linjer.find(l => l.kode === '180 vann'), liten = b1.linjer.find(l => l.kode === '160 vannrør');
+  sjekk('koblingen treffer', b1.koblingUtenTreff, 0, 0);
+  sjekk('180-røret er forlenget til 160-røret', stor.lengde, 70, 1e-9);
+  paastand('  og ender i punktet på 160-røret', stor.punkter[stor.punkter.length - 1].id === b, stor.punkter.map(q => q.o).join(' '));
+  sjekk('160-røret står som det var', liten.lengde, 30, 1e-9);
+  sjekk('  og det er fortsatt to rør', b1.linjer.length, 2, 0);
+  const b2 = bygg([[b, a]]);
+  sjekk('klikkes 160 først, er det 160-røret som forlenges', b2.linjer.find(l => l.kode === '160 vannrør').lengde, 60, 1e-9);
+  sjekk('  og 180-røret står', b2.linjer.find(l => l.kode === '180 vann').lengde, 40, 1e-9);
+  paastand('samme svar to ganger', JSON.stringify(bygg([[a, b]])) === JSON.stringify(b1));
+}
+
 /* ------------------------------------------------------------------ */
 console.log('\n8. Koordinater og sone');
 {

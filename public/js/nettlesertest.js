@@ -10393,6 +10393,36 @@ const Nettlesertest = {
       await this.vent(600);
       this.sjekk('koblingen er lagret', App.P.ror.retting.koble.length === 1);
       this.sjekk('90PE er nå to rør', antall('90PE') === 2, String(antall('90PE')));
+      /* TO ENDER PÅ SAMME RØR: den første står fortsatt valgt. Før ble valget
+         kastet ved hvert nei, og enden «datt bort». */
+      Kart.kart.setView(ll(50, 12), 19);
+      RorUI.kartklikk('rorKoble', ll(50, 12));
+      Kart.kart.setView(ll(50, 1), 19);
+      RorUI.kartklikk('rorKoble', ll(50, 1));
+      this.sjekk('begge endene på samme rør: den første står fortsatt valgt',
+        !!RorUI._kobleFra && App.P.ror.retting.koble.length === 1, String(App.P.ror.retting.koble.length));
+      Kart.kart.setView(ll(50, 12), 19);
+      RorUI.kartklikk('rorKoble', ll(50, 12));
+      this.sjekk('  og et klikk på samme ende velger den bort', !RorUI._kobleFra);
+      /* ULIKE KODER: 180 PE forlenges til enden av 32PE. Her nektet «Koble»
+         før – og valget forsvant. */
+      const lengde = kode => App.resultat.linjer.filter(l => l.kode === kode).reduce((s, l) => s + l.lengde, 0);
+      const foer180 = lengde('180 PE'), foer32 = lengde('32PE');
+      Kart.kart.setView(ll(192, 1), 19);
+      RorUI.kartklikk('rorKoble', ll(192, 1));
+      Kart.kart.setView(ll(50, 12), 19);
+      RorUI.kartklikk('rorKoble', ll(50, 12));
+      await this.ventPaBeregning(30000);
+      await this.vent(400);
+      this.sjekk('to rør med ulik kode kan kobles', App.P.ror.retting.koble.length === 2 && !RorUI._kobleFra,
+        String(App.P.ror.retting.koble.length));
+      this.sjekk('  og røret som ble klikket først, forlenges dit', lengde('180 PE') > foer180 + 100,
+        `${foer180.toFixed(1)} → ${lengde('180 PE').toFixed(1)} m`);
+      this.sjekk('  mens det andre står som det var', Math.abs(lengde('32PE') - foer32) < 1e-6,
+        `${foer32.toFixed(1)} → ${lengde('32PE').toFixed(1)} m`);
+      await App.angre();
+      await this.vent(400);
+      this.sjekk('  og koblingen kan angres', App.P.ror.retting.koble.length === 1);
       Kart.settModus('rorAv');
       Kart.kart.setView(ll(50, 0), 19);
       RorUI.kartklikk('rorAv', ll(50, 0.2));
