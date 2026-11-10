@@ -69,8 +69,8 @@ eller en tomt før du tegner en. Klikk i kartet, og hvert klikk blir
 et punkt S1, S2, … med nord, øst og terrenghøyde. Klikk på et punkt for
 koordinatene, dra det for å flytte det. I boksen kan du kopiere ett punkt,
 kopiere alle (en tabell med overskrift, rett inn i et regneark), laste dem ned
-for **iCON** (LandXML med `<CgPoint>`, samme form som Leica iCON selv skriver
-punktene i) eller som **KOF** (kode `STIKK`, til GPS-en eller totalstasjonen),
+for **iCON** (iCON sitt eget LandXML/HeXML-format, slik iCON selv skriver en
+jobb: hvert punkt som `<CgPoint>` og som `<Point>` med øst, nord og høyde) eller som **KOF** (kode `STIKK`, til GPS-en eller totalstasjonen),
 eller slette punktet.
 Punktene lagres med prosjektet, kan angres og står i hvert anlegg. Et slettet
 nummer brukes ikke på nytt, så S3 er alltid det samme punktet. Høyden er

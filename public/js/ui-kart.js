@@ -1304,20 +1304,49 @@ const Kart = {
   },
 
   /**
-   * Stikkpunktene som LandXML for Leica iCON: én `<CgPoint>` per punkt,
-   * «nord øst høyde» – samme form som iCON selv skriver punktene sine i.
-   * Der KOF må ha høyde, kan en CgPoint stå med bare nord og øst. Et punkt
-   * utenfor det hentede terrenget kommer derfor med som et 2D-punkt i stedet
-   * for å falle bort, og svaret sier hvilke.
+   * Stikkpunktene i iCON sitt eget format – slik Leica iCON selv skriver en
+   * jobb ut: LandXML 1.2 med HeXML. Hvert punkt står to steder, som hos iCON:
+   * som `<CgPoint>` («nord øst høyde») og som Hexagon-`<Point>` med
+   * `<Grid e n hghthO>` – øst, nord og ortometrisk høyde. Samme hode, samme
+   * enheter, samme innrykk og CRLF. Ingen `<CoordinateSystem>`: iCON sine egne
+   * filer har ingen, og punktene havner i jobbens system (her EUREF89 UTM i
+   * prosjektets sone).
+   * Der KOF må ha høyde, kan iCON ta et punkt med bare nord og øst. Et punkt
+   * uten terrenghøyde kommer derfor med som 2D-punkt, og svaret sier hvilke.
    */
   stikkLandxml() {
-    const app = this.app, alle = this.stikkpunkter().map(p => this.stikkKoordinater(p));
-    const rader = alle.map(k => `    <CgPoint name="${Eksport.xml(k.navn)}" code="STIKK">${k.n.toFixed(4)} ${k.e.toFixed(4)}`
-      + (Number.isFinite(k.z) ? ` ${k.z.toFixed(4)}` : '') + '</CgPoint>');
-    return {
-      tekst: Eksport.landxmlDokument(app, `  <CgPoints name="Stikkpunkt">\n${rader.join('\n')}\n  </CgPoints>`),
-      antall: alle.length, uten: alle.filter(k => !Number.isFinite(k.z)).map(k => k.navn)
-    };
+    const alle = this.stikkpunkter().map(p => this.stikkKoordinater(p));
+    const x = s => Eksport.xml(s), d = v => v.toFixed(6);
+    const nå = new Date(), to = v => String(v).padStart(2, '0');
+    const dato = `${nå.getFullYear()}-${to(nå.getMonth() + 1)}-${to(nå.getDate())}`;
+    const tid = `${to(nå.getHours())}:${to(nå.getMinutes())}:${to(nå.getSeconds())}`;
+    const har = k => Number.isFinite(k.z);
+    const l = [
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      '<LandXML xsi:schemaLocation="http://www.landxml.org/schema/LandXML-1.2 http://www.landxml.org/schema/LandXML-1.2/LandXML-1.2.xsd'
+        + ' http://xml.hexagon.com/schema/HeXML-1.8 http://xml.hexagon.com/schema/HeXML-1.8.xsd"'
+        + ` version="1.2" time="${tid}" date="${dato}" xmlns:xsd="http://www.w3.org/2001/XMLSchema"`
+        + ' xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://www.landxml.org/schema/LandXML-1.2">',
+      '   <Units>',
+      '      <Metric areaUnit="squareMeter" linearUnit="meter" volumeUnit="cubicMeter" temperatureUnit="kelvin" pressureUnit="HPA"'
+        + ' diameterUnit="meter" angularUnit="radians" heightUnit="meter" latLongAngularUnit="radians"></Metric>',
+      '   </Units>',
+      '   <CgPoints>'
+    ];
+    for (const k of alle) l.push(`      <CgPoint name="${x(k.navn)}">${d(k.n)} ${d(k.e)}${har(k) ? ' ' + d(k.z) : ''}</CgPoint>`);
+    l.push('   </CgPoints>', '   <HexagonLandXML xmlns="http://xml.hexagon.com/schema/HeXML-1.9">');
+    for (const k of alle) {
+      l.push(`      <Point uniqueID="${x(k.navn)}" class="control">`,
+        `         <Coordinates originalCoordSysKind="Grid" originalGeodeticDatumKind="Local" originalHeightKind="orthometric">`,
+        '            <Local>',
+        `               <Grid e="${d(k.e)}" n="${d(k.n)}"${har(k) ? ` hghthO="${d(k.z)}"` : ''}></Grid>`,
+        '            </Local>',
+        '         </Coordinates>',
+        '         <PointCode code=""></PointCode>',
+        '      </Point>');
+    }
+    l.push('   </HexagonLandXML>', '</LandXML>');
+    return { tekst: l.join('\r\n') + '\r\n', antall: alle.length, uten: alle.filter(k => !har(k)).map(k => k.navn) };
   },
 
   async lastNedStikkIcon() {
