@@ -1138,6 +1138,7 @@ const Kart = {
         knapp(`Kopier alle ${alle}`, 'Alle punktene du har satt, én linje per punkt – limes inn i et regneark',
           b => this._kopier(this.stikkTabell(), b, `Kopierte ${alle} punkt`));
       }
+      knapp('iCON', 'Last ned punktene du har satt som LandXML – det Leica iCON leser og skriver selv', () => this.lastNedStikkIcon());
       knapp('KOF', 'Last ned punktene du har satt som KOF – til GPS-en eller totalstasjonen', () => this.lastNedStikkKof());
       knapp('Slett', 'Ta bort punktet', () => { kart.closePopup(); this.slettStikkpunkt(beste.stikk); });
     }
@@ -1247,6 +1248,33 @@ const Kart = {
     Rapport.lastNed(Rapport.filnavn('_stikkpunkt.kof'), rader.join('\r\n') + '\r\n', 'text/plain;charset=utf-8');
     app.status(`Lastet ned ${med.length} stikkpunkt som KOF`
       + (uten.length ? ` – ${uten.map(k => k.navn).join(', ')} mangler høyde og er ikke med` : ''));
+  },
+
+  /**
+   * Stikkpunktene som LandXML for Leica iCON: én `<CgPoint>` per punkt,
+   * «nord øst høyde» – samme form som iCON selv skriver punktene sine i.
+   * Der KOF må ha høyde, kan en CgPoint stå med bare nord og øst. Et punkt
+   * utenfor det hentede terrenget kommer derfor med som et 2D-punkt i stedet
+   * for å falle bort, og svaret sier hvilke.
+   */
+  stikkLandxml() {
+    const app = this.app, alle = this.stikkpunkter().map(p => this.stikkKoordinater(p));
+    const rader = alle.map(k => `    <CgPoint name="${Eksport.xml(k.navn)}" code="STIKK">${k.n.toFixed(4)} ${k.e.toFixed(4)}`
+      + (Number.isFinite(k.z) ? ` ${k.z.toFixed(4)}` : '') + '</CgPoint>');
+    return {
+      tekst: Eksport.landxmlDokument(app, `  <CgPoints name="Stikkpunkt">\n${rader.join('\n')}\n  </CgPoints>`),
+      antall: alle.length, uten: alle.filter(k => !Number.isFinite(k.z)).map(k => k.navn)
+    };
+  },
+
+  lastNedStikkIcon() {
+    const app = this.app;
+    if (!this.stikkpunkter().length) { app.status('Ingen punkt å laste ned – sett et punkt i kartet først'); return; }
+    let r;
+    try { r = this.stikkLandxml(); } catch (e) { app.status(e.message); return; }
+    Rapport.lastNed(Rapport.filnavn('_stikkpunkt.xml'), r.tekst, 'application/xml;charset=utf-8');
+    app.status(`Lastet ned ${r.antall} stikkpunkt for iCON (LandXML, EUREF89 UTM${app.sone})`
+      + (r.uten.length ? ` – ${r.uten.join(', ')} har ikke høyde og står som 2D-punkt` : ''));
   },
 
   /** Tegner linjeføring, knekkpunkt og fotavtrykk pa nytt. */

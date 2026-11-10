@@ -67,11 +67,14 @@ punkt der du klikker, får du koordinatene og terrenghøyden for selve stedet.
 et punkt S1, S2, … med nord, øst og terrenghøyde. Klikk på et punkt for
 koordinatene, dra det for å flytte det. I boksen kan du kopiere ett punkt,
 kopiere alle (en tabell med overskrift, rett inn i et regneark), laste dem ned
-som **KOF** (kode `STIKK`, til GPS-en eller totalstasjonen) eller slette punktet.
+for **iCON** (LandXML med `<CgPoint>`, samme form som Leica iCON selv skriver
+punktene i) eller som **KOF** (kode `STIKK`, til GPS-en eller totalstasjonen),
+eller slette punktet.
 Punktene lagres med prosjektet, kan angres og står i hvert anlegg. Et slettet
 nummer brukes ikke på nytt, så S3 er alltid det samme punktet. Høyden er
 terrenget der punktet står, og den finnes bare der terrenget er hentet. Et
-punkt uten høyde kommer ikke med i KOF-fila, og svaret sier fra om det.
+punkt uten høyde kommer ikke med i KOF-fila; i iCON-fila står det med bare nord
+og øst. Svaret sier fra om det.
 
 **3D-modellen** (veg, tomt og rør) tegnes av skjermkortet – ovenfra, når du
 flyr og når du går – i full oppløsning hele tiden, med myk skyggelegging og
