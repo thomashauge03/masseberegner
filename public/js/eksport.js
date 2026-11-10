@@ -277,6 +277,60 @@ const Eksport = {
    * @param {Array<{navn:string,kode?:string,n:number,e:number,z?:number}>} punkter
    * @returns {{tekst:string, antall:number, uten:string[], omdopt:string[]}}
    */
+  /**
+   * Ett tall slik folk skriver det: «6483538,40», «6483538.40» eller
+   * «6 483 538,40» (mellomrom som tusenskille i et felt for seg). NaN ellers.
+   */
+  lesTall(s) {
+    const t = String(s == null ? '' : s).trim().replace(/[\s ]/g, '').replace(',', '.');
+    return /^[-+]?(\d+\.?\d*|\.\d+)$/.test(t) ? Number(t) : NaN;
+  },
+
+  /**
+   * Én linje med et punkt man skriver eller limer inn: navn (valgfritt),
+   * nord, øst og høyde (valgfri), skilt med tabulator, semikolon, mellomrom
+   * eller komma. Desimalene kan ha komma eller punktum.
+   *
+   * Hvilket tall som er hva, avgjøres av størrelsen, ikke bare rekkefølgen:
+   * nord i Norge er 6–8 millioner, øst under én million, en høyde under ti
+   * tusen. Fire tall er navn, nord, øst, høyde («1 6481402 396606 186,5»); tre
+   * er nord, øst, høyde når det siste er en høyde, ellers navn, nord, øst.
+   * Står øst før nord, byttes de, og svaret sier det.
+   *
+   * @returns {null | {feil:string} | {navn:?string, n:number, e:number, z:number, byttet:boolean}}
+   *   null for en tom linje eller en overskrift uten tall
+   */
+  lesPunktlinje(linje) {
+    const s = String(linje).trim();
+    if (!s) return null;
+    let biter;
+    if (/[\t;]/.test(s)) biter = s.split(/[\t;]/);
+    else {
+      biter = s.split(/\s+/);
+      // «6483538.4,395618.7,203» – komma som skille når punktum er desimaltegnet
+      if (biter.length === 1 || (/\./.test(s) && /,/.test(s))) biter = s.split(/[\s,]+/);
+    }
+    biter = biter.map(b => b.trim()).filter(Boolean);
+    const tall = biter.map(b => this.lesTall(b));
+    // alt foran det første tallet er navnet – «Hjørne A» er to ord
+    let navn = null, verdier = tall;
+    const forste = tall.findIndex(Number.isFinite);
+    if (forste > 0) { navn = biter.slice(0, forste).join(' '); verdier = tall.slice(forste); }
+    if (verdier.some(v => !Number.isFinite(v))) {
+      // en overskrift («Punkt Nord Øst Høyde») har ingen tall i det hele tatt
+      return tall.some(Number.isFinite) ? { feil: 'forstår ikke «' + s + '»' } : null;
+    }
+    if (navn === null && verdier.length === 4) navn = String(biter[0]), verdier = verdier.slice(1);
+    else if (navn === null && verdier.length === 3 && Math.abs(verdier[2]) >= 1e4) navn = String(biter[0]), verdier = verdier.slice(1);
+    if (verdier.length < 2 || verdier.length > 3) return { feil: 'trenger nord og øst, og eventuelt høyde: «' + s + '»' };
+    let [n, e, z] = verdier, byttet = false;
+    if (n < 1e6 && e >= 1e6) { [n, e] = [e, n]; byttet = true; }
+    if (!(n >= 6.0e6 && n <= 8.0e6)) return { feil: `nord ${n} er ikke i Norge (6–8 millioner): «${s}»` };
+    if (!(e > 0 && e < 1e6)) return { feil: `øst ${e} er ikke en UTM-koordinat (under én million): «${s}»` };
+    if (z !== undefined && !(z > -500 && z < 3000)) return { feil: `høyden ${z} ser ikke ut som en høyde: «${s}»` };
+    return { navn, n, e, z: z === undefined ? NaN : z, byttet };
+  },
+
   /** Punkt med gyldig nord og øst, og ett navn per punkt – se `icon`. */
   unikePunkt(punkter) {
     const brukt = new Set(), omdopt = [];

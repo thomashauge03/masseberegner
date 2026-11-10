@@ -1181,6 +1181,14 @@ table.avvikliste tr.utenfor td { color: var(--data-skjaering); font-weight: 600;
   border-radius: 0; box-shadow: none; padding: 0 4px; font-size: 11px; font-weight: 600;
 }
 .leaflet-tooltip.stikketikett::before { display: none; }
+/* skriv inn eller endre et stikkpunkt – i dialogen og i boksen ved punktet */
+.punktskjema { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; }
+.punktskjema .minivalg, .punktliming textarea, #stikkSone { width: 100%; box-sizing: border-box; font-variant-numeric: tabular-nums; }
+.punktliming { margin: 6px 0; }
+.punktliming summary { cursor: pointer; color: var(--blekk-svak); }
+.punktliming textarea { font-family: ui-monospace, monospace; resize: vertical; }
+.koordinatboks.punktboks-skjema { width: 260px; }
+.koordinatboks.punktboks-skjema .makinfelt { margin: 4px 0; }
 .leaflet-bar a { background: var(--flate-opp); color: var(--blekk); border-color: var(--kant); }
 .leaflet-bar a:hover { background: var(--kant); }
 .leaflet-control-attribution { background: rgba(11,11,12,.7) !important; color: #a1a1aa !important; }

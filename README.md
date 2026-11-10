@@ -72,6 +72,17 @@ kopiere alle (en tabell med overskrift, rett inn i et regneark), laste dem ned
 for **iCON** (iCON sitt eget LandXML/HeXML-format, slik iCON selv skriver en
 jobb: hvert punkt som `<CgPoint>` og som `<Point>` med øst, nord og høyde) eller som **KOF** (kode `STIKK`, til GPS-en eller totalstasjonen),
 eller slette punktet.
+
+**⌨ Skriv inn punkt** – nord, øst og høyde for et punkt man har fra en tegning
+eller en plassering, i EUREF89 UTM32, 33 eller 35. Eller lim inn mange på en gang,
+én linje per punkt: navn (valgfritt), nord, øst og høyde (valgfri), med tabulator,
+semikolon eller mellomrom mellom og komma eller punktum som desimaltegn. Tabellen
+fra «Kopier alle» går rett inn igjen. Står øst foran nord, byttes de, og svaret
+sier fra. Trykk på et punkt og **✎ Endre** for å rette navn, nord, øst og høyde
+der i boksen ved punktet. En høyde du skriver inn, er punktets egen og byttes
+aldri ut med terrenget. Står høyden tom, brukes terrenget. Tallene du skriver,
+er de som kommer ut i filene, helt ned på millimeteren. Drar du punktet, står
+det der du slapp det.
 Punktene lagres med prosjektet, kan angres og står i hvert anlegg. Et slettet
 nummer brukes ikke på nytt, så S3 er alltid det samme punktet. Høyden er
 terrenget (DTM1) der punktet står. Står punktet utenfor terrenget anlegget har

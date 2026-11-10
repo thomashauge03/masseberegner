@@ -466,6 +466,7 @@ const Kart = {
     if (p('verktoyMaal')) p('verktoyMaal').onclick = () => this.settModus('maal');
     if (p('verktoyMaalTom')) p('verktoyMaalTom').onclick = () => this.tomMaal();
     if (p('verktoyStikk')) p('verktoyStikk').onclick = () => this.settModus(this.modus === 'settPunkt' ? 'rediger' : 'settPunkt');
+    if (p('verktoyStikkSkriv')) p('verktoyStikkSkriv').onclick = () => this.skrivInnStikkpunkt();
     if (p('modusVeg')) p('modusVeg').onclick = () => this.app.settModus('veg');
     if (p('modusTomt')) p('modusTomt').onclick = () => this.app.settModus('tomt');
     /* Anleggslista. Samme oppførsel som lagvelgeren på kartet: lukker seg ved
@@ -1051,7 +1052,14 @@ const Kart = {
    */
   punkterHer() {
     // stikkpunktene først: de står i hvert anlegg, og det er dem man har satt selv
-    const stikk = this.stikkpunkter().map(p => ({ navn: p.navn, lat: p.lat, lon: p.lon, stikk: p }));
+    // en høyde man har skrevet inn selv, står foran terrenget – se stikkKoordinater
+    const stikk = this.stikkpunkter().map(p => {
+      const o = { navn: p.navn, lat: p.lat, lon: p.lon, stikk: p };
+      if (Number.isFinite(p.z)) Object.assign(o, { z: p.z, zNavn: 'Høyde (skrevet inn)' });
+      // skrevet inn: tallene som ble skrevet, med millimeter – som et punkt fra en fil
+      if (p.utm && p.utm.sone === this.app.sone) Object.assign(o, { n: p.utm.n, e: p.utm.e, sone: p.utm.sone });
+      return o;
+    });
     return stikk.concat(this.anleggspunkter());
   },
 
@@ -1133,13 +1141,18 @@ const Kart = {
       b.className = 'knapp';
       b.textContent = tekst;
       b.title = tittel;
-      b.onclick = () => gjor(b);
+      /* Klikket stopper her. «✎ Endre» bytter ut innholdet i boksen, og en
+         knapp som ikke lenger står i boksen, tok Leaflet for et klikk på
+         kartet: boksen lukket seg – og i «Sett punkt» ble det et nytt punkt. */
+      b.onclick = e => { L.DomEvent.stopPropagation(e); gjor(b); };
       d.appendChild(b);
       d.appendChild(document.createTextNode(' '));
     };
     knapp('Kopier', 'Navn, nord, øst og høyde med tabulator mellom – limes inn som fire kolonner i et regneark',
       b => this._kopier([beste.navn, kopi(beste.n), kopi(beste.e), kopi(beste.z)].join('\t'), b, 'Kopierte koordinatene til ' + beste.navn));
     if (beste.stikk) {
+      // først: det er det man oftest vil med et punkt man har satt selv
+      knapp('✎ Endre', 'Skriv inn navn, nord, øst og høyde for punktet her', () => this.skrivInnStikkpunkt(beste.stikk, d));
       const alle = this.stikkpunkter().length;
       if (alle > 1) {
         knapp(`Kopier alle ${alle}`, 'Alle punktene du har satt, én linje per punkt – limes inn i et regneark',
@@ -1150,7 +1163,8 @@ const Kart = {
       knapp('KOF', 'Last ned punktene du har satt som KOF – til GPS-en eller totalstasjonen', () => this.lastNedStikkKof());
       knapp('Slett', 'Ta bort punktet', () => { kart.closePopup(); this.slettStikkpunkt(beste.stikk); });
     }
-    L.popup({ autoPanPadding: [20, 20] }).setLatLng([beste.lat, beste.lon]).setContent(d).openOn(kart);
+    // luft øverst: søkefeltet ligger over kartet og skjulte toppen av boksen
+    L.popup({ autoPanPadding: [20, 20], autoPanPaddingTopLeft: [20, 70] }).setLatLng([beste.lat, beste.lon]).setContent(d).openOn(kart);
   },
 
   _kopier(tekst, knapp, melding) {
@@ -1175,7 +1189,17 @@ const Kart = {
   stikkpunkter() { return (this.app.P && this.app.P.stikkpunkter) || []; },
 
   stikkKoordinater(p) {
-    const app = this.app, u = Geo.tilUtm(p.lat, p.lon, app.sone);
+    const app = this.app;
+    /* Skrev man inn nord og øst, er det de tallene som gjelder – i den sonen
+       de ble skrevet i. Gjennom gradene og tilbake ble 6483538,40 til
+       6483538,400002: ingenting å stikke etter, men et punkt man har skrevet
+       inn, skal komme ut slik det ble skrevet. */
+    const u = p.utm && p.utm.sone === app.sone && Number.isFinite(p.utm.n) && Number.isFinite(p.utm.e)
+      ? { x: p.utm.e, y: p.utm.n } : Geo.tilUtm(p.lat, p.lon, app.sone);
+    /* EN HØYDE MAN HAR SKREVET INN, ER DEN SOM GJELDER. Den kommer fra en
+       tegning eller en plassering – ofte et nivå som ikke er terrenget i dag –
+       og skal aldri byttes ut med terrenget i stillhet. */
+    if (Number.isFinite(p.z)) return { navn: p.navn, n: u.y, e: u.x, z: p.z, skrevet: true };
     let z = app.terreng ? app.terreng.z(u.x, u.y) : NaN;
     const egen = this._stikkTerreng;
     if (!Number.isFinite(z) && egen && egen.sone === app.sone) z = egen.z(u.x, u.y);
@@ -1210,10 +1234,7 @@ const Kart = {
     const app = this.app, P = app.P;
     app.merk('nytt stikkpunkt');
     if (!Array.isArray(P.stikkpunkter)) P.stikkpunkter = [];
-    /* Neste nummer etter det høyeste. Er S3 slettet, skal ikke et nytt punkt
-       hete S3 – det gamle kan alt stå ute med det navnet på en plugg. */
-    const nr = P.stikkpunkter.reduce((m, p) => Math.max(m, parseInt(String(p.navn).slice(1), 10) || 0), 0) + 1;
-    const p = { navn: 'S' + nr, lat: latlng.lat, lon: latlng.lng };
+    const p = { navn: this.nesteStikknavn(), lat: latlng.lat, lon: latlng.lng };
     P.stikkpunkter.push(p);
     this.tegnStikkpunkter();
     app.planleggAutolagring();
@@ -1234,6 +1255,165 @@ const Kart = {
         }
       });
     }
+  },
+
+  /* Neste nummer etter det høyeste. Er S3 slettet, skal ikke et nytt punkt
+     hete S3 – det gamle kan alt stå ute med det navnet på en plugg. Et navn
+     man har skrevet selv («Hjørne A»), teller ikke. */
+  nesteStikknavn(ekstra = []) {
+    const nr = this.stikkpunkter().map(p => p.navn).concat(ekstra)
+      .reduce((m, n) => Math.max(m, /^S\d+$/.test(String(n)) ? parseInt(String(n).slice(1), 10) : 0), 0) + 1;
+    return 'S' + nr;
+  },
+
+  /** Et lite skjema i programmets egen dialog. `avbrutt` kalles ved Esc og Lukk. */
+  _dialog(tittel, html, avbrutt) {
+    const boks = document.getElementById('dialog');
+    const innhold = document.getElementById('dialoginnhold');
+    const lukkeknapp = document.getElementById('dialogLukk');
+    document.getElementById('dialogtittel').textContent = tittel;
+    innhold.innerHTML = html;
+    let lukket = false;
+    const gammelLukk = lukkeknapp.onclick;
+    const lukk = () => {
+      if (lukket) return false;
+      lukket = true;
+      boks.classList.add('skjult');
+      lukkeknapp.onclick = gammelLukk;
+      document.removeEventListener('keydown', taste);
+      return true;
+    };
+    const taste = e => { if (e.key === 'Escape' && lukk() && avbrutt) avbrutt(); };
+    lukkeknapp.onclick = () => { if (lukk() && avbrutt) avbrutt(); };
+    document.addEventListener('keydown', taste);
+    boks.classList.remove('skjult');
+    return { innhold, lukk };
+  },
+
+  /**
+   * Skriv inn et stikkpunkt med koordinater – eller rett på et som står.
+   *
+   * Nord og øst i EUREF89 UTM, høyden valgfri: tom høyde er terrenget der
+   * punktet står, en skrevet høyde er punktets egen og byttes aldri ut med
+   * terrenget. Ved et nytt punkt kan man også lime inn mange linjer på en gang
+   * – fra et regneark, en tegning eller «Kopier alle» (se Eksport.lesPunktlinje).
+   *
+   * @param {object} [gammelt]  punktet som rettes; uten er det et nytt
+   * @param {HTMLElement} [beholder]  boksen på kartet punktet ble trykket på –
+   *   skjemaet skrives da der, ved punktet, i stedet for i en dialog
+   */
+  skrivInnStikkpunkt(gammelt, beholder) {
+    const app = this.app, kart = this.kart;
+    const k = gammelt ? this.stikkKoordinater(gammelt) : null;
+    const t2 = v => (Number.isFinite(v) ? v.toFixed(3).replace('.', ',') : '');
+    const soner = [32, 33, 35].map(s => `<option value="${s}"${s === app.sone ? ' selected' : ''}>EUREF89 UTM${s}</option>`).join('');
+    const felt = (id, tekst, verdi, hint) => `<div class="makinfelt"><label for="${id}">${tekst}</label>`
+      + `<input id="${id}" class="minivalg" autocomplete="off" spellcheck="false"${id === 'stikkNavn' ? '' : ' inputmode="decimal"'} value="${escapeHtml(verdi)}"`
+      + (hint ? ` placeholder="${escapeHtml(hint)}"` : '') + '></div>';
+    const terrenghint = k && !k.skrevet && Number.isFinite(k.z) ? 'tom = terrenget (' + t2(k.z) + ')' : 'tom = terrenget der punktet står';
+    const tittel = gammelt ? 'Endre ' + gammelt.navn : 'Skriv inn punkt';
+    const skjema = `
+      <div class="punktskjema">
+        ${felt('stikkNavn', 'Navn', gammelt ? gammelt.navn : '', gammelt ? '' : this.nesteStikknavn())}
+        ${felt('stikkNord', 'Nord (m)', k ? t2(k.n) : '', 'f.eks. 6483538,40')}
+        ${felt('stikkOst', 'Øst (m)', k ? t2(k.e) : '', 'f.eks. 395618,75')}
+        ${felt('stikkHoyde', 'Høyde (moh, valgfri)', k && k.skrevet ? t2(k.z) : '', terrenghint)}
+      </div>
+      <div class="makinfelt"><label for="stikkSone">Koordinatsystem</label>
+        <select id="stikkSone" class="minivalg">${soner}</select></div>
+      ${gammelt ? '' : `<details class="punktliming"><summary>Lim inn flere punkt</summary>
+        <p class="notis">Én linje per punkt: navn (valgfritt), nord, øst og høyde (valgfri) – fra et regneark,
+          en tegning eller «Kopier alle». Komma eller punktum som desimaltegn.</p>
+        <textarea id="stikkLinjer" class="minivalg" rows="6" spellcheck="false"></textarea></details>`}
+      <p class="raud" id="stikkMelding" hidden></p>
+      <div class="knapperad" style="justify-content:flex-end">
+        <button class="knapp" id="stikkAvbryt">Avbryt</button>
+        <button class="knapp primaer" id="stikkOk">${gammelt ? 'Lagre' : 'Legg til'}</button>
+      </div>`;
+    let d;
+    if (beholder) {
+      // i boksen ved punktet: Avbryt viser koordinatene igjen, Lagre lukker og viser de nye
+      beholder.classList.add('punktboks-skjema');
+      beholder.innerHTML = `<b>${escapeHtml(tittel)}</b>` + skjema;
+      // boksen ble større – Leaflet må måle og plassere den på nytt
+      if (kart._popup) kart._popup.update();
+      d = { innhold: beholder, lukk: () => { kart.closePopup(); return true; } };
+    } else d = this._dialog(tittel, skjema);
+    const q = id => d.innhold.querySelector('#' + id);
+    const melding = s => { q('stikkMelding').textContent = s; q('stikkMelding').hidden = false; };
+    q('stikkAvbryt').onclick = () => { d.lukk(); if (beholder && gammelt) this.visKoordinater({ lat: gammelt.lat, lng: gammelt.lon }); };
+
+    const ok = () => {
+      const sone = parseInt(q('stikkSone').value, 10);
+      const linjer = q('stikkLinjer') ? q('stikkLinjer').value : '';
+      const enkelt = [q('stikkNord').value, q('stikkOst').value].some(v => v.trim());
+      let lest = [];
+      if (enkelt || gammelt) {
+        const n = Eksport.lesTall(q('stikkNord').value), e = Eksport.lesTall(q('stikkOst').value);
+        const hTekst = q('stikkHoyde').value.trim(), h = hTekst ? Eksport.lesTall(hTekst) : NaN;
+        if (!Number.isFinite(n) || !Number.isFinite(e)) { melding('Skriv nord og øst som tall, f.eks. 6483538,40'); return; }
+        if (hTekst && !Number.isFinite(h)) { melding('Høyden må være et tall – eller tom for terrenget'); return; }
+        const r = Eksport.lesPunktlinje([n, e].concat(hTekst ? [h] : []).join(' '));
+        if (!r || r.feil) { melding(r ? r.feil : 'Skriv nord og øst'); return; }
+        lest.push(Object.assign(r, { navn: q('stikkNavn').value.trim() || null }));
+      }
+      const feil = [];
+      for (const [i, l] of linjer.split(/\r?\n/).entries()) {
+        const r = Eksport.lesPunktlinje(l);
+        if (!r) continue;
+        if (r.feil) feil.push(`linje ${i + 1}: ${r.feil}`); else lest.push(r);
+      }
+      if (feil.length) { melding(feil.slice(0, 4).join(' · ') + (feil.length > 4 ? ` (og ${feil.length - 4} til)` : '')); return; }
+      if (!lest.length) { melding('Skriv nord og øst – eller lim inn linjer med punkt'); return; }
+
+      // navnene: det man skrev, ellers neste S-nummer; aldri to like
+      const andre = this.stikkpunkter().filter(p => p !== gammelt).map(p => p.navn);
+      const brukt = new Set(andre), nye = [];
+      for (const r of lest) {
+        if (!r.navn) r.navn = this.nesteStikknavn(nye.concat(gammelt ? [gammelt.navn] : []));
+        if (brukt.has(r.navn)) { melding(`Det finnes alt et punkt som heter ${r.navn}`); return; }
+        brukt.add(r.navn); nye.push(r.navn);
+      }
+
+      if (!d.lukk()) return;
+      app.merk(gammelt ? 'rettet stikkpunkt' : (lest.length > 1 ? 'skrev inn stikkpunkt' : 'nytt stikkpunkt'));
+      if (!Array.isArray(app.P.stikkpunkter)) app.P.stikkpunkter = [];
+      // står prosjektet ennå uten sone, er det koordinatene man skriver som avgjør den
+      if (!app._soneSatt) { app.sone = sone; app._soneSatt = true; }
+      const punkt = lest.map(r => {
+        const g = Geo.fraUtm(r.e, r.n, sone);
+        const p = gammelt || {};
+        Object.assign(p, { navn: r.navn, lat: g.lat, lon: g.lon, utm: { sone, n: r.n, e: r.e } });
+        if (Number.isFinite(r.z)) p.z = r.z; else delete p.z;
+        if (!gammelt) app.P.stikkpunkter.push(p);
+        return p;
+      });
+      this.tegnStikkpunkter();
+      app.planleggAutolagring();
+      if (app.P.ubestemt) app.visAnleggsvalg();
+      if (punkt.length === 1) kart.setView([punkt[0].lat, punkt[0].lon], Math.max(kart.getZoom(), 17));
+      else kart.fitBounds(L.latLngBounds(punkt.map(p => [p.lat, p.lon])), { padding: [40, 40], maxZoom: 18 });
+      const byttet = lest.filter(r => r.byttet).map(r => r.navn);
+      const annenSone = sone !== app.sone ? ` · skrevet i UTM${sone}, vises i prosjektets UTM${app.sone}` : '';
+      const si = () => {
+        const uten = punkt.filter(p => !Number.isFinite(this.stikkKoordinater(p).z)).map(p => p.navn);
+        app.status((gammelt ? `Rettet ${punkt[0].navn}` : `La inn ${punkt.length === 1 ? punkt[0].navn : punkt.length + ' punkt'}`)
+          + (byttet.length ? ` · nord og øst sto omvendt og er byttet: ${byttet.join(', ')}` : '')
+          + (uten.length ? ` · uten høyde: ${uten.join(', ')}` : '') + annenSone);
+      };
+      si();
+      if (punkt.some(p => !Number.isFinite(this.stikkKoordinater(p).z))) {
+        app.status('Henter terrenghøyden …');
+        this.hentStikkHoyder().then(si);
+      }
+      if (gammelt) this.visKoordinater({ lat: gammelt.lat, lng: gammelt.lon });
+    };
+    q('stikkOk').onclick = ok;
+    // Enter i et felt legger til; i innlimingsboksen er Enter en ny linje
+    for (const inp of d.innhold.querySelectorAll('input')) inp.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); ok(); } };
+    // i boksen ved punktet: vent til den har fått plassen sin, ellers ruller kartet
+    if (beholder) setTimeout(() => { const f = q('stikkNord'); if (f) f.focus({ preventScroll: true }); }, 0);
+    else q('stikkNord').focus();
   },
 
   slettStikkpunkt(p) {
@@ -1264,6 +1444,8 @@ const Kart = {
       m.on('dragend', () => {
         const ll = m.getLatLng();
         p.lat = ll.lat; p.lon = ll.lng;
+        // dratt: punktet står der musa slapp det, ikke på tallene som ble skrevet
+        delete p.utm;
         this.app.planleggAutolagring();
         this.visKoordinater(ll);
         // dratt ut av terrenget som er hentet: hent det, og vis boksen med høyden
@@ -1276,7 +1458,8 @@ const Kart = {
 
   /** Alle stikkpunktene som tabell: overskrift og én linje per punkt, tabulator mellom. */
   stikkTabell() {
-    const t = v => (Number.isFinite(v) ? v.toFixed(2).replace('.', ',') : '');
+    // millimeter: et punkt man har skrevet inn med tre desimaler, skal ikke kappes
+    const t = v => (Number.isFinite(v) ? v.toFixed(3).replace('.', ',') : '');
     return ['Punkt\tNord\tØst\tHøyde'].concat(this.stikkpunkter().map(p => {
       const k = this.stikkKoordinater(p);
       return [k.navn, t(k.n), t(k.e), t(k.z)].join('\t');

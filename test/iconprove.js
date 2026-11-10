@@ -79,5 +79,28 @@ console.log('Makin-skriveren');
   paastand('CRLF på hver linje', !/[^\r]\n/.test(t) && t.endsWith('</LandXML>\r\n'));
 }
 
+console.log('Punkt man skriver eller limer inn');
+{
+  const L = s => Eksport.lesPunktlinje(s);
+  const er = (r, navn, n, e, z) => r && !r.feil && r.navn === navn && Math.abs(r.n - n) < 1e-6 && Math.abs(r.e - e) < 1e-6
+    && (Number.isNaN(z) ? Number.isNaN(r.z) : Math.abs(r.z - z) < 1e-6);
+  paastand('nord og øst, komma som desimaltegn', er(L('6600000,40 500000,25'), null, 6600000.4, 500000.25, NaN), JSON.stringify(L('6600000,40 500000,25')));
+  paastand('nord, øst og høyde', er(L('6600000.4 500000.25 186.5'), null, 6600000.4, 500000.25, 186.5));
+  paastand('navn foran', er(L('Hjørne 6600000 500000 100'), 'Hjørne', 6600000, 500000, 100));
+  paastand('et navn med mellomrom', er(L('Hjørne A 6600000 500000'), 'Hjørne A', 6600000, 500000, NaN));
+  paastand('et tall som navn: fire tall', er(L('1 6600000 500000 100'), '1', 6600000, 500000, 100));
+  paastand('et tall som navn, uten høyde', er(L('7 6600000 500000'), '7', 6600000, 500000, NaN));
+  paastand('raden fra «Kopier alle» (tabulator, komma)', er(L('S3\t6600000,12\t500000,34\t101,56'), 'S3', 6600000.12, 500000.34, 101.56));
+  paastand('semikolon fra et regneark', er(L('A;6600000,1;500000,2;99,9'), 'A', 6600000.1, 500000.2, 99.9));
+  paastand('komma som skille, punktum som desimal', er(L('6600000.1,500000.2,99.9'), null, 6600000.1, 500000.2, 99.9));
+  paastand('mellomrom som tusenskille i hvert felt', er(L('6 600 000,5\t500 000,5'), null, 6600000.5, 500000.5, NaN));
+  const b = L('500000 6600000 100');
+  paastand('øst før nord byttes, og det sies', er(b, null, 6600000, 500000, 100) && b.byttet === true);
+  paastand('overskriften fra «Kopier alle» hoppes over', L('Punkt\tNord\tØst\tHøyde') === null && L('   ') === null);
+  paastand('nord utenfor Norge er en feil', !!(L('1234567 500000') || {}).feil);
+  paastand('en høyde på 5000 m er en feil', !!(L('6600000 500000 5000') || {}).feil);
+  paastand('bare ett tall er en feil', !!(L('6600000') || {}).feil);
+}
+
 console.log(`\n${ok} ok, ${feil} feil`);
 process.exit(feil ? 1 : 0);
