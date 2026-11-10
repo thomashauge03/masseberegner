@@ -1459,6 +1459,60 @@ const Ror = (() => {
     }
   }
 
+  /**
+   * Flytter et punkt til (o, n) i fila sin sone – som en retting. Et målt
+   * punkt får `retting.flytt`, et punkt brukeren har lagt til, flyttes der
+   * det står i `retting.nye`. Tilbake der det ble målt (innen en centimeter)
+   * er ingen flytting. Høyden røres ikke. Kall `brukRetting` etterpå.
+   */
+  function flyttTil(ror, id, o, n) {
+    const p = ror && (ror.punkter || []).find(q => q.id === id);
+    if (!p) return false;
+    const r = ror.retting || (ror.retting = nyRetting());
+    if (p.lagtTil) {
+      const q = (r.nye || []).find(x => x.id === id);
+      if (q) { q.o = o; q.n = n; }
+      return !!q;
+    }
+    if (!r.flytt) r.flytt = {};
+    const m = innmalt(p);
+    if (Math.hypot(m.o - o, m.n - n) < 0.01) delete r.flytt[id];
+    else r.flytt[id] = { o, n };
+    return true;
+  }
+
+  /**
+   * «RETT UT»: punktene mellom to punkt på et rør, flyttet inn på den rette
+   * linja mellom dem – rett på tvers, så hvert punkt flyttes så lite som
+   * mulig. De to punktene selv står. Bare o og n: høydene er målt og står.
+   *
+   * Til en innmåling som har gått i sikksakk der røret ligger rett i grøfta.
+   * Flyttingene legges inn med `flyttTil`, så de er vanlige rettinger: de
+   * står seg ved ny import og ny henting fra Makin, og hvert punkt kan
+   * flyttes tilbake.
+   *
+   * @param {{punkter}} linje  et rør fra `byggLinjer`
+   * @returns {?Array<{id, o, n, d:number}>} ny plass for hvert punkt imellom
+   *   og hvor langt det flyttes – eller null når et av punktene ikke er på røret
+   */
+  function rettUt(linje, fraId, tilId) {
+    const pk = (linje && linje.punkter) || [];
+    const i = pk.findIndex(p => p.id === fraId), j = pk.findIndex(p => p.id === tilId);
+    if (i < 0 || j < 0 || i === j) return null;
+    const [a, b] = i < j ? [i, j] : [j, i];
+    const A = pk[a], B = pk[b];
+    const dx = B.o - A.o, dy = B.n - A.n, L2 = dx * dx + dy * dy;
+    if (!(L2 > 0)) return null;
+    const ut = [];
+    for (let k = a + 1; k < b; k++) {
+      const p = pk[k];
+      const t = Math.max(0, Math.min(1, ((p.o - A.o) * dx + (p.n - A.n) * dy) / L2));
+      const o = +(A.o + t * dx).toFixed(3), n = +(A.n + t * dy).toFixed(3);
+      ut.push({ id: p.id, o, n, d: Math.hypot(o - p.o, n - p.n) });
+    }
+    return ut;
+  }
+
   /** En ledig id til et punkt brukeren legger til: «+1», «+2» … */
   function nyPunktId(ror) {
     const brukt = new Set(((ror && ror.punkter) || []).map(p => p.id)
@@ -1773,7 +1827,7 @@ const Ror = (() => {
     kanonisk, forslagSammen, slaaSammenKoder, skillKode, ikkeSamme,
     lagTilXY, tilLatLon, erUtm, sjekkKoordinater, gjettSone, slaSammen, byttPunkter, rensRetting, slaSammenFiler, dimensjon, hoppetOver, kildetekst, navnFraFil,
     korridor, profil, objekterLangs, objekterPaaLinjer, sammendrag, merknader, spenn,
-    nyRor, nyRetting, brukRetting, innmalt, nyPunktId, StandardRormal, FARGER
+    nyRor, nyRetting, brukRetting, innmalt, flyttTil, rettUt, nyPunktId, StandardRormal, FARGER
   };
 })();
 

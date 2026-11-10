@@ -70,7 +70,7 @@ const RorUI = {
     if (id('ror_forrige')) id('ror_forrige').onclick = () => this.blaa(-1);
     if (id('ror_neste')) id('ror_neste').onclick = () => this.blaa(1);
     for (const [knapp, modus] of [['verktoyRorAv', 'rorAv'], ['verktoyRorBryt', 'rorBryt'],
-      ['verktoyRorKoble', 'rorKoble'], ['verktoyRorEndre', 'rorEndre']]) {
+      ['verktoyRorKoble', 'rorKoble'], ['verktoyRorEndre', 'rorEndre'], ['verktoyRorRett', 'rorRett']]) {
       if (id(knapp)) id(knapp).onclick = () => Kart.settModus(Kart.modus === modus ? 'rediger' : modus);
     }
     // Profil eller 3D i rørpanelet
@@ -191,6 +191,8 @@ const RorUI = {
           + `og lengden telles på ${a.p.kode}`);
     } else if (modus === 'rorEndre') {
       if (!this._nyttPunkt(r, u, tol, iFila)) return;
+    } else if (modus === 'rorRett') {
+      if (!this._rettUt(r, avstand, tol, iFila)) return;
     }
     Kart.tegn();
     this.vis();
@@ -250,23 +252,61 @@ const RorUI = {
     return true;
   },
 
+  /**
+   * «Rett ut»: første klikk velger et punkt på et rør, andre klikk et punkt
+   * på samme rør. Punktene imellom flyttes inn på den rette linja mellom dem
+   * (Ror.rettUt) – ett angresteg. Treffer det andre klikket ikke, står det
+   * første fortsatt valgt; et klikk på samme punkt velger det bort. Gir false
+   * når ingenting er endret.
+   */
+  _rettUt(r, avstand, tol, iFila) {
+    const app = this.app;
+    const bygg = Ror.byggLinjer(r, app.P.mal, iFila);
+    let best = null;
+    for (const l of bygg.linjer) {
+      for (const p of l.punkter) {
+        const d = avstand(p);
+        if (d <= tol && (!best || d < best.d)) best = { p, d };
+      }
+    }
+    const fra = this._rettFra;
+    const navn = p => `${p.kode}, ${p.lagtTil ? 'nytt punkt' : 'punkt ' + p.nr}`;
+    if (!best) {
+      app.status(fra ? `Klikk på et punkt på røret – ${navn(fra.p)} er fortsatt valgt` : 'Klikk på et punkt på røret');
+      return false;
+    }
+    if (!fra) {
+      this._rettFra = best;
+      app.status(`Valgte ${navn(best.p)} – klikk på det andre punktet. Punktene imellom flyttes inn på linja mellom dem.`);
+      Kart.tegnRor();
+      return false;
+    }
+    if (fra.p.id === best.p.id) { this._rettFra = null; app.status('Valgte bort punktet'); Kart.tegnRor(); return false; }
+    const linje = bygg.linjer.find(l => l.punkter.some(p => p.id === fra.p.id) && l.punkter.some(p => p.id === best.p.id));
+    if (!linje) {
+      app.status(`De to punktene er ikke på samme rør – ${navn(fra.p)} er fortsatt valgt`);
+      return false;
+    }
+    const flytt = Ror.rettUt(linje, fra.p.id, best.p.id) || [];
+    this._rettFra = null;
+    if (!flytt.length) { app.status('Det er ingen punkt mellom de to'); Kart.tegnRor(); return false; }
+    app.merk('rettet ut rør');
+    for (const f of flytt) Ror.flyttTil(r, f.id, f.o, f.n);
+    Ror.brukRetting(r);
+    const lengst = Math.max(...flytt.map(f => f.d));
+    app.status(`Rettet ut ${flytt.length} punkt på ${linje.kode} – det lengste ble flyttet ${Rapport.tall(lengst, 2)} m. `
+      + 'Høydene står. Angre, eller flytt et punkt tilbake i «Endre rør».');
+    return true;
+  },
+
   /** Et punkt er dratt i «Endre rør». Bare o og n – høyden står. */
   flyttPunkt(id, latlng) {
     const app = this.app, r = app.P.ror;
     const p = r.punkter.find(q => q.id === id);
     if (!p) return;
     const u = Geo.tilUtm(latlng.lat, latlng.lng, r.sone);
-    const o = +u.x.toFixed(3), n = +u.y.toFixed(3);
-    if (p.lagtTil) {
-      const q = r.retting.nye.find(x => x.id === id);
-      if (q) { q.o = o; q.n = n; }
-    } else {
-      if (!r.retting.flytt) r.retting.flytt = {};
-      const m = Ror.innmalt(p);
-      // tilbake der det ble målt (innen en centimeter) er ingen flytting
-      if (Math.hypot(m.o - o, m.n - n) < 0.01) delete r.retting.flytt[id];
-      else r.retting.flytt[id] = { o, n };
-    }
+    // tilbake der det ble målt (innen en centimeter) er ingen flytting – se Ror.flyttTil
+    Ror.flyttTil(r, id, +u.x.toFixed(3), +u.y.toFixed(3));
     Ror.brukRetting(r);
     const fra = Ror.innmalt(p);
     app.status(p.lagtTil ? `Flyttet det nye punktet på ${p.kode}`

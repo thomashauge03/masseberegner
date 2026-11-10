@@ -1627,7 +1627,7 @@ const App = {
     const plan = this.erPlan();
     // en rørskisse har bare strekene – ingen grøft, ingen kummer, ingen fallretning
     const skisse = this.erSkisse();
-    for (const id of ['verktoyRorAv', 'verktoyRorBryt', 'verktoyRorKoble', 'verktoyRorEndre']) bytt(id, ror && !plan);
+    for (const id of ['verktoyRorAv', 'verktoyRorBryt', 'verktoyRorKoble', 'verktoyRorEndre', 'verktoyRorRett']) bytt(id, ror && !plan);
     /* «Hent fra Makin» henter på nytt – det finnes bare noe å hente på et
        anlegg som er koblet. Der er punktene låst, og «Importer rør» skal ikke
        synes: en fil inn i et Makin-anlegg ville blitt borte ved neste henting. */

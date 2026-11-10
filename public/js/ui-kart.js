@@ -573,7 +573,7 @@ const Kart = {
     for (const [id, navn] of [['verktoyTegn', 'tegn'], ['verktoyFlytt', 'rediger'],
       ['verktoySondering', 'sondering'], ['verktoyPlass', 'plass'], ['verktoyStikkrenne', 'stikkrenne'], ['verktoyTomt', 'tegnTomt'],
       ['verktoyMaal', 'maal'], ['verktoyRorAv', 'rorAv'], ['verktoyRorBryt', 'rorBryt'],
-      ['verktoyRorKoble', 'rorKoble'], ['verktoyRorEndre', 'rorEndre'], ['verktoyGroftStrekning', 'groftStrekning'], ['verktoyGroftSammen', 'groftSammen'],
+      ['verktoyRorKoble', 'rorKoble'], ['verktoyRorEndre', 'rorEndre'], ['verktoyRorRett', 'rorRett'], ['verktoyGroftStrekning', 'groftStrekning'], ['verktoyGroftSammen', 'groftSammen'],
       ['verktoyTrase', 'tegnTrase'], ['verktoyKum', 'kum'], ['verktoySnu', 'snuTrase'], ['verktoyStikk', 'settPunkt']]) {
       const el = document.getElementById(id);
       if (el) {
@@ -608,6 +608,10 @@ const Kart = {
       this.app.status('Dra et punkt dit røret går. Klikk på røret for et nytt punkt, ved enden for å forlenge det, '
         + 'på et punkt for å endre det. Rediger avslutter.');
     }
+    if (m === 'rorRett') {
+      this.app.status('Klikk på et punkt på røret, så på et annet på samme rør – punktene imellom flyttes inn på '
+        + 'den rette linja mellom dem. Høydene står. Rediger avslutter.');
+    }
     if (m === 'groftStrekning') {
       this.app.status('Klikk på et målt punkt, så på et annet på samme rør – mellom dem kan grøfta få egne mål.');
     }
@@ -628,6 +632,7 @@ const Kart = {
     /* De målte punktene vises bare mens man retter – ellers ville fire hundre
        prikker druknet rørene. */
     if (m !== 'rorKoble' && typeof RorUI !== 'undefined') RorUI._kobleFra = null;
+    if (m !== 'rorRett' && typeof RorUI !== 'undefined') RorUI._rettFra = null;
     if (this.app && this.app.erRor && this.app.erRor()) this.tegnRor();
   },
 
@@ -865,7 +870,8 @@ const Kart = {
     if (this.modus === 'settPunkt') { this.settStikkpunkt(e.latlng); return; }
     if (this.modus === 'tegnTrase') { RorPlanUI.tegnKlikk(e.latlng); return; }
     if (this.modus === 'kum' || this.modus === 'snuTrase') { RorPlanUI.kartklikk(this.modus, e.latlng); return; }
-    if (this.modus === 'rorAv' || this.modus === 'rorBryt' || this.modus === 'rorKoble' || this.modus === 'rorEndre') {
+    if (this.modus === 'rorAv' || this.modus === 'rorBryt' || this.modus === 'rorKoble' || this.modus === 'rorEndre'
+      || this.modus === 'rorRett') {
       RorUI.kartklikk(this.modus, e.latlng);
       return;
     }
@@ -2606,7 +2612,7 @@ const Kart = {
     const t = (v, d) => Rapport.tall(v, d);
     const bf = (res && res.bakkefaktor) || 1;
     // punktene vises også når man velger strekning – det er dem man klikker på
-    const rett = ['rorAv', 'rorBryt', 'rorKoble', 'rorEndre', 'groftStrekning'].includes(this.modus);
+    const rett = ['rorAv', 'rorBryt', 'rorKoble', 'rorEndre', 'rorRett', 'groftStrekning'].includes(this.modus);
     // med et verktøy på er et klikk på røret til verktøyet, ikke et valg av røret
     const verktoy = rett || this.modus === 'groftSammen';
     /* GRØFTEKANTEN – der gravingen møter terrenget. Regnes én gang per
@@ -2727,8 +2733,9 @@ const Kart = {
           interactive: false
         }).addTo(this.lag.ror);
       }
-      if (RorUI._kobleFra) {
-        L.circleMarker(ll(RorUI._kobleFra.p), { radius: 8, color: '#ffffff', weight: 2.5, fill: false, interactive: false })
+      for (const valgt of [RorUI._kobleFra, this.modus === 'rorRett' ? RorUI._rettFra : null]) {
+        if (!valgt) continue;
+        L.circleMarker(ll(valgt.p), { radius: 8, color: '#ffffff', weight: 2.5, fill: false, interactive: false })
           .addTo(this.lag.ror);
       }
     }

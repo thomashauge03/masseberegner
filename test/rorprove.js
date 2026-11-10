@@ -362,6 +362,46 @@ console.log('\n7c. Koble to rør med ulik kode');
   paastand('samme svar to ganger', JSON.stringify(bygg([[a, b]])) === JSON.stringify(b1));
 }
 
+console.log('\n7d. Rett ut et rør mellom to punkt');
+{
+  /* Innmålingen har gått i sikksakk: røret ligger rett i grøfta, men punktene
+     slår ut til sidene. «Rett ut» flytter punktene mellom to valgte punkt inn
+     på den rette linja mellom dem – rett på tvers. Høydene står, og
+     flyttingene er vanlige rettinger. Oppdiktede punkt. */
+  const pts = [[0, 0, 10], [10, 3, 11], [20, -2, 12], [30, 4, 13], [40, 0, 14], [50, 0, 15]]
+    .map(([x, y, z], i) => ({ id: 's' + i, kode: '90PE', n: y, o: x, z, tid: '', nr: i + 1 }));
+  const lag = () => ({ punkter: pts.map(p => Object.assign({}, p)), koder: Ror.koderFra(pts), retting: Ror.nyRetting() });
+  const linje = r => Ror.byggLinjer(r, Ror.StandardRormal, iFila).linjer[0];
+
+  const r = lag();
+  const ut = Ror.rettUt(linje(r), 's0', 's4');
+  sjekk('tre punkt ligger mellom', ut.length, 3, 0);
+  paastand('de flyttes inn på linja, rett på tvers', ut.every(f => Math.abs(f.n) < 1e-9)
+    && ut.map(f => f.o).join(',') === '10,20,30', JSON.stringify(ut));
+  sjekk('flyttingen står ved hvert punkt', ut.find(f => f.id === 's3').d, 4, 1e-9);
+  for (const f of ut) Ror.flyttTil(r, f.id, f.o, f.n);
+  Ror.brukRetting(r);
+  sjekk('røret er rett etterpå', linje(r).lengde, 50, 1e-9);
+  paastand('høydene står', r.punkter.map(p => p.z).join(',') === '10,11,12,13,14,15');
+  paastand('endene står der de ble målt', !r.retting.flytt.s0 && !r.retting.flytt.s4);
+  paastand('og hvert flyttede punkt husker hvor det ble målt',
+    r.punkter.filter(p => p.innmaalt).map(p => p.id).join(',') === 's1,s2,s3');
+  sjekk('motsatt rekkefølge gir det samme', Ror.rettUt(linje(lag()), 's4', 's0').length, 3, 0);
+  const del = Ror.rettUt(linje(lag()), 's2', 's4');
+  // linja fra (20, −2) til (40, 0): punktet havner på den, rett på tvers av den
+  const paaLinja = f => Math.abs((f.o - 20) * 2 - (f.n + 2) * 20) / Math.hypot(20, 2) < 0.002;
+  const vinkelrett = f => Math.abs((f.o - 30) * 20 + (f.n - 4) * 2) < 0.05;
+  paastand('bare punktene mellom de to flyttes, inn på linja mellom dem', del.length === 1 && del[0].id === 's3'
+    && paaLinja(del[0]) && vinkelrett(del[0]), JSON.stringify(del));
+  paastand('et punkt som ikke er på røret gir ingenting', Ror.rettUt(linje(lag()), 's0', 'finnes-ikke') === null);
+  sjekk('to naboer har ingenting imellom', Ror.rettUt(linje(lag()), 's0', 's1').length, 0, 0);
+  // tilbake der det ble målt er ingen flytting
+  const r2 = lag();
+  Ror.flyttTil(r2, 's1', 12, 1);
+  Ror.flyttTil(r2, 's1', 10, 3);
+  paastand('flyttet tilbake til der det ble målt, er det ingen retting', !r2.retting.flytt.s1);
+}
+
 /* ------------------------------------------------------------------ */
 console.log('\n8. Koordinater og sone');
 {

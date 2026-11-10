@@ -202,7 +202,7 @@ const Nettlesertest = {
       'grensesnittbredder', 'panelhoder',
       'tomt', 'tomteksport', 'tomterydding', 'tomtsnittOverbygning',
       'gl3d', 'tomt3d', 'veg3d', 'gpuSammeBilde', 'gpuGlatt', 'gpuReserve', 'gpuLysOgLuft', 'gpuMaterialer', 'kartlag',
-      'rorArbeidsbilde', 'rorBeregning', 'rorImport', 'makinHenting', 'makinLaas', 'triangulering', 'rorSone', 'rorKart', 'rorAndreFullt', 'rorFane', 'rorRetting', 'rorEndre',
+      'rorArbeidsbilde', 'rorBeregning', 'rorImport', 'makinHenting', 'makinLaas', 'triangulering', 'rorSone', 'rorKart', 'rorAndreFullt', 'rorFane', 'rorRetting', 'rorEndre', 'rorRett',
       'rorProfil', 'ror3d', 'rorRapport', 'rorPdf', 'rorForklaring',
       'groftBeregning', 'groftFane', 'groftKoder', 'groftVerktoy', 'groftKnutepunkt', 'groftProfil', 'groft3d',
       'groftRapport', 'groftAvstiving',
@@ -10433,6 +10433,59 @@ const Nettlesertest = {
       this.sjekk('angre slår det av igjen', App.P.ror.retting.av.length === 1);
       Kart.settModus('rediger');
       this.sjekk('Rediger slår av rettingsmodusen', !document.getElementById('verktoyRorAv').classList.contains('aktiv'));
+    } finally {
+      await this._rorTilbake(foer);
+    }
+  },
+
+  /**
+   * «Rett ut»: to klikk på samme rør, og punktene imellom flyttes inn på den
+   * rette linja mellom dem. Høydene står, og det er ett angresteg.
+   */
+  async rorRett() {
+    const foer = JSON.stringify(App.P);
+    try {
+      App.P = App.nyttProsjekt();
+      await RorUI.importerTekst(this._rorXml(), 'asbuilts_Prove.xml', {}, { sone: 32, maal: 'nytt' });
+      await this.ventPaBeregning(30000);
+      const o = Geo.tilUtm(58.1412, 7.0705, 32);
+      const ll = (x, y) => { const g = Geo.fraUtm(o.x + x, o.y + y, 32); return L.latLng(g.lat, g.lon); };
+      const r = () => App.P.ror;
+      const punkt = (kode, x) => r().punkter.find(p => p.kode === kode && Math.abs(p.o - o.x - x) < 0.6 && !p.lagtTil);
+      this.sjekk('knappen «Rett ut» vises', !document.getElementById('verktoyRorRett').classList.contains('skjult'));
+      // en sikksakk: tre punkt på 90PE flyttes ut til sidene
+      App.merk('prøve');
+      for (const [x, y] of [[40, 3], [50, -2], [60, 4]]) Ror.flyttTil(r(), punkt('90PE', x).id, o.x + x, o.y + y);
+      Ror.brukRetting(r());
+      const hoyder = r().punkter.map(p => p.z).join(',');
+      Kart.settModus('rorRett');
+      this.sjekk('modusen står på', Kart.modus === 'rorRett'
+        && document.getElementById('verktoyRorRett').classList.contains('aktiv'));
+      Kart.kart.setView(ll(30, 0), 19);
+      RorUI.kartklikk('rorRett', ll(30, 0));
+      this.sjekk('første punkt er valgt', !!RorUI._rettFra && Math.abs(RorUI._rettFra.p.o - o.x - 30) < 0.01);
+      // et punkt på et annet rør: valget står
+      Kart.kart.setView(ll(36, 1), 19);
+      RorUI.kartklikk('rorRett', ll(36, 1));
+      this.sjekk('et punkt på et annet rør: det første står fortsatt valgt', !!RorUI._rettFra);
+      Kart.kart.setView(ll(70, 0), 19);
+      RorUI.kartklikk('rorRett', ll(70, 0));
+      await this.ventPaBeregning(30000);
+      await this.vent(300);
+      const ut = [40, 50, 60].map(x => punkt('90PE', x));
+      this.sjekk('punktene imellom står på linja igjen', ut.every(p => Math.abs(p.n - o.y) < 0.002),
+        ut.map(p => (p.n - o.y).toFixed(3)).join(', '));
+      this.sjekk('  og flyttingene er borte – de står der de ble målt', ut.every(p => !r().retting.flytt[p.id]),
+        JSON.stringify(r().retting.flytt));
+      this.sjekk('høydene står', r().punkter.map(p => p.z).join(',') === hoyder);
+      this.sjekk('valget er nullstilt etterpå', !RorUI._rettFra);
+      await App.angre();
+      await this.vent(400);
+      this.sjekk('angre gir sikksakken tilbake', Math.abs(punkt('90PE', 50).n - o.y + 2) < 0.002,
+        String((punkt('90PE', 50).n - o.y).toFixed(3)));
+      Kart.settModus('rediger');
+      this.sjekk('Rediger slår av modusen og valget', !document.getElementById('verktoyRorRett').classList.contains('aktiv')
+        && !RorUI._rettFra);
     } finally {
       await this._rorTilbake(foer);
     }
