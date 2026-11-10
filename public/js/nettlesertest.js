@@ -202,7 +202,7 @@ const Nettlesertest = {
       'grensesnittbredder', 'panelhoder',
       'tomt', 'tomteksport', 'tomterydding', 'tomtsnittOverbygning',
       'gl3d', 'tomt3d', 'veg3d', 'gpuSammeBilde', 'gpuGlatt', 'gpuReserve', 'gpuLysOgLuft', 'gpuMaterialer', 'kartlag',
-      'rorArbeidsbilde', 'rorBeregning', 'rorImport', 'makinHenting', 'makinLaas', 'triangulering', 'rorSone', 'rorKart', 'rorFane', 'rorRetting', 'rorEndre',
+      'rorArbeidsbilde', 'rorBeregning', 'rorImport', 'makinHenting', 'makinLaas', 'triangulering', 'rorSone', 'rorKart', 'rorAndreFullt', 'rorFane', 'rorRetting', 'rorEndre',
       'rorProfil', 'ror3d', 'rorRapport', 'rorPdf', 'rorForklaring',
       'groftBeregning', 'groftFane', 'groftKoder', 'groftVerktoy', 'groftKnutepunkt', 'groftProfil', 'groft3d',
       'groftRapport', 'groftAvstiving',
@@ -10016,8 +10016,10 @@ const Nettlesertest = {
         this.sjekk('rørfanen på originalen sier at kopien telles i stedet', /telles ikke/.test(fane().textContent));
         App.byttAnlegg(kId);
         const opasitet = [];
-        Kart.lag.andre.eachLayer(l => { if (l instanceof L.Polyline) opasitet.push(l.options.opacity); });
-        this.sjekk('kartet viser originalen dempet', opasitet.some(o => o < 0.55) && opasitet.some(o => o === 0.55),
+        // rørstrekene, ikke den mørke kanten under – se Kart.tegnAnnetRor
+        Kart.lag.andre.eachLayer(l => { if (l instanceof L.Polyline && l.options.className === 'annetror') opasitet.push(l.options.opacity); });
+        this.sjekk('kartet viser originalen dempet, det vanlige anlegget fullt',
+          opasitet.some(o => o <= 0.3) && opasitet.some(o => o >= 0.8),
           [...new Set(opasitet)].join(','));
         const i = App.P.anlegg.findIndex(x => x.id === kId);
         const [ut] = App.P.anlegg.splice(i, 1);
@@ -10208,6 +10210,70 @@ const Nettlesertest = {
       Kart.lag.ror.eachLayer(() => igjen++);
       this.sjekk('rørlaget er tomt når vegen står oppe', igjen === 0, String(igjen));
     } finally {
+      await this._rorTilbake(foer);
+    }
+  },
+
+  /**
+   * TO RØRANLEGG SAMTIDIG: det som ikke er oppe, tegnes fullt – fargen etter
+   * koden, tykkelsen etter dimensjonen og punktobjektene – ikke som en grå
+   * strek. Et klikk på det i Rediger bytter dit. Et Makin-anlegg med en kopi
+   * tegnes svakt og uten objekter, så kopien oppå er den man ser.
+   */
+  async rorAndreFullt() {
+    const foer = JSON.stringify(App.P);
+    const foerModus = Kart.modus;
+    try {
+      App.P = App.nyttProsjekt();
+      await RorUI.importerTekst(this._rorXml(), 'asbuilts_Prove.xml', {}, { sone: 32, maal: 'nytt' });
+      await this.ventPaBeregning(30000);
+      const forste = App.P.aktivt;
+      const andre = App.kopierAnlegg(forste);
+      await this.ventPaBeregning(30000);
+      this.sjekk('to røranlegg, det andre er oppe', !!andre && App.P.aktivt === andre.id
+        && App.P.anlegg.filter(a => a.type === 'ror').length === 2, String(App.P.aktivt));
+      const samle = () => {
+        const streker = [], merker = [];
+        Kart.lag.andre.eachLayer(l => {
+          if (l instanceof L.Polyline && l.options.className === 'annetror') streker.push(l);
+          if (l instanceof L.Marker && l.options.pane === 'andreAnlegg') merker.push(l);
+        });
+        return { streker, merker };
+      };
+      let { streker, merker } = samle();
+      this.sjekk('det første anlegget tegnes med én strek per rør', streker.length === 4, String(streker.length));
+      const farger = new Set(streker.map(l => l.options.color));
+      this.sjekk('  i fargene etter koden, ikke grått', !farger.has(Farger.blekkSvak) && farger.size >= 2, [...farger].join(', '));
+      this.sjekk('  med tykkelse etter dimensjonen', new Set(streker.map(l => l.options.weight)).size >= 2,
+        streker.map(l => l.options.weight).join(', '));
+      this.sjekk('  og muffen står i kartet', merker.length === 1, String(merker.length));
+      const tips = String(streker[0] && streker[0].getTooltip() && streker[0].getTooltip().getContent());
+      this.sjekk('verktøytipset sier hvilket anlegg røret hører til', tips.includes(escapeHtml(App.P.anlegg[0].navn || 'Rør')), tips);
+      this.sjekk('  under det aktive, i sin egen rute', streker.every(l => l.options.pane === 'andreAnlegg'));
+      let aktive = 0;
+      Kart.lag.ror.eachLayer(l => { if (l instanceof L.Polyline && l.options.rorId) aktive++; });
+      this.sjekk('det aktive tegnes som før', aktive === 4, String(aktive));
+
+      // utenfor Rediger gjør et klikk ingenting – det kan være et verktøy som er på
+      Kart.modus = 'tegn';
+      streker[0].fire('click', { latlng: streker[0].getLatLngs()[0], originalEvent: new MouseEvent('click') });
+      this.sjekk('utenfor Rediger bytter ikke et klikk anlegg', App.P.aktivt === andre.id, String(App.P.aktivt));
+      Kart.modus = 'rediger';
+      streker[0].fire('click', { latlng: streker[0].getLatLngs()[0], originalEvent: new MouseEvent('click') });
+      this.sjekk('i Rediger bytter et klikk dit', App.P.aktivt === forste, String(App.P.aktivt));
+      await this.ventPaBeregning(30000);
+
+      // et Makin-anlegg med en kopi: svakt, uten objekter
+      App.P.anlegg.find(a => a.id === forste).ror.makin = { prove: true };
+      andre.ror.kopiAv = forste;
+      App.byttAnlegg(andre.id);
+      await this.ventPaBeregning(30000);
+      ({ streker, merker } = samle());
+      this.sjekk('et Makin-anlegg med en kopi tegnes svakt', streker.length === 4 && streker.every(l => l.options.opacity <= 0.3),
+        streker.map(l => l.options.opacity).join(', '));
+      this.sjekk('  og uten objektene', merker.length === 0, String(merker.length));
+    } finally {
+      Kart.modus = foerModus;
       await this._rorTilbake(foer);
     }
   },

@@ -325,7 +325,18 @@ nøkkel står det bare en linje i statuslinja. Massekalk skriver aldri noe til M
   du flere kopier, må du selv slette dem du ikke vil ha med.
 
 Rørene vises i kart, lengdeprofil og 3D (piltastene blar mellom dem), og får
-sin egen del i rapporten og PDF-en. I 3D står kummene: en tegnet kum som en
+sin egen del i rapporten og PDF-en.
+
+**Flere røranlegg i samme prosjekt** – for eksempel ett fra filer og ett fra
+Makin – står **fullt i kartet samtidig**. Det vil si med farge etter kode,
+tykkelse etter dimensjon, mørk kant, punktobjekter og kummer, uansett hvilket
+anlegg som er oppe. Verktøytipset sier hvilket anlegg røret hører til. Det
+aktive anlegget ligger øverst og redigeres som før. De andre er bare til å se
+på: et klikk på et av rørene deres i **Rediger** bytter dit, og i alle andre
+verktøy gjør klikket ingenting. Lista «Rørene», tallene i topplinja,
+lengdeprofilen og 3D gjelder fortsatt det aktive anlegget, og anleggene slås
+ikke sammen. Et Makin-anlegg med en kopi vises svakt og uten objekter, så det
+er kopien man ser. I 3D står kummene: en tegnet kum som en
 sylinder fra bunnen av kumgropa opp til terrenget, en innmålt som en ring på
 1 m der den ble målt (laget «Kummer»). De eksporteres som rør – se «Eksport» under.
 Nye rør tegnes i et eget anlegg – se «Planlagte rør» under.

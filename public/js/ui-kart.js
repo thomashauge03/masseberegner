@@ -2133,28 +2133,11 @@ const Kart = {
         const f = L.polyline(p, stil).addTo(this.lag.andre);
         f.on('click', bytt);
         midt = f.getBounds().getCenter();
-      } else if (a.type === 'ror' && a.ror && a.ror.punkter && a.ror.punkter.length) {
-        /* Rørene under vegen er nettopp det man vil se når vegen tegnes. */
-        const b = Ror.byggLinjer(a.ror, a.mal || Ror.StandardRormal, Ror.lagTilXY(a.ror.sone, a.ror.sone));
-        const ramme = L.latLngBounds([]);
-        /* Et Makin-anlegg med en kopi telles ikke (App.telles). Det tegnes
-           likevel – det kan hentes på nytt – men svakere enn bakgrunnen ellers,
-           så kopien oppå er den man ser. */
-        const opacity = !app.telles || app.telles(a) ? stil.opacity : 0.25;
-        for (const l of b.linjer) {
-          const p = l.punkter.map(q => Ror.tilLatLon(q, a.ror.sone));
-          L.polyline(p, Object.assign({}, stil, { dashArray: null, weight: 2, opacity })).on('click', bytt).addTo(this.lag.andre);
-          ramme.extend(p);
-        }
-        if (ramme.isValid()) midt = ramme.getCenter();
-      } else if (a.type === 'ror' && a.ror && a.ror.plan && a.ror.plan.traseer.length) {
-        // et tegnet anlegg: traseene, rett fra gradene
-        const ramme = L.latLngBounds([]);
-        for (const t of a.ror.plan.traseer) {
-          const p = t.punkter.map(q => [q.lat, q.lon]);
-          L.polyline(p, Object.assign({}, stil, { weight: 2 })).on('click', bytt).addTo(this.lag.andre);
-          ramme.extend(p);
-        }
+      } else if (a.type === 'ror' && a.ror
+        && ((a.ror.punkter && a.ror.punkter.length) || (a.ror.plan && a.ror.plan.traseer.length))) {
+        /* Rørene under vegen er nettopp det man vil se når vegen tegnes – og
+           det andre røranlegget er det man vil se når man står i det ene. */
+        const ramme = this.tegnAnnetRor(a, bytt);
         if (ramme.isValid()) midt = ramme.getCenter();
       }
       /* Et anlegg uten geometri har ingenting å tegne, og skal heller ikke få
@@ -2166,6 +2149,97 @@ const Kart = {
           .addTo(this.lag.andre);
       }
     }
+  },
+
+  /** Strektykkelsen til et rør i kartet – følger dimensjonen, likt for alle anleggene. */
+  rorVekt(k) {
+    return Math.max(2, Math.min(6, 1.5 + ((k && k.dim) || 50) / 50));
+  },
+
+  /**
+   * Et røranlegg som ikke er oppe, tegnet FULLT: fargene etter koden,
+   * tykkelsen etter dimensjonen, punktobjektene og kummene. Står man i det
+   * ene røranlegget, er det det andre man vil se – var det en grå strek, sto
+   * man og byttet fram og tilbake for å se hvilket rør som var hvilket.
+   *
+   * BARE TIL Å SE PÅ. Ingen punkt å dra, ingen traser å sette inn knekker i,
+   * ingen kontrollvarsler – det er det aktive anlegget sitt. Et klikk på et
+   * rør i Rediger bytter dit, som før. Alt ligger i ruta `andreAnlegg`, under
+   * det aktive, så et klikk på det aktive røret aldri treffer naboen.
+   *
+   * Ingenting regnes og ingenting endres: linjene bygges av punktene som de
+   * står, slik kryssingskontrollen gjør (App._andreRor). Høydene til et tegnet
+   * anlegg kommer av terrenget som alt er hentet; er det ikke hentet, tegnes
+   * rørene stiplet, som i det aktive.
+   *
+   * @returns {L.LatLngBounds} rammen rundt det som ble tegnet
+   */
+  tegnAnnetRor(a, bytt) {
+    const app = this.app, r = a.ror, lag = this.lag.andre, pane = 'andreAnlegg';
+    const ramme = L.latLngBounds([]);
+    const ll = p => Ror.tilLatLon(p, r.sone);
+    const kode = k => (r.koder && r.koder[k]) || Ror.tolkKode(k);
+    const t = (v, d) => Rapport.tall(v, d);
+    const bf = typeof app.bakkefaktor === 'function' ? app.bakkefaktor() : 1;
+    const navn = escapeHtml(a.navn || 'Rør');
+    /* Et Makin-anlegg med en kopi telles ikke (App.telles). Det tegnes
+       likevel – det kan hentes på nytt – men svakt, så kopien oppå er den man
+       ser. */
+    const telles = !app.telles || app.telles(a);
+    const dekk = telles ? 0.85 : 0.25;
+    const strek = (punkter, k, tips, ekstra) => {
+      const p = punkter.map(ll);
+      if (p.length < 2) return;
+      const vekt = this.rorVekt(k);
+      if (telles) {
+        L.polyline(p, { pane, color: '#0b0b0c', weight: vekt + 2.5, opacity: 0.35, interactive: false }).addTo(lag);
+      }
+      L.polyline(p, Object.assign({ pane, color: Farger.ror(k.farge), weight: vekt, opacity: dekk, className: 'annetror' }, ekstra))
+        .bindTooltip(tips, { sticky: true }).on('click', bytt).addTo(lag);
+      ramme.extend(p);
+    };
+    let bygg = null;
+    try {
+      bygg = r.plan ? app.byggPlan(a) : Ror.byggLinjer(r, a.mal || Ror.StandardRormal, Ror.lagTilXY(r.sone, r.sone));
+    } catch (e) {
+      bygg = null;                 // et halvferdig anlegg skal ikke ta kartet med seg
+    }
+    if (!bygg) {
+      // kunne det ikke bygges, står i det minste traseene der
+      for (const tr of (r.plan && r.plan.traseer) || []) {
+        const p = tr.punkter.map(q => [q.lat, q.lon]);
+        L.polyline(p, { pane, color: Farger.blekkSvak, weight: 2, opacity: 0.55, dashArray: '7 5' }).on('click', bytt).addTo(lag);
+        ramme.extend(p);
+      }
+      return ramme;
+    }
+    for (const l of bygg.linjer) {
+      const k = kode(l.kode);
+      strek(l.punkter, k, `${navn} · ${escapeHtml(l.kode)}${k.dim ? ' · ⌀' + k.dim : ''} · ${t(l.lengde * bf, 1)} m`);
+    }
+    // et tegnet anlegg før terrenget er hentet – og en skisse, som aldri får høyder
+    for (const u of bygg.utenHoyde || []) {
+      const k = kode(u.kode), skisse = u.grunn === 'skisse';
+      strek(u.punkter, k, `${navn} · ${escapeHtml(u.kode)}${k.dim ? ' · ⌀' + k.dim : ''}`
+        + (skisse ? ` · ${t((u.lengde || 0) * bf, 1)} m · skisse` : ' · uten høyder'), skisse ? null : { dashArray: '6 5' });
+    }
+    if (!telles) return ramme;
+    // punktobjektene i et innmålt anlegg – kummer, muffer, sluk
+    for (const p of bygg.objekter || []) {
+      L.marker(ll(p), {
+        pane, keyboard: false,
+        icon: L.divIcon({ className: '', html: '<div class="ror-objekt"></div>', iconSize: [9, 9], iconAnchor: [4.5, 4.5] })
+      }).bindTooltip(`${navn} · ${escapeHtml(p.kode)} · ${t(p.z, 2)} moh`, { direction: 'top' }).on('click', bytt).addTo(lag);
+    }
+    // kummene i et tegnet anlegg, i riktig størrelse
+    for (const k of bygg.kummer || []) {
+      L.circle(ll(k), { pane, radius: (k.diameter / 1000 + 0.2) / 2, color: Farger.blekk, weight: 1.5,
+        fillColor: Farger.flate, fillOpacity: 0.9, className: 'plankum' })
+        .bindTooltip(`${navn} · kum ${escapeHtml(k.id)} · Ø${k.diameter}`
+          + (Number.isFinite(k.bunnlop) ? ` · bunnløp ${t(k.bunnlop, 2)}` : ''))
+        .on('click', bytt).addTo(lag);
+    }
+    return ramme;
   },
 
   tegn() {
@@ -2550,7 +2624,7 @@ const Kart = {
     for (const l of bygg.linjer) {
       const k = kode(l.kode);
       const valgt = l.id === RorUI.valgt;
-      const vekt = Math.max(2, Math.min(6, 1.5 + (k.dim || 50) / 50)) + (valgt ? 2 : 0);
+      const vekt = this.rorVekt(k) + (valgt ? 2 : 0);
       const punkter = l.punkter.map(ll);
       /* Mørk kant under, som senterlinja har: en blå strek forsvinner i et
          vann på kartet, en gul i et jorde. */
