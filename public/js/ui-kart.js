@@ -594,6 +594,8 @@ const Kart = {
       this._avsluttMaal();
     }
     if (m === 'stikkrenne') this.app.status('Klikk på vegen der stikkrenna skal krysse.');
+    // førstevalget viker for «Sett punkt», og kommer tilbake om man går ut uten et punkt
+    if (this.app.P && this.app.P.ubestemt) this.app.visAnleggsvalg();
     if (m === 'settPunkt') {
       this.app.status('Klikk der du vil ha et punkt. Klikk på et punkt for koordinatene, dra det for å flytte. Rediger avslutter.');
     }
@@ -1111,6 +1113,11 @@ const Kart = {
       const z = app.terreng.z(beste.e, beste.n);
       if (Number.isFinite(z)) Object.assign(beste, { z, zNavn: 'Terreng' });
     }
+    // et stikkpunkt kan ha høyden sin fra punktenes eget terreng – se hentStikkHoyder
+    if (!Number.isFinite(beste.z) && beste.stikk) {
+      const z = this.stikkKoordinater(beste.stikk).z;
+      if (Number.isFinite(z)) Object.assign(beste, { z, zNavn: 'Terreng' });
+    }
     // fra fila: millimeter; tegnet eller klikket i kartet: centimeter er mer enn nok
     const des = beste.regnet ? 2 : 3;
     const vis = v => Rapport.tall(v, des);
@@ -1168,8 +1175,34 @@ const Kart = {
 
   stikkKoordinater(p) {
     const app = this.app, u = Geo.tilUtm(p.lat, p.lon, app.sone);
-    const z = app.terreng ? app.terreng.z(u.x, u.y) : NaN;
+    let z = app.terreng ? app.terreng.z(u.x, u.y) : NaN;
+    const egen = this._stikkTerreng;
+    if (!Number.isFinite(z) && egen && egen.sone === app.sone) z = egen.z(u.x, u.y);
     return { navn: p.navn, n: u.y, e: u.x, z: Number.isFinite(z) ? z : NaN };
+  },
+
+  /**
+   * Henter terreng der et stikkpunkt står uten høyde.
+   *
+   * Anleggene henter bare et belte langs vegen eller rundt tomta. Setter man
+   * punkt uten et anlegg – eller utenfor det – fantes det ingen høyde der, og
+   * punktet falt ut av KOF-fila. Punktene får derfor sitt eget terreng, flis
+   * for flis rundt hvert punkt (en flis er 256 m), og det rører ikke
+   * anleggets: vegen bytter ut sitt når oppløsningen skifter.
+   * Gir true når noe nytt ble hentet.
+   */
+  async hentStikkHoyder() {
+    const app = this.app;
+    const uten = this.stikkpunkter().map(p => this.stikkKoordinater(p)).filter(k => !Number.isFinite(k.z));
+    if (!uten.length || typeof Terreng === 'undefined') return false;
+    if (!this._stikkTerreng || this._stikkTerreng.sone !== app.sone) this._stikkTerreng = new Terreng(app.sone, 1);
+    const t = this._stikkTerreng;
+    for (const k of uten) {
+      // lastOmraade vil ha et omriss: en liten firkant rundt punktet
+      const r = 3, firkant = [{ x: k.e - r, y: k.n - r }, { x: k.e + r, y: k.n - r }, { x: k.e + r, y: k.n + r }, { x: k.e - r, y: k.n + r }];
+      try { await t.lastOmraade(firkant, 0); } catch (e) { /* uten nett: punktet står uten høyde, og svaret sier det */ }
+    }
+    return true;
   },
 
   settStikkpunkt(latlng) {
@@ -1183,10 +1216,23 @@ const Kart = {
     P.stikkpunkter.push(p);
     this.tegnStikkpunkter();
     app.planleggAutolagring();
-    const k = this.stikkKoordinater(p);
-    app.status(`${p.navn}: N ${Rapport.tall(k.n, 2)}  Ø ${Rapport.tall(k.e, 2)}`
-      + (Number.isFinite(k.z) ? `  ·  terreng ${Rapport.tall(k.z, 2)} moh` : '')
-      + '  –  klikk på punktet for å kopiere, dra det for å flytte');
+    const meld = () => {
+      const k = this.stikkKoordinater(p);
+      app.status(`${p.navn}: N ${Rapport.tall(k.n, 2)}  Ø ${Rapport.tall(k.e, 2)}`
+        + (Number.isFinite(k.z) ? `  ·  terreng ${Rapport.tall(k.z, 2)} moh` : '  ·  henter høyden …')
+        + '  –  klikk på punktet for å kopiere, dra det for å flytte');
+    };
+    meld();
+    if (!Number.isFinite(this.stikkKoordinater(p).z)) {
+      this.hentStikkHoyder().then(() => {
+        // et nyere punkt har kanskje skrevet sin egen linje i mellomtiden
+        const siste = P.stikkpunkter[P.stikkpunkter.length - 1];
+        if (siste === p) {
+          if (Number.isFinite(this.stikkKoordinater(p).z)) meld();
+          else app.status(`${p.navn}: fikk ikke høyde fra Kartverket her – punktet har bare nord og øst`);
+        }
+      });
+    }
   },
 
   slettStikkpunkt(p) {
@@ -1197,6 +1243,8 @@ const Kart = {
     liste.splice(i, 1);
     this.tegnStikkpunkter();
     app.planleggAutolagring();
+    // var det det siste punktet i et ubestemt prosjekt, kommer førstevalget tilbake
+    if (app.P.ubestemt) app.visAnleggsvalg();
     app.status(`Tok bort ${p.navn}`);
   },
 
@@ -1217,6 +1265,10 @@ const Kart = {
         p.lat = ll.lat; p.lon = ll.lng;
         this.app.planleggAutolagring();
         this.visKoordinater(ll);
+        // dratt ut av terrenget som er hentet: hent det, og vis boksen med høyden
+        if (!Number.isFinite(this.stikkKoordinater(p).z)) {
+          this.hentStikkHoyder().then(() => { if (Number.isFinite(this.stikkKoordinater(p).z)) this.visKoordinater(m.getLatLng()); });
+        }
       });
     }
   },
@@ -1235,8 +1287,9 @@ const Kart = {
    * punkt utenfor det hentede terrenget kan ikke være med – det står i
    * svaret, ikke skrevet med en høyde som ikke finnes.
    */
-  lastNedStikkKof() {
+  async lastNedStikkKof() {
     const app = this.app;
+    await this.hentStikkHoyder();
     const alle = this.stikkpunkter().map(p => this.stikkKoordinater(p));
     const med = alle.filter(k => Number.isFinite(k.z)), uten = alle.filter(k => !Number.isFinite(k.z));
     if (!med.length) { app.status('Ingen av punktene har høyde ennå – terrenget er ikke hentet der de står'); return; }
@@ -1267,9 +1320,10 @@ const Kart = {
     };
   },
 
-  lastNedStikkIcon() {
+  async lastNedStikkIcon() {
     const app = this.app;
     if (!this.stikkpunkter().length) { app.status('Ingen punkt å laste ned – sett et punkt i kartet først'); return; }
+    await this.hentStikkHoyder();
     let r;
     try { r = this.stikkLandxml(); } catch (e) { app.status(e.message); return; }
     Rapport.lastNed(Rapport.filnavn('_stikkpunkt.xml'), r.tekst, 'application/xml;charset=utf-8');

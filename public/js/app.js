@@ -1522,7 +1522,13 @@ const App = {
   visAnleggsvalg() {
     const boks = document.getElementById('velganlegg');
     if (!boks) return;
-    const spor = !!(this.P && this.P.ubestemt);
+    /* Stikkpunkt er ikke et anlegg – de står i hvert anlegg – så å sette
+       punkt avgjør ikke hva prosjektet er. Spørsmålet holdes unna mens man
+       setter punkt og så lenge det står punkt i kartet, men prosjektet er
+       fortsatt ubestemt: tegner man en veg eller en tomt etterpå, blir det
+       det ene anlegget, ikke et nummer to ved siden av et tomt et. */
+    const punkt = typeof Kart !== 'undefined' && (Kart.modus === 'settPunkt' || Kart.stikkpunkter().length > 0);
+    const spor = !!(this.P && this.P.ubestemt) && !punkt;
     boks.classList.toggle('skjult', !spor);
     if (!spor || boks._koblet) return;
     boks._koblet = true;
@@ -1542,6 +1548,8 @@ const App = {
     if (type === 'makin') { MakinUI.nyttAnlegg(); return; }
     // og for et innmålt terreng: bestemt når punktene er lagt inn (TinUI.leggInn)
     if (type === 'tin') { TinUI.velgFil(); return; }
+    // bare punkt: prosjektet forblir ubestemt – se visAnleggsvalg
+    if (type === 'punkt') { Kart.settModus('settPunkt'); return; }
     delete this.P.ubestemt;
     const a = this.anlegg();
     /* MEN BARE HVIS DET FAKTISK ER TOMT.
