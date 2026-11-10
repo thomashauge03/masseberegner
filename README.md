@@ -318,6 +318,12 @@ anleggslista, «Rør (fra filer)» i førstevalget, eller slipp filene på karte
   Koble, Endre rør, Rett ut) vises det klikket gjorde, eller hvorfor det ikke
   gjorde noe, i en boks øverst i kartet i noen sekunder. Statuslinja er tynn og
   kutter lange tekster, og der sto forklaringen før.
+  Hører røret du klikket på, til et annet røranlegg enn det som er oppe, står
+  det i boksen hvilket, med en knapp som bytter dit. Med flere anlegg oppå
+  hverandre, for eksempel ett fra filer og ett fra Makin, er det lett å klikke
+  på et rør som ikke er i det aktive anlegget.
+  Et klikk på en hvit firkant (en muffe, et bend eller en kum) går videre til
+  verktøyet. Før slukte firkanten klikket.
 
 ### Hent fra Makin
 

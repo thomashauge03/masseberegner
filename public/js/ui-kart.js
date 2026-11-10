@@ -2232,8 +2232,9 @@ const Kart = {
     if (!telles) return ramme;
     // punktobjektene i et innmålt anlegg – kummer, muffer, sluk
     for (const p of bygg.objekter || []) {
+      // klikket går videre til kartet – se punktobjektene i tegnRor
       L.marker(ll(p), {
-        pane, keyboard: false,
+        pane, keyboard: false, bubblingMouseEvents: true,
         icon: L.divIcon({ className: '', html: '<div class="ror-objekt"></div>', iconSize: [9, 9], iconAnchor: [4.5, 4.5] })
       }).bindTooltip(`${navn} · ${escapeHtml(p.kode)} · ${t(p.z, 2)} moh`, { direction: 'top' }).on('click', bytt).addTo(lag);
     }
@@ -2654,9 +2655,14 @@ const Kart = {
           ? ` · overdekning ${Ror.spenn(pr.minOverdekning, pr.maksOverdekning, v => t(v, 2))} m` : ''), { sticky: true });
       strek.on('click', () => { if (!verktoy && RorUI.velgLinje) RorUI.velgLinje(l.id); });
     }
+    /* PUNKTOBJEKTENE SLUKTE KLIKKET. En markør sender ikke klikket videre til
+       kartet (Leaflet: bubblingMouseEvents er av for markører), og muffene,
+       bendene og kummene står nettopp i knekkene der man klikker med «Rett
+       ut», «Koble» og «Bryt». Klikket nådde aldri verktøyet, og ingenting
+       skjedde. Nå går det videre; verktøytipset virker som før. */
     for (const p of bygg.objekter) {
       L.marker(ll(p), {
-        keyboard: false,
+        keyboard: false, bubblingMouseEvents: true,
         icon: L.divIcon({ className: '', html: '<div class="ror-objekt"></div>', iconSize: [9, 9], iconAnchor: [4.5, 4.5] })
       }).bindTooltip(`${escapeHtml(p.kode)} · ${t(p.z, 2)} moh`, { direction: 'top' }).addTo(this.lag.ror);
     }

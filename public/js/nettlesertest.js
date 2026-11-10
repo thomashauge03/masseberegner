@@ -10537,6 +10537,32 @@ const Nettlesertest = {
       await mus(186, 1);                        // på 180 PE, nærmest enden ved 192
       this.sjekk('  og et klikk på det andre røret kobler endene', r().retting.koble.length === kobleFoer + 1 && !RorUI._kobleFra,
         JSON.stringify(r().retting.koble));
+
+      /* KLIKK PÅ EN HVIT FIRKANT – en muffe, et bend, en kum. Markøren slukte
+         klikket før, og verktøyet fikk det aldri. 90PE MUFFE står ved 100. */
+      Kart.settModus('rorRett');
+      await mus(100, 0);
+      this.sjekk('et klikk på en muffe går videre til verktøyet', !!RorUI._rettFra,
+        varsel.textContent);
+      Kart.settModus('rediger');
+
+      /* RØRET HØRER TIL ET ANNET ANLEGG. To anlegg oppå hverandre – et fra
+         filer og et fra Makin – og man klikker på et rør man ser, men som
+         ikke er i anlegget som er oppe. Før skjedde det ingenting. */
+      const forste = App.P.aktivt, forsteNavn = App.anlegg().navn || 'Rør';
+      App.kopierAnlegg(forste);
+      App.P.ror.koder['90PE'].vis = false;     // kopien har ikke 90PE – det står bare i det første
+      App.tegnAlt();
+      await this.ventPaBeregning(30000);
+      Kart.settModus('rorRett');
+      await mus(530, 0);                        // den andre biten av 90PE – ingen andre rør der
+      this.sjekk('et klikk på et rør i et annet anlegg sier hvilket', varsel.textContent.includes(forsteNavn)
+        && !varsel.classList.contains('skjult'), varsel.textContent);
+      const bytt = varsel.querySelector('button');
+      this.sjekk('  med en knapp som bytter dit', !!bytt && /Bytt til/.test(bytt.textContent), bytt && bytt.textContent);
+      if (bytt) bytt.click();
+      await this.ventPaBeregning(30000);
+      this.sjekk('  og knappen bytter anlegg', App.P.aktivt === forste, String(App.P.aktivt));
       Kart.settModus('rediger');
       this.sjekk('Rediger slår av modusen og valget', !document.getElementById('verktoyRorRett').classList.contains('aktiv')
         && !RorUI._rettFra);

@@ -2607,14 +2607,25 @@ const App = {
    * kartet var den det eneste svaret: klikket man feil, sto forklaringen der
    * øverst, avkuttet, og det så ut som om ingenting skjedde.
    */
-  varsle(t) {
+  varsle(t, knapp) {
     this.status(t);
+    this._varselNr = (this._varselNr || 0) + 1;
     const e = document.getElementById('kartvarsel');
     if (!e) return;
     e.textContent = t;
+    // en knapp som gjør det beskjeden foreslår – «Bytt til …»
+    if (knapp && knapp.tekst && typeof knapp.gjor === 'function') {
+      const b = document.createElement('button');
+      b.className = 'knapp liten';
+      b.textContent = knapp.tekst;
+      b.onclick = () => { e.classList.add('skjult'); knapp.gjor(); };
+      e.appendChild(document.createTextNode(' '));
+      e.appendChild(b);
+    }
     e.classList.remove('skjult');
     clearTimeout(this._varselTid);
-    this._varselTid = setTimeout(() => e.classList.add('skjult'), Math.min(9000, 3000 + 40 * t.length));
+    // med en knapp står den lenger – den skal rekke å bli trykket på
+    this._varselTid = setTimeout(() => e.classList.add('skjult'), knapp ? 12000 : Math.min(9000, 3000 + 40 * t.length));
   },
 
   /**

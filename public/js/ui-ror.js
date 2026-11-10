@@ -114,17 +114,50 @@ const RorUI = {
   kartklikk(modus, latlng) {
     /* SVARET SKAL SES. Det klikket sa i statuslinja, vises også i kartet –
        se App.varsle. Bommet man, sto forklaringen bare der øverst, avkuttet. */
-    const app = this.app, nr = app._statusNr;
+    const app = this.app, nr = app._statusNr, vnr = app._varselNr;
     try {
       return this._kartklikk(modus, latlng);
     } finally {
-      if (app._statusNr !== nr && app._sisteStatus && app.varsle) app.varsle(app._sisteStatus);
+      // har klikket alt vist sin egen beskjed (med en knapp), står den
+      if (app._statusNr !== nr && app._varselNr === vnr && app._sisteStatus && app.varsle) app.varsle(app._sisteStatus);
     }
+  },
+
+  /**
+   * Klikket traff ingenting i anlegget som er oppe. Traff det et rør i et
+   * ANNET røranlegg, sies det – med en knapp som bytter dit.
+   *
+   * Alle røranleggene står fullt i kartet (Kart.tegnAnnetRor), og to anlegg
+   * kan ligge oppå hverandre – et fra filer og et fra Makin med mange av de
+   * samme punktene. Da klikket man på et rør man så, verktøyet lette i det
+   * andre anlegget, og ingenting skjedde.
+   */
+  _bom(tol, tekst) {
+    const app = this.app;
+    const annet = this._annetAnleggHer(this._klikk, tol);
+    if (!annet) { app.status(tekst); return; }
+    app.varsle(`Røret du klikket på, hører til «${annet.navn || 'Rør'}». Verktøyene virker på anlegget som er oppe – `
+      + `«${app.anlegg().navn || 'Rør'}».`, { tekst: `Bytt til «${annet.navn || 'Rør'}»`, gjor: () => app.byttAnlegg(annet.id) });
+  },
+
+  /** Det andre innmålte røranlegget med et punkt eller en rørstrek innen `tol` av klikket – eller null. */
+  _annetAnleggHer(latlng, tol) {
+    const app = this.app;
+    if (!latlng || !app.P || !Array.isArray(app.P.anlegg)) return null;
+    for (const a of app.P.anlegg) {
+      if (a.id === app.P.aktivt || a.type !== 'ror' || !a.ror || a.ror.plan || !(a.ror.punkter || []).length) continue;
+      const u = Geo.tilUtm(latlng.lat, latlng.lng, a.ror.sone);
+      const b = Ror.byggLinjer(a.ror, a.mal || Ror.StandardRormal, p => ({ x: p.o, y: p.n }));
+      if (this._paaRoret(b, u, tol)) return a;
+      if (b.enslige.concat(b.objekter).some(p => Math.hypot(p.o - u.x, p.n - u.y) <= tol)) return a;
+    }
+    return null;
   },
 
   _kartklikk(modus, latlng) {
     const app = this.app;
     if (!app.erRor()) return;
+    this._klikk = latlng;
     const r = app.P.ror;
     const u = Geo.tilUtm(latlng.lat, latlng.lng, r.sone);
     const tol = this._toleranse(latlng);
@@ -137,7 +170,7 @@ const RorUI = {
         const d = avstand(p);
         if (d <= tol && (!best || d < best.d)) best = { p, d };
       }
-      if (!best) { app.status('Klikk nærmere et målt punkt'); return; }
+      if (!best) { this._bom(tol, 'Klikk nærmere et målt punkt'); return; }
       const i = r.retting.av.indexOf(best.p.id);
       app.merk(i >= 0 ? 'slo på punkt' : 'slo av punkt');
       if (i >= 0) r.retting.av.splice(i, 1); else r.retting.av.push(best.p.id);
@@ -151,7 +184,7 @@ const RorUI = {
           if (d <= tol && (!best || d < best.d)) best = { a: l.punkter[k - 1], b: l.punkter[k], d, kode: l.kode };
         }
       }
-      if (!best) { app.status('Klikk på en rørstrek'); return; }
+      if (!best) { this._bom(tol, 'Klikk på en rørstrek'); return; }
       app.merk('brøt et rør');
       r.retting.brudd.push([best.a.id, best.b.id]);
       // gjelder en kobling det samme paret, er det bruddet som er det siste ordet
@@ -190,7 +223,7 @@ const RorUI = {
         }
       }
       if (!best) {
-        app.status(this._kobleFra ? `Klikk på et rør nær enden – enden av ${this._kobleFra.p.kode} er fortsatt valgt`
+        this._bom(tol, this._kobleFra ? `Klikk på et rør nær enden – enden av ${this._kobleFra.p.kode} er fortsatt valgt`
           : 'Klikk på et rør nær enden');
         return;
       }
@@ -296,7 +329,7 @@ const RorUI = {
     const treff = this._paaRoret(bygg, u, tol);
     const navn = t => (t.id ? `${t.p.kode}, ${t.p.lagtTil ? 'nytt punkt' : 'punkt ' + t.p.nr}` : `et sted på ${t.p.kode}`);
     if (!treff) {
-      app.status(fra ? `Klikk på røret – ${navn(fra)} er fortsatt valgt` : 'Klikk på røret der det skal begynne å gå rett');
+      this._bom(tol, fra ? `Klikk på røret – ${navn(fra)} er fortsatt valgt` : 'Klikk på røret der det skal begynne å gå rett');
       return false;
     }
     if (!fra) {

@@ -742,6 +742,11 @@ body {
   box-shadow: 3px 3px 0 0 rgba(0,0,0,.35); pointer-events: none;
 }
 .kartvarsel.skjult { display: none; }
+.kartvarsel .knapp { pointer-events: auto; margin-left: 6px; }
+/* En rørstrek med verktøytips kan få fokus, og da tegnet nettleseren en gul
+   ramme rundt hele streken – det så ut som noe var valgt. Valget vises med
+   egne merker i kartet. */
+.leaflet-container path.leaflet-interactive:focus { outline: none; }
 .kartsok input {
   width: 100%; background: var(--flate-opp); border: 2px solid var(--kant-sterk);
   color: var(--blekk); padding: 7px 10px; font-size: 12px; font-family: var(--skrift);
