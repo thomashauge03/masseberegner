@@ -331,6 +331,69 @@ const Eksport = {
     return { navn, n, e, z: z === undefined ? NaN : z, byttet };
   },
 
+  /**
+   * Trekantene i en lukket figur – flaten mellom stikkpunktene.
+   *
+   * Øreklipping i planet (øst, nord): figuren kan være hul innover (en
+   * L-form), men ikke krysse seg selv – da finnes det ingen flate å gi
+   * maskinen, bare to som ligger oppå hverandre. Høyden er ikke med her;
+   * hver trekant går gjennom høydene i sine tre hjørner, så flaten blir
+   * nøyaktig det punktene sier, skrå der de har ulik høyde.
+   *
+   * @param {Array<{x:number,y:number}>} p  hjørnene i rekkefølge, x = øst
+   * @returns {{trekanter:number[][]} | {feil:string}}  indekser inn i p,
+   *   hver trekant mot klokka sett ovenfra
+   */
+  trekanter(p) {
+    const n = p.length;
+    if (n < 3) return { feil: 'en flate trenger minst tre punkt' };
+    for (let i = 0; i < n; i++) {
+      const a = p[i], b = p[(i + 1) % n];
+      if (Math.hypot(a.x - b.x, a.y - b.y) < 0.001) return { feil: 'to punkt etter hverandre står på samme sted' };
+    }
+    if (this.krysserSeg(p)) return { feil: 'kantene krysser hverandre – punktene må gå rundt figuren i rekkefølge' };
+    const kryss = (o, a, b) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+    let areal = 0;
+    for (let i = 0; i < n; i++) { const a = p[i], b = p[(i + 1) % n]; areal += a.x * b.y - b.x * a.y; }
+    if (Math.abs(areal) < 1e-6) return { feil: 'punktene ligger på en rett linje – det er ingen flate mellom dem' };
+    // mot klokka, så et konvekst hjørne har positivt kryssprodukt
+    const idx = [...Array(n).keys()];
+    if (areal < 0) idx.reverse();
+    const inni = (q, a, b, c) => kryss(a, b, q) >= -1e-9 && kryss(b, c, q) >= -1e-9 && kryss(c, a, q) >= -1e-9;
+    const ut = [];
+    let vern = 0;
+    while (idx.length > 3 && vern++ < n * n) {
+      let klippet = false;
+      for (let i = 0; i < idx.length; i++) {
+        const ia = idx[(i + idx.length - 1) % idx.length], ib = idx[i], ic = idx[(i + 1) % idx.length];
+        const a = p[ia], b = p[ib], c = p[ic];
+        if (kryss(a, b, c) <= 1e-9) continue;              // innoverhjørne eller rett linje
+        if (idx.some(j => j !== ia && j !== ib && j !== ic && inni(p[j], a, b, c))) continue;
+        ut.push([ia, ib, ic]);
+        idx.splice(i, 1);
+        klippet = true;
+        break;
+      }
+      if (!klippet) return { feil: 'fant ingen måte å dele figuren i trekanter på' };
+    }
+    if (idx.length === 3) ut.push(idx.slice());
+    return { trekanter: ut };
+  },
+
+  /** Krysser to kanter i en lukket figur hverandre (naboer teller ikke)? */
+  krysserSeg(p) {
+    const n = p.length;
+    const side = (a, b, c) => Math.sign((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x));
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        if (j === i + 1 || (i === 0 && j === n - 1)) continue;
+        const a = p[i], b = p[(i + 1) % n], c = p[j], d = p[(j + 1) % n];
+        if (side(a, b, c) * side(a, b, d) < 0 && side(c, d, a) * side(c, d, b) < 0) return true;
+      }
+    }
+    return false;
+  },
+
   /** Punkt med gyldig nord og øst, og ett navn per punkt – se `icon`. */
   unikePunkt(punkter) {
     const brukt = new Set(), omdopt = [];
@@ -391,9 +454,14 @@ const Eksport = {
    * Maskinen styrer etter høyden, så et punkt uten høyde er ikke med; svaret
    * sier hvilke. Navnene gjøres unike som i iCON-fila.
    *
+   * FLATENE – punkt koblet til en lukket figur – blir en `<Surface>` (TIN) med
+   * én trekant-flate gjennom hjørnenes høyder, og omrisset en `<PlanFeature>`
+   * som i Gemini-plasseringen. Det er flaten maskinen graver etter.
+   *
    * @param {number} sone  UTM-sonen punktene står i
+   * @param {Array<{navn:string, punkt:Array<{navn:string,n:number,e:number,z:number}>}>} [flater]
    */
-  makin(punkter, sone) {
+  makin(punkter, sone, flater = []) {
     const x = s => this.xml(s), d = v => v.toFixed(6);
     const alle = this.unikePunkt(punkter);
     const pk = alle.pk.filter(p => Number.isFinite(p.z));
@@ -419,8 +487,49 @@ const Eksport = {
         `    <CgPoint name="${x(p.navn)}" code="${x(p.kode || '')}" oID="${i + 1}">${d(p.n)} ${d(p.e)} ${d(p.z)}</CgPoint>`,
         '  </CgPoints>');
     });
+    const { flater: fl, feil: flatefeil } = this.flaterForFil(flater);
+    if (fl.length) {
+      l.push('  <Surfaces>');
+      for (const f of fl) {
+        l.push(`    <Surface name="${x(f.navn)}" desc="Flate mellom stikkpunktene">`,
+          '      <Definition surfType="TIN">', '        <Pnts>');
+        f.punkt.forEach((q, i) => l.push(`          <P id="${i + 1}">${d(q.n)} ${d(q.e)} ${d(q.z)}</P>`));
+        l.push('        </Pnts>', '        <Faces>');
+        for (const t of f.trekanter) l.push(`          <F>${t.map(i => i + 1).join(' ')}</F>`);
+        l.push('        </Faces>', '      </Definition>', '    </Surface>');
+      }
+      l.push('  </Surfaces>', '  <PlanFeatures>');
+      for (const f of fl) {
+        l.push(`    <PlanFeature name="${x(f.navn)}">`, '      <CoordGeom>');
+        f.punkt.forEach((a, i) => {
+          const b = f.punkt[(i + 1) % f.punkt.length];
+          l.push('        <Line>', `          <Start>${d(a.n)} ${d(a.e)} ${d(a.z)}</Start>`,
+            `          <End>${d(b.n)} ${d(b.e)} ${d(b.z)}</End>`, '        </Line>');
+        });
+        l.push('      </CoordGeom>', '    </PlanFeature>');
+      }
+      l.push('  </PlanFeatures>');
+    }
     l.push('</LandXML>');
-    return { tekst: l.join('\r\n') + '\r\n', antall: pk.length, uten, omdopt: alle.omdopt };
+    return { tekst: l.join('\r\n') + '\r\n', antall: pk.length, uten, omdopt: alle.omdopt,
+      flater: fl.map(f => f.navn), flatefeil };
+  },
+
+  /**
+   * Flatene som kan skrives: hjørnene må ha høyde, og figuren må kunne deles
+   * i trekanter. En flate som ikke kan, står i `feil` med grunnen – den
+   * skrives ikke halvveis.
+   */
+  flaterForFil(flater) {
+    const ut = [], feil = [];
+    for (const f of flater || []) {
+      const uten = f.punkt.filter(q => !Number.isFinite(q.z)).map(q => q.navn);
+      if (uten.length) { feil.push(`${f.navn}: ${uten.join(', ')} har ikke høyde`); continue; }
+      const t = this.trekanter(f.punkt.map(q => ({ x: q.e, y: q.n })));
+      if (t.feil) { feil.push(`${f.navn}: ${t.feil}`); continue; }
+      ut.push({ navn: f.navn, punkt: f.punkt, trekanter: t.trekanter });
+    }
+    return { flater: ut, feil };
   },
 
   kof(app, res) {

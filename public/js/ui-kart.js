@@ -467,6 +467,7 @@ const Kart = {
     if (p('verktoyMaalTom')) p('verktoyMaalTom').onclick = () => this.tomMaal();
     if (p('verktoyStikk')) p('verktoyStikk').onclick = () => this.settModus(this.modus === 'settPunkt' ? 'rediger' : 'settPunkt');
     if (p('verktoyStikkSkriv')) p('verktoyStikkSkriv').onclick = () => this.skrivInnStikkpunkt();
+    if (p('verktoyStikkFlate')) p('verktoyStikkFlate').onclick = () => this.lagStikkflate();
     if (p('modusVeg')) p('modusVeg').onclick = () => this.app.settModus('veg');
     if (p('modusTomt')) p('modusTomt').onclick = () => this.app.settModus('tomt');
     /* Anleggslista. Samme oppførsel som lagvelgeren på kartet: lukker seg ved
@@ -1158,6 +1159,7 @@ const Kart = {
         knapp(`Kopier alle ${alle}`, 'Alle punktene du har satt, én linje per punkt – limes inn i et regneark',
           b => this._kopier(this.stikkTabell(), b, `Kopierte ${alle} punkt`));
       }
+      if (alle >= 3) knapp('⬠ Flate', 'Koble punktene til en lukket figur – en flate Makin-maskinen kan grave etter', () => { kart.closePopup(); this.lagStikkflate(); });
       knapp('iCON', 'Last ned punktene du har satt som LandXML – det Leica iCON leser og skriver selv', () => this.lastNedStikkIcon());
       knapp('Makin', 'Last ned punktene du har satt til Makin-maskinen – last fila opp i prosjektets Filer i Makin', () => this.lastNedStikkMakin());
       knapp('KOF', 'Last ned punktene du har satt som KOF – til GPS-en eller totalstasjonen', () => this.lastNedStikkKof());
@@ -1383,6 +1385,10 @@ const Kart = {
       const punkt = lest.map(r => {
         const g = Geo.fraUtm(r.e, r.n, sone);
         const p = gammelt || {};
+        // nytt navn: flatene peker på punktet med navnet, så de må få det nye
+        if (gammelt && gammelt.navn !== r.navn) {
+          for (const f of this.stikkflater()) f.punkter = f.punkter.map(n => (n === gammelt.navn ? r.navn : n));
+        }
         Object.assign(p, { navn: r.navn, lat: g.lat, lon: g.lon, utm: { sone, n: r.n, e: r.e } });
         if (Number.isFinite(r.z)) p.z = r.z; else delete p.z;
         if (!gammelt) app.P.stikkpunkter.push(p);
@@ -1422,16 +1428,164 @@ const Kart = {
     if (i < 0) return;
     app.merk('slett stikkpunkt');
     liste.splice(i, 1);
+    // flatene mister hjørnet; en flate med under tre hjørner er ingen flate
+    const borte = [];
+    for (const f of this.stikkflater()) f.punkter = f.punkter.filter(n => n !== p.navn);
+    if (app.P.stikkflater) {
+      app.P.stikkflater = app.P.stikkflater.filter(f => (f.punkter.length >= 3 ? true : (borte.push(f.navn), false)));
+    }
     this.tegnStikkpunkter();
     app.planleggAutolagring();
     // var det det siste punktet i et ubestemt prosjekt, kommer førstevalget tilbake
     if (app.P.ubestemt) app.visAnleggsvalg();
-    app.status(`Tok bort ${p.navn}`);
+    app.status(`Tok bort ${p.navn}` + (borte.length ? ` – ${borte.join(', ')} hadde for få hjørner igjen og er borte` : ''));
+  },
+
+  /* ---------------- flater mellom stikkpunktene ---------------- */
+
+  /**
+   * En flate er stikkpunkt koblet i rekkefølge til en lukket figur – det
+   * maskinen skal grave etter. Flaten går gjennom høyden i hvert hjørne (se
+   * Eksport.trekanter); ingen skråninger utenfor, ingen masser. Lagret som
+   * navnene på hjørnene, så den følger punktene når de flyttes eller rettes.
+   */
+  stikkflater() { return (this.app.P && this.app.P.stikkflater) || []; },
+
+  /** Hjørnepunktene i en flate, i rekkefølge – de som finnes. */
+  flatepunkter(f) {
+    const etterNavn = new Map(this.stikkpunkter().map(p => [p.navn, p]));
+    return f.punkter.map(n => etterNavn.get(n)).filter(Boolean);
+  },
+
+  /** Flatene slik Eksport.makin vil ha dem: hjørnene med nord, øst og høyde. */
+  stikkflaterTilFil() {
+    return this.stikkflater().map(f => ({ navn: f.navn, punkt: this.flatepunkter(f).map(p => this.stikkKoordinater(p)) }));
+  },
+
+  /** Areal, og laveste og høyeste hjørne – det boksen ved flaten sier. */
+  flatetall(f) {
+    const k = this.flatepunkter(f).map(p => this.stikkKoordinater(p));
+    let a = 0;
+    for (let i = 0; i < k.length; i++) { const p = k[i], q = k[(i + 1) % k.length]; a += p.e * q.n - q.e * p.n; }
+    const z = k.map(q => q.z).filter(Number.isFinite);
+    return { areal: Math.abs(a) / 2, min: z.length ? Math.min(...z) : NaN, maks: z.length ? Math.max(...z) : NaN, utenHoyde: k.length - z.length };
+  },
+
+  /**
+   * Lag en flate av stikkpunktene. Man krysser av hvilke, og de kobles i
+   * rekkefølgen de står. Krysser kantene hverandre – man satte punktene i en
+   * annen rekkefølge enn man går rundt – prøves rekkefølgen rundt midten,
+   * og svaret sier at den ble lagt om.
+   */
+  lagStikkflate() {
+    const app = this.app;
+    const alle = this.stikkpunkter();
+    if (alle.length < 3) { app.status('En flate trenger minst tre punkt – sett eller skriv inn flere først'); return; }
+    let nr = this.stikkflater().length + 1;
+    while (this.stikkflater().some(f => f.navn === 'Flate ' + nr)) nr++;
+    const brukt = new Set(this.stikkflater().flatMap(f => f.punkter));
+    // står det alt flater, foreslås punktene som ikke er med i noen; ellers alle
+    const foreslatt = alle.filter(p => !brukt.has(p.navn));
+    const kryss = (foreslatt.length >= 3 ? foreslatt : alle).map(p => p.navn);
+    const rader = alle.map(p => {
+      const k = this.stikkKoordinater(p);
+      return `<label class="avkryss"><input type="checkbox" data-flatepunkt="${escapeHtml(p.navn)}"${kryss.includes(p.navn) ? ' checked' : ''}>
+        ${escapeHtml(p.navn)} <span class="sone">${Number.isFinite(k.z) ? Rapport.tall(k.z, 2) + ' moh' : 'uten høyde'}</span></label>`;
+    }).join('<br>');
+    const d = this._dialog('Flate av punktene', `
+      <div class="makinfelt"><label for="flateNavn">Navn</label>
+        <input id="flateNavn" class="minivalg" autocomplete="off" value="${escapeHtml('Flate ' + nr)}"></div>
+      <p class="notis">Punktene kobles i rekkefølgen under til en lukket figur. Flaten går gjennom høyden i hvert
+        punkt, og kommer i Makin-fila som en flate maskinen kan grave etter.</p>
+      <fieldset class="rormaal makinliste">${rader}</fieldset>
+      <p class="raud" id="flateMelding" hidden></p>
+      <div class="knapperad" style="justify-content:flex-end">
+        <button class="knapp" id="flateAvbryt">Avbryt</button>
+        <button class="knapp primaer" id="flateOk">Lag flate</button>
+      </div>`);
+    const q = id => d.innhold.querySelector('#' + id);
+    const melding = s => { q('flateMelding').textContent = s; q('flateMelding').hidden = false; };
+    q('flateAvbryt').onclick = () => d.lukk();
+    q('flateOk').onclick = () => {
+      const navn = q('flateNavn').value.trim();
+      if (!navn) { melding('Gi flaten et navn'); return; }
+      if (this.stikkflater().some(f => f.navn === navn)) { melding(`Det finnes alt en flate som heter ${navn}`); return; }
+      const valgt = [...d.innhold.querySelectorAll('[data-flatepunkt]')].filter(b => b.checked).map(b => b.dataset.flatepunkt);
+      if (valgt.length < 3) { melding('Kryss av minst tre punkt'); return; }
+      const xy = n => { const k = this.stikkKoordinater(alle.find(p => p.navn === n)); return { x: k.e, y: k.n }; };
+      let rekke = valgt, lagtOm = false;
+      let t = Eksport.trekanter(rekke.map(xy));
+      if (t.feil && Eksport.krysserSeg(rekke.map(xy))) {
+        // rundt midten: riktig for enhver figur der hvert hjørne ses fra midten
+        const p = rekke.map(xy), mx = p.reduce((s, a) => s + a.x, 0) / p.length, my = p.reduce((s, a) => s + a.y, 0) / p.length;
+        const rundt = rekke.map((n, i) => ({ n, v: Math.atan2(p[i].y - my, p[i].x - mx) })).sort((a, b) => a.v - b.v).map(o => o.n);
+        const t2 = Eksport.trekanter(rundt.map(xy));
+        if (!t2.feil) { rekke = rundt; t = t2; lagtOm = true; }
+      }
+      if (t.feil) { melding('Kan ikke lage flaten: ' + t.feil); return; }
+      if (!d.lukk()) return;
+      app.merk('ny flate');
+      if (!Array.isArray(app.P.stikkflater)) app.P.stikkflater = [];
+      const f = { navn, punkter: rekke };
+      app.P.stikkflater.push(f);
+      this.tegnStikkpunkter();
+      app.planleggAutolagring();
+      const tall = this.flatetall(f);
+      app.status(`${navn}: ${rekke.length} hjørner, ${Rapport.tall(tall.areal, 0)} m²`
+        + (Number.isFinite(tall.min) ? `, ${Rapport.tall(tall.min, 2)}–${Rapport.tall(tall.maks, 2)} moh` : '')
+        + (lagtOm ? ` · rekkefølgen krysset seg selv og er lagt rundt midten: ${rekke.join(' → ')}` : '')
+        + (tall.utenHoyde ? ` · ${tall.utenHoyde} hjørne${tall.utenHoyde > 1 ? 'r' : ''} uten høyde – flaten kommer ikke med i Makin-fila før de har det` : '')
+        + ' – last ned til Makin fra boksen ved flaten eller i eksportfanen');
+    };
+  },
+
+  slettStikkflate(f) {
+    const app = this.app, liste = app.P.stikkflater || [];
+    const i = liste.indexOf(f);
+    if (i < 0) return;
+    app.merk('slett flate');
+    liste.splice(i, 1);
+    this.tegnStikkpunkter();
+    app.planleggAutolagring();
+    app.status(`Tok bort ${f.navn} – punktene står`);
+  },
+
+  /** Boksen ved en flate: navn, areal, høyder, Makin og Slett. */
+  visStikkflate(f, latlng) {
+    const tall = this.flatetall(f);
+    const d = document.createElement('div');
+    d.className = 'koordinatboks';
+    d.innerHTML = `<b>${escapeHtml(f.navn)}</b><br>${escapeHtml(f.punkter.join(' → '))}<br>`
+      + `${Rapport.tall(tall.areal, 1)} m²<br>`
+      + (Number.isFinite(tall.min) ? `Høyde ${Rapport.tall(tall.min, 2)}–${Rapport.tall(tall.maks, 2)} moh<br>` : '')
+      + (tall.utenHoyde ? `<span class="raud">${tall.utenHoyde} hjørne${tall.utenHoyde > 1 ? 'r' : ''} uten høyde</span><br>` : '');
+    const knapp = (tekst, tittel, gjor) => {
+      const b = document.createElement('button');
+      b.className = 'knapp'; b.textContent = tekst; b.title = tittel;
+      b.onclick = e => { L.DomEvent.stopPropagation(e); gjor(); };
+      d.appendChild(b); d.appendChild(document.createTextNode(' '));
+    };
+    knapp('Makin', 'Last ned punktene og flatene til Makin-maskinen', () => this.lastNedStikkMakin());
+    knapp('Slett flate', 'Ta bort flaten – punktene blir stående', () => { this.kart.closePopup(); this.slettStikkflate(f); });
+    L.popup({ autoPanPadding: [20, 20], autoPanPaddingTopLeft: [20, 70] }).setLatLng(latlng).setContent(d).openOn(this.kart);
   },
 
   tegnStikkpunkter() {
     if (!this.lag.stikk) return;
     this.lag.stikk.clearLayers();
+    // flatene under punktene, så punktene kan trykkes og dras oppå dem
+    for (const f of this.stikkflater()) {
+      const hj = this.flatepunkter(f);
+      if (hj.length < 3) continue;
+      const poly = L.polygon(hj.map(p => [p.lat, p.lon]), { color: '#c0392b', weight: 2, fillOpacity: 0.12, className: 'stikkflate' })
+        .bindTooltip(escapeHtml(f.navn), { sticky: true, className: 'stikketikett' })
+        .addTo(this.lag.stikk);
+      // i «Sett punkt» er klikket et nytt punkt også inne i en flate; ellers boksen ved flaten
+      poly.on('click', e => {
+        L.DomEvent.stop(e);
+        if (this.modus === 'settPunkt') this.settStikkpunkt(e.latlng); else this.visStikkflate(f, e.latlng);
+      });
+    }
     for (const p of this.stikkpunkter()) {
       const m = L.marker([p.lat, p.lon], {
         draggable: true, keyboard: false,
@@ -1447,6 +1601,8 @@ const Kart = {
         // dratt: punktet står der musa slapp det, ikke på tallene som ble skrevet
         delete p.utm;
         this.app.planleggAutolagring();
+        // flaten følger hjørnet
+        if (this.stikkflater().some(f => f.punkter.includes(p.navn))) this.tegnStikkpunkter();
         this.visKoordinater(ll);
         // dratt ut av terrenget som er hentet: hent det, og vis boksen med høyden
         if (!Number.isFinite(this.stikkKoordinater(p).z)) {
@@ -1508,11 +1664,14 @@ const Kart = {
     const app = this.app;
     if (!this.stikkpunkter().length) { app.status('Ingen punkt å laste ned – sett et punkt i kartet først'); return; }
     await this.hentStikkHoyder();
-    const r = Eksport.makin(this.stikkIconPunkter(), app.sone);
+    const r = Eksport.makin(this.stikkIconPunkter(), app.sone, this.stikkflaterTilFil());
     if (!r.antall) { app.status('Ingen av punktene har høyde – terrenget kunne ikke hentes der de står'); return; }
     Rapport.lastNed(Rapport.filnavn('_stikkpunkt_Makin.xml'), r.tekst, 'application/xml;charset=utf-8');
-    app.status(`Lastet ned ${r.antall} stikkpunkt til Makin (EUREF89 UTM${app.sone}) – last fila opp i prosjektets Filer i Makin`
-      + (r.uten.length ? ` · ${r.uten.join(', ')} har ikke høyde og er ikke med` : ''));
+    app.status(`Lastet ned ${r.antall} stikkpunkt`
+      + (r.flater.length ? ` og ${r.flater.length === 1 ? 'flaten ' + r.flater[0] : r.flater.length + ' flater'}` : '')
+      + ` til Makin (EUREF89 UTM${app.sone}) – last fila opp i prosjektets Filer i Makin`
+      + (r.uten.length ? ` · ${r.uten.join(', ')} har ikke høyde og er ikke med` : '')
+      + (r.flatefeil.length ? ` · ikke med: ${r.flatefeil.join('; ')}` : ''));
   },
 
   /** Tegner linjeføring, knekkpunkt og fotavtrykk pa nytt. */

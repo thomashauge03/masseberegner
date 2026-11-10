@@ -83,6 +83,17 @@ der i boksen ved punktet. En høyde du skriver inn, er punktets egen og byttes
 aldri ut med terrenget. Står høyden tom, brukes terrenget. Tallene du skriver,
 er de som kommer ut i filene, helt ned på millimeteren. Drar du punktet, står
 det der du slapp det.
+
+**⬠ Flate av punktene** – kryss av punktene, og de kobles i rekkefølge til en
+lukket figur. Flaten går gjennom høyden i hvert punkt, så den er skrå der
+punktene har ulik høyde. Det er ingen skråninger utenfor og ingen masser; vil du
+ha det, er det en tomt. Krysser kantene hverandre, legges rekkefølgen rundt
+midten, og svaret sier fra. Figuren kan være hul innover, som en L. Flaten
+tegnes i kartet og følger punktene når de flyttes, får nytt navn eller slettes
+(under tre hjørner, og flaten er borte). I **Makin-fila** kommer den som en
+`<Surface>` (TIN) gjennom hjørnene og omrisset som en `<PlanFeature>`, altså den
+flaten maskinen graver etter. Et hjørne uten høyde holder flaten utenfor fila,
+og svaret sier hvorfor.
 Punktene lagres med prosjektet, kan angres og står i hvert anlegg. Et slettet
 nummer brukes ikke på nytt, så S3 er alltid det samme punktet. Høyden er
 terrenget (DTM1) der punktet står. Står punktet utenfor terrenget anlegget har

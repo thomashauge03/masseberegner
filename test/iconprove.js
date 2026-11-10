@@ -79,6 +79,39 @@ console.log('Makin-skriveren');
   paastand('CRLF på hver linje', !/[^\r]\n/.test(t) && t.endsWith('</LandXML>\r\n'));
 }
 
+console.log('Flaten mellom punktene');
+{
+  const T = p => Eksport.trekanter(p.map(([x, y]) => ({ x, y })));
+  const areal = (p, t) => t.reduce((s, [a, b, c]) => s + Math.abs((p[b][0] - p[a][0]) * (p[c][1] - p[a][1]) - (p[b][1] - p[a][1]) * (p[c][0] - p[a][0])) / 2, 0);
+  const firkant = [[0, 0], [10, 0], [10, 5], [0, 5]];
+  const f = T(firkant);
+  paastand('en firkant blir to trekanter', f.trekanter && f.trekanter.length === 2, JSON.stringify(f));
+  paastand('  som dekker hele arealet', Math.abs(areal(firkant, f.trekanter) - 50) < 1e-9);
+  const med = T(firkant.slice().reverse());
+  paastand('  også når punktene går med klokka', med.trekanter && Math.abs(areal(firkant.slice().reverse(), med.trekanter) - 50) < 1e-9);
+  const L = [[0, 0], [10, 0], [10, 4], [4, 4], [4, 10], [0, 10]];
+  const l = T(L);
+  // 10 × 4 + 4 × 6 = 64 m²; en trekant over innoverhjørnet ville gitt mer
+  paastand('en L-form blir fire trekanter som dekker 64 m², ingen utenfor', l.trekanter && l.trekanter.length === 4
+    && Math.abs(areal(L, l.trekanter) - 64) < 1e-9, JSON.stringify(l));
+  paastand('kanter som krysser hverandre er en feil', !!T([[0, 0], [10, 10], [10, 0], [0, 10]]).feil);
+  paastand('tre punkt på en linje er en feil', !!T([[0, 0], [5, 0], [10, 0]]).feil);
+  paastand('to punkt er ikke en flate', !!T([[0, 0], [5, 0]]).feil);
+
+  const hj = [['A', 0, 0, 100], ['B', 10, 0, 100], ['C', 10, 5, 101], ['D', 0, 5, 101]]
+    .map(([navn, e, n, z]) => ({ navn, e: 500000 + e, n: 6600000 + n, z }));
+  const r = Eksport.makin(hj, 32, [{ navn: 'Flate 1', punkt: hj }, { navn: 'Uten', punkt: hj.slice(0, 2).concat([{ navn: 'X', e: 500003, n: 6600009, z: NaN }]) }]);
+  const t = r.tekst;
+  paastand('Makin-fila har flaten som TIN', t.includes('<Surface name="Flate 1"') && t.includes('surfType="TIN"')
+    && (t.match(/<P id=/g) || []).length === 4 && (t.match(/<F>/g) || []).length === 2);
+  paastand('  med hjørnene i «nord øst høyde»', t.includes('<P id="3">6600005.000000 500010.000000 101.000000</P>'));
+  paastand('  og omrisset som en lukket linje', t.includes('<PlanFeature name="Flate 1">') && (t.match(/<Line>/g) || []).length === 4
+    && t.includes('<Start>6600005.000000 500000.000000 101.000000</Start>\r\n          <End>6600000.000000 500000.000000 100.000000</End>'));
+  paastand('en flate med et hjørne uten høyde skrives ikke, og grunnen sies', r.flater.join() === 'Flate 1'
+    && r.flatefeil.length === 1 && /X har ikke høyde/.test(r.flatefeil[0]), JSON.stringify(r.flatefeil));
+  paastand('uten flater er fila som før', !Eksport.makin(hj, 32).tekst.includes('Surface'));
+}
+
 console.log('Punkt man skriver eller limer inn');
 {
   const L = s => Eksport.lesPunktlinje(s);

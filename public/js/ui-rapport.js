@@ -1745,7 +1745,9 @@ Lengdene er langs bakken i kartet.</p>
    */
   punktfiler: {
     icon: { navn: 'iCON', endelse: '_iCON.xml', skriv: (p, sone) => Eksport.icon(p), uten: 'uten høyde, står som 2D-punkt' },
-    makin: { navn: 'Makin', endelse: '_Makin.xml', skriv: (p, sone) => Eksport.makin(p, sone), uten: 'uten høyde, ikke med' }
+    // flatene mellom stikkpunktene går med til maskinen – det er dem den graver etter
+    makin: { navn: 'Makin', endelse: '_Makin.xml', uten: 'uten høyde, ikke med',
+      skriv: (p, sone) => Eksport.makin(p, sone, typeof Kart !== 'undefined' ? Kart.stikkflaterTilFil() : []) }
   },
 
   /** Svaret etter en punktfil: hva som er med, og hva som ble endret eller mangler. */
@@ -1758,7 +1760,9 @@ Lengdene er langs bakken i kartet.</p>
     if (r.uten.length) s += ` · ${pf.uten}: ${noen(r.uten, 8)}`;
     if (r.omdopt.length) s += ` · samme navn to ganger, fikk nytt: ${noen(r.omdopt, 5)}`;
     if (grunn) s += ` · anlegget er ikke med: ${grunn}`;
-    this.eksportsvar(s, !!(grunn || r.omdopt.length || (format === 'makin' && r.uten.length)));
+    if (r.flater && r.flater.length) s += ` · flate${r.flater.length > 1 ? 'r' : ''}: ${r.flater.join(', ')}`;
+    if (r.flatefeil && r.flatefeil.length) s += ` · ikke med: ${r.flatefeil.join('; ')}`;
+    this.eksportsvar(s, !!(grunn || r.omdopt.length || (format === 'makin' && r.uten.length) || (r.flatefeil && r.flatefeil.length)));
   },
 
   /**
