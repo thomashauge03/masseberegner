@@ -37,6 +37,8 @@ const TinUI = {
       if (hva === 'bruk') this.settBruk(!this.app.P.tin.bruk);
       else if (hva === 'veksle') this.veksle(b.dataset.navn);
       else if (hva === 'tauttalle') this.taUt((this.app.resultat && this.app.resultat.mistenkelige || []).map(m => m.navn));
+      else if (hva === 'alleut') this.alle(false);
+      else if (hva === 'alleinn') this.alle(true);
       else if (hva === 'nyfil') this.velgFil();
       else if (hva === 'kantforslag') this.settMakskant(null);
       else if (hva === 'nytomt') this.nyTomt();
@@ -221,6 +223,22 @@ const TinUI = {
   },
 
   /**
+   * Alle punktene ut av flaten, eller alle inn igjen. Ut først og så «Ta med»
+   * på de få som skal bære flaten, når fila har mange flere enn man trenger.
+   */
+  alle(med) {
+    const t = this.app.P.tin;
+    if (!t) return;
+    const foer = (t.utelatt || []).length;
+    if (med ? !foer : foer === t.punkter.length) return;
+    this.app.merk(med ? 'ta med alle punkt' : 'ta ut alle punkt');
+    t.utelatt = med ? [] : t.punkter.map(p => p.navn);
+    this.app.tinEndret();
+    this.app.status(med ? `Alle ${t.punkter.length} punkt er med i flaten igjen`
+      : `Alle ${t.punkter.length} punkt er tatt ut – trykk «Ta med» på dem som skal bære flaten (minst tre)`);
+  },
+
+  /**
    * Neste steg etter innmålingen: en tomt oppå, tegnet i kartet. Den legges
    * ETTER det innmålte terrenget i lista og regnes mot punktene så lenge
    * «Bruk som terreng» er på – Foreslå, Massebalanse og Optimaliser likeså.
@@ -268,7 +286,13 @@ const TinUI = {
           + 'hva som er lagt til og fjernet – og godkjenn når punktene er fasiten.'}</p>`;
       ut += '<button class="knapp" data-tin="nytomt" title="Tegn en tomt i kartet. Foreslå kote, Massebalanse og Optimaliser '
         + 'regner da mot punktene der de ligger, og mot DTM1 utenfor.">⬟ Tegn tomt her</button>';
-      if (!r) {
+      const tom = !r && (() => { const f = app.tinFlate(app.anlegg()); return !f || !f.tri.length; })();
+      if (tom) {
+        const med = t.punkter.length - (t.utelatt || []).length;
+        ut += `<p class="notis">Bare ${med} punkt er med – en flate trenger minst tre som ikke ligger på en linje. `
+          + 'Trykk «Ta med» på punktene i tabellen under kartet.</p>';
+        if ((t.utelatt || []).length) ut += '<button class="knapp" data-tin="alleinn">Ta med alle</button>';
+      } else if (!r) {
         ut += '<p class="notis">Regner …</p>';
       } else {
         const s = r.tin, f = r.flate;
@@ -294,7 +318,11 @@ const TinUI = {
           if (r.mistenkelige.length > 1) ut += '<button class="knapp" data-tin="tauttalle">Ta ut alle mistenkelige</button>';
         }
         const ute = t.utelatt || [];
-        if (ute.length) {
+        if (ute.length > 8) {
+          ut += `<h3>Tatt ut av flaten</h3><div class="sumrad"><span>${ute.length} av ${t.punkter.length} punkt</span>`
+            + '<button class="minilenke" data-tin="alleinn">Ta med alle</button></div>'
+            + '<p class="notis">Ta med enkeltpunkt i tabellen under kartet.</p>';
+        } else if (ute.length) {
           ut += '<h3>Tatt ut av flaten</h3>';
           for (const n of ute) {
             ut += `<div class="sumrad"><span>${escapeHtml(n)}</span>`
@@ -326,8 +354,12 @@ const TinUI = {
     const mist = new Map(((r && r.mistenkelige) || []).map(m => [m.navn, m.avvik]));
     const ute = new Set(t.utelatt || []);
     const tall = v => (Number.isFinite(v) ? Rapport.tall(v, 2) : '–');
+    const nUte = t.punkter.filter(p => ute.has(p.navn)).length;
+    const alle = (nUte < t.punkter.length ? '<button class="minilenke" data-tin="alleut" title="Ta alle punktene ut av flaten – så «Ta med» på dem som skal være med">Ta ut alle</button>' : '')
+      + (nUte && nUte < t.punkter.length ? ' · ' : '')
+      + (nUte ? '<button class="minilenke" data-tin="alleinn">Ta med alle</button>' : '');
     let ut = '<table class="tintabell"><thead><tr><th>Punkt</th><th>Kode</th><th>Nord</th><th>Øst</th><th>Høyde</th>'
-      + '<th>DTM1</th><th>Over DTM1</th><th></th></tr></thead><tbody>';
+      + `<th>DTM1</th><th>Over DTM1</th><th>${alle}</th></tr></thead><tbody>`;
     for (const p of t.punkter) {
       const d = r ? r.dtm(p.e, p.n) : NaN, diff = p.z - d, m = mist.get(p.navn), u = ute.has(p.navn);
       ut += `<tr class="${u ? 'ute' : ''}${m != null ? ' mistenkelig' : ''}">`

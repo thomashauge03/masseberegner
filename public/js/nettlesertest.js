@@ -13688,6 +13688,27 @@ const Nettlesertest = {
 
       const x = E + 5.1, y = N + 9.3, ute = E - 20;
       this.sjekk('knappen av: terrenget er DTM1', App.terreng.z(x, y) === App.terreng.zDtm(x, y));
+
+      // «Ta ut alle» øverst i tabellen, og «Ta med» på bare noen få
+      const iTabell = hva => document.querySelector(`#tinpunkter thead [data-tin="${hva}"]`);
+      this.sjekk('tabellen har «Ta ut alle», men ikke «Ta med alle» når alle er med', !!iTabell('alleut') && !iTabell('alleinn'));
+      iTabell('alleut').click();
+      this.sjekk('«Ta ut alle» tar alle punktene ut', App.P.tin.utelatt.length === App.P.tin.punkter.length);
+      await this.ventPaBeregning();
+      this.sjekk('uten punkter sier fanen at det trengs minst tre', !App.resultat
+        && /minst tre/.test(document.getElementById('massesammendrag').textContent)
+        && !!iTabell('alleinn') && !iTabell('alleut'));
+      for (const n of ['T00', 'T40', 'T04']) {
+        document.querySelector(`#tinpunkter [data-tin="veksle"][data-navn="${n}"]`).click();
+        await this.ventPaBeregning();
+      }
+      this.sjekk('tre tatt med igjen gir en flate av dem', App.resultat && App.resultat.type === 'tin'
+        && App.resultat.flate.punkter.length === 3, App.resultat ? String(App.resultat.flate.punkter.length) : 'ingen');
+      this.sjekk('og da står både «Ta ut alle» og «Ta med alle»', !!iTabell('alleut') && !!iTabell('alleinn'));
+      iTabell('alleinn').click();
+      this.sjekk('«Ta med alle» tar alle inn igjen', !App.P.tin.utelatt.length);
+      await this.ventPaBeregning();
+
       document.querySelector('#massesammendrag [data-tin="veksle"][data-navn="T22"]').click();
       this.sjekk('«Ta ut» tar punktet ut', App.P.tin.utelatt.includes('T22'));
       document.querySelector('#massesammendrag [data-tin="bruk"]').click();
