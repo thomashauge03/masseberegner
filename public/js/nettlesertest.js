@@ -13729,6 +13729,33 @@ const Nettlesertest = {
       await this.ventPaBeregning();
       this.sjekk('«Forslag» går tilbake til kanten programmet foreslår', App.P.tin.makskant === null && !kant('kantforslag'));
 
+      // For hånd: klikk trekanter inn og ut i kartet
+      const stiplet = () => { let n = 0; Kart.lag.tin.eachLayer(l => { if (l.options && l.options.dashArray) n++; }); return n; };
+      this.sjekk('uten «For hånd» er ingen trekanter stiplet', stiplet() === 0);
+      kant('forhaand').click();
+      this.sjekk('«For hånd» viser trekantene som kan klikkes inn', TinUI.forHaand && kant('forhaand').getAttribute('aria-pressed') === 'true'
+        && stiplet() === App.resultat.flate.alle.length - App.resultat.flate.tri.length, String(stiplet()));
+      const fH = App.resultat.flate, triFoer = fH.tri.length;
+      const nv = tr => Triangulering.trekantnavn(tr.map(i => fH.punkter[i].navn));
+      const ute3 = fH.alle.map(nv).filter(k => !fH.tri.map(nv).includes(k));
+      if (ute3.length) {
+        let klikket = false;
+        Kart.lag.tin.eachLayer(l => { if (!klikket && l.options && l.options.dashArray) { l.fire('click'); klikket = true; } });
+        await this.ventPaBeregning();
+        this.sjekk('et klikk på en stiplet trekant tar den med', App.resultat.flate.tri.length === triFoer + 1 && App.P.tin.med.length === 1);
+      }
+      const forste = nv(App.resultat.flate.tri[0]);
+      TinUI.veksleTrekant(forste);
+      await this.ventPaBeregning();
+      this.sjekk('og en farget tas ut', App.P.tin.uten.includes(forste)
+        && !App.resultat.flate.tri.some(tr => Triangulering.trekantnavn(tr.map(i => App.resultat.flate.punkter[i].navn)) === forste));
+      this.sjekk('«Forslag» står når noe er klikket', !!kant('kantforslag'));
+      kant('kantforslag').click();
+      await this.ventPaBeregning();
+      this.sjekk('og tar klikkene bort', !App.P.tin.med.length && !App.P.tin.uten.length && App.resultat.flate.tri.length === triFoer);
+      kant('forhaand').click();
+      this.sjekk('«For hånd» av igjen', !TinUI.forHaand && stiplet() === 0);
+
       document.querySelector('#massesammendrag [data-tin="veksle"][data-navn="T22"]').click();
       this.sjekk('«Ta ut» tar punktet ut', App.P.tin.utelatt.includes('T22'));
       document.querySelector('#massesammendrag [data-tin="bruk"]').click();

@@ -1049,11 +1049,11 @@ const App = {
     if (!a || !a.tin || !Array.isArray(a.tin.punkter) || a.tin.punkter.length < 3) return null;
     const t = a.tin, P = t.punkter;
     const nokkel = [P.length, P[0].e, P[0].n, P[P.length - 1].e, P[P.length - 1].z,
-      (t.utelatt || []).join(','), t.makskant, t.sone].join('|');
+      (t.utelatt || []).join(','), t.makskant, t.sone, (t.med || []).join(','), (t.uten || []).join(',')].join('|');
     if (!this._tinflater) this._tinflater = new Map();
     const b = this._tinflater.get(a.id);
     if (b && b.nokkel === nokkel) return b.flate;
-    const flate = Triangulering.lagFlate(P, { utelatt: t.utelatt, makskant: t.makskant });
+    const flate = Triangulering.lagFlate(P, { utelatt: t.utelatt, makskant: t.makskant, med: t.med, uten: t.uten });
     this._tinflater.set(a.id, { nokkel, flate });
     return flate;
   },
@@ -1167,7 +1167,10 @@ const App = {
     const tilProsjekt = (t.sone && t.sone !== this.sone)
       ? p => { const g = Geo.fraUtm(p.e, p.n, t.sone), u = Geo.tilUtm(g.lat, g.lon, this.sone); return { x: u.x, y: u.y }; }
       : p => ({ x: p.e, y: p.n });
-    const omriss = f.kant.map(i => tilProsjekt(f.punkter[i]));
+    /* Hylsteret rundt alle punktene, ikke ytterkanten: et klikk som legger
+       til en trekant skal ikke trenge en ny runde mot Kartverket, og en flate
+       med øyer har mer enn én kant. */
+    const omriss = f.hylster.map(i => tilProsjekt(f.punkter[i]));
     const nokkel = 'tin#' + this.sone + '#' + omriss.map(q => q.x.toFixed(1) + ',' + q.y.toFixed(1)).join('|');
     const anleggFoer = this.P.aktivt;
     if (nokkel !== this._terrengnokkel) {
@@ -2707,7 +2710,9 @@ const App = {
     /* Bakken er en forutsetning: slås et innmålt terreng på eller av, er de
        andre anleggenes lagrede tall regnet mot en annen mark. */
     const tin = (this.P.anlegg || []).filter(a => a.type === 'tin' && a.tin && a.tin.bruk)
-      .map(a => [a.id, a.tin.punkter.length, (a.tin.utelatt || []).join(','), a.tin.makskant]);
+      .map(a => [a.id, a.tin.punkter.length, (a.tin.utelatt || []).join(','), a.tin.makskant]
+        // klikkede trekanter bare når det finnes noen, så eldre lagrede tall står seg
+        .concat((a.tin.med || []).length || (a.tin.uten || []).length ? [(a.tin.med || []).join(','), (a.tin.uten || []).join(',')] : []));
     return JSON.stringify([f, fj.standarddybde, (fj.punkter || []).length,
       (fj.strekninger || []).length, !!this.P.bakkekorreksjon].concat(tin.length ? [tin] : []));
   },

@@ -174,8 +174,10 @@ const Tin3d = Object.assign(Object.create(Tomt3d), {
     const visEtter = this.visning !== 'foer';
     const z = p => visEtter ? p.z : res.dtm(p.e, p.n);
     k.strokeStyle = Farger.veg; k.lineWidth = 2;
-    const ring = f.kant.map(i => ({ x: f.punkter[i].e, y: f.punkter[i].n, z: z(f.punkter[i]) }));
-    if (ring.length > 2) { ring.push(ring[0]); this._verdensstrek(k, ring); }
+    for (const r of f.ringer || [f.kant]) {
+      const ring = r.map(i => ({ x: f.punkter[i].e, y: f.punkter[i].n, z: z(f.punkter[i]) }));
+      if (ring.length > 2) { ring.push(ring[0]); this._verdensstrek(k, ring); }
+    }
   },
 });
 

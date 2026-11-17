@@ -2122,7 +2122,8 @@ const Kart = {
         // ytterkanten av det innmålte terrenget
         const fl = app.tinFlate(a), sone = a.tin.sone || app.sone;
         if (fl && fl.kant.length > 2) {
-          const p = fl.kant.map(i => { const g = Geo.fraUtm(fl.punkter[i].e, fl.punkter[i].n, sone); return [g.lat, g.lon]; });
+          const ring = r => r.map(i => { const g = Geo.fraUtm(fl.punkter[i].e, fl.punkter[i].n, sone); return [g.lat, g.lon]; });
+          const p = [ring(fl.kant)].concat((fl.ringer || []).filter(r => r !== fl.kant).map(ring));
           const f = L.polygon(p, Object.assign({ fillColor: Farger.blekkSvak, fillOpacity: a.tin.bruk ? 0.12 : 0.03 }, stil))
             .addTo(this.lag.andre);
           f.on('click', bytt);
@@ -2569,7 +2570,23 @@ const Kart = {
       return 'rgb(' + lys.map((v, i) => Math.round(v + (mot[i] - v) * a)).join(',') + ')';
     };
     const tall = v => Rapport.tall(v, 2);
+    /* «For hånd»: hver trekant er en knapp. De som er med kan klikkes ut, og
+       resten av Delaunay-flaten står stiplet og kan klikkes inn. */
+    const forHaand = typeof TinUI !== 'undefined' && TinUI.forHaand;
     if (f) {
+      const navn = tr => Triangulering.trekantnavn(tr.map(i => f.punkter[i].navn));
+      if (forHaand) {
+        const med = new Set(f.tri.map(navn));
+        for (const tr of f.alle || []) {
+          const k = navn(tr);
+          if (med.has(k)) continue;
+          const pol = L.polygon(tr.map(i => ll(f.punkter[i])), { color: '#1d1d1b', weight: 1, opacity: 0.7, dashArray: '4 4',
+            fillColor: '#ffffff', fillOpacity: 0.08 }).addTo(this.lag.tin);
+          pol.on('click', e => { L.DomEvent.stop(e); TinUI.veksleTrekant(k); });
+          pol.on('mouseover', () => pol.setStyle({ fillOpacity: 0.35 }));
+          pol.on('mouseout', () => pol.setStyle({ fillOpacity: 0.08 }));
+        }
+      }
       for (const tr of f.tri) {
         const q = tr.map(i => f.punkter[i]);
         let d = NaN;
@@ -2577,10 +2594,18 @@ const Kart = {
           const e = (q[0].e + q[1].e + q[2].e) / 3, n = (q[0].n + q[1].n + q[2].n) / 3;
           d = Triangulering.hoyde(f, e, n) - res.dtm(e, n);
         }
-        L.polygon(q.map(ll), { color: '#1d1d1b', weight: 0.7, opacity: 0.6, fillColor: farge(d), fillOpacity: 0.6, interactive: false })
+        const pol = L.polygon(q.map(ll), { color: '#1d1d1b', weight: 0.7, opacity: 0.6, fillColor: farge(d), fillOpacity: 0.6, interactive: !!forHaand })
           .addTo(this.lag.tin);
+        if (forHaand) {
+          const k = navn(tr);
+          pol.on('click', e => { L.DomEvent.stop(e); TinUI.veksleTrekant(k); });
+          pol.on('mouseover', () => pol.setStyle({ fillOpacity: 0.3 }));
+          pol.on('mouseout', () => pol.setStyle({ fillOpacity: 0.6 }));
+        }
       }
-      L.polygon(f.kant.map(i => ll(f.punkter[i])), { color: '#1d1d1b', weight: 2, fill: false, interactive: false }).addTo(this.lag.tin);
+      for (const r of f.ringer || [f.kant]) {
+        L.polygon(r.map(i => ll(f.punkter[i])), { color: '#1d1d1b', weight: 2, fill: false, interactive: false }).addTo(this.lag.tin);
+      }
     }
     const ute = new Set(t.utelatt || []);
     const mist = new Map(((res && res.mistenkelige) || []).map(m => [m.navn, m.avvik]));

@@ -499,6 +499,8 @@ function klargjor(P) {
       a.tin = Object.assign(T.nyTin(), a.tin || {});
       if (!Array.isArray(a.tin.punkter)) a.tin.punkter = [];
       if (!Array.isArray(a.tin.utelatt)) a.tin.utelatt = [];
+      if (!Array.isArray(a.tin.med)) a.tin.med = [];
+      if (!Array.isArray(a.tin.uten)) a.tin.uten = [];
       a.tin.bruk = a.tin.bruk === true;
       a.mal = Object.assign({}, StandardMal, moderniserMal(a.mal || {}));
       a.ip = a.ip || [];

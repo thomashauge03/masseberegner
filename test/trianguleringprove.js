@@ -225,6 +225,32 @@ console.log('Mer og Mindre');
   paastand('tatt ut regnes ikke med', T.nesteMakskant(P.slice(0, 2), {}, +1) === null);
 }
 
+console.log('For hånd');
+{
+  const P = nett(4, 4, 5, plan, (i, j) => !(i > 2 && j > 2));
+  const f0 = T.lagFlate(P);
+  const navn = (f, t) => T.trekantnavn(t.map(i => f.punkter[i].navn));
+  const mangler = f0.alle.filter(t => !f0.tri.some(u => navn(f0, u) === navn(f0, t)));
+  paastand('forslaget lar noen trekanter stå utenfor', mangler.length > 0, String(mangler.length));
+  const inn = navn(f0, mangler[0]);
+  const f1 = T.lagFlate(P, { med: [inn] });
+  paastand('en trekant klikket inn er med', f1.tri.length === f0.tri.length + 1 && f1.tri.some(t => navn(f1, t) === inn));
+  paastand('og flaten er større', T.areal(f1).areal > T.areal(f0).areal);
+  // en trekant midt i flaten ut gir et hull: to ringer
+  const midt = f0.tri.find(t => t.every(i => !f0.kant.includes(i)));
+  const f2 = T.lagFlate(P, { uten: [navn(f0, midt)] });
+  paastand('en trekant klikket ut er borte', f2.tri.length === f0.tri.length - 1);
+  paastand('et hull gir to ringer', f2.ringer.length === 2, String(f2.ringer.length));
+  paastand('og ytterkanten er den samme', f2.kant.length === f0.kant.length);
+  const z = f2.punkter[midt[0]], c = midt.map(i => f2.punkter[i]);
+  paastand('i hullet er det ingen høyde', Number.isNaN(T.hoyde(f2, (c[0].e + c[1].e + c[2].e) / 3, (c[0].n + c[1].n + c[2].n) / 3)) && !!z);
+  const annet = P.find(p => !inn.split('|').includes(p.navn) && f0.kant.some(i => f0.punkter[i].navn === p.navn)).navn;
+  const f3 = T.lagFlate(P, { med: [inn], utelatt: [annet] });
+  paastand('navnet står seg når et annet punkt tas ut', f3.tri.some(t => navn(f3, t) === inn), annet);
+  paastand('hylsteret går rundt alle punktene', new Set(f2.hylster).size === T.kantring(f2.alle).length);
+  paastand('rekkefølgen på navnene spiller ingen rolle', T.trekantnavn(['b', 'a', 'c']) === T.trekantnavn(['c', 'b', 'a']));
+}
+
 console.log('Prosjektfila');
 {
   const Pf = require('../public/js/prosjektform.js');

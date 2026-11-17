@@ -40,7 +40,8 @@ const TinUI = {
       else if (hva === 'alleut') this.alle(false);
       else if (hva === 'alleinn') this.alle(true);
       else if (hva === 'nyfil') this.velgFil();
-      else if (hva === 'kantforslag') this.settMakskant(null);
+      else if (hva === 'kantforslag') this.tilForslag();
+      else if (hva === 'forhaand') this.settForHaand(!this.forHaand);
       else if (hva === 'kantmer') this.fyll(+1);
       else if (hva === 'kantmindre') this.fyll(-1);
       else if (hva === 'kanthele') this.settMakskant(0);
@@ -282,19 +283,61 @@ const TinUI = {
       : `Lengste kant langs ytterkanten er nå ${Rapport.tall(m, 1)} m`);
   },
 
-  /** Mindre · Mer · Hele i linja under kartet. */
+  /**
+   * «For hånd»: klikk i kartet der flaten skal være. Hver trekant i
+   * Delaunay-flaten blir en knapp – de som mangler står stiplet og klikkes
+   * inn, de som er med klikkes ut. Klikkene ligger oppå kanten (Mer · Mindre)
+   * og står til «Forslag» tar dem bort.
+   */
+  forHaand: false,
+
+  settForHaand(pa) {
+    this.forHaand = !!pa;
+    if (this.forHaand) this.app.status('For hånd: klikk en stiplet trekant for å ta den med i flaten, eller en farget for å ta den ut. Trykk «For hånd» igjen når du er ferdig.');
+    this.visKant();
+    Kart.tegn();
+  },
+
+  veksleTrekant(navn) {
+    const t = this.app.P.tin, f = this.app.tinFlate(this.app.anlegg());
+    if (!t || !f) return;
+    const iFlaten = f.tri.some(tr => Triangulering.trekantnavn(tr.map(i => f.punkter[i].navn)) === navn);
+    const med = new Set(t.med || []), uten = new Set(t.uten || []);
+    this.app.merk(iFlaten ? 'ta ut trekant' : 'ta med trekant');
+    if (iFlaten) { if (med.has(navn)) med.delete(navn); else uten.add(navn); }
+    else { if (uten.has(navn)) uten.delete(navn); else med.add(navn); }
+    t.med = [...med]; t.uten = [...uten];
+    this.app.tinEndret();
+    this.app.status(iFlaten ? 'Trekanten er tatt ut av flaten' : 'Trekanten er tatt med i flaten');
+  },
+
+  /** Tilbake til programmets kant – og uten klikkene. */
+  tilForslag() {
+    const t = this.app.P.tin;
+    if (!t || (t.makskant == null && !(t.med || []).length && !(t.uten || []).length)) return;
+    this.app.merk('tilbake til forslaget');
+    t.makskant = null; t.med = []; t.uten = [];
+    this.app.tinEndret();
+    this.app.status('Flaten følger forslaget igjen – klikkede trekanter er tatt bort');
+  },
+
+  /** Mindre · Mer · Hele · For hånd i linja under kartet. */
   visKant() {
     const e = document.getElementById('tinkant');
     if (!e) return;
     const t = this.app.P.tin, f = this.app.tinFlate(this.app.anlegg());
-    if (!t || !f || !f.tri.length) { e.innerHTML = ''; return; }
+    if (!t || !f || !(f.alle || f.tri).length) { e.innerHTML = ''; return; }
     const hele = f.makskant === 0;
+    const klikk = (t.med || []).length + (t.uten || []).length;
     e.innerHTML = '<span class="tinkantverdi" title="Lengste kant langs ytterkanten – hvor langt flaten fyller ut mellom punktene">'
-      + `Flate: ${hele ? 'alt' : escapeHtml(Rapport.tall(f.makskant, 1)) + ' m'}${t.makskant == null ? ' (forslag)' : ''}</span>`
+      + `Flate: ${hele ? 'alt' : escapeHtml(Rapport.tall(f.makskant, 1)) + ' m'}${t.makskant == null ? ' (forslag)' : ''}`
+      + `${klikk ? ` · ${klikk} klikket` : ''}</span>`
       + '<button class="verktoyknapp" data-tin="kantmindre" title="Skrell bort de lengste trekantene langs kanten">Mindre</button>'
       + '<button class="verktoyknapp" data-tin="kantmer" title="Fyll ut mer mellom punktene">Mer</button>'
       + `<button class="verktoyknapp${hele ? ' aktiv' : ''}" data-tin="kanthele" aria-pressed="${hele}" title="Fyll ut alt mellom de ytterste punktene">Hele</button>`
-      + (t.makskant != null ? '<button class="verktoyknapp" data-tin="kantforslag" title="Tilbake til kanten programmet foreslår ut fra avstanden mellom punktene">Forslag</button>' : '');
+      + `<button class="verktoyknapp${this.forHaand ? ' aktiv' : ''}" data-tin="forhaand" aria-pressed="${this.forHaand}" `
+      + 'title="Klikk trekanter i kartet: stiplet tas med, farget tas ut">For hånd</button>'
+      + (t.makskant != null || klikk ? '<button class="verktoyknapp" data-tin="kantforslag" title="Tilbake til kanten programmet foreslår, og uten trekantene du har klikket">Forslag</button>' : '');
   },
 
   /* ---------------- visning ---------------- */
@@ -325,8 +368,10 @@ const TinUI = {
       const tom = !r && (() => { const f = app.tinFlate(app.anlegg()); return !f || !f.tri.length; })();
       if (tom) {
         const med = t.punkter.length - (t.utelatt || []).length;
-        ut += `<p class="notis">Bare ${med} punkt er med – en flate trenger minst tre som ikke ligger på en linje. `
-          + 'Trykk «Ta med» på punktene i tabellen under kartet.</p>';
+        ut += med >= 3 && (t.uten || []).length
+          ? '<p class="notis">Ingen trekanter er med. Klikk dem inn med «For hånd» under kartet, eller trykk «Forslag».</p>'
+          : `<p class="notis">Bare ${med} punkt er med – en flate trenger minst tre som ikke ligger på en linje. `
+            + 'Trykk «Ta med» på punktene i tabellen under kartet.</p>';
         if ((t.utelatt || []).length) ut += '<button class="knapp" data-tin="alleinn">Ta med alle</button>';
       } else if (!r) {
         ut += '<p class="notis">Regner …</p>';
@@ -369,8 +414,11 @@ const TinUI = {
         ut += `<div class="sumrad"><label for="tinMakskant">Lengste kant langs ytterkanten</label>`
           + `<span><input id="tinMakskant" type="number" min="0" step="0.5" value="${f.makskant}" style="width:5em"> m</span></div>`;
         ut += `<p class="notis">Lengre kanter skrelles bort, så det ikke regnes kubikk over hjørner ingen har målt. `
-          + `0 gir hele det konvekse hylsteret. ${t.makskant == null ? 'Satt ut fra avstanden mellom punktene.'
-            : '<button class="minilenke" data-tin="kantforslag">Tilbake til forslaget</button>'}</p>`;
+          + `0 gir hele det konvekse hylsteret. ${t.makskant == null ? 'Satt ut fra avstanden mellom punktene.' : ''}`
+          + ((t.med || []).length || (t.uten || []).length
+            ? ` ${(t.med || []).length} trekant${(t.med || []).length === 1 ? '' : 'er'} er klikket inn og ${(t.uten || []).length} ut for hånd.` : '')
+          + (t.makskant != null || (t.med || []).length || (t.uten || []).length
+            ? ' <button class="minilenke" data-tin="kantforslag">Tilbake til forslaget</button>' : '') + '</p>';
         if (f.dubletter.length) ut += `<p class="notis">${f.dubletter.length} punkt på samme sted som et annet er hoppet over: ${f.dubletter.map(escapeHtml).join(', ')}.</p>`;
         ut += '<p class="notis">Kanten er målt der punktene slutter. Ligger kanten høyt over DTM1, er den målt på toppen '
           + 'av en fylling – skråningen ned til foten er da utenfor og ikke med.</p>';

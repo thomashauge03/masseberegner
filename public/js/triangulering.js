@@ -161,15 +161,69 @@ const Triangulering = (() => {
    *   valg.utelatt:  navn som skal holdes utenfor (feilmålinger)
    *   valg.makskant: kanter lengre enn dette skrelles bort langs ytterkanten.
    *                  Mangler den, brukes forslaget. 0 = konvekst hylster.
+   *   valg.med / valg.uten: trekanter brukeren har klikket inn eller ut, som
+   *                  nøkler fra `trekantnavn`. De legges oppå skrellingen.
+   *
+   * Svaret har også `alle` (hele Delaunay-flaten, så kartet kan vise hva som
+   * kan klikkes inn), `ringer` (hver ytterkant og hvert hull – klikk kan gi
+   * flere) og `hylster` (ringen rundt alle, til å hente DTM1 for).
    */
   function lagFlate(punkter, valg = {}) {
     const { P, dubletter } = medIFlaten(punkter, valg);
     const alle = delaunay(P);
     const makskant = valg.makskant == null ? forslagMakskant(P, alle) : valg.makskant;
-    const tri = skrell(P, alle, makskant);
-    const flate = { punkter: P, tri, kant: kantring(tri), makskant, dubletter };
+    let tri = skrell(P, alle, makskant);
+    const med = new Set(valg.med || []), uten = new Set(valg.uten || []);
+    if (med.size || uten.size) {
+      const navn = t => trekantnavn(t.map(i => P[i].navn));
+      const har = new Set(tri.map(navn));
+      tri = alle.filter(t => { const k = navn(t); return (har.has(k) || med.has(k)) && !uten.has(k); });
+    }
+    const ringer = kantringer(tri);
+    // den lengste ringen er ytterkanten, de andre er øyer eller hull
+    const kant = ringer.reduce((best, r) => (r.length > best.length ? r : best), []);
+    const flate = { punkter: P, tri, alle, kant, ringer, hylster: kantring(alle), makskant, dubletter };
     bygg(flate);
     return flate;
+  }
+
+  /* En trekant sitt navn: de tre punktnavnene sortert. Navnet står seg når
+     andre punkter tas ut eller inn – en indeks gjør ikke det. */
+  function trekantnavn(navn) {
+    return navn.map(String).sort().join('|');
+  }
+
+  /* Alle lukkede ringer langs kantene til trekantene – ytterkant, øyer og hull. */
+  function kantringer(tri) {
+    const teller = new Map();
+    for (const t of tri) for (let k = 0; k < 3; k++) {
+      const a = t[k], b = t[(k + 1) % 3];
+      const n = a < b ? a + ',' + b : b + ',' + a;
+      teller.set(n, (teller.get(n) || 0) + 1);
+    }
+    const ut = new Map();                    // fra -> [til, ...]
+    let igjen = 0;
+    for (const t of tri) for (let k = 0; k < 3; k++) {
+      const a = t[k], b = t[(k + 1) % 3];
+      if (teller.get(a < b ? a + ',' + b : b + ',' + a) !== 1) continue;
+      if (!ut.has(a)) ut.set(a, []);
+      ut.get(a).push(b); igjen++;
+    }
+    const ringer = [];
+    while (igjen > 0) {
+      const start = [...ut.keys()].find(k => ut.get(k).length);
+      const ring = [start];
+      let v = start;
+      for (;;) {
+        const neste = ut.get(v).pop(); igjen--;
+        if (neste === start || neste == null) break;
+        ring.push(neste);
+        v = neste;
+        if (!ut.has(v) || !ut.get(v).length) break;
+      }
+      if (ring.length > 2) ringer.push(ring);
+    }
+    return ringer;
   }
 
   /* Punktene som er med: ikke tatt ut, med tall, og bare ett per sted. */
@@ -310,8 +364,8 @@ const Triangulering = (() => {
       skrå += Math.hypot(u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]) / 2;
     }
     let omkrets = 0;
-    for (let i = 0; i < f.kant.length; i++) {
-      const a1 = P[f.kant[i]], b1 = P[f.kant[(i + 1) % f.kant.length]];
+    for (const r of f.ringer || [f.kant]) for (let i = 0; i < r.length; i++) {
+      const a1 = P[r[i]], b1 = P[r[(i + 1) % r.length]];
       omkrets += Math.hypot(a1.e - b1.e, a1.n - b1.n);
     }
     return { areal: a, skrå, omkrets };
@@ -395,10 +449,10 @@ const Triangulering = (() => {
      `bruk` er brukerens knapp: først når den er på, er flaten terrenget for
      de andre anleggene. Den slås aldri på av seg selv. */
   function nyTin() {
-    return { fil: '', sone: null, punkter: [], utelatt: [], makskant: null, bruk: false };
+    return { fil: '', sone: null, punkter: [], utelatt: [], makskant: null, med: [], uten: [], bruk: false };
   }
 
-  return { nyTin, delaunay, skrell, kantring, forslagMakskant, nesteMakskant, lagFlate, hoyde, mistenkelige, areal, regnMot, lesLandXml, sone };
+  return { nyTin, delaunay, skrell, kantring, kantringer, trekantnavn, forslagMakskant, nesteMakskant, lagFlate, hoyde, mistenkelige, areal, regnMot, lesLandXml, sone };
 })();
 
 if (typeof module !== 'undefined') module.exports = Triangulering;
