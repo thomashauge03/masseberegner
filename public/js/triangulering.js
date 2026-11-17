@@ -163,6 +163,17 @@ const Triangulering = (() => {
    *                  Mangler den, brukes forslaget. 0 = konvekst hylster.
    */
   function lagFlate(punkter, valg = {}) {
+    const { P, dubletter } = medIFlaten(punkter, valg);
+    const alle = delaunay(P);
+    const makskant = valg.makskant == null ? forslagMakskant(P, alle) : valg.makskant;
+    const tri = skrell(P, alle, makskant);
+    const flate = { punkter: P, tri, kant: kantring(tri), makskant, dubletter };
+    bygg(flate);
+    return flate;
+  }
+
+  /* Punktene som er med: ikke tatt ut, med tall, og bare ett per sted. */
+  function medIFlaten(punkter, valg = {}) {
     const ute = new Set(valg.utelatt || []);
     const P = [], sett = new Set(), dubletter = [];
     for (const p of punkter) {
@@ -172,12 +183,45 @@ const Triangulering = (() => {
       sett.add(k);
       P.push(p);
     }
+    return { P, dubletter };
+  }
+
+  /**
+   * «Mer» og «Mindre»: neste lengste kant som faktisk endrer flaten.
+   *
+   * Kandidatene er kantene i hele Delaunay-flaten, rundet opp til halve meter
+   * (en kant på 9,3 m beholdes med 9,5 og skrelles med 9). Et steg som ikke gir flere eller færre
+   * trekanter hoppes over, så hvert trykk synes i kartet. Null når det ikke går
+   * lenger: «Mer» er da ved hele det konvekse hylsteret, «Mindre» ved det
+   * minste som holder alle punktene med.
+   *   retning: +1 for mer, -1 for mindre
+   *   valg.makskant: nå-verdien; mangler den, brukes forslaget. 0 = alt.
+   */
+  function nesteMakskant(punkter, valg, retning) {
+    const { P } = medIFlaten(punkter, valg);
     const alle = delaunay(P);
-    const makskant = valg.makskant == null ? forslagMakskant(P, alle) : valg.makskant;
-    const tri = skrell(P, alle, makskant);
-    const flate = { punkter: P, tri, kant: kantring(tri), makskant, dubletter };
-    bygg(flate);
-    return flate;
+    if (!alle.length) return null;
+    const naa = valg.makskant == null ? forslagMakskant(P, alle) : valg.makskant;
+    const grense = naa > 0 ? naa : Infinity;
+    const antall = m => skrell(P, alle, m).length;
+    const foer = antall(naa);
+    const sett = new Set();
+    for (const t of alle) for (let k = 0; k < 3; k++) {
+      const a = P[t[k]], b = P[t[(k + 1) % 3]];
+      const m = Math.ceil(Math.hypot(a.e - b.e, a.n - b.n) * 2) / 2;
+      sett.add(m);          // beholder kanten
+      sett.add(m - 0.5);    // skreller den, om den ligger ytterst
+    }
+    const kand = [...sett].filter(m => (retning > 0 ? m > grense : m < grense) && m > 0)
+      .sort((x, y) => retning > 0 ? x - y : y - x);
+    for (const m of kand) {
+      const n = antall(m);
+      if (retning > 0 ? n > foer : n < foer) {
+        // samme flate som hele hylsteret: si det som det er
+        return retning > 0 && n === alle.length ? 0 : m;
+      }
+    }
+    return null;
   }
 
   /* Rutenett av trekanter for raskt oppslag, og plan for hver trekant. */
@@ -354,7 +398,7 @@ const Triangulering = (() => {
     return { fil: '', sone: null, punkter: [], utelatt: [], makskant: null, bruk: false };
   }
 
-  return { nyTin, delaunay, skrell, kantring, forslagMakskant, lagFlate, hoyde, mistenkelige, areal, regnMot, lesLandXml, sone };
+  return { nyTin, delaunay, skrell, kantring, forslagMakskant, nesteMakskant, lagFlate, hoyde, mistenkelige, areal, regnMot, lesLandXml, sone };
 })();
 
 if (typeof module !== 'undefined') module.exports = Triangulering;

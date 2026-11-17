@@ -41,6 +41,9 @@ const TinUI = {
       else if (hva === 'alleinn') this.alle(true);
       else if (hva === 'nyfil') this.velgFil();
       else if (hva === 'kantforslag') this.settMakskant(null);
+      else if (hva === 'kantmer') this.fyll(+1);
+      else if (hva === 'kantmindre') this.fyll(-1);
+      else if (hva === 'kanthele') this.settMakskant(0);
       else if (hva === 'nytomt') this.nyTomt();
     });
     document.addEventListener('change', e => {
@@ -261,6 +264,39 @@ const TinUI = {
     this.app.tinEndret();
   },
 
+  /**
+   * «Mer» og «Mindre» under kartet: flaten fyller ut ett synlig steg mer
+   * eller mindre mellom punktene (se Triangulering.nesteMakskant).
+   */
+  fyll(retning) {
+    const t = this.app.P.tin;
+    if (!t) return;
+    const m = Triangulering.nesteMakskant(t.punkter, { utelatt: t.utelatt, makskant: t.makskant }, retning);
+    if (m == null) {
+      this.app.status(retning > 0 ? 'Flaten fyller allerede ut alt mellom de ytterste punktene'
+        : 'Flaten kan ikke bli mindre uten at punkter havner utenfor');
+      return;
+    }
+    this.settMakskant(m);
+    this.app.status(m === 0 ? 'Flaten fyller nå ut alt mellom de ytterste punktene'
+      : `Lengste kant langs ytterkanten er nå ${Rapport.tall(m, 1)} m`);
+  },
+
+  /** Mindre · Mer · Hele i linja under kartet. */
+  visKant() {
+    const e = document.getElementById('tinkant');
+    if (!e) return;
+    const t = this.app.P.tin, f = this.app.tinFlate(this.app.anlegg());
+    if (!t || !f || !f.tri.length) { e.innerHTML = ''; return; }
+    const hele = f.makskant === 0;
+    e.innerHTML = '<span class="tinkantverdi" title="Lengste kant langs ytterkanten – hvor langt flaten fyller ut mellom punktene">'
+      + `Flate: ${hele ? 'alt' : escapeHtml(Rapport.tall(f.makskant, 1)) + ' m'}${t.makskant == null ? ' (forslag)' : ''}</span>`
+      + '<button class="verktoyknapp" data-tin="kantmindre" title="Skrell bort de lengste trekantene langs kanten">Mindre</button>'
+      + '<button class="verktoyknapp" data-tin="kantmer" title="Fyll ut mer mellom punktene">Mer</button>'
+      + `<button class="verktoyknapp${hele ? ' aktiv' : ''}" data-tin="kanthele" aria-pressed="${hele}" title="Fyll ut alt mellom de ytterste punktene">Hele</button>`
+      + (t.makskant != null ? '<button class="verktoyknapp" data-tin="kantforslag" title="Tilbake til kanten programmet foreslår ut fra avstanden mellom punktene">Forslag</button>' : '');
+  },
+
   /* ---------------- visning ---------------- */
 
   /**
@@ -350,6 +386,7 @@ const TinUI = {
   visPunkter() {
     const app = this.app, e = document.getElementById('tinpunkter');
     if (!e || !app.erTin()) return;
+    this.visKant();
     const t = app.P.tin, r = app.resultat && app.resultat.type === 'tin' ? app.resultat : null;
     const mist = new Map(((r && r.mistenkelige) || []).map(m => [m.navn, m.avvik]));
     const ute = new Set(t.utelatt || []);

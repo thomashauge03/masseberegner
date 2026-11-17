@@ -201,6 +201,30 @@ console.log('Matjord og masseutskifting på fyllmasser');
   paastand('og 0 utenfor', t.kjortPaa(E0 + 40, N0 + 3) === 0);
 }
 
+console.log('Mer og Mindre');
+{
+  // L-form: 5 × 5 punkt med det øvre høyre kvartalet borte, 5 m mellom
+  const P = nett(4, 4, 5, plan, (i, j) => !(i > 2 && j > 2));
+  const alle = T.delaunay(P).length;
+  const forslag = T.lagFlate(P);
+  paastand('forslaget fyller ikke over hjørnet', forslag.tri.length < alle, `${forslag.tri.length} av ${alle}`);
+  const mer = T.nesteMakskant(P, {}, +1);
+  paastand('«Mer» gir en lengre kant', mer === 0 || mer > forslag.makskant, String(mer));
+  paastand('og flere trekanter', T.lagFlate(P, { makskant: mer }).tri.length > forslag.tri.length);
+  let m = null, steg = 0;
+  for (;;) { const n = T.nesteMakskant(P, { makskant: m }, +1); if (n == null || ++steg > 50) break; m = n; if (m === 0) break; }
+  paastand('trykker man «Mer» til det stopper, er det hele hylsteret', m === 0, String(m));
+  paastand('og da går det ikke mer', T.nesteMakskant(P, { makskant: 0 }, +1) === null);
+  const mindre = T.nesteMakskant(P, { makskant: 0 }, -1);
+  paastand('«Mindre» fra hele gir færre trekanter igjen', mindre > 0 && T.lagFlate(P, { makskant: mindre }).tri.length < alle, String(mindre));
+  let k = 0; steg = 0;
+  for (;;) { const n = T.nesteMakskant(P, { makskant: k }, -1); if (n == null || ++steg > 50) break; k = n; }
+  const minst = T.lagFlate(P, { makskant: k });
+  paastand('«Mindre» til det stopper holder alle punktene med',
+    new Set(minst.tri.flat()).size === P.length, `${new Set(minst.tri.flat()).size} av ${P.length}`);
+  paastand('tatt ut regnes ikke med', T.nesteMakskant(P.slice(0, 2), {}, +1) === null);
+}
+
 console.log('Prosjektfila');
 {
   const Pf = require('../public/js/prosjektform.js');

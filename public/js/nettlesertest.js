@@ -13709,6 +13709,26 @@ const Nettlesertest = {
       this.sjekk('«Ta med alle» tar alle inn igjen', !App.P.tin.utelatt.length);
       await this.ventPaBeregning();
 
+      // Mindre · Mer · Hele under kartet
+      const kant = hva => document.querySelector(`#tinkant [data-tin="${hva}"]`);
+      this.sjekk('linja under kartet har Mindre, Mer og Hele', !!kant('kantmindre') && !!kant('kantmer') && !!kant('kanthele')
+        && !!kant('kanthele').offsetParent);
+      kant('kanthele').click();
+      await this.ventPaBeregning();
+      const heleTri = App.resultat.flate.tri.length;
+      this.sjekk('«Hele» fyller ut alt mellom de ytterste punktene', App.P.tin.makskant === 0 && heleTri === Triangulering.delaunay(App.resultat.flate.punkter).length);
+      kant('kantmindre').click();
+      await this.ventPaBeregning();
+      this.sjekk('«Mindre» tar bort trekanter langs kanten', App.P.tin.makskant > 0 && App.resultat.flate.tri.length < heleTri,
+        `${App.P.tin.makskant} m, ${App.resultat.flate.tri.length} av ${heleTri}`);
+      const mindreTri = App.resultat.flate.tri.length;
+      kant('kantmer').click();
+      await this.ventPaBeregning();
+      this.sjekk('«Mer» fyller ut igjen', App.resultat.flate.tri.length > mindreTri);
+      kant('kantforslag').click();
+      await this.ventPaBeregning();
+      this.sjekk('«Forslag» går tilbake til kanten programmet foreslår', App.P.tin.makskant === null && !kant('kantforslag'));
+
       document.querySelector('#massesammendrag [data-tin="veksle"][data-navn="T22"]').click();
       this.sjekk('«Ta ut» tar punktet ut', App.P.tin.utelatt.includes('T22'));
       document.querySelector('#massesammendrag [data-tin="bruk"]').click();

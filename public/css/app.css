@@ -695,6 +695,8 @@ body {
 .avkryss { display: inline-flex; align-items: center; gap: 4px; color: var(--blekk-svak); cursor: pointer; }
 .avkryss input, .felt input[type=checkbox] { accent-color: var(--hm-raud); }
 .hjelpetekst { color: var(--blekk-svak); font-size: 11px; }
+/* Hvor langt det innmålte terrenget fyller ut – et tall, ikke hjelpetekst, så det står også på smal skjerm */
+.tinkantverdi { color: var(--blekk-svak); font-size: 11px; white-space: nowrap; margin-left: 6px; text-transform: none; letter-spacing: normal; }
 .etikett { color: var(--blekk); font-variant-numeric: tabular-nums; min-width: 190px; }
 
 /* Bakgrunnsvelgeren: ei samanhengande rad, ikkje eit nedtrekk. Trykkflata er
