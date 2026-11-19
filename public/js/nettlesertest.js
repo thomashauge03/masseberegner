@@ -202,7 +202,7 @@ const Nettlesertest = {
       'grensesnittbredder', 'panelhoder',
       'tomt', 'tomteksport', 'tomterydding', 'tomtsnittOverbygning',
       'gl3d', 'tomt3d', 'veg3d', 'gpuSammeBilde', 'gpuGlatt', 'gpuReserve', 'gpuLysOgLuft', 'gpuMaterialer', 'kartlag',
-      'rorArbeidsbilde', 'rorBeregning', 'rorImport', 'makinHenting', 'makinLaas', 'triangulering', 'rorSone', 'rorKart', 'rorAndreFullt', 'rorFane', 'rorRetting', 'rorSlaSammen', 'rorEndre', 'rorRett',
+      'rorArbeidsbilde', 'rorBeregning', 'rorImport', 'makinHenting', 'makinLaas', 'triangulering', 'rorSone', 'rorKart', 'rorAndreFullt', 'rorFane', 'rorRetting', 'rorSlaSammen', 'rorEndre', 'rorPunkt', 'rorRett',
       'rorProfil', 'ror3d', 'rorRapport', 'rorPdf', 'rorForklaring',
       'groftBeregning', 'groftFane', 'groftKoder', 'groftVerktoy', 'groftKnutepunkt', 'groftProfil', 'groft3d',
       'groftRapport', 'groftAvstiving',
@@ -10434,6 +10434,61 @@ const Nettlesertest = {
       Kart.settModus('rediger');
       this.sjekk('Rediger slår av rettingsmodusen', !document.getElementById('verktoyRorAv').classList.contains('aktiv'));
     } finally {
+      await this._rorTilbake(foer);
+    }
+  },
+
+  /**
+   * «Endre punkt»: punktene som finnes, kan dras og slettes. Et klikk ved
+   * siden av setter ikke inn noe, og et slettet punkt kan tas tilbake.
+   */
+  async rorPunkt() {
+    const foer = JSON.stringify(App.P);
+    try {
+      App.P = App.nyttProsjekt();
+      await RorUI.importerTekst(this._rorXml(), 'asbuilts_Prove.xml', {}, { sone: 32, maal: 'nytt' });
+      await this.ventPaBeregning(30000);
+      const o = Geo.tilUtm(58.1412, 7.0705, 32);
+      const ll = (x, y) => { const g = Geo.fraUtm(o.x + x, o.y + y, 32); return L.latLng(g.lat, g.lon); };
+      const r = () => App.P.ror;
+      const knapp = document.getElementById('verktoyRorPunkt');
+      this.sjekk('knappen «Endre punkt» vises', !!knapp && !knapp.classList.contains('skjult'));
+      Kart.kart.setView(ll(55, 0), 19);
+      knapp.click();
+      this.sjekk('  og slår verktøyet på', Kart.modus === 'rorPunkt' && knapp.classList.contains('aktiv'), Kart.modus);
+      let dra = 0;
+      Kart.lag.ror.eachLayer(l => { if (l.options && l.options.draggable) dra++; });
+      this.sjekk('hvert punkt kan dras', dra === r().punkter.length, `${dra} av ${r().punkter.length}`);
+      // et klikk på streken setter ikke inn noe her
+      Kart.klikk({ latlng: ll(55, 0.1) });
+      this.sjekk('et klikk på røret setter ikke inn et punkt', r().retting.nye.length === 0 && r().retting.koble.length === 0);
+      const maalt = r().punkter.find(p => p.kode === '90PE' && Math.abs(p.o - o.x - 30) < 0.01 && Math.abs(p.n - o.y) < 0.01);
+      const z = maalt.z;
+      App.merk('flyttet målt punkt');
+      RorUI.flyttPunkt(maalt.id, ll(30, 2));
+      this.sjekk('et dratt punkt står der det ble sluppet, med samme høyde',
+        Math.abs(maalt.n - o.y - 2) < 0.01 && maalt.z === z && !!r().retting.flytt[maalt.id]);
+      const lengde90 = () => Ror.byggLinjer(r(), App.P.mal, p => ({ x: p.o, y: p.n })).linjer
+        .filter(l => l.kode === '90PE').reduce((s, l) => s + l.punkter.length, 0);
+      const foerPunkt = lengde90();
+      RorUI.punktDialog(maalt.id);
+      const slett = document.getElementById('rorPunktSlett');
+      this.sjekk('et målt punkt har «Slett punktet»', !!slett);
+      if (slett) slett.click();
+      this.sjekk('  og er tatt ut av røret', r().retting.av.includes(maalt.id) && lengde90() === foerPunkt - 1,
+        `${foerPunkt} → ${lengde90()} punkt på 90PE`);
+      this.sjekk('  men målingen står', r().punkter.some(p => p.id === maalt.id && p.z === z));
+      RorUI.punktDialog(maalt.id);
+      const igjen = document.getElementById('rorPunktIgjen');
+      this.sjekk('et slettet punkt kan tas tilbake', !!igjen);
+      if (igjen) igjen.click();
+      this.sjekk('  og er med i røret igjen', !r().retting.av.includes(maalt.id) && lengde90() === foerPunkt);
+      await App.angre();
+      this.sjekk('angre sletter det igjen', r().retting.av.includes(maalt.id));
+      Kart.settModus('rediger');
+      this.sjekk('Rediger slår verktøyet av', !knapp.classList.contains('aktiv'));
+    } finally {
+      document.getElementById('dialog').classList.add('skjult');
       await this._rorTilbake(foer);
     }
   },

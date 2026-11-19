@@ -307,6 +307,12 @@ anleggslista, «Rør (fra filer)» i førstevalget, eller slipp filene på karte
   kan få en annen høyde eller tas bort, et flyttet kan flyttes tilbake. Målte
   høyder endres aldri; bare hvor punktet står. Også dette er rettinger, som står
   seg ved ny import og ny henting fra Makin.
+* **Endre punkt** er bare for punktene som finnes: dra et punkt dit det skal
+  stå, eller klikk på det og trykk **Slett punktet**. Et klikk ved siden av
+  setter ikke inn noe, så du kan ikke lage nye punkt ved et uhell. Høyden står
+  når du drar. Et målt punkt som slettes, tas ut av røret, men målingen i fila
+  står: det vises grått, kan tas tilbake med et klikk, og kommer ikke inn igjen
+  når en nyere fil importeres. Et punkt du har lagt til selv, tas helt bort.
 * **Rett ut** retter opp en innmåling som har gått i sikksakk. Klikk på røret
   der det skal begynne å gå rett, og så der det skal slutte. Du kan klikke på
   et punkt eller hvor som helst på streken mellom to punkter. Treffer du

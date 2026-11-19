@@ -573,7 +573,7 @@ const Kart = {
     for (const [id, navn] of [['verktoyTegn', 'tegn'], ['verktoyFlytt', 'rediger'],
       ['verktoySondering', 'sondering'], ['verktoyPlass', 'plass'], ['verktoyStikkrenne', 'stikkrenne'], ['verktoyTomt', 'tegnTomt'],
       ['verktoyMaal', 'maal'], ['verktoyRorAv', 'rorAv'], ['verktoyRorBryt', 'rorBryt'],
-      ['verktoyRorKoble', 'rorKoble'], ['verktoyRorEndre', 'rorEndre'], ['verktoyRorRett', 'rorRett'], ['verktoyGroftStrekning', 'groftStrekning'], ['verktoyGroftSammen', 'groftSammen'],
+      ['verktoyRorKoble', 'rorKoble'], ['verktoyRorEndre', 'rorEndre'], ['verktoyRorPunkt', 'rorPunkt'], ['verktoyRorRett', 'rorRett'], ['verktoyGroftStrekning', 'groftStrekning'], ['verktoyGroftSammen', 'groftSammen'],
       ['verktoyTrase', 'tegnTrase'], ['verktoyKum', 'kum'], ['verktoySnu', 'snuTrase'], ['verktoyStikk', 'settPunkt']]) {
       const el = document.getElementById(id);
       if (el) {
@@ -608,6 +608,7 @@ const Kart = {
       this.app.status('Dra et punkt dit røret går. Klikk på røret for et nytt punkt, ved enden for å forlenge det, '
         + 'på et punkt for å endre det. Rediger avslutter.');
     }
+    if (m === 'rorPunkt') this.app.status(RorUI.PUNKT_HJELP);
     if (m === 'rorRett') {
       this.app.status('Klikk på røret der det skal begynne å gå rett, så der det skal slutte – punktene imellom flyttes inn på '
         + 'den rette linja mellom dem. Høydene står. Rediger avslutter.');
@@ -875,6 +876,9 @@ const Kart = {
       RorUI.kartklikk(this.modus, e.latlng);
       return;
     }
+    /* «ENDRE PUNKT»: bare punktene som finnes. Et klikk ved siden av setter
+       ikke inn noe – det er det «Endre rør» gjør. */
+    if (this.modus === 'rorPunkt') { this.app.varsle(RorUI.PUNKT_HJELP); return; }
     if (this.modus === 'groftStrekning' || this.modus === 'groftSammen') {
       GroftUI.kartklikk(this.modus, e.latlng);
       return;
@@ -2638,7 +2642,7 @@ const Kart = {
     const t = (v, d) => Rapport.tall(v, d);
     const bf = (res && res.bakkefaktor) || 1;
     // punktene vises også når man velger strekning – det er dem man klikker på
-    const rett = ['rorAv', 'rorBryt', 'rorKoble', 'rorEndre', 'rorRett', 'groftStrekning'].includes(this.modus);
+    const rett = ['rorAv', 'rorBryt', 'rorKoble', 'rorEndre', 'rorPunkt', 'rorRett', 'groftStrekning'].includes(this.modus);
     // med et verktøy på er et klikk på røret til verktøyet, ikke et valg av røret
     const verktoy = rett || this.modus === 'groftSammen';
     /* GRØFTEKANTEN – der gravingen møter terrenget. Regnes én gang per
@@ -2740,7 +2744,7 @@ const Kart = {
       /* «ENDRE RØR»: punktene kan dras. Bare o og n flyttes – se RorUI.flyttPunkt.
          Et klikk på punktet åpner det; markøren tar klikket, så det setter ikke
          inn et nytt punkt i kartet under. */
-      const endre = this.modus === 'rorEndre' && !r.plan;
+      const endre = (this.modus === 'rorEndre' || this.modus === 'rorPunkt') && !r.plan;
       for (const p of kilde) {
         if (paaRor && !paaRor.has(p.id)) continue;
         const er = av.has(p.id);
@@ -2752,7 +2756,7 @@ const Kart = {
             icon: L.divIcon({ className: '', html: `<div class="${klasse}" style="background:${farge};border-color:${p.lagtTil ? farge : '#0b0b0c'}"></div>`,
               iconSize: [12, 12], iconAnchor: [6, 6] })
           }).bindTooltip(`${escapeHtml(p.kode)} · ${p.lagtTil ? 'nytt punkt' : 'punkt ' + escapeHtml(String(p.nr))} · ${t(p.z, 2)} moh`
-            + (p.innmaalt ? ' · flyttet' : ''), { direction: 'top' }).addTo(this.lag.ror);
+            + (p.innmaalt ? ' · flyttet' : '') + (er ? ' · slettet' : ''), { direction: 'top' }).addTo(this.lag.ror);
           m.on('dragstart', () => app.merk(p.lagtTil ? 'flyttet nytt punkt' : 'flyttet målt punkt'));
           m.on('dragend', ev => RorUI.flyttPunkt(p.id, ev.target.getLatLng()));
           m.on('click', () => RorUI.punktDialog(p.id));

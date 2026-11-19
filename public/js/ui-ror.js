@@ -16,6 +16,9 @@ const RorUI = {
   /* Den første enden ved «Koble», til den andre er klikket. Kartet ringer den
      inn, så man ser hva man holder på med. */
   _kobleFra: null,
+  /* Hjelpeteksten til «Endre punkt» – i statuslinja når verktøyet slås på, og
+     i kartet når man klikker ved siden av et punkt. */
+  PUNKT_HJELP: 'Dra et punkt dit det skal stå, eller klikk på det for å slette det. Høyden står. Rediger avslutter.',
 
   init(app) {
     this.app = app;
@@ -70,7 +73,7 @@ const RorUI = {
     if (id('ror_forrige')) id('ror_forrige').onclick = () => this.blaa(-1);
     if (id('ror_neste')) id('ror_neste').onclick = () => this.blaa(1);
     for (const [knapp, modus] of [['verktoyRorAv', 'rorAv'], ['verktoyRorBryt', 'rorBryt'],
-      ['verktoyRorKoble', 'rorKoble'], ['verktoyRorEndre', 'rorEndre'], ['verktoyRorRett', 'rorRett']]) {
+      ['verktoyRorKoble', 'rorKoble'], ['verktoyRorEndre', 'rorEndre'], ['verktoyRorPunkt', 'rorPunkt'], ['verktoyRorRett', 'rorRett']]) {
       if (id(knapp)) id(knapp).onclick = () => Kart.settModus(Kart.modus === modus ? 'rediger' : modus);
     }
     // Profil eller 3D i rørpanelet
@@ -495,16 +498,20 @@ const RorUI = {
     const t = (v, d) => Rapport.tall(v, d);
     const fra = Ror.innmalt(p);
     const flyttet = !p.lagtTil && !!p.innmaalt;
+    const slettet = !p.lagtTil && r.retting.av.includes(id);
     document.getElementById('dialogtittel').textContent = p.lagtTil ? 'Nytt punkt' : `Punkt ${p.nr}`;
     innhold.innerHTML = `
       <p class="notis" style="font-size:13px">${escapeHtml(p.kode)}${p.lagtTil ? ' · lagt til her, ikke målt' : ' · målt'}
-        ${flyttet ? ` · flyttet ${t(Math.hypot(fra.o - p.o, fra.n - p.n), 2)} m fra der det ble målt` : ''}</p>
+        ${flyttet ? ` · flyttet ${t(Math.hypot(fra.o - p.o, fra.n - p.n), 2)} m fra der det ble målt` : ''}
+        ${slettet ? ' · slettet – det er ikke med i røret' : ''}</p>
       ${p.lagtTil
         ? `<div class="rorinnstilling"><label for="rorPunktZ">Høyde (topp rør)</label>
             <input id="rorPunktZ" class="minitall" type="number" step="0.01" value="${+p.z.toFixed(3)}"> moh</div>`
         : `<p class="notis">Høyde ${t(p.z, 3)} moh – målte høyder endres ikke.</p>`}
       <div class="knapperad" style="justify-content:flex-end">
         ${p.lagtTil ? '<button class="knapp" id="rorPunktBort">Ta bort punktet</button>' : ''}
+        ${!p.lagtTil && !slettet ? '<button class="knapp" id="rorPunktSlett">Slett punktet</button>' : ''}
+        ${slettet ? '<button class="knapp" id="rorPunktIgjen">Ta punktet tilbake</button>' : ''}
         ${flyttet ? '<button class="knapp" id="rorPunktTilbake">Flytt tilbake dit det ble målt</button>' : ''}
         <button class="knapp primaer" id="rorPunktOk">${p.lagtTil ? 'Lagre' : 'Lukk'}</button>
       </div>`;
@@ -541,6 +548,21 @@ const RorUI = {
         else delete x.paaStrekk;
       }
       etter(`Tok bort det nye punktet på ${p.kode}`);
+    };
+    /* ET MÅLT PUNKT SLETTES SOM EN RETTING: det tas ut av røret (`retting.av`,
+       som «Slå av punkt»), men målingen fra fila står. Da kan det tas tilbake,
+       og det kommer ikke inn igjen når en nyere fil importeres. */
+    const slett = innhold.querySelector('#rorPunktSlett');
+    if (slett) slett.onclick = () => {
+      app.merk('slettet punkt');
+      if (!r.retting.av.includes(id)) r.retting.av.push(id);
+      etter(`${p.kode}, punkt ${p.nr} er slettet – klikk på det for å ta det tilbake, eller angre`);
+    };
+    const igjen = innhold.querySelector('#rorPunktIgjen');
+    if (igjen) igjen.onclick = () => {
+      app.merk('tok punkt tilbake');
+      r.retting.av = r.retting.av.filter(x => x !== id);
+      etter(`${p.kode}, punkt ${p.nr} er med i røret igjen`);
     };
     const tilbake = innhold.querySelector('#rorPunktTilbake');
     if (tilbake) tilbake.onclick = () => {
