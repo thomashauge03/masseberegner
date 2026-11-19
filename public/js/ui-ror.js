@@ -137,7 +137,15 @@ const RorUI = {
     const annet = this._annetAnleggHer(this._klikk, tol);
     if (!annet) { app.status(tekst); return; }
     app.varsle(`Røret du klikket på, hører til «${annet.navn || 'Rør'}». Verktøyene virker på anlegget som er oppe – `
-      + `«${app.anlegg().navn || 'Rør'}».`, { tekst: `Bytt til «${annet.navn || 'Rør'}»`, gjor: () => app.byttAnlegg(annet.id) });
+      + `«${app.anlegg().navn || 'Rør'}». Slå dem sammen, så virker de på alle rørene.`, [
+      { tekst: 'Slå sammen røranleggene', gjor: () => app.slaSammenRor() },
+      { tekst: `Bytt til «${annet.navn || 'Rør'}»`, gjor: () => app.byttAnlegg(annet.id) }]);
+  },
+
+  /** Antall innmålte røranlegg som telles – står det to eller flere, kan de slås sammen. */
+  _innmalteRor() {
+    const app = this.app;
+    return ((app.P && app.P.anlegg) || []).filter(a => a.type === 'ror' && a.ror && !a.ror.plan && app.telles(a)).length;
   },
 
   /** Det andre innmålte røranlegget med et punkt eller en rørstrek innen `tol` av klikket – eller null. */
@@ -146,6 +154,8 @@ const RorUI = {
     if (!latlng || !app.P || !Array.isArray(app.P.anlegg)) return null;
     for (const a of app.P.anlegg) {
       if (a.id === app.P.aktivt || a.type !== 'ror' || !a.ror || a.ror.plan || !(a.ror.punkter || []).length) continue;
+      // et Makin-anlegg som er slått inn i et annet, har rørene sine der
+      if (!app.telles(a)) continue;
       const u = Geo.tilUtm(latlng.lat, latlng.lng, a.ror.sone);
       const b = Ror.byggLinjer(a.ror, a.mal || Ror.StandardRormal, p => ({ x: p.o, y: p.n }));
       if (this._paaRoret(b, u, tol)) return a;
@@ -203,6 +213,15 @@ const RorUI = {
         const d = avstand(e.p);
         if (d <= tol && (!best || d < best.d)) best = Object.assign({ d }, e);
       }
+      /* ANDRE KLIKK: ET HVILKET SOM HELST PUNKT. Røret som ble klikket først,
+         forlenges til punktet – enden av et annet rør, et punkt midt på det,
+         en kum eller en muffe. Det andre røret står som det er. Før kunne
+         man bare koble ende mot ende, og et stikk inn på midten av en
+         ledning av en annen type lot seg ikke koble. */
+      if (this._kobleFra) {
+        const andre = this._kobleTil(bygg, u, tol);
+        if (andre) best = andre;
+      }
       /* KLIKK PÅ RØRET, IKKE BARE PÅ ENDEN. Det er ikke alltid et punkt der
          man klikker; traff klikket ikke enden, skjedde det ingenting. Nå er
          det enden av røret som er nærmest langs røret. */
@@ -223,13 +242,13 @@ const RorUI = {
         }
       }
       if (!best) {
-        this._bom(tol, this._kobleFra ? `Klikk på et rør nær enden – enden av ${this._kobleFra.p.kode} er fortsatt valgt`
+        this._bom(tol, this._kobleFra ? `Klikk på et punkt eller et rør – enden av ${this._kobleFra.p.kode} er fortsatt valgt`
           : 'Klikk på et rør nær enden');
         return;
       }
       if (!this._kobleFra) {
         this._kobleFra = best;
-        app.status(`Valgte enden av ${best.p.kode} – klikk på den andre enden`);
+        app.status(`Valgte enden av ${best.p.kode} – klikk på punktet den skal forlenges til`);
         Kart.tegnRor();
         return;
       }
@@ -239,19 +258,19 @@ const RorUI = {
       /* BEGGE ENDENE PÅ SAMME RØR: den første står fortsatt valgt, så man kan
          klikke en annen. Her ble valget kastet ved hvert nei, og enden «datt
          bort» uten at man så hvorfor. */
-      if (a.l && best.l && a.l.id === best.l.id) {
-        app.status(`Begge endene hører til samme rør – enden av ${a.p.kode} er fortsatt valgt`);
+      if (a.l && ((best.l && a.l.id === best.l.id) || a.l.punkter.some(q => q.id === best.p.id))) {
+        app.status(`Punktet hører til samme rør – enden av ${a.p.kode} er fortsatt valgt`);
         return;
       }
       this._kobleFra = null;
       app.merk('koblet to rør');
       r.retting.koble.push([a.p.id, best.p.id]);
       r.retting.brudd = r.retting.brudd.filter(k => !par(a.p.id, best.p.id)(k));
+      const hvor = best.ende ? 'enden av ' + best.p.kode : best.l ? `punkt ${best.p.nr} på ${best.p.kode}` : best.p.kode;
       // koder som er slått sammen, er samme rør – det er dem linjene trekkes etter
-      app.status(Ror.kanonisk(r, a.p.kode) === Ror.kanonisk(r, best.p.kode)
+      app.status(Ror.kanonisk(r, a.p.kode) === Ror.kanonisk(r, best.p.kode) && best.ende
         ? `${a.p.kode} er koblet sammen`
-        : `${a.p.kode} er forlenget til enden av ${best.p.kode} – to koder, så de står som to rør som møtes, `
-          + `og lengden telles på ${a.p.kode}`);
+        : `${a.p.kode} er forlenget til ${hvor}. ${best.p.kode} står som før, og lengden telles på ${a.p.kode}`);
     } else if (modus === 'rorEndre') {
       if (!this._nyttPunkt(r, u, tol, iFila)) return;
     } else if (modus === 'rorRett') {
@@ -415,6 +434,33 @@ const RorUI = {
       }
     }
     return sted;
+  },
+
+  /**
+   * Punktet det andre klikket i «Koble» traff: det nærmeste punktet innen
+   * `tol` – på et rør av hvilken som helst type, enden eller midt på, et
+   * enslig punkt, en kum eller en muffe. Traff klikket streken mellom to
+   * punkt, er det det nærmeste av de to. Null når klikket ikke traff noe.
+   * `ende` sier om punktet er enden av røret (eller et enslig punkt) – da er
+   * to rør av samme type ett etterpå.
+   */
+  _kobleTil(bygg, u, tol) {
+    const avstand = p => Math.hypot(p.o - u.x, p.n - u.y);
+    let best = null;
+    const prov = (p, l, ende) => {
+      const d = avstand(p);
+      // en ende går foran et punkt midt på når de står på samme sted (en knute)
+      if (d <= tol && (!best || d < best.d - 1e-6 || (ende && !best.ende && d <= best.d + 1e-6))) best = { p, l, d, ende };
+    };
+    for (const l of bygg.linjer) l.punkter.forEach((p, k) => prov(p, l, k === 0 || k === l.punkter.length - 1));
+    for (const p of bygg.enslige) prov(p, null, true);
+    for (const p of bygg.objekter) prov(p, null, false);
+    if (best) return best;
+    const t = this._paaRoret(bygg, u, tol);
+    if (!t || !t.l) return null;
+    const p = t.t <= 0.5 ? t.a : t.b;
+    const k = t.l.punkter.indexOf(p);
+    return { p, l: t.l, d: avstand(p), ende: k === 0 || k === t.l.punkter.length - 1 };
   },
 
   /** Et punkt er dratt i «Endre rør». Bare o og n – høyden står. */
@@ -1127,12 +1173,18 @@ const RorUI = {
     /* En kopi av dette Makin-anlegget finnes: det skal stå her at det ikke
        telles, ellers lurer man på hvorfor rørene mangler i rapporten. */
     const ikkeTalt = laast && !app.telles(app.anlegg());
+    const kopien = ikkeTalt ? app.kopienAv(app.anlegg()) : null;
     e.innerHTML = `
       <h3>${escapeHtml(app.anlegg().navn || 'Rør')}</h3>
       <p class="notis">${kilder || 'Ingen fil importert ennå.'}</p>
       ${r.makin && typeof MakinUI !== 'undefined' ? MakinUI.faneHtml(r) : ''}
-      ${ikkeTalt ? `<p class="notis">Det finnes en kopi av dette anlegget. Kopien telles i rapporten, avviket og
+      ${ikkeTalt ? `<p class="notis">${kopien.ror.kopiAv === app.P.aktivt
+        ? 'Det finnes en kopi av dette anlegget. Kopien'
+        : `Dette anlegget er slått sammen inn i «${escapeHtml(kopien.navn || 'Rør')}». Det`} telles i rapporten, avviket og
         kryssingen – dette anlegget telles ikke, men står i kartet og kan hentes på nytt.</p>` : ''}
+      ${this._innmalteRor() >= 2 ? `<p class="notis">Det er ${this._innmalteRor()} innmålte røranlegg i prosjektet. Verktøyene i
+        kartet virker bare på det som er oppe – slått sammen blir de ett, og du kan koble rør fra alle.</p>
+        <div class="knapperad"><button class="knapp" id="rorSlaSammenAnlegg">Slå sammen røranleggene</button></div>` : ''}
       ${s ? `<div class="sumrad"><span>Rør</span><span class="verdi">${s.antall} · ${t(s.lengde)} m</span></div>
       <div class="sumrad"><span>Overdekning</span><span class="verdi">${Ror.spenn(s.minOd, s.maksOd, v => t(v, 2))} m</span></div>` : ''}
       <h3>Rørene</h3>
@@ -1204,7 +1256,9 @@ const RorUI = {
     if (nyFil) nyFil.onclick = () => this.velgFil({});
     const kopi = e.querySelector('#makinFaneKopi');
     if (kopi) kopi.onclick = () => app.kopierAnlegg(app.P.aktivt);
-    const etter = () => { app.tegnAlt(); app.planlegg(30); this.vis(); };
+    const sammen = e.querySelector('#rorSlaSammenAnlegg');
+    if (sammen) sammen.onclick = () => app.slaSammenRor();
+    const etter =() => { app.tegnAlt(); app.planlegg(30); this.vis(); };
     for (const b of e.querySelectorAll('[data-sammen]')) {
       b.onclick = () => {
         const f = vist[+b.dataset.sammen];

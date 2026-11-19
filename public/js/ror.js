@@ -901,9 +901,14 @@ const Ror = (() => {
         if (koblingTraff.has(_par(a, b))) continue;
         let ea = endeAv(a), eb = endeAv(b);
         const ia = ea ? -1 : enslig(a), ib = eb ? -1 : enslig(b);
-        if ((!ea && ia < 0) || (!eb && ib < 0) || (ea && eb && ea.l === eb.l)) continue;
+        /* b ER ET HVILKET SOM HELST PUNKT: midt på et rør, av hvilken som
+           helst type, eller en kum eller muffe. Røret med a forlenges dit, og
+           det andre står som det er – se «ULIKE KODER» under. */
+        const midt = !eb && ib < 0 && !av.has(b) ? punktAv.get(b) || null : null;
+        if ((!ea && ia < 0) || (!eb && ib < 0 && !midt) || (ea && eb && ea.l === eb.l)) continue;
+        if (midt && ea && ea.l.punkter.includes(midt)) continue;
         const ka = ea ? ea.l.kode : kanonisk(ror, enslige[ia].kode);
-        const kb = eb ? eb.l.kode : kanonisk(ror, enslige[ib].kode);
+        const kb = eb ? eb.l.kode : midt ? kanonisk(ror, midt.kode) : kanonisk(ror, enslige[ib].kode);
         const kode = ka;
         // a sist i den første, b først i den andre
         const del = (e, i, forst) => (e ? (e.forst === forst ? e.l.punkter.slice() : e.l.punkter.slice().reverse()) : [enslige[i]]);
@@ -912,8 +917,8 @@ const Ror = (() => {
            punktet, slik en overgang fra 180 til 160 eller en kabel som
            fortsetter med en annen kode gjør. Her nektet «Koble» før, og den
            valgte enden forsvant: det hullet kunne ikke lukkes i det hele tatt. */
-        const ulik = ka !== kb;
-        const pb = eb ? (eb.forst ? eb.l.punkter[0] : eb.l.punkter[eb.l.punkter.length - 1]) : enslige[ib];
+        const ulik = ka !== kb || !!midt;
+        const pb = midt || (eb ? (eb.forst ? eb.l.punkter[0] : eb.l.punkter[eb.l.punkter.length - 1]) : enslige[ib]);
         let lp = del(ea, ia, false).concat(ulik ? [pb] : del(eb, ib, true));
         if (lp[lp.length - 1].nr < lp[0].nr) lp = lp.reverse();
         for (const e of ulik ? [ea] : [ea, eb]) if (e) linjer.splice(linjer.indexOf(e.l), 1);
@@ -1365,6 +1370,112 @@ const Ror = (() => {
       }
     }
     return { punkter: [...ut.values()], nye: antallNye, kjente, endret };
+  }
+
+  /**
+   * Flere innmålte røranlegg slått sammen til ett – «Slå sammen røranleggene».
+   * Funksjonen er ren: anleggene i `liste` endres ikke.
+   *
+   * Det første anlegget går foran: kodene, sammenslåingene og flyttingene
+   * dets står når to anlegg sier noe ulikt om det samme.
+   *
+   * SAMME PUNKT I TO ANLEGG ER ETT PUNKT. Et anlegg fra filer og et fra
+   * Makin har gjerne mange av de samme punktene – samme navn, kode og sted
+   * (innen en centimeter) er da ett punkt, ikke to oppå hverandre. Samme navn
+   * med en annen kode eller et annet sted er et annet punkt, og får navnet
+   * med « (2)» bak. Rettingene, linjene fra fila og grøftene følger med det
+   * nye navnet. Punktene brukeren har lagt til, får nye «+n», så de ikke
+   * kolliderer.
+   *
+   * Står et anlegg i en annen sone, regnes punktene om til `sone`.
+   *
+   * @param {Array<object>} liste  `a.ror` for hvert anlegg
+   * @param {number} sone          sonen det sammenslåtte anlegget står i
+   * @returns {{ror: object, punkter: number, felles: number, omdopt: number}}
+   */
+  function slaSammenAnlegg(liste, sone) {
+    const ut = nyRor();
+    ut.sone = sone;
+    ut.alias = {};
+    ut.ikkeSamme = [];
+    ut.groft = { strekninger: [], sammen: [] };
+    const ret = ut.retting;
+    const har = new Map();
+    const parSett = { brudd: new Set(), koble: new Set() };
+    const sammenSett = new Set();
+    let felles = 0, omdopt = 0, nyeTeller = 0;
+    const likt = (a, b) => a.kode === b.kode && Math.abs(a.o - b.o) < 0.01 && Math.abs(a.n - b.n) < 0.01
+      && Math.abs((a.z || 0) - (b.z || 0)) < 0.01;
+    for (const r of liste || []) {
+      if (!r) continue;
+      const rs = r.sone || sone;
+      const t = lagTilXY(rs, sone);
+      const sted = (o, n) => {
+        if (rs === sone) return { o, n };
+        const q = t({ o, n });
+        return { o: +q.x.toFixed(3), n: +q.y.toFixed(3) };
+      };
+      const navn = new Map();
+      const rr = r.retting || {};
+      for (const p0 of r.punkter || []) {
+        if (p0.lagtTil) continue;
+        const m = innmalt(p0);
+        const p = Object.assign({}, m, sted(m.o, m.n));
+        delete p.innmaalt;
+        const g = har.get(p.id);
+        if (g && likt(g, p)) { navn.set(p0.id, g.id); felles++; continue; }
+        if (g) {
+          let n = 2;
+          while (har.has(p0.id + ' (' + n + ')')) n++;
+          p.id = p0.id + ' (' + n + ')';
+          omdopt++;
+        }
+        har.set(p.id, p);
+        navn.set(p0.id, p.id);
+      }
+      for (const q of rr.nye || []) navn.set(q.id, '+' + (++nyeTeller));
+      const ny = id => (navn.has(id) ? navn.get(id) : id);
+      for (const id of rr.av || []) if (!ret.av.includes(ny(id))) ret.av.push(ny(id));
+      for (const felt of ['brudd', 'koble']) {
+        for (const par of rr[felt] || []) {
+          if (!Array.isArray(par) || par.length !== 2) continue;
+          const [a, b] = par.map(ny);
+          if (a === b || parSett[felt].has(_par(a, b))) continue;
+          parSett[felt].add(_par(a, b));
+          ret[felt].push([a, b]);
+        }
+      }
+      for (const [id, f] of Object.entries(rr.flytt || {})) {
+        const k = ny(id);
+        if (f && !Object.prototype.hasOwnProperty.call(ret.flytt, k)) ret.flytt[k] = sted(f.o, f.n);
+      }
+      for (const q of rr.nye || []) {
+        const nq = Object.assign({}, q, { id: ny(q.id) }, sted(q.o, q.n));
+        if (Array.isArray(q.paaStrekk)) nq.paaStrekk = q.paaStrekk.map(ny);
+        ret.nye.push(nq);
+      }
+      ut.filLinjer = flettLinjer(ut.filLinjer,
+        (r.filLinjer || []).map(l => Object.assign({}, l, { punkter: (l.punkter || []).map(ny) })));
+      ut.koder = Object.assign({}, r.koder || {}, ut.koder);
+      ut.alias = Object.assign({}, r.alias || {}, ut.alias);
+      for (const x of r.ikkeSamme || []) if (!ut.ikkeSamme.includes(x)) ut.ikkeSamme.push(x);
+      for (const k of r.kilder || []) {
+        const kilde = Object.assign({}, k);
+        if (rs !== sone) kilde.regnetOm = { fra: k.regnetOm ? k.regnetOm.fra : rs, til: sone };
+        ut.kilder.push(kilde);
+      }
+      const g = r.groft || {};
+      for (const s of g.strekninger || []) ut.groft.strekninger.push(Object.assign({}, s, { fra: ny(s.fra), til: ny(s.til) }));
+      for (const par of g.sammen || []) {
+        const [a, b] = par.map(ny);
+        if (a === b || sammenSett.has(_par(a, b))) continue;
+        sammenSett.add(_par(a, b));
+        ut.groft.sammen.push([a, b]);
+      }
+    }
+    ut.punkter = [...har.values()];
+    brukRetting(ut);
+    return { ror: ut, punkter: har.size, felles, omdopt };
   }
 
   /**
@@ -1852,7 +1963,7 @@ const Ror = (() => {
   return {
     lesFil, lesLandXML, lesSOSI, lesKOF, linjekoder, flettLinjer, dekod, tolkKode, koderFra, byggLinjer, avstandTilStrekk,
     kanonisk, forslagSammen, slaaSammenKoder, skillKode, ikkeSamme,
-    lagTilXY, tilLatLon, erUtm, sjekkKoordinater, gjettSone, slaSammen, byttPunkter, rensRetting, slaSammenFiler, dimensjon, hoppetOver, kildetekst, navnFraFil,
+    lagTilXY, tilLatLon, erUtm, sjekkKoordinater, gjettSone, slaSammen, slaSammenAnlegg, byttPunkter, rensRetting, slaSammenFiler, dimensjon, hoppetOver, kildetekst, navnFraFil,
     korridor, profil, objekterLangs, objekterPaaLinjer, sammendrag, merknader, spenn,
     nyRor, nyRetting, brukRetting, innmalt, flyttTil, rettUt, nyPunktId, StandardRormal, FARGER
   };

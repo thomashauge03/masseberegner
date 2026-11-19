@@ -296,6 +296,11 @@ anleggslista, «Rør (fra filer)» i førstevalget, eller slipp filene på karte
   klikket først, til enden av det andre. De står som to rør som møtes, og
   lengden telles på det første. Er begge endene på samme rør, står den første
   fortsatt valgt, og et nytt klikk på samme ende velger den bort.
+  **Det andre klikket kan være et hvilket som helst punkt**: enden av et rør,
+  et punkt midt på et rør av en annen type, en kum eller en muffe. Røret du
+  klikket først, forlenges til punktet, og det andre røret står som det er –
+  et stikk inn på midten av en hovedledning deler ikke hovedledningen.
+  Traff du streken mellom to punkt, kobles det til det nærmeste av dem.
 * **Endre rør** gjør resten for hånd: dra et punkt dit røret faktisk går, klikk
   på en rørstrek for å sette inn et nytt punkt (høyden ligger på streken), eller
   ved enden for å forlenge røret. Et klikk på et punkt åpner det – et nytt punkt
@@ -319,9 +324,18 @@ anleggslista, «Rør (fra filer)» i førstevalget, eller slipp filene på karte
   gjorde noe, i en boks øverst i kartet i noen sekunder. Statuslinja er tynn og
   kutter lange tekster, og der sto forklaringen før.
   Hører røret du klikket på, til et annet røranlegg enn det som er oppe, står
-  det i boksen hvilket, med en knapp som bytter dit. Med flere anlegg oppå
-  hverandre, for eksempel ett fra filer og ett fra Makin, er det lett å klikke
-  på et rør som ikke er i det aktive anlegget.
+  det i boksen hvilket, med en knapp som bytter dit og en som slår anleggene
+  sammen. Med flere anlegg oppå hverandre, for eksempel ett fra filer og ett
+  fra Makin, er det lett å klikke på et rør som ikke er i det aktive anlegget.
+* **Slå sammen røranleggene** (Rør-fanen, når det er to eller flere innmålte
+  røranlegg) gjør dem til ett, så verktøyene virker på alle rørene og du kan
+  koble rør fra ulike filer. Et punkt som står i flere av dem (samme navn,
+  kode og sted), tas med én gang; samme navn et annet sted får « (2)» bak.
+  Rettingene, kodetabellen og grøftene følger med – står to anlegg ulikt om
+  det samme, gjelder det som var oppe. Et anlegg i en annen UTM-sone regnes
+  om. De andre anleggene slettes, men **et Makin-anlegg blir stående**, dempet
+  og uten å telles, som etter «Lag en kopi» – så koblingen til Makin ikke
+  forsvinner. Tegnede rør er ikke med. Det er ett angresteg.
   Et klikk på en hvit firkant (en muffe, et bend eller en kum) går videre til
   verktøyet. Før slukte firkanten klikket.
 

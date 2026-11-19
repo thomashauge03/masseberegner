@@ -66,8 +66,7 @@ const MakinUI = {
       valg.tillegg = ` · hentet inn i «${finnes.navn || 'Rør'}», som alt var koblet til prosjektet`;
       /* Og har det en kopi, er det kopien som telles – ellers leter man i
          rapporten etter punktene som nettopp kom inn. */
-      const kopi = !app.telles(finnes)
-        && app.P.anlegg.find(x => x !== finnes && x.type === 'ror' && x.ror && x.ror.kopiAv === finnes.id);
+      const kopi = !app.telles(finnes) && app.kopienAv(finnes);
       if (kopi) valg.tillegg += ` · telles ikke, kopien «${kopi.navn || 'Rør'}» gjør`;
     }
     return this._hent(finnes, valg, () => this.nyttAnlegg());

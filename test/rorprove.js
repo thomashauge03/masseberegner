@@ -1185,6 +1185,96 @@ console.log('\n24. Endre rør: koble linjer fra fila, flytte punkt, nye punkt');
 }
 
 /* ------------------------------------------------------------------ */
+console.log('\n24b. Koble til et punkt: røret som ble klikket først, forlenges – det andre står');
+{
+  const P = (id, o, n, kode) => ({ id, nr: +id.replace(/\D/g, ''), kode, o, n, z: 10 });
+  const pts = () => [P('v1', 0, 0, 'VA 110'), P('v2', 10, 0, 'VA 110'), P('v3', 20, 0, 'VA 110'), P('v4', 30, 0, 'VA 110'),
+    P('s1', 10, 30, 'SP 160'), P('s2', 10, 40, 'SP 160'), P('s3', 10, 50, 'SP 160'), P('k1', 40, 30, 'KUM')];
+  const koder = p => Object.assign(Ror.koderFra(p), { KUM: Object.assign(Ror.tolkKode('KUM'), { form: 'punkt', vis: true }) });
+  const ror = (koble, filLinjer) => { const p = pts(); return { punkter: p, koder: koder(p), alias: {},
+    retting: Object.assign(Ror.nyRetting(), { koble }), filLinjer: filLinjer || [] }; };
+  const ider = l => l.punkter.map(p => p.id).join('-');
+  const iFila = p => ({ x: p.o, y: p.n });
+  const mal = { maksAvstand: 25 };
+  const finnKode = (b, k) => b.linjer.filter(l => l.kode === k);
+  // enden av SP til et punkt midt på VA
+  let b = Ror.byggLinjer(ror([['s1', 'v2']]), mal, iFila);
+  let sp = finnKode(b, 'SP 160'), va = finnKode(b, 'VA 110');
+  paastand('SP forlenges til punktet midt på VA', sp.length === 1 && ['v2-s1-s2-s3', 's3-s2-s1-v2'].includes(ider(sp[0])),
+    sp.map(ider).join(' | '));
+  paastand('og VA står som før – ett rør, ikke delt', va.length === 1 && ider(va[0]) === 'v1-v2-v3-v4', va.map(ider).join(' | '));
+  paastand('koblingen er brukt', b.koblingUtenTreff === 0);
+  sjekk('SP er 30 m lengre', sp[0].lengde, 50, 1e-9);
+  // det samme når VA er en linje fra fila
+  b = Ror.byggLinjer(ror([['s1', 'v3']], [{ punkter: ['v1', 'v2', 'v3', 'v4'] }]), mal, iFila);
+  sp = finnKode(b, 'SP 160'); va = finnKode(b, 'VA 110');
+  paastand('også mot et rør fra fila', sp.length === 1 && sp[0].punkter.some(p => p.id === 'v3')
+    && va.length === 1 && ider(va[0]) === 'v1-v2-v3-v4', b.linjer.map(ider).join(' | '));
+  // enden av SP til en kum
+  b = Ror.byggLinjer(ror([['s1', 'k1']]), mal, iFila);
+  sp = finnKode(b, 'SP 160');
+  paastand('SP forlenges til kummen', sp.length === 1 && sp[0].punkter.some(p => p.id === 'k1')
+    && b.objekter.some(p => p.id === 'k1'), sp.map(ider).join(' | '));
+  // et punkt på det samme røret gir ingen ring
+  b = Ror.byggLinjer(ror([['v1', 'v3']], [{ punkter: ['v1', 'v2', 'v3', 'v4'] }]), mal, iFila);
+  va = finnKode(b, 'VA 110');
+  paastand('et punkt på samme rør kobles ikke', va.length === 1 && ider(va[0]) === 'v1-v2-v3-v4', va.map(ider).join(' | '));
+  // ende mot ende med to koder er som før
+  b = Ror.byggLinjer(ror([['s1', 'v4']]), mal, iFila);
+  sp = finnKode(b, 'SP 160'); va = finnKode(b, 'VA 110');
+  paastand('ende mot ende: SP forlenges, VA står', sp.length === 1 && sp[0].punkter.some(p => p.id === 'v4')
+    && va.length === 1 && ider(va[0]) === 'v1-v2-v3-v4');
+}
+
+/* ------------------------------------------------------------------ */
+console.log('\n24c. Slå sammen røranleggene');
+{
+  const P = (id, o, n, kode = 'VA 110') => ({ id, nr: 1, kode, o, n, z: 10 });
+  const r1 = { sone: 32, punkter: [P('p1', 500000, 6600000), P('p2', 500010, 6600000)], koder: { 'VA 110': { farge: 'vann', vis: true, form: 'linje' } },
+    alias: {}, ikkeSamme: [], kilder: [{ fil: 'a.xml' }], filLinjer: [{ punkter: ['p1', 'p2'] }],
+    retting: Object.assign(Ror.nyRetting(), { av: ['p2'], nye: [{ id: '+1', nr: 1.5, kode: 'VA 110', o: 500005, n: 6600000, z: 10, paaStrekk: ['p1', 'p2'] }] }),
+    groft: { strekninger: [], sammen: [] } };
+  Ror.brukRetting(r1);
+  const r2 = { sone: 32, punkter: [P('p2', 500010, 6600000), P('p3', 500020, 6600000), P('p1', 500500, 6600000)],
+    koder: { 'VA 110': { farge: 'spill', vis: false, form: 'linje' }, 'OV 200': { farge: 'overvann', vis: true, form: 'linje' } },
+    alias: { A: 'B' }, ikkeSamme: ['x'], kilder: [{ fil: 'b.xml' }], filLinjer: [],
+    retting: Object.assign(Ror.nyRetting(), { brudd: [['p1', 'p3']], flytt: { p3: { o: 500021, n: 6600001 } },
+      nye: [{ id: '+1', nr: 9, kode: 'VA 110', o: 500030, n: 6600000, z: 10 }] }),
+    groft: { strekninger: [{ fra: 'p1', til: 'p3', mal: {}, fjell: 0, egen: false }], sammen: [['p2', 'p1']] } };
+  Ror.brukRetting(r2);
+  const ll = require(js('geo.js')).fraUtm(500030, 6600000, 32);
+  const u33 = require(js('geo.js')).tilUtm(ll.lat, ll.lon, 33);
+  const r3 = { sone: 33, punkter: [P('q1', u33.x, u33.y)], koder: {}, retting: Ror.nyRetting(), kilder: [{ fil: 'c.kof' }] };
+  const for1 = JSON.stringify(r1), for2 = JSON.stringify(r2);
+  const sam = Ror.slaSammenAnlegg([r1, r2, r3], 32);
+  const s = sam.ror;
+  const id = x => s.punkter.find(p => p.id === x);
+  paastand('anleggene endres ikke', JSON.stringify(r1) === for1 && JSON.stringify(r2) === for2);
+  paastand('5 målte punkt: samme punkt i to anlegg er ett, samme navn et annet sted får « (2)»',
+    sam.punkter === 5 && sam.felles === 1 && sam.omdopt === 1 && !!id('p1 (2)'), JSON.stringify(sam).slice(0, 300));
+  paastand('rettingene følger det nye navnet', JSON.stringify(s.retting.brudd) === JSON.stringify([['p1 (2)', 'p3']])
+    && s.retting.av.join() === 'p2' && s.retting.flytt.p3 && s.retting.flytt.p3.o === 500021);
+  paastand('punktene som er lagt til, får nye «+n»', s.retting.nye.map(q => q.id).join() === '+1,+2'
+    && s.retting.nye[0].paaStrekk.join() === 'p1,p2' && s.punkter.filter(p => p.lagtTil).length === 2);
+  paastand('det flyttede punktet står der det er flyttet, og husker hvor det ble målt',
+    id('p3').o === 500021 && id('p3').innmaalt && id('p3').innmaalt.o === 500020);
+  paastand('det første anleggets koder går foran, nye koder kommer til',
+    s.koder['VA 110'].farge === 'vann' && s.koder['VA 110'].vis === true && !!s.koder['OV 200']);
+  paastand('grøftene følger med', s.groft.strekninger.length === 1 && s.groft.strekninger[0].fra === 'p1 (2)'
+    && JSON.stringify(s.groft.sammen) === JSON.stringify([['p2', 'p1 (2)']]));
+  paastand('sammenslåinger, nei-svar, kilder og linjer fra fila', s.alias.A === 'B' && s.ikkeSamme.join() === 'x'
+    && s.kilder.length === 3 && s.filLinjer.length === 1);
+  sjekk('et punkt fra UTM 33 regnes om til UTM 32 (o)', id('q1').o, 500030, 0.002);
+  sjekk('                                        (n)', id('q1').n, 6600000, 0.002);
+  paastand('og kilden sier det', s.kilder[2].regnetOm && s.kilder[2].regnetOm.fra === 33 && s.kilder[2].regnetOm.til === 32);
+  const PF = require(js('prosjektform.js'));
+  const pr = PF.klargjor({ navn: 'x', aktivt: 'r1', anlegg: [{ id: 'r1', type: 'ror', ror: { sone: 32, punkter: [],
+    sammenAv: ['m1', 'm1', 7, '', null] } }] });
+  paastand('prosjektfila: sammenAv blir en liste med id-er', JSON.stringify(pr.anlegg[0].ror.sammenAv) === '["m1","7"]',
+    JSON.stringify(pr.anlegg[0].ror.sammenAv));
+}
+
+/* ------------------------------------------------------------------ */
 /* DEN EKTE FILA – bare når stien er gitt. Kundens data ligger ikke i repoet. */
 if (process.env.ROR_FIL) {
   console.log('\n25. Den ekte fila (ROR_FIL)');

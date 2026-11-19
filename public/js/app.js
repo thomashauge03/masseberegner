@@ -315,7 +315,78 @@ const App = {
    */
   telles(a) {
     if (!a || a.type !== 'ror' || !a.ror || !a.ror.makin) return true;
-    return !this.P.anlegg.some(x => x !== a && x.type === 'ror' && x.ror && x.ror.kopiAv === a.id);
+    return !this.kopienAv(a);
+  },
+
+  /**
+   * Anlegget som telles i stedet for et Makin-anlegg: en kopi av det
+   * (`kopiAv`), eller anlegget det er slått sammen inn i (`sammenAv`) – se
+   * `slaSammenRor`. Null når det ikke finnes noe.
+   */
+  kopienAv(a) {
+    if (!a) return null;
+    return this.P.anlegg.find(x => x !== a && x.type === 'ror' && x.ror
+      && (x.ror.kopiAv === a.id || (Array.isArray(x.ror.sammenAv) && x.ror.sammenAv.includes(a.id)))) || null;
+  },
+
+  /**
+   * «Slå sammen røranleggene»: alle de innmålte røranleggene blir ett, så
+   * verktøyene virker på alle rørene på en gang – se Ror.slaSammenAnlegg.
+   *
+   * Anlegget som er oppe, tar imot de andre (et Makin-anlegg kan ikke ta imot
+   * noe – da det første som kan, eller et nytt). De andre slettes, med ett
+   * unntak: ET MAKIN-ANLEGG BLIR STÅENDE. Punktene der byttes bare ut av en ny
+   * henting, og koblingen til Makin skal ikke forsvinne fordi man slo sammen.
+   * Det telles ikke lenger (se `telles`), som etter «Lag en kopi», og kan
+   * hentes på nytt og slås sammen igjen. Tegnede rør er ikke med. Ett
+   * angresteg.
+   *
+   * @returns {?object} anlegget alt nå står i, eller null når det er for få
+   */
+  slaSammenRor() {
+    const innmalt = a => a && a.type === 'ror' && a.ror && !a.ror.plan;
+    const liste = this.P.anlegg.filter(a => innmalt(a) && this.telles(a));
+    if (liste.length < 2) { this.status('Det er bare ett innmålt røranlegg – ingenting å slå sammen'); return null; }
+    const laast = a => !!a.ror.makin;
+    const aktivt = this.anlegg();
+    let maal = liste.includes(aktivt) && !laast(aktivt) ? aktivt : liste.find(a => !laast(a)) || null;
+    this.merk('slo sammen røranleggene');
+    const rekke = maal ? [maal].concat(liste.filter(a => a !== maal)) : liste;
+    const sone = (maal || liste[0]).ror.sone;
+    const sam = Ror.slaSammenAnlegg(rekke.map(a => a.ror), sone);
+    if (!maal) {
+      maal = this.nyttAnlegg('ror', RorUI._ledigNavn('Rør'));
+      maal.mal = JSON.parse(JSON.stringify(liste[0].mal || maal.mal));
+      this.P.anlegg.splice(this.P.anlegg.indexOf(liste[0]), 0, maal);
+    }
+    // Makin-anleggene som nå telles her – også dem de sammenslåtte anleggene sto for
+    const sammenAv = new Set(maal.ror.sammenAv || []);
+    if (maal.ror.kopiAv) sammenAv.add(maal.ror.kopiAv);
+    for (const a of liste) {
+      if (a === maal) continue;
+      if (laast(a)) sammenAv.add(a.id);
+      if (a.ror.kopiAv) sammenAv.add(a.ror.kopiAv);
+      for (const id of a.ror.sammenAv || []) sammenAv.add(id);
+    }
+    const gammel = maal.ror;
+    maal.ror = sam.ror;
+    if (gammel.kopiAv) maal.ror.kopiAv = gammel.kopiAv;
+    sammenAv.delete(maal.ror.kopiAv);
+    if (sammenAv.size) maal.ror.sammenAv = [...sammenAv];
+    const borte = liste.filter(a => a !== maal && !laast(a));
+    const staar = liste.filter(a => a !== maal && laast(a));
+    this.P.anlegg = this.P.anlegg.filter(a => !borte.includes(a));
+    for (const a of borte) if (this._ferdigflater) this._ferdigflater.delete(a.id);
+    RorUI.valgt = null;
+    RorUI._kobleFra = null;
+    this._ikkeMerk = true;
+    try { this.byttAnlegg(maal.id); } finally { this._ikkeMerk = false; }
+    this.status(`${liste.length} røranlegg er slått sammen til «${maal.navn || 'Rør'}»: ${sam.punkter} punkt`
+      + (sam.felles ? `, ${sam.felles} sto i flere av dem og er tatt med én gang` : '')
+      + (sam.omdopt ? `, ${sam.omdopt} hadde samme navn som et annet punkt og fikk « (2)» bak` : '')
+      + (staar.length ? ` · ${staar.map(a => `«${a.navn || 'Rør'}»`).join(', ')} kommer fra Makin og blir stående, `
+        + 'men telles ikke – det kan hentes på nytt' : ''));
+    return maal;
   },
 
   /**
@@ -2616,12 +2687,13 @@ const App = {
     const e = document.getElementById('kartvarsel');
     if (!e) return;
     e.textContent = t;
-    // en knapp som gjør det beskjeden foreslår – «Bytt til …»
-    if (knapp && knapp.tekst && typeof knapp.gjor === 'function') {
+    // en knapp (eller flere) som gjør det beskjeden foreslår – «Bytt til …»
+    for (const k of [].concat(knapp || [])) {
+      if (!k || !k.tekst || typeof k.gjor !== 'function') continue;
       const b = document.createElement('button');
       b.className = 'knapp liten';
-      b.textContent = knapp.tekst;
-      b.onclick = () => { e.classList.add('skjult'); knapp.gjor(); };
+      b.textContent = k.tekst;
+      b.onclick = () => { e.classList.add('skjult'); k.gjor(); };
       e.appendChild(document.createTextNode(' '));
       e.appendChild(b);
     }

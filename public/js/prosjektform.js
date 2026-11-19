@@ -354,6 +354,14 @@ function _rettMakin(r, tall, erObjekt) {
     if (typeof r.kopiAv === 'number' && Number.isFinite(r.kopiAv)) r.kopiAv = String(r.kopiAv);
     if (!(typeof r.kopiAv === 'string' && r.kopiAv)) delete r.kopiAv;
   }
+  /* Makin-anleggene et sammenslått anlegg står for – se App.slaSammenRor.
+     Bare id-er; en tom liste er ingen liste. */
+  if ('sammenAv' in r) {
+    const l = Array.isArray(r.sammenAv)
+      ? r.sammenAv.map(x => (typeof x === 'number' && Number.isFinite(x) ? String(x) : x)).filter(x => typeof x === 'string' && x)
+      : [];
+    if (l.length) r.sammenAv = [...new Set(l)]; else delete r.sammenAv;
+  }
 }
 
 /**

@@ -202,7 +202,7 @@ const Nettlesertest = {
       'grensesnittbredder', 'panelhoder',
       'tomt', 'tomteksport', 'tomterydding', 'tomtsnittOverbygning',
       'gl3d', 'tomt3d', 'veg3d', 'gpuSammeBilde', 'gpuGlatt', 'gpuReserve', 'gpuLysOgLuft', 'gpuMaterialer', 'kartlag',
-      'rorArbeidsbilde', 'rorBeregning', 'rorImport', 'makinHenting', 'makinLaas', 'triangulering', 'rorSone', 'rorKart', 'rorAndreFullt', 'rorFane', 'rorRetting', 'rorEndre', 'rorRett',
+      'rorArbeidsbilde', 'rorBeregning', 'rorImport', 'makinHenting', 'makinLaas', 'triangulering', 'rorSone', 'rorKart', 'rorAndreFullt', 'rorFane', 'rorRetting', 'rorSlaSammen', 'rorEndre', 'rorRett',
       'rorProfil', 'ror3d', 'rorRapport', 'rorPdf', 'rorForklaring',
       'groftBeregning', 'groftFane', 'groftKoder', 'groftVerktoy', 'groftKnutepunkt', 'groftProfil', 'groft3d',
       'groftRapport', 'groftAvstiving',
@@ -10439,6 +10439,78 @@ const Nettlesertest = {
   },
 
   /**
+   * «Slå sammen røranleggene»: tre innmålte anlegg blir ett, og «Koble»
+   * forlenger røret som ble klikket først til et punkt midt på et rør av en
+   * annen type – det andre røret står som det er.
+   */
+  async rorSlaSammen() {
+    const foer = JSON.stringify(App.P);
+    try {
+      App.P = App.nyttProsjekt();
+      const o = Geo.tilUtm(58.1412, 7.0705, 32);
+      const ll = (x, y) => { const g = Geo.fraUtm(o.x + x, o.y + y, 32); return L.latLng(g.lat, g.lon); };
+      await RorUI.importerTekst(this._rorXml(), 'asbuilts_Prove.xml', {}, { sone: 32, maal: 'nytt' });
+      const ov = [];
+      for (let x = 0; x <= 60; x += 10) {
+        ov.push(`<CgPoint name="ov-${x}" surveyOrder="${x / 10 + 1}" code="OV 200">${(o.y + 40).toFixed(3)} ${(o.x + x).toFixed(3)} 19.000</CgPoint>`);
+      }
+      await RorUI.importerTekst(`<?xml version="1.0" encoding="utf-8"?>
+<LandXML xmlns="http://www.landxml.org/schema/LandXML-1.2" version="1.2" date="2026-09-02">
+<Units><Metric linearUnit="meter"/></Units><Application name="Xsite Manage"/>
+<CgPoints name="Default">
+${ov.join('\n')}
+</CgPoints></LandXML>`, 'overvann.xml', {}, { sone: 32, maal: 'nytt' });
+      // det samme som det første en gang til – alle punktene står da i to anlegg
+      await RorUI.importerTekst(this._rorXml(), 'asbuilts_Prove_igjen.xml', {}, { sone: 32, maal: 'nytt' });
+      const innmalte = () => App.P.anlegg.filter(a => a.type === 'ror' && a.ror && !a.ror.plan);
+      this.sjekk('tre røranlegg', innmalte().length === 3, String(innmalte().length));
+      const antallFoer = innmalte()[0].ror.punkter.length + innmalte()[1].ror.punkter.length;
+      App.byttAnlegg(innmalte()[0].id);
+      await this.ventPaBeregning(30000);
+      Kart.kart.setView(ll(30, 40), 19);
+      Kart.settModus('rorKoble');
+      RorUI.kartklikk('rorKoble', ll(0, 40));
+      const varsel = document.getElementById('kartvarsel');
+      this.sjekk('et klikk på et rør i et annet anlegg tilbyr å slå sammen',
+        !!varsel && [...varsel.querySelectorAll('button')].some(b => /Slå sammen/.test(b.textContent)), varsel && varsel.textContent);
+      Kart.settModus('rediger');
+      App.visFane && App.visFane('ror');
+      RorUI.vis();
+      const knapp = document.getElementById('rorSlaSammenAnlegg');
+      this.sjekk('knappen står i rørfanen', !!knapp);
+      if (knapp) knapp.click(); else App.slaSammenRor();
+      await this.ventPaBeregning(30000);
+      this.sjekk('alt står i ett røranlegg', innmalte().length === 1, String(innmalte().length));
+      this.sjekk('  med punktene fra alle, og de like bare én gang', App.P.ror.punkter.length === antallFoer,
+        `${App.P.ror.punkter.length} punkt, ventet ${antallFoer}`);
+      const lengde = kode => App.byggRor().linjer.filter(l => l.kode === kode).reduce((s, l) => s + l.lengde, 0);
+      const antall = kode => App.byggRor().linjer.filter(l => l.kode === kode).length;
+      const foerOv = lengde('OV 200'), foer90 = lengde('90PE'), antall90 = antall('90PE');
+      // enden av overvannet til punktet midt på 90PE (x = 30)
+      Kart.kart.setView(ll(15, 20), 19);
+      Kart.settModus('rorKoble');
+      RorUI.kartklikk('rorKoble', ll(0, 40));
+      this.sjekk('første klikk velger enden av overvannet', !!RorUI._kobleFra && RorUI._kobleFra.p.kode === 'OV 200',
+        RorUI._kobleFra && RorUI._kobleFra.p.kode);
+      RorUI.kartklikk('rorKoble', ll(30, 0.3));
+      await this.vent(400);
+      const ovNaa = App.byggRor().linjer.filter(l => l.kode === 'OV 200');
+      this.sjekk('overvannet er forlenget til punktet midt på 90PE',
+        ovNaa.length === 1 && ovNaa[0].punkter.some(p => p.kode === '90PE') && Math.abs(lengde('OV 200') - foerOv - 50) < 0.01,
+        `${foerOv.toFixed(1)} → ${lengde('OV 200').toFixed(1)} m`);
+      this.sjekk('  og 90PE står som før', antall('90PE') === antall90 && Math.abs(lengde('90PE') - foer90) < 1e-6,
+        `${antall90} → ${antall('90PE')} rør, ${foer90.toFixed(1)} → ${lengde('90PE').toFixed(1)} m`);
+      Kart.settModus('rediger');
+      await App.angre();
+      this.sjekk('koblingen kan angres', App.P.ror.retting.koble.length === 0);
+      await App.angre();
+      this.sjekk('og sammenslåingen', innmalte().length === 3, String(innmalte().length));
+    } finally {
+      await this._rorTilbake(foer);
+    }
+  },
+
+  /**
    * «Rett ut»: to klikk på samme rør, og punktene imellom flyttes inn på den
    * rette linja mellom dem. Høydene står, og det er ett angresteg.
    */
@@ -10558,8 +10630,10 @@ const Nettlesertest = {
       await mus(530, 0);                        // den andre biten av 90PE – ingen andre rør der
       this.sjekk('et klikk på et rør i et annet anlegg sier hvilket', varsel.textContent.includes(forsteNavn)
         && !varsel.classList.contains('skjult'), varsel.textContent);
-      const bytt = varsel.querySelector('button');
-      this.sjekk('  med en knapp som bytter dit', !!bytt && /Bytt til/.test(bytt.textContent), bytt && bytt.textContent);
+      const bytt = [...varsel.querySelectorAll('button')].find(b => /Bytt til/.test(b.textContent));
+      this.sjekk('  med en knapp som bytter dit', !!bytt, varsel.textContent);
+      this.sjekk('  og en som slår anleggene sammen', [...varsel.querySelectorAll('button')].some(b => /Slå sammen/.test(b.textContent)),
+        varsel.textContent);
       if (bytt) bytt.click();
       await this.ventPaBeregning(30000);
       this.sjekk('  og knappen bytter anlegg', App.P.aktivt === forste, String(App.P.aktivt));
